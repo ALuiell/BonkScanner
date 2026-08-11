@@ -15,7 +15,7 @@ if not exist "%PYTHON_EXE%" (
 )
 
 echo BonkScanner development mode
-echo Changes in src\*.py and redisign_ui\*.qss restart the app automatically.
+echo Changes in src\*.py and ui_mockups\*.qss restart the app automatically.
 echo Keep this window open. Press Ctrl+C to stop.
 echo.
 

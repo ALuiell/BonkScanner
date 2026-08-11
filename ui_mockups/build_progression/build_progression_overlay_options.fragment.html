@@ -1,0 +1,303 @@
+<div id="bonk-build-mockups">
+  <div class="viz-controls" aria-label="Preview controls">
+    <button type="button" class="btn btn-primary" data-state="progress" aria-pressed="true">In progress</button>
+    <button type="button" class="btn" data-state="overdue" aria-pressed="false">Overdue</button>
+    <button type="button" class="btn" data-state="complete" aria-pressed="false">Complete</button>
+    <label class="form-check form-switch">
+      <input class="form-check-input" id="bonk-show-complete" type="checkbox">
+      <span class="form-check-label">Show completed rows</span>
+    </label>
+  </div>
+
+  <section class="bonk-preview-section" aria-labelledby="bonk-obs-title">
+    <div class="bonk-section-heading">
+      <div>
+        <div class="bonk-kicker">OBS OVERLAY</div>
+        <h3 id="bonk-obs-title">Readable compact card</h3>
+      </div>
+      <span>Good for viewers</span>
+    </div>
+    <div class="bonk-stage bonk-stage-obs">
+      <div class="bonk-game-ghost" aria-hidden="true">
+        <span>MEGABONK</span><b>08:42</b>
+      </div>
+      <div class="bonk-obs-widget" data-widget="obs"></div>
+    </div>
+  </section>
+
+  <section class="bonk-preview-section" aria-labelledby="bonk-ingame-title">
+    <div class="bonk-section-heading">
+      <div>
+        <div class="bonk-kicker">IN-GAME OVERLAY</div>
+        <h3 id="bonk-ingame-title">Minimal HUD list</h3>
+      </div>
+      <span>Good while playing</span>
+    </div>
+    <div class="bonk-stage bonk-stage-game">
+      <div class="bonk-crosshair" aria-hidden="true"></div>
+      <div class="bonk-game-widget" data-widget="game"></div>
+    </div>
+  </section>
+
+  <section class="bonk-preview-section" aria-labelledby="bonk-focus-title">
+    <div class="bonk-section-heading">
+      <div>
+        <div class="bonk-kicker">ULTRA COMPACT</div>
+        <h3 id="bonk-focus-title">Only the next urgent target</h3>
+      </div>
+      <span>Smallest footprint</span>
+    </div>
+    <div class="bonk-stage bonk-stage-focus">
+      <div class="bonk-focus-widget" data-widget="focus"></div>
+    </div>
+  </section>
+</div>
+
+<style>
+  #bonk-build-mockups {
+    display: grid;
+    gap: 24px;
+    width: 100%;
+    color: light-dark(#161922, #f4f6fb);
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  }
+  #bonk-build-mockups .viz-controls { align-items: center; }
+  #bonk-build-mockups .bonk-preview-section { display: grid; gap: 10px; }
+  #bonk-build-mockups .bonk-section-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  #bonk-build-mockups .bonk-section-heading h3 { margin: 2px 0 0; font-weight: 500; }
+  #bonk-build-mockups .bonk-section-heading > span {
+    color: light-dark(#697184, #9ca5b8);
+    white-space: nowrap;
+  }
+  #bonk-build-mockups .bonk-kicker {
+    color: light-dark(#6c57bf, #b9a7ff);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .13em;
+  }
+  #bonk-build-mockups .bonk-stage {
+    position: relative;
+    min-height: 220px;
+    overflow: hidden;
+    border: 1px solid light-dark(#cfd4df, #343a49);
+    border-radius: 12px;
+    background:
+      radial-gradient(circle at 72% 35%, rgba(109, 78, 180, .25), transparent 24%),
+      linear-gradient(135deg, #111620, #252033 55%, #10131b);
+  }
+  #bonk-build-mockups .bonk-stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px);
+    background-size: 36px 36px;
+  }
+  #bonk-build-mockups .bonk-game-ghost {
+    position: absolute;
+    inset: 18px 20px auto auto;
+    display: grid;
+    justify-items: end;
+    color: rgba(255,255,255,.25);
+  }
+  #bonk-build-mockups .bonk-game-ghost span { font-size: 11px; letter-spacing: .18em; }
+  #bonk-build-mockups .bonk-game-ghost b { font-size: 24px; font-weight: 500; }
+  #bonk-build-mockups .bonk-obs-widget {
+    position: relative;
+    z-index: 1;
+    width: min(330px, calc(100% - 40px));
+    margin: 22px;
+    padding: 12px 13px 11px;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 9px;
+    background: rgba(10, 12, 18, .84);
+    box-shadow: 0 12px 35px rgba(0,0,0,.3);
+    color: #f5f7fb;
+  }
+  #bonk-build-mockups .bonk-widget-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255,255,255,.1);
+  }
+  #bonk-build-mockups .bonk-widget-title { font-weight: 500; letter-spacing: .04em; }
+  #bonk-build-mockups .bonk-widget-time { color: #aab2c3; font-variant-numeric: tabular-nums; }
+  #bonk-build-mockups .bonk-progress-track {
+    height: 3px;
+    margin: 8px 0 7px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: rgba(255,255,255,.12);
+  }
+  #bonk-build-mockups .bonk-progress-fill { height: 100%; background: #9d83ff; }
+  #bonk-build-mockups .bonk-rows { display: grid; gap: 5px; }
+  #bonk-build-mockups .bonk-row {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 7px;
+    font-variant-numeric: tabular-nums;
+  }
+  #bonk-build-mockups .bonk-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #bonk-build-mockups .bonk-row-value { color: #dfe3ec; }
+  #bonk-build-mockups .bonk-row-time { min-width: 54px; text-align: right; color: #aab2c3; }
+  #bonk-build-mockups .bonk-status-ok { color: #59d890; }
+  #bonk-build-mockups .bonk-status-warn { color: #f1c861; }
+  #bonk-build-mockups .bonk-status-bad { color: #ff6f76; }
+  #bonk-build-mockups .bonk-status-idle { color: #8c96a8; }
+  #bonk-build-mockups .bonk-completed-note { margin-top: 7px; color: #8c96a8; font-size: 11px; }
+  #bonk-build-mockups .bonk-game-widget {
+    position: absolute;
+    z-index: 1;
+    left: 22px;
+    top: 22px;
+    color: #f7f7fb;
+    font-weight: 500;
+    text-shadow: 0 2px 3px #000, 0 0 7px #000;
+  }
+  #bonk-build-mockups .bonk-game-widget .bonk-widget-head { width: 285px; border-color: rgba(255,255,255,.28); }
+  #bonk-build-mockups .bonk-game-widget .bonk-progress-track { width: 285px; background: rgba(0,0,0,.65); }
+  #bonk-build-mockups .bonk-game-widget .bonk-row { grid-template-columns: 14px 145px 66px 55px; }
+  #bonk-build-mockups .bonk-crosshair {
+    position: absolute;
+    left: 64%;
+    top: 52%;
+    width: 22px;
+    height: 22px;
+    opacity: .25;
+  }
+  #bonk-build-mockups .bonk-crosshair::before,
+  #bonk-build-mockups .bonk-crosshair::after { content: ""; position: absolute; background: #fff; }
+  #bonk-build-mockups .bonk-crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  #bonk-build-mockups .bonk-crosshair::after { left: 0; top: 10px; width: 22px; height: 2px; }
+  #bonk-build-mockups .bonk-stage-focus { min-height: 118px; }
+  #bonk-build-mockups .bonk-focus-widget {
+    position: relative;
+    z-index: 1;
+    display: inline-grid;
+    gap: 5px;
+    min-width: 300px;
+    max-width: calc(100% - 40px);
+    margin: 22px;
+    padding: 9px 11px;
+    border-left: 3px solid #f1c861;
+    background: rgba(8,10,15,.78);
+    color: #f7f8fb;
+    box-shadow: 0 8px 24px rgba(0,0,0,.28);
+  }
+  #bonk-build-mockups .bonk-focus-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  #bonk-build-mockups .bonk-focus-meta { color: #aab2c3; font-size: 11px; }
+  #bonk-build-mockups .bonk-complete-banner {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #79e3a5;
+    letter-spacing: .05em;
+  }
+  @media (max-width: 520px) {
+    #bonk-build-mockups .bonk-section-heading { align-items: start; }
+    #bonk-build-mockups .bonk-section-heading > span { display: none; }
+    #bonk-build-mockups .bonk-stage { min-height: 235px; }
+    #bonk-build-mockups .bonk-obs-widget { margin: 16px; width: calc(100% - 32px); box-sizing: border-box; }
+    #bonk-build-mockups .bonk-game-widget { left: 16px; top: 18px; transform: scale(.91); transform-origin: top left; }
+    #bonk-build-mockups .bonk-focus-widget { margin: 16px; min-width: 0; width: calc(100% - 32px); box-sizing: border-box; }
+  }
+</style>
+
+<script>
+(() => {
+  const root = document.getElementById('bonk-build-mockups');
+  const showCompleted = root.querySelector('#bonk-show-complete');
+  let state = 'progress';
+
+  const rowsByState = {
+    progress: [
+      { status: 'ok', icon: '✓', label: 'Demonic Blade', value: '3/3', time: '06:14' },
+      { status: 'warn', icon: '!', label: 'Turbo Socks', value: '1/2', time: '01:18' },
+      { status: 'warn', icon: '!', label: 'Damage', value: '137/150', time: '01:18' },
+      { status: 'idle', icon: '·', label: 'Crit Chance', value: '41/50%', time: '03:18' }
+    ],
+    overdue: [
+      { status: 'ok', icon: '✓', label: 'Demonic Blade', value: '3/3', time: '06:14' },
+      { status: 'bad', icon: '×', label: 'Turbo Socks', value: '1/2', time: '+00:42' },
+      { status: 'bad', icon: '×', label: 'Damage', value: '142/150', time: '+00:42' },
+      { status: 'warn', icon: '!', label: 'Crit Chance', value: '44/50%', time: '01:18' }
+    ],
+    complete: [
+      { status: 'ok', icon: '✓', label: 'Demonic Blade', value: '3/3', time: '06:14' },
+      { status: 'ok', icon: '✓', label: 'Turbo Socks', value: '2/2', time: '09:47' },
+      { status: 'ok', icon: '✓', label: 'Damage', value: '156/150', time: '10:02' },
+      { status: 'ok', icon: '✓', label: 'Crit Chance', value: '53/50%', time: '11:34' }
+    ]
+  };
+
+  function visibleRows() {
+    const rows = rowsByState[state];
+    if (showCompleted.checked || state === 'complete') return rows;
+    return rows.filter(row => row.status !== 'ok');
+  }
+
+  function rowsHtml() {
+    return visibleRows().map(row => `
+      <div class="bonk-row">
+        <span class="bonk-status-${row.status}">${row.icon}</span>
+        <span class="bonk-row-label">${row.label}</span>
+        <span class="bonk-row-value">${row.value}</span>
+        <span class="bonk-row-time bonk-status-${row.status}">${row.time}</span>
+      </div>`).join('');
+  }
+
+  function headerHtml(compact = false) {
+    const count = state === 'complete' ? '4/4' : state === 'overdue' ? '1/4' : '1/4';
+    const now = state === 'complete' ? '11:34' : state === 'overdue' ? '10:42' : '08:42';
+    return `<div class="bonk-widget-head"><span class="bonk-widget-title">BUILD · ${count}</span><span class="bonk-widget-time">${compact ? now : `${now} / 12:00`}</span></div>`;
+  }
+
+  function render() {
+    const completedHidden = rowsByState[state].filter(row => row.status === 'ok').length;
+    const obs = root.querySelector('[data-widget="obs"]');
+    const game = root.querySelector('[data-widget="game"]');
+    const focus = root.querySelector('[data-widget="focus"]');
+    const fraction = state === 'complete' ? 100 : 25;
+
+    if (state === 'complete') {
+      obs.innerHTML = `${headerHtml()}<div class="bonk-progress-track"><div class="bonk-progress-fill" style="width:100%;background:#59d890"></div></div><div class="bonk-complete-banner"><span>✓</span><span>BUILD COMPLETE · 11:34</span></div>${showCompleted.checked ? `<div class="bonk-rows" style="margin-top:8px">${rowsHtml()}</div>` : ''}`;
+      game.innerHTML = `<div class="bonk-complete-banner"><span>✓</span><span>BUILD COMPLETE · 11:34</span></div>`;
+      focus.innerHTML = `<div class="bonk-complete-banner"><span>✓</span><span>BUILD COMPLETE</span></div><div class="bonk-focus-meta">4/4 requirements · completed at 11:34</div>`;
+      focus.style.borderLeftColor = '#59d890';
+    } else {
+      obs.innerHTML = `${headerHtml()}<div class="bonk-progress-track"><div class="bonk-progress-fill" style="width:${fraction}%"></div></div><div class="bonk-rows">${rowsHtml()}</div>${!showCompleted.checked && completedHidden ? `<div class="bonk-completed-note">+${completedHidden} completed</div>` : ''}`;
+      game.innerHTML = `${headerHtml(true)}<div class="bonk-progress-track"><div class="bonk-progress-fill" style="width:${fraction}%"></div></div><div class="bonk-rows">${rowsHtml()}</div>`;
+      const urgent = rowsByState[state].find(row => row.status === 'bad') || rowsByState[state].find(row => row.status === 'warn');
+      focus.innerHTML = `<div class="bonk-focus-line"><span class="bonk-status-${urgent.status}">${urgent.icon} ${urgent.label}</span><span>${urgent.value}</span></div><div class="bonk-focus-line bonk-focus-meta"><span>BUILD · 1/4</span><span class="bonk-status-${urgent.status}">${urgent.time}</span></div>`;
+      focus.style.borderLeftColor = urgent.status === 'bad' ? '#ff6f76' : '#f1c861';
+    }
+  }
+
+  root.querySelectorAll('[data-state]').forEach(button => {
+    button.addEventListener('click', () => {
+      state = button.dataset.state;
+      root.querySelectorAll('[data-state]').forEach(peer => {
+        const selected = peer === button;
+        peer.setAttribute('aria-pressed', String(selected));
+        peer.classList.toggle('btn-primary', selected);
+      });
+      render();
+    });
+  });
+  showCompleted.addEventListener('change', render);
+  render();
+})();
+</script>

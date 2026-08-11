@@ -1,6 +1,6 @@
 # Functional Updates
 
-Date: 2026-07-20
+Date: 2026-08-10
 
 This file tracks open and partially completed functional/runtime work that does not fit cleanly into UI-only or performance-only buckets.
 
@@ -12,6 +12,70 @@ Status legend:
 
 
 ## Open Updates
+
+### Build Progression Overlay Widget
+
+Status: `[Open]`
+
+Goal:
+
+- Add a compact `Build Progression` widget to the OBS Overlay and In-Game Overlay.
+- Let each user configure one personal build checklist from scratch. BonkScanner will not ship predefined builds, progression presets, or Early/Mid/Late phases.
+- Answer the two questions that matter during a run: what is still missing from the finished build, and whether each timed requirement is still on schedule.
+
+Build definition:
+
+- An item requirement contains an item name, the required copy count, and an optional target game time.
+- A stat requirement contains a player-stat name, a minimum target value, and an optional target game time.
+- Requirements without a target time remain neutral until completed and still count toward overall build completion.
+- The build is complete only while every configured requirement is currently satisfied:
+  - current item copies are greater than or equal to the configured count;
+  - current stat values are greater than or equal to the configured threshold.
+- If an item disappears or a stat falls below its threshold, the build returns to an incomplete state.
+
+Run lifecycle:
+
+- The configured checklist persists between launches and runs.
+- Runtime progress, completion timestamps, deadline state, and the `BUILD COMPLETE` state reset for every new game/run.
+- Runtime progress must be keyed to the tracker's run identity and must never be written back into `config.json`.
+
+Compact display behavior:
+
+- Show a one-line header with completed/total requirements and the current game time.
+- Hide completed rows by default and replace them with a compact `+N completed` summary.
+- Sort unfinished timed requirements by the nearest deadline; untimed requirements follow them.
+- Support a configurable maximum row count so the widget cannot grow across a large part of the OBS or game canvas.
+- When every requirement is satisfied, collapse the widget to `BUILD COMPLETE` with the completion time.
+- Keep OBS and In-Game presentation settings independent while both surfaces consume the same configured checklist and evaluated runtime state.
+
+Status semantics:
+
+- neutral/gray: incomplete, but not yet inside the warning window, or no deadline is configured;
+- yellow: incomplete and inside the warning window;
+- red: incomplete after its target time;
+- green: currently satisfied;
+- color must always be paired with a symbol or label so status is not communicated by color alone.
+
+Configuration UI:
+
+- Expose one shared `Configure Build Progression` editor from both overlay settings areas instead of maintaining two copies of the build.
+- Keep only presentation controls local to each overlay: enabled state, scale, maximum rows, completed-row visibility, target-time visibility, and optional section headings.
+- The editor should support adding, removing, and reordering item/stat requirements without introducing build presets.
+
+Runtime and architecture notes:
+
+- Evaluate the widget in a Qt-free build-progression domain/projection layer so OBS, In-Game Overlay, and a future Live Stats preview cannot drift in their completion or deadline rules.
+- Reuse `RuntimeStateSnapshot.fast_items` for the freshest available inventory and fall back to `latest_snapshot.items` only when the fast reading is unavailable.
+- Reuse `latest_snapshot.stats` initially, but note that the current Stats widget receives those values on the slower snapshot cadence. True real-time stat progress requires a narrow fast path for only the stats selected by Build Progression.
+- Publish a fresh run-time value on the runtime snapshot so item counts, deadlines, and displayed time are evaluated from one coherent runtime boundary.
+- Add tests for item-copy counting, stat thresholds, optional deadlines, warning/overdue transitions, row ordering, disappearing requirements, run reset, and the all-requirements-complete collapse.
+
+Proposed layouts:
+
+- [Interactive layout comparison](../../ui_mockups/build_progression/build_progression_overlay_options.html) — switch between in-progress, overdue, and complete states and optionally show completed rows.
+- [OBS readable compact card](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-obs-title) — bounded translucent card intended to remain legible on stream.
+- [In-Game minimal HUD list](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-ingame-title) — frameless, shadowed text intended to stay out of the player's way.
+- [Ultra-compact urgent target](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-focus-title) — only the next urgent missing requirement plus overall progress.
 
 ### Twitch Commands
 

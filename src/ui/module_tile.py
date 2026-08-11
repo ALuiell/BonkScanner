@@ -6,7 +6,7 @@ checkbox is not decoration -- it is that *enabled* is a filled shape rather than
 a 13px tick. The Twitch grid carries sixteen of these, and sixteen ticks have to
 be read one at a time, while sixteen tiles read as a block of colour.
 
-The mock this comes from (`redisign_ui/streaming_tools_proposal.html`) also gave
+The mock this comes from (`ui_mockups/streaming_tools/streaming_tools_proposal.html`) also gave
 each tile an icon badge and a description line. Both are dropped: the badge was
 a literal "!" on every Twitch tile, and the descriptions did not exist anywhere
 in the app -- they would have had to be invented, and the tile is three times

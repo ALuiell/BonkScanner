@@ -68,7 +68,7 @@ DEFAULT_SLOTS: tuple[tuple[str, ...], ...] = (
     EMPTY_SLOT,
 )
 
-#: Series colours, matched to the mockup in ``redisign_ui/``.
+#: Series colours, matched to the mockup in ``ui_mockups/``.
 SERIES_COLORS: dict[str, str] = {
     KILLS_SERIES: "#38BDF8",
     ITEMS_SERIES: "#4ADE80",

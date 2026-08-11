@@ -33,14 +33,14 @@ REM fails to load. A forgotten file cannot happen with a directory rule.
 REM
 REM src\media is therefore the ship set, and nothing that must not ship may
 REM sit in it -- that is why the two unused button PNGs moved to
-REM assets\unused. redisign_ui stays a single named file on purpose: that
+REM assets\unused. ui_mockups stays a single named file on purpose: that
 REM folder is full of design proposals with no business in the executable.
 REM
 REM BonkScanner.spec is this script's OUTPUT, not its input. Every run
 REM regenerates it from these flags, which is why it is gitignored and why
 REM editing it by hand never survives.
 echo [BUILD] Building executable...
-"%PYINSTALLER_EXE%" --clean --noupx --noconfirm --noconsole --onefile --paths="src" --icon="src\media\bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "src\media;media" --add-data "redisign_ui\bonkscanner_redesign.qss;redisign_ui" --add-data "docs\help;docs\help" src\main.py
+"%PYINSTALLER_EXE%" --clean --noupx --noconfirm --noconsole --onefile --paths="src" --icon="src\media\bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "src\media;media" --add-data "ui_mockups\bonkscanner_redesign.qss;ui_mockups" --add-data "docs\help;docs\help" src\main.py
 
 if errorlevel 1 (
     echo [ERROR] PyInstaller failed to build the executable.
