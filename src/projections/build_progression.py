@@ -9,6 +9,7 @@ from core.build_progression import (
     format_clock,
 )
 from core.item_metadata import item_display_color
+from core.stat_labels import abbreviate_stat_label
 
 
 def build_progression_payload(
@@ -43,7 +44,14 @@ def build_progression_payload(
             {
                 "id": row.id,
                 "kind": row.kind.value,
-                "label": row.target,
+                # The editor deliberately keeps the readable full name. Every
+                # live surface is space-constrained, so stats use the exact
+                # compact vocabulary of the regular Stats widget instead.
+                "label": (
+                    abbreviate_stat_label(row.target)
+                    if row.kind.value == "stat"
+                    else row.target
+                ),
                 "value": value,
                 "status": row.status.value,
                 "symbol": row.symbol,
@@ -100,8 +108,13 @@ def format_twitch_build(snapshot: BuildProgressionSnapshot, *, max_chars: int = 
 
     def chunk(row) -> str:
         value = f"{row.current_display}/{row.required_display}"
+        label = (
+            abbreviate_stat_label(row.target)
+            if row.kind.value == "stat"
+            else row.target
+        )
         return " ".join(
-            part for part in (row.symbol, row.target, value, row.deadline_label) if part
+            part for part in (row.symbol, label, value, row.deadline_label) if part
         )
 
     def bounded(prefix: str, rows) -> str:

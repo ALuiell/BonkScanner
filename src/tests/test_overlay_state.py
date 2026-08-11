@@ -15,6 +15,26 @@ class _DisplayValue:
 
 
 class OverlayStateTests(unittest.TestCase):
+    def test_build_progression_recovers_from_the_editor_resize_artifact(self) -> None:
+        overlay = config.normalize_overlay_config(
+            {
+                "widgets": [
+                    {
+                        "id": "build_progression",
+                        "width": 60,
+                        "height": 40,
+                    }
+                ]
+            }
+        )
+
+        build = next(
+            widget for widget in overlay["widgets"]
+            if widget["id"] == "build_progression"
+        )
+        self.assertNotIn("width", build)
+        self.assertNotIn("height", build)
+
     def test_overlay_tracked_items_source_defaults_to_custom_for_compatibility(self) -> None:
         overlay = config.normalize_overlay_config(
             {

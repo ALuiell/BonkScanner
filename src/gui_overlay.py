@@ -864,6 +864,13 @@ class Overlay:
         self.save_overlay_settings_from_ui()
 
     def _clear_overlay_widget_settings_dialog_refs(self) -> None:
+        # These controls live inside the modal Widget Settings dialog. Qt has
+        # already destroyed them when the dialog closes, so retaining their
+        # Python wrappers makes the next server start raise ``Internal C++
+        # object ... already deleted`` while it saves the current settings.
+        self.overlay_build_mode_combo = None
+        self.overlay_build_completed_checkbox = None
+        self.overlay_build_max_rows_spin = None
         self.overlay_stats_checkboxes = None
         self.overlay_stats_bg_checkbox = None
         self.overlay_stats_header_checkbox = None

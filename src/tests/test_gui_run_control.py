@@ -5022,6 +5022,18 @@ class GuiRunControlTests(unittest.TestCase):
             self.assertTrue(config.user_config["OVERLAY"]["auto_start"])
             save_config.assert_called_once_with(config.user_config)
 
+    def test_closing_widget_settings_clears_build_progression_controls(self) -> None:
+        component = build_overlay_test_component()
+        component.overlay_build_mode_combo = FakeEntry("compact")
+        component.overlay_build_completed_checkbox = FakeCheckbox(True)
+        component.overlay_build_max_rows_spin = FakeEntry("6")
+
+        component._clear_overlay_widget_settings_dialog_refs()
+
+        self.assertIsNone(component.overlay_build_mode_combo)
+        self.assertIsNone(component.overlay_build_completed_checkbox)
+        self.assertIsNone(component.overlay_build_max_rows_spin)
+
     def test_overlay_settings_persist_stats_short_label_choice(self) -> None:
         component = build_overlay_test_component()
         component.overlay_port_entry = FakeEntry("17845")

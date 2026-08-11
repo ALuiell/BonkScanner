@@ -351,6 +351,7 @@ class OverlayAssetDirTests(unittest.TestCase):
         self.assertIn("preserveEditWidgetLayout(currentElement, desiredElement);", script)
         self.assertIn("currentElement.replaceWith(desiredElement);", script)
         self.assertIn(".widget-wrapper.draggable:not([data-edit-initialized])", script)
+        self.assertIn("if (!el.isConnected) {", script)
 
     def test_editor_fits_the_canvas_and_measures_around_the_transform(self) -> None:
         """The editor scales the canvas down, and nothing may measure through it.

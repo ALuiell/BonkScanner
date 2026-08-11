@@ -7,6 +7,8 @@ import threading
 from uuid import uuid4
 from dataclasses import dataclass
 
+from core.stats.formats import PlayerStatFormat
+from core.stats.types import PLAYER_STAT_SPEC_BY_LABEL
 from infra import paths
 
 colorama.init(autoreset=True)
@@ -695,8 +697,9 @@ def _merge_dict_defaults(value, defaults):
 
 def normalize_build_progression_config(value):
     source = value if isinstance(value, dict) else {}
+    source_schema_version = coerce_nonnegative_int(source.get("schema_version"), 1)
     normalized = {
-        "schema_version": 1,
+        "schema_version": 2,
         "name": str(source.get("name") or "Build Progression").strip() or "Build Progression",
         "deadlines_enabled": bool(source.get("deadlines_enabled", True)),
         "requirements": [],
@@ -717,6 +720,14 @@ def normalize_build_progression_config(value):
             continue
         if kind == "item" and not required.is_integer():
             continue
+        # Version 1 accepted the percentage the user typed (``100``) as the
+        # raw player-stat value. The formatter then applied its normal percent
+        # conversion and rendered ``10000%``. Store percentage targets in the
+        # same 0..1 scale as the memory reader from version 2 onward.
+        if source_schema_version < 2 and kind == "stat":
+            spec = PLAYER_STAT_SPEC_BY_LABEL.get(target)
+            if spec is not None and spec.value_format is PlayerStatFormat.PERCENT:
+                required /= 100.0
         deadline_raw = raw.get("deadline") if isinstance(raw.get("deadline"), dict) else {}
         deadline_kind = str(deadline_raw.get("kind") or "none").lower()
         # `run_clock` was removed from the product. Old saved requirements keep
@@ -764,6 +775,17 @@ def normalize_overlay_config(value):
                 if widget.get("mode") in {"full", "compact", "text"}
                 else "compact"
             )
+            # A detached widget used to be observed as 0×0 while the editor
+            # replaced its markup after changing max rows. The server correctly
+            # clamped that invalid write to 60×40, but that size is unusable for
+            # Build Progression. Clear the exact legacy artefact once so the
+            # widget returns to its natural, content-sized frame.
+            if (
+                coerce_nonnegative_int(widget.get("width"), -1) == 60
+                and coerce_nonnegative_int(widget.get("height"), -1) == 40
+            ):
+                widget.pop("width", None)
+                widget.pop("height", None)
         if widget.get("id") in {"stats", "banishes"}:
             if coerce_nonnegative_int(widget.get("max_rows"), 0) < 40:
                 widget["max_rows"] = 40

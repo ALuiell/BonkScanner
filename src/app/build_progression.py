@@ -45,7 +45,7 @@ def definition_from_config(value: Mapping[str, Any] | None) -> BuildProgressionD
 
 def definition_to_config(definition: BuildProgressionDefinition) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "name": definition.name,
         "deadlines_enabled": definition.deadlines_enabled,
         "requirements": [

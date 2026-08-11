@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton,
     QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
@@ -21,6 +21,7 @@ from projections.tracked_items import (
     group_tracked_items_by_rarity,
     tracked_item_color,
     tracked_item_display_name,
+    tracked_item_rarity_rank,
 )
 from ui.dialogs.tracked_items import _chip_stylesheet, _pick_stylesheet
 from ui.dialogs.shell import (
@@ -38,6 +39,24 @@ DEADLINE_OPTIONS = (
     ("stage_start", "Before tier", "Complete before a tier begins"),
     ("stage_overtime", "Tier overtime", "Complete before an OT minute"),
 )
+
+BUILD_DIALOG_TARGET_SIZE = (1240, 900)
+BUILD_DIALOG_MINIMUM_SIZE = (1050, 720)
+BUILD_DIALOG_SCREEN_FRACTION = 0.90
+
+
+def _build_dialog_dimensions(
+    available_width: int,
+    available_height: int,
+) -> tuple[int, int, int, int]:
+    """Return initial and minimum sizes that remain usable on a small screen."""
+    target_width, target_height = BUILD_DIALOG_TARGET_SIZE
+    minimum_width, minimum_height = BUILD_DIALOG_MINIMUM_SIZE
+    screen_width = max(1, int(available_width * BUILD_DIALOG_SCREEN_FRACTION))
+    screen_height = max(1, int(available_height * BUILD_DIALOG_SCREEN_FRACTION))
+    width = min(target_width, screen_width)
+    height = min(target_height, screen_height)
+    return width, height, min(minimum_width, width), min(minimum_height, height)
 
 
 def _card() -> QFrame:
@@ -118,9 +137,9 @@ class BuildProgressionDialog(QDialog):
         split.setChildrenCollapsible(False)
         split.addWidget(self._build_left_column())
         split.addWidget(self._build_right_column())
-        split.setStretchFactor(0, 9)
-        split.setStretchFactor(1, 11)
-        split.setSizes([420, 520])
+        split.setStretchFactor(0, 42)
+        split.setStretchFactor(1, 58)
+        split.setSizes([500, 700])
         layout.addWidget(split, 1)
 
         save = QPushButton("Save")
@@ -143,6 +162,20 @@ class BuildProgressionDialog(QDialog):
         # while still showing both Tier and Time, until the user clicked a
         # different deadline and came back.
         self._deadline_changed()
+        self._apply_initial_size()
+
+    def _apply_initial_size(self) -> None:
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            width, height = BUILD_DIALOG_TARGET_SIZE
+            minimum_width, minimum_height = BUILD_DIALOG_MINIMUM_SIZE
+        else:
+            available = screen.availableGeometry()
+            width, height, minimum_width, minimum_height = _build_dialog_dimensions(
+                available.width(), available.height()
+            )
+        self.setMinimumSize(minimum_width, minimum_height)
+        self.resize(width, height)
 
     def _build_left_column(self) -> QWidget:
         holder = QWidget()
@@ -410,6 +443,17 @@ class BuildProgressionDialog(QDialog):
         self.required.setSuffix(suffix)
         self._refresh_summary()
 
+    @staticmethod
+    def _stat_entry_scale(target: str) -> float:
+        """Convert between a user-facing stat target and its stored raw value."""
+        spec = PLAYER_STAT_SPEC_BY_LABEL.get(str(target))
+        if spec is None:
+            return 1.0
+        scale = float(getattr(spec, "display_scale", 1.0) or 1.0)
+        if spec.value_format is PlayerStatFormat.PERCENT:
+            scale *= 100.0
+        return scale
+
     def _refresh_summary(self) -> None:
         target = self._selected_target() or "Choose an item or stat"
         kind = self.kind_combo.currentData() or "item"
@@ -461,11 +505,8 @@ class BuildProgressionDialog(QDialog):
         except ValueError as exc:
             QMessageBox.warning(self, "Build Progression", str(exc))
             return
-        display_scale = 1.0
-        if kind == "stat":
-            spec = PLAYER_STAT_SPEC_BY_LABEL.get(target)
-            display_scale = float(getattr(spec, "display_scale", 1.0) or 1.0)
-        stored_required = required / display_scale
+        entry_scale = self._stat_entry_scale(target) if kind == "stat" else 1.0
+        stored_required = required / entry_scale
         payload = {
             "id": self._editing_id or uuid4().hex,
             "kind": kind,
@@ -518,8 +559,9 @@ class BuildProgressionDialog(QDialog):
 
     @staticmethod
     def _requirement_display_sort_key(row: dict):
+        kind = str(row.get("kind") or "item")
         deadline = row.get("deadline") or {}
-        kind = str(deadline.get("kind") or "none")
+        deadline_kind = str(deadline.get("kind") or "none")
         deadline_rank = {
             "stage_start": (0, int(deadline.get("stage") or 1), 0),
             "stage_overtime": (
@@ -528,8 +570,25 @@ class BuildProgressionDialog(QDialog):
                 int(deadline.get("seconds") or 0),
             ),
             "none": (1, 99, 0),
-        }.get(kind, (1, 99, 0))
-        return deadline_rank, int(row.get("order") or 0)
+        }.get(deadline_kind, (1, 99, 0))
+        # The editor is a definition, not a live urgency view. Keep inventory
+        # together above stats, make the simple untimed requirements easiest to
+        # scan, then group items from the rarest tier down. Runtime surfaces keep
+        # their own deadline-based ordering.
+        kind_rank = 0 if kind == "item" else 1
+        untimed_rank = 0 if deadline_kind == "none" else 1
+        rarity_rank = (
+            -tracked_item_rarity_rank(str(row.get("target") or ""))
+            if kind == "item"
+            else 0
+        )
+        return (
+            kind_rank,
+            untimed_rank,
+            rarity_rank,
+            deadline_rank,
+            int(row.get("order") or 0),
+        )
 
     @staticmethod
     def _build_requirement_row(row: dict, deadline: str) -> QWidget:
@@ -619,11 +678,12 @@ class BuildProgressionDialog(QDialog):
         self.search.setText(str(row.get("target") or ""))
         self._refresh_picker()
         self._select_target(str(row.get("target") or ""))
-        display_scale = 1.0
-        if row.get("kind") == "stat":
-            spec = PLAYER_STAT_SPEC_BY_LABEL.get(str(row.get("target") or ""))
-            display_scale = float(getattr(spec, "display_scale", 1.0) or 1.0)
-        self.required.setValue(float(row.get("required") or 1) * display_scale)
+        entry_scale = (
+            self._stat_entry_scale(str(row.get("target") or ""))
+            if row.get("kind") == "stat"
+            else 1.0
+        )
+        self.required.setValue(float(row.get("required") or 1) * entry_scale)
         deadline = row.get("deadline") or {}
         for button in self.deadline_group.buttons():
             if button.property("deadlineKind") == deadline.get("kind", "none"):

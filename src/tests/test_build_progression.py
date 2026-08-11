@@ -26,7 +26,10 @@ from app import config
 from projections.build_progression import build_progression_payload, format_twitch_build
 from projections.in_game_html import build_build_progression_overlay_html
 from twitch_bot import TwitchBotWorker
-from ui.dialogs.build_progression import BuildProgressionDialog
+from ui.dialogs.build_progression import (
+    BuildProgressionDialog,
+    _build_dialog_dimensions,
+)
 
 
 def runtime(*, time=100.0, items=("Anvil",), damage=2.0, stage=1, stage_time=0.0, duration=600.0):
@@ -52,6 +55,77 @@ def runtime(*, time=100.0, items=("Anvil",), damage=2.0, stage=1, stage_time=0.0
 
 
 class BuildProgressionTests(unittest.TestCase):
+    def test_editor_size_targets_large_screens_and_adapts_to_small_ones(self):
+        self.assertEqual(
+            _build_dialog_dimensions(1920, 1080),
+            (1240, 900, 1050, 720),
+        )
+        self.assertEqual(
+            _build_dialog_dimensions(1366, 768),
+            (1229, 691, 1050, 691),
+        )
+
+    def test_editor_groups_items_before_stats_with_untimed_items_first(self):
+        rows = [
+            {
+                "id": "common",
+                "kind": "item",
+                "target": "Key",
+                "deadline": {"kind": "none"},
+                "order": 0,
+            },
+            {
+                "id": "timed-legendary",
+                "kind": "item",
+                "target": "Anvil",
+                "deadline": {"kind": "stage_overtime", "stage": 2, "seconds": 0},
+                "order": 1,
+            },
+            {
+                "id": "rare",
+                "kind": "item",
+                "target": "Beefy Ring",
+                "deadline": {"kind": "none"},
+                "order": 2,
+            },
+            {
+                "id": "legendary",
+                "kind": "item",
+                "target": "Ice Cube",
+                "deadline": {"kind": "none"},
+                "order": 3,
+            },
+            {
+                "id": "stat",
+                "kind": "stat",
+                "target": "Damage",
+                "deadline": {"kind": "none"},
+                "order": 4,
+            },
+        ]
+
+        ordered = sorted(rows, key=BuildProgressionDialog._requirement_display_sort_key)
+
+        self.assertEqual(
+            [row["id"] for row in ordered],
+            ["legendary", "rare", "common", "timed-legendary", "stat"],
+        )
+
+    def test_percentage_requirements_store_and_migrate_on_the_raw_stat_scale(self):
+        legacy = config.normalize_build_progression_config({
+            "schema_version": 1,
+            "requirements": [{
+                "id": "crit",
+                "kind": "stat",
+                "target": "Crit Chance",
+                "required": 100,
+            }],
+        })
+        self.assertEqual(legacy["schema_version"], 2)
+        self.assertEqual(legacy["requirements"][0]["required"], 1.0)
+        self.assertEqual(BuildProgressionDialog._stat_entry_scale("Crit Chance"), 100.0)
+        self.assertEqual(BuildProgressionDialog._stat_entry_scale("Crit Damage"), 2.0)
+
     def test_editor_never_shows_a_parentless_deadline_badge(self):
         app = QApplication.instance() or QApplication([])
 
@@ -312,6 +386,22 @@ class BuildProgressionTests(unittest.TestCase):
         twitch = format_twitch_build(result, max_chars=15)
         self.assertIn("more", twitch["requirements"])
         self.assertIn("COMPLETED:", twitch["completed_requirements"])
+
+    def test_stat_labels_are_compact_in_build_overlay_and_twitch_output(self):
+        _tracker, snap = runtime(items=(), damage=2.0)
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement("damage", RequirementKind.STAT, "Damage", 3.0),
+        ))
+        result = evaluate_build_progression(definition, snap).snapshot
+
+        payload = build_progression_payload(result)
+        twitch = format_twitch_build(result)
+        html = build_build_progression_overlay_html(payload, edit_mode=True)
+
+        self.assertEqual(payload["rows"][0]["label"], "DMG")
+        self.assertIn("DMG", twitch["requirements"])
+        self.assertNotIn("Damage", twitch["requirements"])
+        self.assertIn("DMG", html)
 
     def test_config_normalization_rejects_duplicates_and_invalid_values(self):
         normalized = config.normalize_build_progression_config({

@@ -885,6 +885,13 @@ function setupDragAndDrop() {
     const resizeOb = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const el = entry.target;
+        // Replacing a widget after an option change disconnects it from the
+        // document. ResizeObserver reports that removal as a 0×0 resize; if
+        // we save it, the server clamps it to its 60×40 safety floor and the
+        // next editor frame becomes an unrecoverable postage stamp.
+        if (!el.isConnected) {
+          continue;
+        }
         const widgetId = el.getAttribute("data-id");
         if (widgetId) {
           // `offsetWidth`/`offsetHeight`, not `getBoundingClientRect()`: the
