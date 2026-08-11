@@ -81,6 +81,7 @@ _COMMAND_KEYS = (
     "stages",
     "powerups",
     "kps",
+    "build",
     "scanner",
     "chests",
     "luck",
@@ -118,13 +119,18 @@ _SUFFIX_WIDTH = 72
 #: a spot-check on formatting rather than a transcript of the whole bot, and
 #: because these three between them cover the tag shapes the others reuse: a
 #: run of numbers, a counted list, and a plain list.
-_PREVIEW_COMMANDS = ("kps", "items", "weapons")
+_PREVIEW_COMMANDS = ("build", "items", "weapons")
 
 #: Stand-in values for the template tags. Sample rather than live on purpose --
 #: templates get edited between runs, and a preview that only works mid-run is
 #: a preview that never works when you need it. The numbers are ordinary ones,
 #: not round, so a line's real width is visible.
 _SAMPLE_TAGS = {
+    "name": "Community T2 build",
+    "progress": "4/14",
+    "requirements": " | ! Ice Cube 0/1 · S2 OT 03:00 | × Joe's Dagger 0/1 · +00:42",
+    "remaining_suffix": " | +8 remaining",
+    "completion_time": "11:34",
     "kps": "188",
     "minute_avg": "172",
     "five_minute_avg": "165",

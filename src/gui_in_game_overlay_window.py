@@ -417,7 +417,7 @@ class InGameOverlayWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.widgets: dict[str, DraggableOverlayWidget] = {}
-        for widget_id in ("scanner", "recording", "kps", "powerups", "luck_rarity", "stats", "event_timer", "item_cooldowns"):
+        for widget_id in ("scanner", "recording", "kps", "powerups", "luck_rarity", "stats", "event_timer", "item_cooldowns", "build_progression"):
             widget = (
                 LuckRarityOverlayWidget(widget_id, self)
                 if widget_id == "luck_rarity"

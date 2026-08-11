@@ -4,6 +4,7 @@ import math
 import shutil
 import colorama
 import threading
+from uuid import uuid4
 from dataclasses import dataclass
 
 from infra import paths
@@ -70,7 +71,7 @@ DEFAULT_HOTKEY_GAME_KEY_WHITELIST = [
 ]
 
 DEFAULT_OVERLAY = {
-    "schema_version": 4,
+    "schema_version": 5,
     "enabled": False,
     "auto_start": False,
     "host": "127.0.0.1",
@@ -84,6 +85,7 @@ DEFAULT_OVERLAY = {
         {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50, "background_opacity": 0.0, "show_border": False},
         {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True, "short_stat_labels": True},
         {"id": "kps", "enabled": False, "mode": "compact", "order": 60, "selected_kps_metrics": ["current", "minute_avg", "five_minute_avg", "run_avg"], "background_opacity": 0.0, "show_border": False, "show_header": False},
+        {"id": "build_progression", "enabled": False, "mode": "compact", "order": 65, "max_rows": 6, "scale": 1.0, "show_completed": False, "show_target_time": True, "show_section_headings": False, "background_opacity": 0.0, "show_border": False, "show_header": True},
         {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
         # Its own copy of both toggles rather than mirroring the in-game
         # widget's. Not duplication: "show it to chat but not to me" has to be
@@ -139,7 +141,16 @@ DEFAULT_IN_GAME_OVERLAY = {
         },
         "stats": {"enabled": False, "x": 10, "y": 130, "scale": 1.0, "selected_stats": ["Damage", "Difficulty", "XP Gain", "Luck"]},
         "event_timer": {"enabled": False, "x": 10, "y": 160, "scale": 1.0, "warning_seconds": 15},
+        "build_progression": {"enabled": False, "x": 10, "y": 190, "scale": 1.0, "max_rows": 5, "show_completed": False, "show_target_time": True, "show_section_headings": False},
     }
+}
+
+
+DEFAULT_BUILD_PROGRESSION = {
+    "schema_version": 1,
+    "name": "Build Progression",
+    "deadlines_enabled": True,
+    "requirements": [],
 }
 
 
@@ -188,6 +199,7 @@ DEFAULT_TWITCH_BOT = {
         "stages": True,
         "powerups": True,
         "kps": True,
+        "build": True,
         "scanner": True,
         "chests": False,
         # Opt-in like the three above it. `!luck` answers nothing at all unless
@@ -217,6 +229,7 @@ DEFAULT_TWITCH_BOT = {
         "stages": "{stages}",
         "powerups": "Powerups: {powerups} (PM {pm})",
         "kps": "KPS: {kps} | 60s Avg: {minute_avg} | 5m Avg: {five_minute_avg} | Run Avg: {run_avg}",
+        "build": "{name} · {progress}{requirements}{remaining_suffix}",
         "scanner": "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
         "chests": "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
         "luck": "Luck: {tiers}",
@@ -680,6 +693,73 @@ def _merge_dict_defaults(value, defaults):
     return result
 
 
+def normalize_build_progression_config(value):
+    source = value if isinstance(value, dict) else {}
+    normalized = {
+        "schema_version": 1,
+        "name": str(source.get("name") or "Build Progression").strip() or "Build Progression",
+        "deadlines_enabled": bool(source.get("deadlines_enabled", True)),
+        "requirements": [],
+    }
+    seen: set[tuple[str, str]] = set()
+    for order, raw in enumerate(source.get("requirements") or ()):
+        if not isinstance(raw, dict):
+            continue
+        kind = str(raw.get("kind") or "").strip().lower()
+        target = str(raw.get("target") or "").strip()
+        if kind not in {"item", "stat"} or not target or (kind, target) in seen:
+            continue
+        try:
+            required = float(raw.get("required"))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(required) or required <= 0:
+            continue
+        if kind == "item" and not required.is_integer():
+            continue
+        ideal = raw.get("ideal")
+        if ideal in (None, ""):
+            ideal = None
+        else:
+            try:
+                ideal = float(ideal)
+            except (TypeError, ValueError):
+                ideal = None
+            if ideal is not None and (
+                not math.isfinite(ideal)
+                or ideal < required
+                or (kind == "item" and not ideal.is_integer())
+            ):
+                ideal = None
+        priority = str(raw.get("priority") or "normal").lower()
+        if priority not in {"normal", "early", "asap"}:
+            priority = "normal"
+        deadline_raw = raw.get("deadline") if isinstance(raw.get("deadline"), dict) else {}
+        deadline_kind = str(deadline_raw.get("kind") or "none").lower()
+        if deadline_kind not in {"none", "run_clock", "stage_start", "stage_overtime"}:
+            deadline_kind = "none"
+        stage = None
+        seconds = None
+        if deadline_kind in {"stage_start", "stage_overtime"}:
+            stage = max(1, min(4, coerce_nonnegative_int(deadline_raw.get("stage"), 1) or 1))
+        if deadline_kind in {"run_clock", "stage_overtime"}:
+            seconds = max(0.0, coerce_float(deadline_raw.get("seconds"), 0.0))
+        seen.add((kind, target))
+        normalized["requirements"].append(
+            {
+                "id": str(raw.get("id") or uuid4().hex),
+                "kind": kind,
+                "target": target,
+                "required": int(required) if kind == "item" else required,
+                "ideal": (int(ideal) if kind == "item" and ideal is not None else ideal),
+                "priority": priority,
+                "deadline": {"kind": deadline_kind, "stage": stage, "seconds": seconds},
+                "order": order,
+            }
+        )
+    return normalized
+
+
 def normalize_overlay_config(value):
     overlay = _merge_dict_defaults(value, DEFAULT_OVERLAY)
     saved_schema_version = coerce_nonnegative_int((value or {}).get("schema_version"), 1) if isinstance(value, dict) else 0
@@ -691,6 +771,16 @@ def normalize_overlay_config(value):
     # We forcefully reset max_rows to 40 for stats and banishes in case they were saved as 8/12 in the past
     # so that the grid can expand properly without backend limitation.
     for widget in overlay["widgets"]:
+        if widget.get("id") == "build_progression":
+            widget["enabled"] = bool(widget.get("enabled", False))
+            widget["max_rows"] = max(1, min(coerce_nonnegative_int(widget.get("max_rows"), 6) or 6, 20))
+            widget["scale"] = max(0.5, min(coerce_float(widget.get("scale"), 1.0), 3.0))
+            for key, default in (
+                ("show_completed", False),
+                ("show_target_time", True),
+                ("show_section_headings", False),
+            ):
+                widget[key] = bool(widget.get(key, default))
         if widget.get("id") in {"stats", "banishes"}:
             if coerce_nonnegative_int(widget.get("max_rows"), 0) < 40:
                 widget["max_rows"] = 40
@@ -783,6 +873,15 @@ def normalize_in_game_overlay_config(value):
                         300
                     )
                 )
+
+            if key == "build_progression":
+                widgets[key]["max_rows"] = max(
+                    1,
+                    min(coerce_nonnegative_int(widgets[key].get("max_rows"), 5) or 5, 20),
+                )
+                widgets[key]["show_completed"] = bool(widgets[key].get("show_completed", False))
+                widgets[key]["show_target_time"] = bool(widgets[key].get("show_target_time", True))
+                widgets[key]["show_section_headings"] = bool(widgets[key].get("show_section_headings", False))
             
             if key == "kps":
                 metrics_val = widgets[key].get("metrics")
@@ -1208,6 +1307,7 @@ OVERLAY = normalize_overlay_config(user_config.get("OVERLAY"))
 IN_GAME_OVERLAY = normalize_in_game_overlay_config(user_config.get("IN_GAME_OVERLAY"))
 SESSION_TRACKED_ITEMS = normalize_session_tracked_items_config(user_config.get("SESSION_TRACKED_ITEMS"))
 TWITCH_BOT = normalize_twitch_bot_config(user_config.get("TWITCH_BOT"))
+BUILD_PROGRESSION = normalize_build_progression_config(user_config.get("BUILD_PROGRESSION"))
 
 # Populate missing default keys for scores system from older config versions
 for key, value in DEFAULT_SCORES_SYSTEM.items():

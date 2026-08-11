@@ -11,22 +11,24 @@ Status legend:
 - `[Open]` not implemented yet
 
 
-## Open Updates
+## Recently Implemented
 
 ### Build Progression Overlay Widget
 
-Status: `[Open]`
+Status: `[Implemented]`
 
 Goal:
 
-- Add a compact `Build Progression` widget to the OBS Overlay and In-Game Overlay.
+- Add one shared `Build Progression` feature to Live Stats, OBS Overlay, In-Game Overlay, and Twitch `!build`.
 - Let each user configure one personal build checklist from scratch. BonkScanner will not ship predefined builds, progression presets, or Early/Mid/Late phases.
 - Answer the two questions that matter during a run: what is still missing from the finished build, and whether each timed requirement is still on schedule.
 
 Build definition:
 
-- An item requirement contains an item name, the required copy count, and an optional target game time.
-- A stat requirement contains a player-stat name, a minimum target value, and an optional target game time.
+- An item requirement contains an item name, required copies, optional ideal copies, priority, and an optional deadline.
+- A stat requirement contains a canonical player-stat name, a raw minimum threshold, an optional ideal threshold, priority, and an optional deadline.
+- Deadlines are `No deadline`, `Run clock`, `Stage start`, or `Stage overtime`.
+- Required controls completion; Ideal is a visible stretch target and never blocks `BUILD COMPLETE`.
 - Requirements without a target time remain neutral until completed and still count toward overall build completion.
 - The build is complete only while every configured requirement is currently satisfied:
   - current item copies are greater than or equal to the configured count;
@@ -64,18 +66,23 @@ Configuration UI:
 
 Runtime and architecture notes:
 
-- Evaluate the widget in a Qt-free build-progression domain/projection layer so OBS, In-Game Overlay, and a future Live Stats preview cannot drift in their completion or deadline rules.
+- The Qt-free evaluator lives in `core`; `BuildProgressionService`, owned by `AppCoordinator`, owns only per-run transition timestamps.
+- No new refresh task or polling loop was added. Existing combat, passive-items, event-timer, full-snapshot, and lifecycle tasks publish the data the service derives from.
+- Live Stats, OBS, In-Game Overlay, and Twitch consume the same evaluated snapshot, so completion and deadline rules cannot drift.
 - Reuse `RuntimeStateSnapshot.fast_items` for the freshest available inventory and fall back to `latest_snapshot.items` only when the fast reading is unavailable.
 - Reuse `latest_snapshot.stats` initially, but note that the current Stats widget receives those values on the slower snapshot cadence. True real-time stat progress requires a narrow fast path for only the stats selected by Build Progression.
-- Publish a fresh run-time value on the runtime snapshot so item counts, deadlines, and displayed time are evaluated from one coherent runtime boundary.
+- The already-read fast run time is now published on the runtime snapshot so item counts, deadlines, and displayed time share one runtime boundary.
 - Add tests for item-copy counting, stat thresholds, optional deadlines, warning/overdue transitions, row ordering, disappearing requirements, run reset, and the all-requirements-complete collapse.
 
 Proposed layouts:
 
+- [Shared Build Progression editor](../../ui_mockups/build_progression/build_progression_settings_v2.html) — the implemented interaction model for item/stat selection and the 2×2 deadline choice.
 - [Interactive layout comparison](../../ui_mockups/build_progression/build_progression_overlay_options.html) — switch between in-progress, overdue, and complete states and optionally show completed rows.
 - [OBS readable compact card](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-obs-title) — bounded translucent card intended to remain legible on stream.
 - [In-Game minimal HUD list](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-ingame-title) — frameless, shadowed text intended to stay out of the player's way.
 - [Ultra-compact urgent target](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-focus-title) — only the next urgent missing requirement plus overall progress.
+
+## Open Updates
 
 ### Twitch Commands
 

@@ -789,7 +789,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_commands("channel")
             self.bot._send_chat.assert_called_once_with(
                 "channel",
-                "Available commands: !stats, !session, !items, !tomes, !stages, !scanner, !presets, !bonkhelp"
+                "Available commands: !stats, !session, !items, !tomes, !stages, !scanner, !presets, !build, !bonkhelp"
             )
 
     def test_handle_commands_uses_configured_template(self):

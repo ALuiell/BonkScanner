@@ -55,6 +55,61 @@ POWERUP_COLORS: dict[str, str] = {
 # stylesheet, which makes the same state the same colour on both surfaces.
 CRITICAL_COLOR = "#ff4d4d"
 HEADER_COLOR = "#ffffff"
+
+
+def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: bool = False) -> str:
+    """Minimal frameless HUD markup for an already evaluated build payload."""
+    if not payload.get("configured"):
+        return "<div style='color:#8c96a8'>Build not configured</div>" if edit_mode else ""
+    if not payload.get("available"):
+        return "<div style='color:#8c96a8'>Waiting for live run</div>" if edit_mode else ""
+    shadow = TEXT_SHADOW
+    if payload.get("complete"):
+        return (
+            f"<div style='color:#59d890;font-weight:800;text-shadow:{shadow}'>"
+            f"✓ BUILD COMPLETE · {escape(str(payload.get('completion_time') or '--:--'))}</div>"
+        )
+    colors = {
+        "unknown": "#8c96a8", "neutral": "#d7dde5", "warning": "#f1c861",
+        "overdue": "#ff6f76", "satisfied": "#59d890",
+    }
+    rows = []
+    last_kind = ""
+    for row in payload.get("rows") or ():
+        kind = str(row.get("kind") or "")
+        if payload.get("show_section_headings") and kind != last_kind:
+            rows.append(
+                f"<div style='color:#708096;font-size:9px;text-shadow:{shadow};font-weight:800'>"
+                f"{'STATS' if kind == 'stat' else 'ITEMS'}</div>"
+            )
+        last_kind = kind
+        color = colors.get(str(row.get("status")), "#d7dde5")
+        timing = (
+            f"<span style='opacity:.8'>{escape(str(row.get('time')))}</span>"
+            if row.get("time") else ""
+        )
+        rows.append(
+            f"<div style='display:flex;gap:7px;color:{color};text-shadow:{shadow}'>"
+            f"<b>{escape(str(row.get('symbol') or '·'))}</b>"
+            f"<span style='flex:1'>{escape(str(row.get('label') or '--'))}</span>"
+            f"<b>{escape(str(row.get('value') or '--'))}</b>{timing}</div>"
+        )
+    suffix = []
+    if payload.get("hidden_completed"):
+        suffix.append(f"+{int(payload['hidden_completed'])} completed")
+    if payload.get("hidden_remaining"):
+        suffix.append(f"+{int(payload['hidden_remaining'])} remaining")
+    suffix_html = (
+        f"<div style='color:#8c96a8;text-shadow:{shadow}'>{' · '.join(suffix)}</div>"
+        if suffix else ""
+    )
+    return (
+        f"<div style='min-width:280px'>"
+        f"<div style='display:flex;justify-content:space-between;color:#fff;text-shadow:{shadow};font-weight:700'>"
+        f"<span>{escape(str(payload.get('name') or 'Build Progression'))}</span>"
+        f"<span>{escape(str(payload.get('progress') or '0/0'))} · {escape(str(payload.get('run_time') or '--:--'))}</span></div>"
+        f"<div style='margin-top:4px'>{''.join(rows)}</div>{suffix_html}</div>"
+    )
 #: The colour of "this overlay does not recognise this thing" -- an unrecognised
 #: powerup, or an item whose rarity the catalog has never heard of.
 #:

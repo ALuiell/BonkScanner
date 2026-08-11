@@ -441,6 +441,7 @@ class LiveRunTracker:
             luck=self._fresh_fast_luck_unlocked(),
             fast_items=self._fresh_fast_items_unlocked(),
             item_cooldowns=self._fresh_item_cooldowns_unlocked(),
+            run_timer_seconds=self._fresh_fast_run_timer_unlocked(),
         )
 
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:

@@ -21,6 +21,7 @@ from projections.twitch import (
     format_powerups,
     truncate_chat_message,
 )
+from projections.build_progression import format_twitch_build
 
 
 COMMAND_COOLDOWN_KEYS = {
@@ -74,10 +75,11 @@ class TwitchBotWorker(QThread):
     status_updated = Signal(str)
     log_message = Signal(str)
 
-    def __init__(self, run_tracker, parent=None, session_snapshot=None):
+    def __init__(self, run_tracker, parent=None, session_snapshot=None, build_progression_service=None):
         super().__init__(parent)
         self.run_tracker = run_tracker
         self.session_snapshot = session_snapshot
+        self.build_progression_service = build_progression_service
         self.running = False
         self._stop_event = threading.Event()
         self.sock = None
@@ -293,6 +295,9 @@ class TwitchBotWorker(QThread):
             handled = True
         elif cmd == "!kps" and commands_cfg.get("kps", True):
             self._handle_kps(channel)
+            handled = True
+        elif cmd == "!build" and commands_cfg.get("build", True):
+            self._handle_build(channel)
             handled = True
         elif cmd == "!scanner" and commands_cfg.get("scanner", True):
             self._handle_scanner(channel)
@@ -903,6 +908,7 @@ class TwitchBotWorker(QThread):
             ("presets", "!presets"),
             ("disabled", "!disabled"),
             ("kps", "!kps"),
+            ("build", "!build"),
         ]
         command_defaults = config.DEFAULT_TWITCH_BOT["commands"]
         enabled_cmds = [
@@ -918,6 +924,24 @@ class TwitchBotWorker(QThread):
     def _handle_kps(self, channel: str):
         runtime = self._runtime_snapshot()
         self._send_chat(channel, truncate_chat_message(format_kps(runtime, self._format_template)))
+
+    def _handle_build(self, channel: str):
+        if self.build_progression_service is None:
+            self._send_chat(channel, "Build Progression is not available.")
+            return
+        snapshot = self.build_progression_service.snapshot()
+        if not snapshot.available:
+            self._send_chat(channel, "No active run detected.")
+            return
+        values = format_twitch_build(snapshot)
+        if not snapshot.configured:
+            self._send_chat(channel, values["requirements"])
+            return
+        default = config.DEFAULT_TWITCH_BOT["templates"]["build"]
+        self._send_chat(
+            channel,
+            truncate_chat_message(self._format_template("build", default, **values)),
+        )
 
     def _handle_commands(self, channel: str):
         enabled_cmds = self._enabled_command_names()

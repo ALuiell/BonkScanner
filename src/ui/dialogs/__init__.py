@@ -1776,6 +1776,7 @@ class TwitchCommandSettingsDialog(QDialog):
             ("chaos", "!chaos / !chaostome:", "Chaos Tome Lv{level}: {chaos}", "Tags: {level}, {chaos}"),
             ("powerups", "!powerups:", default_templates.get("powerups", "Powerups: {powerups} (PM {pm})"), "Tags: {powerups}, {standard_duration}, {clock_duration}, {pm}"),
             ("kps", "!kps:", default_templates.get("kps", "KPS: {kps} | 60s Avg: {minute_avg} | 5m Avg: {five_minute_avg} | Run Avg: {run_avg}"), "Tags: {kps}, {minute_avg}, {five_minute_avg}, {run_avg}"),
+            ("build", "!build:", default_templates.get("build", "{name} · {progress}{requirements}{remaining_suffix}"), "Tags: {name}, {progress}, {requirements}, {remaining_suffix}, {completion_time}"),
             ("chests", "!chests / !chest:", default_templates.get("chests", "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})"), "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
             ("luck", "!luck:", default_templates.get("luck", "Luck: {tiers}"), "Tags: {tiers} (one group per rarity, already joined)"),
             ("bonkhelp", "!bonkhelp / !bonkcmds:", default_templates.get("bonkhelp", "Available commands: {commands_list}"), "Tags: {commands_list}"),

@@ -32,6 +32,7 @@ const HELD_STATE_FIELDS = [
   "stats",
   "banishes",
   "luck_rarity",
+  "build_progression",
 ];
 // `reconnecting` is the tracker's quiet middle state: data is known frozen, but
 // a restart is the expected cause and the surface must not announce it.
@@ -133,7 +134,8 @@ function hexToRgbTriplet(hex) {
 
 function panel(title, body, classes = "", widget = null) {
   const backgroundOpacity = clampNumber(widget?.background_opacity, 0, 1, classes.includes("stage-summary-widget") ? 0.4 : 0.0);
-  const style = `--widget-bg-opacity:${backgroundOpacity};`;
+  const border = widget?.show_border ? "1px solid rgba(255,255,255,.14)" : "none";
+  const style = `--widget-bg-opacity:${backgroundOpacity};border:${border};`;
   const showHeader = widget?.show_header !== false;
   const titleHtml = showHeader ? `<div class="panel-title">${escapeHtml(title)}</div>` : "";
   return `<section class="panel ${classes}" style="${style}">
@@ -156,9 +158,41 @@ function renderWidget(widget, state) {
       return panel("Banishes", renderBanishes(state, widget), "wide banishes-widget", widget);
     case "luck_rarity":
       return panel("Luck", renderLuckRarity(state), "wide luck-widget", widget);
+    case "build_progression":
+      return panel("Build Progression", renderBuildProgression(state), "wide build-progress-widget", widget);
     default:
       return "";
   }
+}
+
+function renderBuildProgression(state) {
+  const build = state.build_progression || {};
+  if (!build.configured) {
+    return `<div class="muted">Build not configured</div>`;
+  }
+  if (!build.available) {
+    return `<div class="muted">Waiting for live run</div>`;
+  }
+  if (build.complete) {
+    return `<div class="build-complete">✓ BUILD COMPLETE <span>${escapeHtml(build.completion_time || "--:--")}</span></div>`;
+  }
+  const rows = Array.isArray(build.rows) ? build.rows : [];
+  let lastKind = "";
+  const body = rows.map((row) => {
+    const heading = build.show_section_headings && row.kind !== lastKind
+      ? `<div class="build-section">${row.kind === "stat" ? "STATS" : "ITEMS"}</div>`
+      : "";
+    lastKind = row.kind;
+    return `${heading}<div class="build-row status-${escapeHtml(row.status)}">
+    <span class="build-symbol">${escapeHtml(row.symbol)}</span>
+    <span class="build-label">${escapeHtml(row.label)}</span>
+    <strong>${escapeHtml(row.value)}</strong>
+    ${row.time ? `<span class="build-time">${escapeHtml(row.time)}</span>` : ""}
+  </div>`;
+  }).join("");
+  const completed = build.hidden_completed ? `<div class="build-more">+${build.hidden_completed} completed</div>` : "";
+  const remaining = build.hidden_remaining ? `<div class="build-more">+${build.hidden_remaining} remaining</div>` : "";
+  return `<div class="build-head"><strong>${escapeHtml(build.name)}</strong><span>${escapeHtml(build.progress)} · ${escapeHtml(build.run_time)}</span></div><div class="build-list">${body}</div>${completed}${remaining}`;
 }
 
 function renderTrackedItems(state) {
@@ -354,7 +388,8 @@ const DEFAULT_COORDINATES = {
   stats: { x: 1600, y: 80 },
   kps: { x: 1600, y: 260 },
   banishes: { x: 1600, y: 360 },
-  luck_rarity: { x: 1600, y: 530 }
+  luck_rarity: { x: 1600, y: 530 },
+  build_progression: { x: 20, y: 500 }
 };
 
 // The canvas the coordinates above are written against. They used to be applied

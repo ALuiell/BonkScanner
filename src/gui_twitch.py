@@ -153,6 +153,7 @@ def build_twitch_session(app, view, *, session_snapshot):
         bot_worker_factory=lambda tracker, snapshot: TwitchBotWorker(
             tracker,
             session_snapshot=snapshot,
+            build_progression_service=app.coordinator.build_progression_service,
             parent=app.window,
         ),
         validation_worker_factory=lambda token, **kwargs: TwitchTokenValidationWorker(

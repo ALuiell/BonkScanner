@@ -95,7 +95,7 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             assert [
                 view._detail_tabs.tabText(index)
                 for index in range(view._detail_tabs.count())
-            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Damage Sources"]
+            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Damage Sources", "Build Progression"]
             assert view._banishes_label.parent().objectName() == "LiveStatsBanishes"
             assert view._banishes_label.objectName() == "LiveStatsBanishesText"
             assert view._banishes_chips_container.objectName() == "BanishesChips"

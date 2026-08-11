@@ -1456,5 +1456,21 @@ def _build_live_stats_view(app):
         is_recording_armed=lambda: vod_capture(app).is_recording_armed(),
         on_toggle_recording=lambda: vod_capture(app).toggle_recording(),
         on_snapshot_selected=_select_snapshot,
+        build_progression_snapshot=lambda: app.coordinator.build_progression_service.snapshot(),
+        open_build_progression_settings=lambda: _open_build_progression_settings(app),
     )
     return view.build()
+
+
+def _open_build_progression_settings(app) -> None:
+    from ui.dialogs.build_progression import BuildProgressionDialog
+
+    dialog = BuildProgressionDialog(
+        app.coordinator.build_progression_settings,
+        app.coordinator.build_progression_service,
+        getattr(app, "window", None),
+    )
+    if dialog.exec():
+        view = getattr(app, "_player_stats_view", None)
+        if view is not None:
+            view.refresh_build_progression()

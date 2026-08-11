@@ -50,6 +50,7 @@ namespace hides until it is removed.
 from __future__ import annotations
 
 from typing import Callable, Sequence
+from html import escape
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
@@ -59,6 +60,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -102,6 +104,8 @@ from ui.tabs.player_stats.summary_cards import (
     set_stage_summary_labels,
 )
 from projections import formatting
+from projections.build_progression import build_progression_payload
+from ui.dialogs.build_progression import BuildProgressionHelpDialog
 
 
 LIVE_STATS_EXPANDED_CONFIG_KEY = "LIVE_STATS_EXPANDED"
@@ -240,6 +244,8 @@ class LiveStatsTab:
         is_recording_armed: Callable[[], bool],
         on_toggle_recording: Callable[[], None],
         on_snapshot_selected: Callable[..., None],
+        build_progression_snapshot: Callable[[], object | None] = lambda: None,
+        open_build_progression_settings: Callable[[], None] = lambda: None,
     ) -> None:
         self._tabview = tabview
         self._live_run_tracker = live_run_tracker
@@ -251,6 +257,8 @@ class LiveStatsTab:
         self._is_recording_armed = is_recording_armed
         self._on_toggle_recording = on_toggle_recording
         self._on_snapshot_selected = on_snapshot_selected
+        self._build_progression_snapshot = build_progression_snapshot
+        self._open_build_progression_settings = open_build_progression_settings
 
         # Widgets, all created by `build`. Declared here so the set this tab
         # owns is readable in one place rather than scattered through 260
@@ -283,6 +291,8 @@ class LiveStatsTab:
         self._recording_timeline = None
         self._items_section = None
         self._stat_cards = None
+        self._build_progression_header = None
+        self._build_progression_content = None
 
     @property
     def root_widget(self):
@@ -522,6 +532,7 @@ class LiveStatsTab:
             damage_sources if damage_sources_available else (),
             status_text=None if damage_sources_available else "Damage sources unavailable",
         )
+        self.refresh_build_progression()
 
     def display_player_stats_snapshot(self, snapshot, *, items_text: str | None = None):
         snapshots = self._vod_snapshots()
@@ -628,6 +639,43 @@ class LiveStatsTab:
         sitting next to it in the same card.
         """
         _set_text(self._in_game_time_label, text)
+
+    def refresh_build_progression(self) -> None:
+        header = self._build_progression_header
+        content = self._build_progression_content
+        if header is None or content is None:
+            return
+        snapshot = self._build_progression_snapshot()
+        payload = build_progression_payload(
+            snapshot,
+            {"max_rows": 20, "show_completed": True, "show_target_time": True},
+        )
+        if not payload.get("configured"):
+            header.setText("Build Progression")
+            content.setText("No build configured yet. Use Configure to create one.")
+            return
+        header.setText(
+            f"{payload.get('name')} · {payload.get('progress')} · {payload.get('run_time')}"
+        )
+        if payload.get("complete"):
+            content.setText(
+                f"<b style='color:#59d890'>✓ BUILD COMPLETE · {escape(str(payload.get('completion_time')))}</b>"
+            )
+            return
+        colors = {
+            "unknown": "#8c96a8", "neutral": "#aab4c0", "warning": "#f1c861",
+            "overdue": "#ff6f76", "satisfied": "#59d890",
+        }
+        lines = []
+        for row in payload.get("rows") or ():
+            color = colors.get(row.get("status"), "#aab4c0")
+            timing = f" · {escape(str(row.get('time')))}" if row.get("time") else ""
+            lines.append(
+                f"<div style='margin:3px 0;color:{color}'><b>{escape(str(row.get('symbol')))} "
+                f"{escape(str(row.get('label')))}</b> <span style='float:right'>"
+                f"{escape(str(row.get('value')))}{timing}</span></div>"
+            )
+        content.setText("".join(lines) or "Waiting for live run data…")
 
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
         """Re-render the recording timeline strip.
@@ -1098,6 +1146,26 @@ class LiveStatsTab:
         player_damage_sources_scroll, _player_damage_sources_scroll_content, player_damage_sources_scroll_layout = _make_scroll_section()
         player_damage_sources_scroll_layout.setContentsMargins(0, 0, 0, 0)
         damage_sources_tab_layout.addWidget(player_damage_sources_scroll)
+        build_progression_tab = QWidget()
+        build_progression_layout = QVBoxLayout(build_progression_tab)
+        build_header_row = QHBoxLayout()
+        self._build_progression_header = QLabel("Build Progression")
+        self._build_progression_header.setObjectName("sectionTitle")
+        build_header_row.addWidget(self._build_progression_header)
+        build_header_row.addStretch(1)
+        build_help = QPushButton("How it works")
+        build_help.clicked.connect(lambda: BuildProgressionHelpDialog(self._root).exec())
+        build_configure = QPushButton("Configure")
+        build_configure.setObjectName("primary")
+        build_configure.clicked.connect(self._open_build_progression_settings)
+        build_header_row.addWidget(build_help)
+        build_header_row.addWidget(build_configure)
+        build_progression_layout.addLayout(build_header_row)
+        self._build_progression_content = QLabel("No build configured yet.")
+        self._build_progression_content.setWordWrap(True)
+        self._build_progression_content.setTextFormat(Qt.RichText)
+        self._build_progression_content.setAlignment(Qt.AlignTop)
+        build_progression_layout.addWidget(self._build_progression_content, 1)
         # These eight widgets are the component's, not the shared namespace's.
         # As `self.player_stats_weapons_layout` and friends they were reached
         # by composed name from `cards.py` behind guards that returned silently
@@ -1131,6 +1199,8 @@ class LiveStatsTab:
         self._detail_tabs.addTab(tomes_tab, "Tomes")
         self._detail_tabs.addTab(chaos_tab, "Chaos")
         self._detail_tabs.addTab(damage_sources_tab, "Damage Sources")
+        self._detail_tabs.addTab(build_progression_tab, "Build Progression")
+        self.refresh_build_progression()
         # QTabWidget otherwise derives the outer page's preferred height from
         # whichever child is current. Stats/Loot are taller than the card tabs,
         # so switching could add or remove the outer scrollbar and visibly

@@ -652,6 +652,7 @@ class TwitchTabTests(unittest.TestCase):
                 [
                     "bans",
                     "bonkhelp",
+                    "build",
                     "chaos",
                     "chests",
                     "disabled",

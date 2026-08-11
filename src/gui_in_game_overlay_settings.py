@@ -46,6 +46,7 @@ IN_GAME_WIDGET_ROWS = (
     ("stats", "Stats", "igo_stats_cb"),
     ("event_timer", "Event timer", "igo_event_timer_cb"),
     ("item_cooldowns", "Item cooldowns", "igo_item_cooldowns_cb"),
+    ("build_progression", "Build Progression", "igo_build_progression_cb"),
 )
 
 
@@ -66,6 +67,7 @@ IGO_SCALE_SPIN_ATTRIBUTES = {
     "stats": "igo_stats_scale_spin",
     "event_timer": "igo_event_timer_scale_spin",
     "item_cooldowns": "igo_item_cooldowns_scale_spin",
+    "build_progression": "igo_build_progression_scale_spin",
 }
 
 
@@ -505,6 +507,33 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
         row.addWidget(parent_mixin.igo_stats_summary_label)
         row.addStretch(1)
         refresh_in_game_overlay_stats_summary(parent_mixin)
+        return holder
+
+    if widget_id == "build_progression":
+        holder, row = _options_row()
+        settings = config.IN_GAME_OVERLAY["widgets"]["build_progression"]
+        configure = QPushButton("Configure build…")
+        configure.clicked.connect(parent_mixin._open_build_progression_dialog)
+        row.addWidget(configure)
+        parent_mixin.igo_build_max_rows_spin = QSpinBox()
+        parent_mixin.igo_build_max_rows_spin.setRange(1, 20)
+        parent_mixin.igo_build_max_rows_spin.setValue(int(settings.get("max_rows", 5)))
+        parent_mixin.igo_build_max_rows_spin.valueChanged.connect(parent_mixin._on_igo_settings_changed)
+        parent_mixin.igo_build_max_rows_spin.setPrefix("Rows ")
+        row.addWidget(parent_mixin.igo_build_max_rows_spin)
+        parent_mixin.igo_build_completed_cb = _build_checkbox(
+            "Completed", bool(settings.get("show_completed", False)), parent_mixin._on_igo_settings_changed
+        )
+        parent_mixin.igo_build_time_cb = _build_checkbox(
+            "Time", bool(settings.get("show_target_time", True)), parent_mixin._on_igo_settings_changed
+        )
+        parent_mixin.igo_build_headings_cb = _build_checkbox(
+            "Headings", bool(settings.get("show_section_headings", False)), parent_mixin._on_igo_settings_changed
+        )
+        row.addWidget(parent_mixin.igo_build_completed_cb)
+        row.addWidget(parent_mixin.igo_build_time_cb)
+        row.addWidget(parent_mixin.igo_build_headings_cb)
+        row.addStretch(1)
         return holder
 
     return None

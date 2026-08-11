@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 from app import config
 from ui.canvas_preview import CanvasPreview, PreviewWidget
 from ui.dialogs.tracked_items import TrackedItemsDialog
+from ui.dialogs.build_progression import BuildProgressionDialog
 from ui.module_tile import ModuleTile
 from ui.run_toggle import OVERLAY_SERVER_CAPTIONS
 from ui.segmented_toggle import ROLE_GO, SegmentedToggle
@@ -53,6 +55,7 @@ OVERLAY_WIDGET_LABELS = {
     "kps": "KPS",
     "banishes": "Banishes",
     "luck_rarity": "Luck",
+    "build_progression": "Build Progression",
 }
 
 #: How wide the URL row's field and the widget picker beside it may get. The
@@ -147,7 +150,11 @@ class Overlay:
         self.overlay_tracked_items_toggle_btn = None
 
         self.overlay_state_store.set_state(
-            build_overlay_state(self.live_run_tracker, self._effective_overlay_config())
+            build_overlay_state(
+                self.live_run_tracker,
+                self._effective_overlay_config(),
+                self._build_progression_snapshot(),
+            )
         )
 
     def _log(self, message: str, *, tag: str | None = None) -> None:
@@ -649,6 +656,46 @@ class Overlay:
         stage_summary_layout.addWidget(self.overlay_stage_summary_bg_checkbox)
         basic_layout.addWidget(stage_summary_group)
 
+        build_group = QGroupBox("Build Progression")
+        build_layout = QVBoxLayout(build_group)
+        build_layout.addWidget(QLabel("The same build definition is shared with Live Stats, in-game overlay, and Twitch."))
+        configure_build = QPushButton("Configure Build Progression…")
+        configure_build.clicked.connect(self.open_build_progression_dialog)
+        build_layout.addWidget(configure_build)
+        build_cfg = self._overlay_widget_config_by_id().get("build_progression", {})
+        self.overlay_build_completed_checkbox = QCheckBox("Show completed rows")
+        self.overlay_build_completed_checkbox.setChecked(bool(build_cfg.get("show_completed", False)))
+        self.overlay_build_time_checkbox = QCheckBox("Show target time")
+        self.overlay_build_time_checkbox.setChecked(bool(build_cfg.get("show_target_time", True)))
+        self.overlay_build_headings_checkbox = QCheckBox("Show section headings")
+        self.overlay_build_headings_checkbox.setChecked(bool(build_cfg.get("show_section_headings", False)))
+        self.overlay_build_header_checkbox = QCheckBox("Show header")
+        self.overlay_build_header_checkbox.setChecked(bool(build_cfg.get("show_header", True)))
+        self.overlay_build_bg_checkbox = QCheckBox("Show background")
+        self.overlay_build_bg_checkbox.setChecked(float(build_cfg.get("background_opacity", 0)) > 0)
+        self.overlay_build_border_checkbox = QCheckBox("Show border")
+        self.overlay_build_border_checkbox.setChecked(bool(build_cfg.get("show_border", False)))
+        self.overlay_build_max_rows_spin = QSpinBox()
+        self.overlay_build_max_rows_spin.setRange(1, 20)
+        self.overlay_build_max_rows_spin.setValue(int(build_cfg.get("max_rows", 6)))
+        for control in (
+            self.overlay_build_completed_checkbox,
+            self.overlay_build_time_checkbox,
+            self.overlay_build_headings_checkbox,
+            self.overlay_build_header_checkbox,
+            self.overlay_build_bg_checkbox,
+            self.overlay_build_border_checkbox,
+        ):
+            control.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+            build_layout.addWidget(control)
+        self.overlay_build_max_rows_spin.valueChanged.connect(lambda _value: self.save_overlay_settings_from_ui())
+        rows_line = QHBoxLayout()
+        rows_line.addWidget(QLabel("Maximum rows"))
+        rows_line.addWidget(self.overlay_build_max_rows_spin)
+        rows_line.addStretch(1)
+        build_layout.addLayout(rows_line)
+        basic_layout.addWidget(build_group)
+
         banishes_group = QGroupBox("Banishes")
         banishes_layout = QVBoxLayout(banishes_group)
         banishes_layout.addWidget(QLabel("Configure the Banishes overlay widget."))
@@ -937,6 +984,16 @@ class Overlay:
                         widget["expected_layout"] = (
                             self.overlay_luck_layout_combo.currentData() or "column"
                         )
+                if widget_id == "build_progression":
+                    widget = dict(widget)
+                    if getattr(self, "overlay_build_completed_checkbox", None) is not None:
+                        widget["show_completed"] = self.overlay_build_completed_checkbox.isChecked()
+                        widget["show_target_time"] = self.overlay_build_time_checkbox.isChecked()
+                        widget["show_section_headings"] = self.overlay_build_headings_checkbox.isChecked()
+                        widget["max_rows"] = self.overlay_build_max_rows_spin.value()
+                        widget["show_header"] = self.overlay_build_header_checkbox.isChecked()
+                        widget["background_opacity"] = 0.4 if self.overlay_build_bg_checkbox.isChecked() else 0.0
+                        widget["show_border"] = self.overlay_build_border_checkbox.isChecked()
                 widgets.append(widget)
             overlay["widgets"] = widgets
             # `tracked_items` and `tracked_items_source` need no branch here:
@@ -983,6 +1040,20 @@ class Overlay:
                 self.overlay_server_toggle_btn,
                 "stopScanner" if running else "primary",
             )
+
+    def open_build_progression_dialog(self) -> None:
+        dialog = BuildProgressionDialog(
+            self.coordinator.build_progression_settings,
+            self.coordinator.build_progression_service,
+            self.tab_overlay,
+        )
+        if dialog.exec() == QDialog.Accepted:
+            self.update_overlay_state_from_tracker()
+
+    def _build_progression_snapshot(self):
+        service = getattr(self.coordinator, "build_progression_service", None)
+        reader = getattr(service, "snapshot", None)
+        return reader() if callable(reader) else None
 
     def open_session_tracked_item_settings_dialog(self) -> None:
         """The one tracked-item window, opened on the Session Stats list.
@@ -1039,7 +1110,11 @@ class Overlay:
     def update_overlay_state_from_tracker(self) -> None:
         if self.overlay_state_store is None:
             return
-        state = build_overlay_state(self.live_run_tracker, self._effective_overlay_config())
+        state = build_overlay_state(
+            self.live_run_tracker,
+            self._effective_overlay_config(),
+            self._build_progression_snapshot(),
+        )
         self._log_overlay_status_transition(str(state.get("status") or ""))
         self.overlay_state_store.set_state(state)
         tab_active = getattr(self, "_is_overlay_tab_active", lambda: True)

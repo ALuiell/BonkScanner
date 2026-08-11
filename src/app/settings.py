@@ -53,3 +53,16 @@ class ConfigRecordingSettings:
     def write_minimum_snapshot_count(self, value: int) -> None:
         config.user_config[self._MINIMUM_SNAPSHOT_COUNT_KEY] = max(0, int(value))
         config.save_config(config.user_config)
+
+
+class ConfigBuildProgressionSettings:
+    def read(self) -> dict[str, Any]:
+        return dict(config.BUILD_PROGRESSION)
+
+    def write(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = config.normalize_build_progression_config(payload)
+        with config.config_lock:
+            config.BUILD_PROGRESSION = normalized
+            config.user_config["BUILD_PROGRESSION"] = normalized
+            config.save_config(config.user_config)
+        return normalized

@@ -322,6 +322,7 @@ def in_game_overlay_requires_player_stats_refresh() -> bool:
     return (
         in_game_overlay_widget_enabled("stats")
         or in_game_overlay_widget_enabled("event_timer")
+        or in_game_overlay_widget_enabled("build_progression")
     )
 
 
@@ -345,7 +346,7 @@ def in_game_overlay_luck_expected_frame_active() -> bool:
 def overlay_requires_player_snapshot(owner) -> bool:
     return any(
         overlay_widget_refresh_active(owner, widget_id)
-        for widget_id in ("stage_summary", "tracked_items", "stats", "banishes")
+        for widget_id in ("stage_summary", "tracked_items", "stats", "banishes", "build_progression")
     )
 
 
@@ -679,6 +680,8 @@ class RefreshTasks:
             # the panel.
             if applied and self._tab_active() and not self._pinned():
                 self._view().set_items(items)
+            if applied and self._tab_active():
+                self._refresh_build_progression_view()
             if applied:
                 # Session Stats is one of the three surfaces this whole change
                 # exists for, and its panel was repainted only by `refresh_now`
@@ -694,7 +697,10 @@ class RefreshTasks:
                 # to the 10 s cadence, which is exactly the surface the fast
                 # lane was built for. `stage_summary` is enabled by default, so
                 # this was covered by accident rather than by design.
-                if self._widget_refresh_active("tracked_items"):
+                if (
+                    self._widget_refresh_active("tracked_items")
+                    or self._widget_refresh_active("build_progression")
+                ):
                     self._sync_overlay_state()
             return True
         except Exception:
@@ -739,6 +745,8 @@ class RefreshTasks:
             # section 12.2 requires: the Stage Summary clock advances from the
             # first pass of a run instead of waiting for the first kill.
             self._tracker().update_fast_run_timer(run_timer_seconds)
+            if self._tab_active():
+                self._refresh_build_progression_view()
             # The Live Stats run clock, painted from the same read and *before*
             # anything kills-related can fail. Its neighbours in that card were
             # already on this task -- the mob-kills line and the Stage Summary
@@ -821,6 +829,7 @@ class RefreshTasks:
             if (
                 self._widget_refresh_active("kps")
                 or self._widget_refresh_active("stage_summary")
+                or self._widget_refresh_active("build_progression")
             ):
                 self._sync_overlay_state()
             return True
@@ -854,13 +863,18 @@ class RefreshTasks:
                 stage_duration_seconds=stage_duration_seconds,
                 is_final_boss_stage=self._fast_stage_four_flag(context),
             )
+            if self._tab_active():
+                self._refresh_build_progression_view()
             self._mark_fast_feature_available("stage_timer")
             # Same guard, same reason: see `_refresh_fast_kps_task` above.
             if self._tab_active() and not self._pinned():
                 self._view().set_stage_summary_rows(
                     self._tracker().stage_summary_rows(),
                 )
-            if self._widget_refresh_active("stage_summary"):
+            if (
+                self._widget_refresh_active("stage_summary")
+                or self._widget_refresh_active("build_progression")
+            ):
                 self._sync_overlay_state()
             return True
         except Exception as exc:
@@ -953,14 +967,18 @@ class RefreshTasks:
         if (
             in_game_overlay_widget_enabled("kps")
             or in_game_overlay_widget_enabled("stage_summary")
+            or in_game_overlay_widget_enabled("build_progression")
         ):
             return True
         if (
             self._widget_refresh_active("kps")
             or self._widget_refresh_active("stage_summary")
+            or self._widget_refresh_active("build_progression")
         ):
             return True
         if self._twitch_stage_summary_refresh_active():
+            return True
+        if self._twitch_command_refresh_active("build"):
             return True
         commands_cfg = config.TWITCH_BOT.get("commands", {})
         try:
@@ -1051,8 +1069,16 @@ class RefreshTasks:
         return (
             in_game_overlay_widget_enabled("event_timer")
             or in_game_overlay_widget_enabled("stage_summary")
+            or in_game_overlay_widget_enabled("build_progression")
             or self._widget_refresh_active("stage_summary")
+            or self._widget_refresh_active("build_progression")
+            or self._twitch_command_refresh_active("build")
         )
+
+    def _refresh_build_progression_view(self) -> None:
+        refresh = getattr(self._view(), "refresh_build_progression", None)
+        if callable(refresh):
+            refresh()
 
     def _twitch_stage_summary_refresh_active(self) -> bool:
         try:

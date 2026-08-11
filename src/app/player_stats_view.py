@@ -153,6 +153,14 @@ class PlayerStatsView(Protocol):
         renders -- so this repaint costs no read.
         """
 
+    def refresh_build_progression(self) -> None:
+        """Re-render Build Progression from its shared evaluated snapshot.
+
+        Existing refresh tasks call this port after publishing run-clock,
+        inventory, stage-timer, or full-stat data.  The view never reads game
+        memory and Build Progression does not add a scheduler task of its own.
+        """
+
 
 @runtime_checkable
 class OverlayView(Protocol):

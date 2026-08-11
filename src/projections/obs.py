@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 from core import run_summary
 from core.tracker.snapshots import RuntimeStateSnapshot
+from core.build_progression import BuildProgressionSnapshot
+from projections.build_progression import build_progression_payload
 from core.item_metadata import COLOR_MAP, ITEM_RARITY_COLOR_MAP
 from core.stat_labels import abbreviate_stat_label
 # Overlay-config normalization moved down to core/ in step 17b, so that
@@ -62,13 +64,18 @@ class OverlayState:
         }
 
 
-def build_overlay_state(tracker: LiveRunTracker, overlay_config: dict[str, Any] | None = None) -> dict[str, Any]:
-    return build_overlay_state_from_snapshot(tracker.runtime_snapshot(), overlay_config)
+def build_overlay_state(
+    tracker: LiveRunTracker,
+    overlay_config: dict[str, Any] | None = None,
+    build_progression: BuildProgressionSnapshot | None = None,
+) -> dict[str, Any]:
+    return build_overlay_state_from_snapshot(tracker.runtime_snapshot(), overlay_config, build_progression)
 
 
 def build_overlay_state_from_snapshot(
     runtime: RuntimeStateSnapshot,
     overlay_config: dict[str, Any] | None = None,
+    build_progression: BuildProgressionSnapshot | None = None,
 ) -> dict[str, Any]:
     """Project a runtime snapshot into the stable OBS HTTP payload."""
     overlay_config = overlay_config or {}
@@ -98,6 +105,9 @@ def build_overlay_state_from_snapshot(
     data["banishes"] = _snapshot_banishes(snapshot, widgets)
     data["luck_rarity"] = _snapshot_luck_rarity(runtime, widgets)
     data["rarity_colors"] = _rarity_colors()
+    data["build_progression"] = build_progression_payload(
+        build_progression, widgets.get("build_progression") or {}
+    )
     return data
 
 

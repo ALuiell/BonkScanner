@@ -34,6 +34,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 from app import config
 from projections.in_game import project_in_game_overlay
 from projections.in_game_html import (
+    build_build_progression_overlay_html,
     build_event_timer_overlay_html,
     build_kps_overlay_html_from_values,
     build_luck_rarity_overlay_html_for_probabilities,
@@ -42,6 +43,7 @@ from projections.in_game_html import (
     build_stats_overlay_html,
     build_status_indicator_html,
 )
+from projections.build_progression import build_progression_payload
 # `calculate_luck_rarity_probabilities` is `core.luck_rarity`'s, and was reached
 # through `projections.in_game_html` -- which imported it, never used it, and so
 # was a re-export this module was the only reader of. Taken from its owner, on
@@ -83,8 +85,12 @@ class InGameOverlay:
         rebind_hotkeys: Callable[[], None] = lambda: None,
         widget_settings_dialog: Callable[["InGameOverlay", QWidget | None], Any] = InGameWidgetSettingsDialog,
         timer_factory: Callable[[], Any] = QTimer,
+        build_progression_snapshot: Callable[[], Any] = lambda: None,
+        open_build_progression_settings: Callable[[], None] = lambda: None,
     ) -> None:
         self._tracker = tracker
+        self._build_progression_snapshot = build_progression_snapshot
+        self._open_build_progression_settings = open_build_progression_settings
         self._is_scanning = is_scanning
         self._is_recording = is_recording
         self._is_game_window_active = is_game_window_active
@@ -119,6 +125,7 @@ class InGameOverlay:
         self.igo_stats_cb = None
         self.igo_event_timer_cb = None
         self.igo_item_cooldowns_cb = None
+        self.igo_build_progression_cb = None
 
         self.in_game_overlay_window: InGameOverlayWindow | None = None
 
@@ -376,6 +383,20 @@ class InGameOverlay:
             )
             widgets["event_timer"].set_text(html)
 
+        if cfg["widgets"].get("build_progression", {}).get("enabled", False):
+            payload = build_progression_payload(
+                self._build_progression_snapshot(),
+                cfg["widgets"]["build_progression"],
+            )
+            html = build_build_progression_overlay_html(
+                payload,
+                edit_mode=self.in_game_overlay_window.edit_mode,
+            )
+            widgets["build_progression"].set_text(html)
+            widgets["build_progression"].setVisible(
+                bool(html) or self.in_game_overlay_window.edit_mode
+            )
+
         if cfg["widgets"]["powerups"]["enabled"]:
             snapshot = projection.powerups
             html = build_powerups_overlay_html(
@@ -604,6 +625,11 @@ class InGameOverlay:
             )
         if getattr(self, "igo_event_warning_spin", None) is not None:
             widgets["event_timer"]["warning_seconds"] = self.igo_event_warning_spin.value()
+        if getattr(self, "igo_build_max_rows_spin", None) is not None:
+            widgets["build_progression"]["max_rows"] = self.igo_build_max_rows_spin.value()
+            widgets["build_progression"]["show_completed"] = self.igo_build_completed_cb.isChecked()
+            widgets["build_progression"]["show_target_time"] = self.igo_build_time_cb.isChecked()
+            widgets["build_progression"]["show_section_headings"] = self.igo_build_headings_cb.isChecked()
 
         self.apply_in_game_overlay_settings()
         config.save_config(config.user_config)
@@ -661,6 +687,9 @@ class InGameOverlay:
         dialog = self._widget_settings_dialog(self, self.tab_in_game_overlay)
         dialog.exec()
 
+    def _open_build_progression_dialog(self) -> None:
+        self._open_build_progression_settings()
+
 
 def build_in_game_overlay(app: Any) -> InGameOverlay:
     """Wire the component to the app, one named port per measured owner.
@@ -687,6 +716,8 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
     """
     return InGameOverlay(
         tracker=lambda: getattr(app, "live_run_tracker", None),
+        build_progression_snapshot=lambda: app.coordinator.build_progression_service.snapshot(),
+        open_build_progression_settings=lambda: _open_build_progression_for_app(app),
         is_scanning=lambda: app._scanner.is_scanning(),
         is_recording=lambda: (
             getattr(app, "player_stats_vod_recorder", None) is not None
@@ -699,3 +730,14 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
         overlay_tab_active=lambda: app._is_in_game_overlay_tab_active(),
         rebind_hotkeys=lambda: app._run_control.setup_hotkeys(),
     )
+
+
+def _open_build_progression_for_app(app: Any) -> None:
+    from ui.dialogs.build_progression import BuildProgressionDialog
+
+    dialog = BuildProgressionDialog(
+        app.coordinator.build_progression_settings,
+        app.coordinator.build_progression_service,
+        getattr(app, "window", None),
+    )
+    dialog.exec()

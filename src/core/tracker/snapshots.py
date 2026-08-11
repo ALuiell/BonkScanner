@@ -226,6 +226,9 @@ class RuntimeStateSnapshot:
     # cannot pair a reading with a clock from a different pass. ``None`` is "no
     # fresh read"; a snapshot with empty ``readings`` is "no timed item held".
     item_cooldowns: Any | None = None
+    # Fresh run clock already read by the combat fast lane.  Publishing it on
+    # the boundary lets derived consumers share the read instead of polling.
+    run_timer_seconds: float | None = None
 
 
 @dataclass(frozen=True)
