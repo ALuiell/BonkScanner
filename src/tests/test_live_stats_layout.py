@@ -96,6 +96,11 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 view._detail_tabs.tabText(index)
                 for index in range(view._detail_tabs.count())
             ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Damage Sources", "Build Progression"]
+            build_card = view.root_widget.findChild(QFrame, "BuildProgressionCard")
+            assert build_card is not None
+            assert build_card.findChild(QLabel, "BuildProgressionName") is not None
+            assert build_card.findChild(QLabel, "BuildProgressionProgress").text() == "NOT CONFIGURED"
+            assert build_card.findChild(QWidget, "BuildProgressionRows") is not None
             assert view._banishes_label.parent().objectName() == "LiveStatsBanishes"
             assert view._banishes_label.objectName() == "LiveStatsBanishesText"
             assert view._banishes_chips_container.objectName() == "BanishesChips"

@@ -50,7 +50,6 @@ namespace hides until it is removed.
 from __future__ import annotations
 
 from typing import Callable, Sequence
-from html import escape
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
@@ -224,6 +223,56 @@ class _ResponsiveCardGrid(QWidget):
         self.updateGeometry()
 
 
+class _BuildProgressionRow(QFrame):
+    """One structured checklist row; values update without rebuilding widgets."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("BuildProgressionRow")
+        self.setProperty("status", "neutral")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 7, 10, 7)
+        layout.setSpacing(8)
+
+        self.symbol = QLabel("·")
+        self.symbol.setObjectName("BuildProgressionSymbol")
+        self.symbol.setAlignment(Qt.AlignCenter)
+        self.symbol.setFixedWidth(18)
+        layout.addWidget(self.symbol)
+
+        self.name = QLabel()
+        self.name.setObjectName("BuildProgressionTarget")
+        layout.addWidget(self.name, 1)
+
+        self.value = QLabel()
+        self.value.setObjectName("BuildProgressionValue")
+        self.value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(self.value)
+
+        self.deadline = QLabel()
+        self.deadline.setObjectName("BuildProgressionDeadline")
+        self.deadline.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.deadline)
+
+    def update_row(self, row: dict) -> None:
+        status = str(row.get("status") or "neutral")
+        if self.property("status") != status:
+            self.setProperty("status", status)
+            self.style().unpolish(self)
+            self.style().polish(self)
+        self.symbol.setText(str(row.get("symbol") or "·"))
+        self.name.setText(str(row.get("label") or ""))
+        self.value.setText(str(row.get("value") or ""))
+        # Once Required is met, the deadline has done its job.  Keeping an
+        # overdue delta or target clock on a green row made it read as both
+        # complete and late; if the value regresses, the evaluator restores
+        # the current deadline and the badge comes back automatically.
+        timing = "" if status == "satisfied" else str(row.get("time") or "")
+        self.deadline.setText(timing)
+        self.deadline.setVisible(bool(timing))
+        self.setVisible(True)
+
+
 class LiveStatsTab:
     """The Live Stats tab, and the `PlayerStatsView` port's implementation.
 
@@ -292,7 +341,13 @@ class LiveStatsTab:
         self._items_section = None
         self._stat_cards = None
         self._build_progression_header = None
-        self._build_progression_content = None
+        self._build_progression_progress = None
+        self._build_progression_clock = None
+        self._build_progression_empty = None
+        self._build_progression_complete = None
+        self._build_progression_footer = None
+        self._build_progression_rows_layout = None
+        self._build_progression_rows: list[_BuildProgressionRow] = []
 
     @property
     def root_widget(self):
@@ -642,8 +697,12 @@ class LiveStatsTab:
 
     def refresh_build_progression(self) -> None:
         header = self._build_progression_header
-        content = self._build_progression_content
-        if header is None or content is None:
+        progress = self._build_progression_progress
+        clock = self._build_progression_clock
+        empty = self._build_progression_empty
+        complete = self._build_progression_complete
+        footer = self._build_progression_footer
+        if any(widget is None for widget in (header, progress, clock, empty, complete, footer)):
             return
         snapshot = self._build_progression_snapshot()
         payload = build_progression_payload(
@@ -652,30 +711,67 @@ class LiveStatsTab:
         )
         if not payload.get("configured"):
             header.setText("Build Progression")
-            content.setText("No build configured yet. Use Configure to create one.")
+            progress.setText("NOT CONFIGURED")
+            clock.clear()
+            clock.hide()
+            empty.setText(
+                "No build configured yet. Add items or stats, then the same "
+                "checklist will appear here, in overlays, and in Twitch chat."
+            )
+            empty.show()
+            complete.hide()
+            footer.hide()
+            self._hide_build_progression_rows()
             return
-        header.setText(
-            f"{payload.get('name')} · {payload.get('progress')} · {payload.get('run_time')}"
-        )
+        header.setText(str(payload.get("name") or "Build Progression"))
+        progress.setText(str(payload.get("progress") or "0/0"))
+        clock.setText(f"RUN {payload.get('run_time') or '--:--'}")
+        clock.show()
+
+        if not payload.get("available"):
+            empty.setText(
+                "Waiting for an active run. Every new run starts this checklist clean."
+            )
+            empty.show()
+            complete.hide()
+            footer.hide()
+            self._hide_build_progression_rows()
+            return
         if payload.get("complete"):
-            content.setText(
-                f"<b style='color:#59d890'>✓ BUILD COMPLETE · {escape(str(payload.get('completion_time')))}</b>"
+            empty.hide()
+            complete.setText(
+                f"✓  BUILD COMPLETE  ·  {payload.get('completion_time') or '--:--'}"
             )
+            complete.show()
+            footer.hide()
+            self._hide_build_progression_rows()
             return
-        colors = {
-            "unknown": "#8c96a8", "neutral": "#aab4c0", "warning": "#f1c861",
-            "overdue": "#ff6f76", "satisfied": "#59d890",
-        }
-        lines = []
-        for row in payload.get("rows") or ():
-            color = colors.get(row.get("status"), "#aab4c0")
-            timing = f" · {escape(str(row.get('time')))}" if row.get("time") else ""
-            lines.append(
-                f"<div style='margin:3px 0;color:{color}'><b>{escape(str(row.get('symbol')))} "
-                f"{escape(str(row.get('label')))}</b> <span style='float:right'>"
-                f"{escape(str(row.get('value')))}{timing}</span></div>"
-            )
-        content.setText("".join(lines) or "Waiting for live run data…")
+        empty.hide()
+        complete.hide()
+        rows = list(payload.get("rows") or ())
+        self._ensure_build_progression_rows(len(rows))
+        for index, row_widget in enumerate(self._build_progression_rows):
+            if index < len(rows):
+                row_widget.update_row(rows[index])
+            else:
+                row_widget.hide()
+        completed_count = sum(row.get("status") == "satisfied" for row in rows)
+        remaining_count = max(0, len(rows) - completed_count)
+        footer.setText(f"{remaining_count} remaining  ·  {completed_count} completed")
+        footer.show()
+
+    def _ensure_build_progression_rows(self, count: int) -> None:
+        layout = self._build_progression_rows_layout
+        if layout is None:
+            return
+        while len(self._build_progression_rows) < count:
+            row = _BuildProgressionRow()
+            self._build_progression_rows.append(row)
+            layout.addWidget(row)
+
+    def _hide_build_progression_rows(self) -> None:
+        for row in self._build_progression_rows:
+            row.hide()
 
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
         """Re-render the recording timeline strip.
@@ -1148,24 +1244,71 @@ class LiveStatsTab:
         damage_sources_tab_layout.addWidget(player_damage_sources_scroll)
         build_progression_tab = QWidget()
         build_progression_layout = QVBoxLayout(build_progression_tab)
-        build_header_row = QHBoxLayout()
-        self._build_progression_header = QLabel("Build Progression")
-        self._build_progression_header.setObjectName("sectionTitle")
-        build_header_row.addWidget(self._build_progression_header)
-        build_header_row.addStretch(1)
+        build_progression_layout.setContentsMargins(8, 8, 8, 8)
+        build_progression_layout.setSpacing(10)
+
+        build_actions = QHBoxLayout()
+        build_eyebrow = QLabel("LIVE BUILD")
+        build_eyebrow.setObjectName("kpiLabel")
+        build_actions.addWidget(build_eyebrow)
+        build_actions.addStretch(1)
         build_help = QPushButton("How it works")
         build_help.clicked.connect(lambda: BuildProgressionHelpDialog(self._root).exec())
         build_configure = QPushButton("Configure")
         build_configure.setObjectName("primary")
         build_configure.clicked.connect(self._open_build_progression_settings)
-        build_header_row.addWidget(build_help)
-        build_header_row.addWidget(build_configure)
-        build_progression_layout.addLayout(build_header_row)
-        self._build_progression_content = QLabel("No build configured yet.")
-        self._build_progression_content.setWordWrap(True)
-        self._build_progression_content.setTextFormat(Qt.RichText)
-        self._build_progression_content.setAlignment(Qt.AlignTop)
-        build_progression_layout.addWidget(self._build_progression_content, 1)
+        build_actions.addWidget(build_help)
+        build_actions.addWidget(build_configure)
+        build_progression_layout.addLayout(build_actions)
+
+        build_card = QFrame()
+        build_card.setObjectName("BuildProgressionCard")
+        build_card_layout = QVBoxLayout(build_card)
+        build_card_layout.setContentsMargins(14, 13, 14, 13)
+        build_card_layout.setSpacing(8)
+
+        build_card_header = QHBoxLayout()
+        build_card_header.setSpacing(8)
+        self._build_progression_header = QLabel("Build Progression")
+        self._build_progression_header.setObjectName("BuildProgressionName")
+        build_card_header.addWidget(self._build_progression_header, 1)
+        self._build_progression_progress = QLabel("NOT CONFIGURED")
+        self._build_progression_progress.setObjectName("BuildProgressionProgress")
+        build_card_header.addWidget(self._build_progression_progress)
+        self._build_progression_clock = QLabel()
+        self._build_progression_clock.setObjectName("BuildProgressionClock")
+        build_card_header.addWidget(self._build_progression_clock)
+        build_card_layout.addLayout(build_card_header)
+
+        build_rule = QFrame()
+        build_rule.setObjectName("BuildProgressionDivider")
+        build_card_layout.addWidget(build_rule)
+
+        self._build_progression_empty = QLabel()
+        self._build_progression_empty.setObjectName("BuildProgressionEmpty")
+        self._build_progression_empty.setWordWrap(True)
+        build_card_layout.addWidget(self._build_progression_empty)
+
+        self._build_progression_complete = QLabel()
+        self._build_progression_complete.setObjectName("BuildProgressionComplete")
+        self._build_progression_complete.setAlignment(Qt.AlignCenter)
+        self._build_progression_complete.hide()
+        build_card_layout.addWidget(self._build_progression_complete)
+
+        rows_host = QWidget()
+        rows_host.setObjectName("BuildProgressionRows")
+        self._build_progression_rows_layout = QVBoxLayout(rows_host)
+        self._build_progression_rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._build_progression_rows_layout.setSpacing(6)
+        build_card_layout.addWidget(rows_host)
+
+        self._build_progression_footer = QLabel()
+        self._build_progression_footer.setObjectName("BuildProgressionFooter")
+        self._build_progression_footer.setAlignment(Qt.AlignRight)
+        build_card_layout.addWidget(self._build_progression_footer)
+
+        build_progression_layout.addWidget(build_card)
+        build_progression_layout.addStretch(1)
         # These eight widgets are the component's, not the shared namespace's.
         # As `self.player_stats_weapons_layout` and friends they were reached
         # by composed name from `cards.py` behind guards that returned silently

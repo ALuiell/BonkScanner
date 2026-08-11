@@ -89,6 +89,18 @@ class SettingsDialogsOpenTests(unittest.TestCase):
             # had been deleted with the section it belonged to.
             overlay.open_overlay_widget_settings_dialog()
             assert opened, "the dialog never reached exec"
+            from PySide6.QtWidgets import QGroupBox, QTabWidget
+            dialog = opened[-1]
+            tabs = dialog.findChild(QTabWidget, "subTabs")
+            build_group = next(
+                group
+                for group in dialog.findChildren(QGroupBox)
+                if group.title() == "Build Progression"
+            )
+            assert tabs.tabText(1) == "Advanced"
+            assert tabs.widget(1).isAncestorOf(build_group), (
+                "Build Progression settings must live under Advanced"
+            )
             """
         )
 

@@ -7,7 +7,7 @@ from uuid import uuid4
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QDoubleSpinBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QDoubleSpinBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton,
     QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -20,7 +20,13 @@ from projections.tracked_items import (
     available_tracked_item_names,
     group_tracked_items_by_rarity,
 )
-from ui.dialogs.shell import DIALOG_REGULAR, DIALOG_TALL, DIALOG_WIDE, dialog_body
+from ui.dialogs.shell import (
+    DIALOG_REGULAR,
+    DIALOG_TALL,
+    DIALOG_WIDE,
+    dialog_body,
+    dialog_footer,
+)
 
 
 DEADLINE_OPTIONS = (
@@ -29,6 +35,18 @@ DEADLINE_OPTIONS = (
     ("stage_start", "Stage start", "Before a stage begins"),
     ("stage_overtime", "Stage overtime", "Before an OT minute"),
 )
+
+
+def _card() -> QFrame:
+    card = QFrame()
+    card.setObjectName("card")
+    return card
+
+
+def _eyebrow(text: str) -> QLabel:
+    label = QLabel(str(text).upper())
+    label.setObjectName("kpiLabel")
+    return label
 
 
 class BuildProgressionHelpDialog(QDialog):
@@ -78,11 +96,14 @@ class BuildProgressionDialog(QDialog):
             width=DIALOG_WIDE,
             height=DIALOG_TALL,
         )
-        general = QHBoxLayout()
+        general_card = _card()
+        general = QHBoxLayout(general_card)
+        general.setContentsMargins(12, 12, 12, 12)
+        general.setSpacing(10)
+        general.addWidget(_eyebrow("Build definition"))
         self.name_entry = QLineEdit(str(self._draft.get("name") or "Build Progression"))
         self.name_entry.setPlaceholderText("Build name")
         self.name_entry.textChanged.connect(self._refresh_preview)
-        general.addWidget(QLabel("Build name"))
         general.addWidget(self.name_entry, 1)
         self.deadlines_enabled = QCheckBox("Use deadlines")
         self.deadlines_enabled.setChecked(bool(self._draft.get("deadlines_enabled", True)))
@@ -90,12 +111,13 @@ class BuildProgressionDialog(QDialog):
         help_btn = QPushButton("How it works")
         help_btn.clicked.connect(lambda: BuildProgressionHelpDialog(self).exec())
         general.addWidget(help_btn)
-        layout.addLayout(general)
+        layout.addWidget(general_card)
 
         split = QSplitter(Qt.Horizontal)
+        split.setChildrenCollapsible(False)
         split.addWidget(self._build_picker())
         split.addWidget(self._build_editor())
-        split.setSizes([430, 560])
+        split.setSizes([390, 510])
         layout.addWidget(split, 1)
 
         preview = QLabel()
@@ -104,12 +126,18 @@ class BuildProgressionDialog(QDialog):
         self.preview = preview
         layout.addWidget(preview)
 
-        footer = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        clear = footer.addButton("Remove all", QDialogButtonBox.DestructiveRole)
+        save = QPushButton("Save")
+        cancel = QPushButton("Cancel")
+        clear = QPushButton("Remove all")
         clear.clicked.connect(self._remove_all)
-        footer.accepted.connect(self._save)
-        footer.rejected.connect(self.reject)
-        layout.addWidget(footer)
+        save.clicked.connect(self._save)
+        cancel.clicked.connect(self.reject)
+        dialog_footer(
+            self,
+            primary=save,
+            secondary=cancel,
+            destructive=clear,
+        )
 
         self._refresh_picker()
         self._refresh_rules()
@@ -120,11 +148,13 @@ class BuildProgressionDialog(QDialog):
         self._deadline_changed()
 
     def _build_picker(self) -> QWidget:
-        holder = QWidget()
+        holder = _card()
         layout = QVBoxLayout(holder)
-        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         kind_row = QHBoxLayout()
-        kind_row.addWidget(QLabel("Choose requirement"))
+        kind_row.addWidget(_eyebrow("Available targets"))
+        kind_row.addStretch(1)
         self.kind_combo = QComboBox()
         self.kind_combo.addItem("Items", "item")
         self.kind_combo.addItem("Stats", "stat")
@@ -137,7 +167,10 @@ class BuildProgressionDialog(QDialog):
         self.search.textChanged.connect(self._refresh_picker)
         layout.addWidget(self.search)
         self.picker = QTreeWidget()
+        self.picker.setObjectName("buildPicker")
         self.picker.setHeaderHidden(True)
+        self.picker.setRootIsDecorated(True)
+        self.picker.setIndentation(14)
         self.picker.itemSelectionChanged.connect(self._target_changed)
         layout.addWidget(self.picker, 1)
         return holder
@@ -146,8 +179,17 @@ class BuildProgressionDialog(QDialog):
         holder = QWidget()
         layout = QVBoxLayout(holder)
         layout.setContentsMargins(8, 0, 0, 0)
-        layout.addWidget(QLabel("Configure requirement"))
+        layout.setSpacing(10)
+
+        builder = _card()
+        builder_layout = QVBoxLayout(builder)
+        builder_layout.setContentsMargins(12, 12, 12, 12)
+        builder_layout.setSpacing(10)
+        builder_layout.addWidget(_eyebrow("Configure requirement"))
         form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
         self.required = QDoubleSpinBox()
         self.required.setRange(0.01, 99999)
         self.required.setDecimals(2)
@@ -162,45 +204,64 @@ class BuildProgressionDialog(QDialog):
         for label, value in (("Normal", "normal"), ("Early", "early"), ("ASAP", "asap")):
             self.priority.addItem(label, value)
         form.addRow("Priority", self.priority)
-        layout.addLayout(form)
+        builder_layout.addLayout(form)
 
         grid = QGridLayout()
         self.deadline_group = QButtonGroup(self)
         for index, (value, caption, hint) in enumerate(DEADLINE_OPTIONS):
             button = QRadioButton(f"{caption}\n{hint}")
+            button.setObjectName("deadlineTile")
+            button.setMinimumHeight(52)
             button.setProperty("deadlineKind", value)
             self.deadline_group.addButton(button)
             grid.addWidget(button, index // 2, index % 2)
             if value == "none":
                 button.setChecked(True)
         self.deadline_group.buttonClicked.connect(self._deadline_changed)
-        layout.addLayout(grid)
+        grid.setSpacing(8)
+        builder_layout.addLayout(grid)
 
         deadline_form = QFormLayout()
         self.stage = QComboBox()
         for number in range(1, 5):
             self.stage.addItem(f"Stage {number}", number)
         deadline_form.addRow("Stage", self.stage)
+        self._stage_label = deadline_form.labelForField(self.stage)
         self.time_entry = QLineEdit("05:00")
         self.time_entry.setPlaceholderText("MM:SS")
         deadline_form.addRow("Time", self.time_entry)
-        layout.addLayout(deadline_form)
+        self._time_label = deadline_form.labelForField(self.time_entry)
+        builder_layout.addLayout(deadline_form)
 
         self.summary = QLabel()
+        self.summary.setObjectName("dialogHint")
         self.summary.setWordWrap(True)
-        layout.addWidget(self.summary)
+        builder_layout.addWidget(self.summary)
         actions = QHBoxLayout()
         self.add_button = QPushButton("Add requirement")
         self.add_button.setObjectName("primary")
         self.add_button.clicked.connect(self._add_or_update)
         actions.addWidget(self.add_button)
         actions.addStretch(1)
-        layout.addLayout(actions)
+        builder_layout.addLayout(actions)
+        layout.addWidget(builder)
 
+        rules_card = _card()
+        rules_layout = QVBoxLayout(rules_card)
+        rules_layout.setContentsMargins(12, 12, 12, 12)
+        rules_layout.setSpacing(8)
+        rules_head = QHBoxLayout()
+        rules_head.addWidget(_eyebrow("Build requirements"))
+        rules_head.addStretch(1)
+        self.rules_count = QLabel()
+        self.rules_count.setObjectName("pickerCount")
+        rules_head.addWidget(self.rules_count)
+        rules_layout.addLayout(rules_head)
         self.rules = QListWidget()
+        self.rules.setObjectName("buildRequirementList")
         self.rules.setDragDropMode(QListWidget.InternalMove)
         self.rules.itemDoubleClicked.connect(lambda _item: self._edit_selected())
-        layout.addWidget(self.rules, 1)
+        rules_layout.addWidget(self.rules, 1)
         rule_actions = QHBoxLayout()
         edit = QPushButton("Edit")
         edit.clicked.connect(self._edit_selected)
@@ -209,7 +270,8 @@ class BuildProgressionDialog(QDialog):
         rule_actions.addWidget(edit)
         rule_actions.addWidget(remove)
         rule_actions.addStretch(1)
-        layout.addLayout(rule_actions)
+        rules_layout.addLayout(rule_actions)
+        layout.addWidget(rules_card, 1)
         return holder
 
     def _refresh_picker(self, *_args) -> None:
@@ -240,8 +302,12 @@ class BuildProgressionDialog(QDialog):
 
     def _deadline_changed(self, *_args) -> None:
         kind = self._deadline_kind()
-        self.stage.setVisible(kind in {"stage_start", "stage_overtime"})
-        self.time_entry.setVisible(kind in {"run_clock", "stage_overtime"})
+        stage_visible = kind in {"stage_start", "stage_overtime"}
+        time_visible = kind in {"run_clock", "stage_overtime"}
+        self.stage.setVisible(stage_visible)
+        self._stage_label.setVisible(stage_visible)
+        self.time_entry.setVisible(time_visible)
+        self._time_label.setVisible(time_visible)
         self._refresh_summary()
 
     def _selected_target(self) -> str:
@@ -335,7 +401,11 @@ class BuildProgressionDialog(QDialog):
 
     def _refresh_rules(self) -> None:
         self.rules.clear()
-        for row in self._draft.get("requirements") or ():
+        requirements = self._draft.get("requirements") or ()
+        self.rules_count.setText(
+            f"{len(requirements)} configured" if requirements else "Empty"
+        )
+        for row in requirements:
             deadline = row.get("deadline") or {}
             kind = deadline.get("kind", "none")
             if kind == "run_clock":

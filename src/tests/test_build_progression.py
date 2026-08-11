@@ -102,6 +102,8 @@ class BuildProgressionTests(unittest.TestCase):
 
         self.assertTrue(dialog.stage.isHidden())
         self.assertTrue(dialog.time_entry.isHidden())
+        self.assertTrue(dialog._stage_label.isHidden())
+        self.assertTrue(dialog._time_label.isHidden())
 
         run_clock = next(
             button
@@ -111,7 +113,9 @@ class BuildProgressionTests(unittest.TestCase):
         run_clock.click()
         app.processEvents()
         self.assertTrue(dialog.stage.isHidden())
+        self.assertTrue(dialog._stage_label.isHidden())
         self.assertFalse(dialog.time_entry.isHidden())
+        self.assertFalse(dialog._time_label.isHidden())
 
     def test_run_clock_warning_and_overdue_boundaries(self):
         definition = BuildProgressionDefinition(

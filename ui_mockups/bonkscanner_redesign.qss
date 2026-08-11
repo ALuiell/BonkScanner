@@ -230,6 +230,122 @@ QWidget#BanishesChips {
     background: transparent;
 }
 
+/* Live Stats / Build Progression: a compact checklist card rather than one
+   rich-text label floating in the page. */
+QFrame#BuildProgressionCard {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+}
+QLabel#BuildProgressionName {
+    color: #EDF1F5;
+    font-size: 16px;
+    font-weight: 750;
+    background: transparent;
+}
+QLabel#BuildProgressionProgress,
+QLabel#BuildProgressionClock {
+    color: #B9DFFF;
+    background-color: #10263A;
+    border: 1px solid #1F4D70;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 750;
+}
+QLabel#BuildProgressionClock {
+    color: #AEB8C6;
+    background-color: #111820;
+    border-color: #27313D;
+}
+QFrame#BuildProgressionDivider {
+    background-color: #1B222B;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}
+QWidget#BuildProgressionRows { background: transparent; }
+QFrame#BuildProgressionRow {
+    background-color: #0E141B;
+    border: 1px solid #1D2732;
+    border-left: 3px solid #4A5664;
+    border-radius: 8px;
+}
+QFrame#BuildProgressionRow[status="warning"] {
+    background-color: #1B1810;
+    border-color: #4F421A;
+    border-left-color: #FACC15;
+}
+QFrame#BuildProgressionRow[status="overdue"] {
+    background-color: #1D1012;
+    border-color: #51242A;
+    border-left-color: #F87171;
+}
+QFrame#BuildProgressionRow[status="satisfied"] {
+    background-color: #0D1814;
+    border-color: #1D3B30;
+    border-left-color: #34D399;
+}
+QFrame#BuildProgressionRow[status="unknown"] {
+    border-left-color: #6B7280;
+}
+QLabel#BuildProgressionSymbol {
+    color: #AEB8C6;
+    font-size: 14px;
+    font-weight: 800;
+    background: transparent;
+}
+QFrame#BuildProgressionRow[status="warning"] QLabel#BuildProgressionSymbol { color: #FACC15; }
+QFrame#BuildProgressionRow[status="overdue"] QLabel#BuildProgressionSymbol { color: #F87171; }
+QFrame#BuildProgressionRow[status="satisfied"] QLabel#BuildProgressionSymbol { color: #34D399; }
+QLabel#BuildProgressionTarget {
+    color: #E4E9F0;
+    font-size: 13px;
+    font-weight: 650;
+    background: transparent;
+}
+QLabel#BuildProgressionValue {
+    color: #C7D0DC;
+    font-size: 12.5px;
+    font-weight: 700;
+    background: transparent;
+}
+QLabel#BuildProgressionDeadline {
+    color: #93C5FD;
+    background-color: #101E30;
+    border: 1px solid #1E3A5C;
+    border-radius: 5px;
+    padding: 2px 6px;
+    font-size: 10.5px;
+    font-weight: 700;
+}
+QFrame#BuildProgressionRow[status="warning"] QLabel#BuildProgressionDeadline {
+    color: #FDE68A; background-color: #2A2310; border-color: #5D4A17;
+}
+QFrame#BuildProgressionRow[status="overdue"] QLabel#BuildProgressionDeadline {
+    color: #FCA5A5; background-color: #301519; border-color: #643039;
+}
+QLabel#BuildProgressionEmpty {
+    color: #7F8A99;
+    background: transparent;
+    padding: 18px 8px;
+}
+QLabel#BuildProgressionComplete {
+    color: #6EE7B7;
+    background-color: #0D211A;
+    border: 1px solid #23533F;
+    border-radius: 9px;
+    padding: 18px;
+    font-size: 15px;
+    font-weight: 800;
+}
+QLabel#BuildProgressionFooter {
+    color: #657181;
+    background: transparent;
+    font-size: 11px;
+    font-weight: 650;
+}
+
 /* QGroupBox — стандартная карта-контейнер (Run Summary, Stage Summary, …) */
 QGroupBox {
     background-color: #0B0F14;
@@ -835,6 +951,62 @@ QScrollArea { border: none; background: transparent; }
 QWidget#trackedPicker { background: transparent; }
 QLabel#dialogHint { color: #8A94A3; font-size: 12px; background: transparent; }
 QLabel#pickerCount { color: #5C6675; font-size: 11px; font-weight: 700; background: transparent; }
+
+/* Build Progression reuses the Tracked Items card vocabulary.  The picker and
+   configured list are content inside cards, not a second pair of framed
+   windows competing with their container. */
+QTreeWidget#buildPicker,
+QListWidget#buildRequirementList {
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+}
+QTreeWidget#buildPicker::item,
+QListWidget#buildRequirementList::item {
+    min-height: 25px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    color: #C7D0DC;
+}
+QTreeWidget#buildPicker::item:hover,
+QListWidget#buildRequirementList::item:hover {
+    background-color: #151C24;
+    color: #EDF1F5;
+}
+QTreeWidget#buildPicker::item:selected,
+QListWidget#buildRequirementList::item:selected {
+    background-color: #10263A;
+    color: #E0F2FE;
+}
+QRadioButton#deadlineTile {
+    background-color: #0B0F14;
+    border: 1px solid #242D38;
+    border-radius: 9px;
+    padding: 8px 10px;
+    color: #C7D0DC;
+    font-size: 12px;
+}
+QRadioButton#deadlineTile:hover {
+    border-color: #38495E;
+    background-color: #101820;
+}
+QRadioButton#deadlineTile:checked {
+    border-color: #2F80C5;
+    background-color: #10263A;
+    color: #EDF1F5;
+}
+QRadioButton#deadlineTile::indicator {
+    width: 14px; height: 14px;
+    border: 1px solid #465464;
+    border-radius: 7px;
+    background: transparent;
+}
+QRadioButton#deadlineTile::indicator:checked {
+    background-color: #38BDF8;
+    border: 3px solid #10263A;
+    border-radius: 7px;
+}
 /* Заголовок группы по редкости. Список и раньше был отсортирован по ней —
    просто молча. */
 QLabel#pickerGroup {

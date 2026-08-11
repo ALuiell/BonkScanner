@@ -694,7 +694,10 @@ class Overlay:
         rows_line.addWidget(self.overlay_build_max_rows_spin)
         rows_line.addStretch(1)
         build_layout.addLayout(rows_line)
-        basic_layout.addWidget(build_group)
+        # Build Progression has its own shared definition editor plus six
+        # presentation switches.  Keep the Basic tab for the small, common
+        # per-widget toggles and place this full configuration in Advanced.
+        advanced_layout.addWidget(build_group)
 
         banishes_group = QGroupBox("Banishes")
         banishes_layout = QVBoxLayout(banishes_group)
