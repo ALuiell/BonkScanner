@@ -88,27 +88,28 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
             f"<span style='opacity:.8'>{escape(str(row.get('time')))}</span>"
             if row.get("time") else ""
         )
+        label_color = str(row.get("label_color") or "#d7dde5")
+        if not (
+            len(label_color) == 7
+            and label_color.startswith("#")
+            and all(char in "0123456789abcdefABCDEF" for char in label_color[1:])
+        ):
+            label_color = "#d7dde5"
         rows.append(
-            f"<div style='display:flex;gap:7px;color:{color};text-shadow:{shadow}'>"
-            f"<b>{escape(str(row.get('symbol') or '·'))}</b>"
-            f"<span style='flex:1'>{escape(str(row.get('label') or '--'))}</span>"
-            f"<b>{escape(str(row.get('value') or '--'))}</b>{timing}</div>"
+            f"<div style='display:grid;grid-template-columns:14px minmax(140px,1fr) auto 82px;"
+            f"align-items:center;gap:8px;text-shadow:{shadow}'>"
+            f"<b style='color:{color};text-align:center'>{escape(str(row.get('symbol') or '·'))}</b>"
+            f"<span style='color:{label_color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"
+            f"{escape(str(row.get('label') or '--'))}</span>"
+            f"<b style='color:#d7dde5;text-align:right'>{escape(str(row.get('value') or '--'))}</b>"
+            f"<span style='color:{color};text-align:right'>{timing}</span></div>"
         )
-    suffix = []
-    if payload.get("hidden_completed"):
-        suffix.append(f"+{int(payload['hidden_completed'])} completed")
-    if payload.get("hidden_remaining"):
-        suffix.append(f"+{int(payload['hidden_remaining'])} remaining")
-    suffix_html = (
-        f"<div style='color:#8c96a8;text-shadow:{shadow}'>{' · '.join(suffix)}</div>"
-        if suffix else ""
-    )
     return (
         f"<div style='min-width:280px'>"
         f"<div style='display:flex;justify-content:space-between;color:#fff;text-shadow:{shadow};font-weight:700'>"
         f"<span>{escape(str(payload.get('name') or 'Build Progression'))}</span>"
-        f"<span>{escape(str(payload.get('progress') or '0/0'))} · {escape(str(payload.get('run_time') or '--:--'))}</span></div>"
-        f"<div style='margin-top:4px'>{''.join(rows)}</div>{suffix_html}</div>"
+        f"<span>{escape(str(payload.get('progress') or '0/0'))}</span></div>"
+        f"<div style='margin-top:5px;display:grid;gap:4px'>{''.join(rows)}</div></div>"
     )
 #: The colour of "this overlay does not recognise this thing" -- an unrecognised
 #: powerup, or an item whose rarity the catalog has never heard of.

@@ -987,6 +987,7 @@ QRadioButton#deadlineTile {
     border: 1px solid #242D38;
     border-radius: 9px;
     padding: 8px 10px;
+    spacing: 0px;
     color: #C7D0DC;
     font-size: 12px;
 }
@@ -995,20 +996,16 @@ QRadioButton#deadlineTile:hover {
     background-color: #101820;
 }
 QRadioButton#deadlineTile:checked {
-    border-color: #2F80C5;
-    background-color: #10263A;
+    border: 2px solid #38BDF8;
+    background-color: #0B0F14;
     color: #EDF1F5;
 }
 QRadioButton#deadlineTile::indicator {
-    width: 14px; height: 14px;
-    border: 1px solid #465464;
-    border-radius: 7px;
+    width: 0px;
+    height: 0px;
+    margin: 0px;
+    border: none;
     background: transparent;
-}
-QRadioButton#deadlineTile::indicator:checked {
-    background-color: #38BDF8;
-    border: 3px solid #10263A;
-    border-radius: 7px;
 }
 /* Заголовок группы по редкости. Список и раньше был отсортирован по ней —
    просто молча. */

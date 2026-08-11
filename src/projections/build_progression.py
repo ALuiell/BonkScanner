@@ -7,8 +7,8 @@ from core.build_progression import (
     BuildProgressionSnapshot,
     RequirementStatus,
     format_clock,
-    format_priority,
 )
+from core.item_metadata import item_display_color
 
 
 def build_progression_payload(
@@ -26,36 +26,33 @@ def build_progression_payload(
         for row in snapshot.rows
         if show_completed or row.status is not RequirementStatus.SATISFIED
     ]
-    show_headings = bool(options.get("show_section_headings", False))
+    show_headings = bool(options.get("show_section_headings", True))
     if show_headings:
         visible = [row for kind in ("item", "stat") for row in visible if row.kind.value == kind]
     shown = visible[:max_rows]
     rows = []
     for row in shown:
         value = f"{row.current_display}/{row.required_display}"
-        if row.ideal_display is not None:
-            value += f" · ideal {row.ideal_display}"
         time_text = ""
         if show_time:
-            if row.time_delta_seconds is not None:
-                if row.time_delta_seconds < 0:
-                    time_text = f"+{format_clock(abs(row.time_delta_seconds))}"
-                elif row.status is RequirementStatus.WARNING:
-                    time_text = format_clock(row.time_delta_seconds)
-                else:
-                    time_text = row.deadline_label
-            else:
-                time_text = row.deadline_label
+            # Always show the configured target. Runtime state is already
+            # conveyed by symbol and colour; changing this cell into a
+            # countdown or lateness timer makes the deadline itself disappear.
+            time_text = row.deadline_label
         rows.append(
             {
                 "id": row.id,
                 "kind": row.kind.value,
                 "label": row.target,
                 "value": value,
-                "priority": format_priority(row.priority).lower(),
                 "status": row.status.value,
                 "symbol": row.symbol,
                 "time": time_text,
+                "label_color": (
+                    item_display_color(row.target) or "#E5E7EB"
+                    if row.kind.value == "item"
+                    else "#93C5FD"
+                ),
             }
         )
     hidden_completed = sum(
@@ -79,12 +76,13 @@ def build_progression_payload(
     }
 
 
-def format_twitch_build(snapshot: BuildProgressionSnapshot, *, max_rows: int = 2) -> dict[str, str]:
+def format_twitch_build(snapshot: BuildProgressionSnapshot, *, max_chars: int = 430) -> dict[str, str]:
     if not snapshot.configured:
         return {
             "name": "Build Progression",
             "progress": "not configured",
             "requirements": "Build not configured",
+            "completed_requirements": "",
             "remaining_suffix": "",
             "completion_time": "--:--",
         }
@@ -93,27 +91,42 @@ def format_twitch_build(snapshot: BuildProgressionSnapshot, *, max_rows: int = 2
             "name": snapshot.name,
             "progress": f"BUILD COMPLETE · {format_clock(snapshot.completion_time_seconds)}",
             "requirements": "",
+            "completed_requirements": "",
             "remaining_suffix": "",
             "completion_time": format_clock(snapshot.completion_time_seconds),
         }
-    incomplete = [
-        row for row in snapshot.rows if row.status is not RequirementStatus.SATISFIED
-    ]
-    chunks = []
-    for row in incomplete[:max_rows]:
+    incomplete = [row for row in snapshot.rows if row.status is not RequirementStatus.SATISFIED]
+    completed = [row for row in snapshot.rows if row.status is RequirementStatus.SATISFIED]
+
+    def chunk(row) -> str:
         value = f"{row.current_display}/{row.required_display}"
-        timing = row.deadline_label
-        if row.time_delta_seconds is not None and row.time_delta_seconds < 0:
-            timing = f"+{format_clock(abs(row.time_delta_seconds))}"
-        chunks.append(
-            " ".join(part for part in (row.symbol, row.target, value, f"· {timing}" if timing else "") if part)
+        return " ".join(
+            part for part in (row.symbol, row.target, value, row.deadline_label) if part
         )
-    remaining = max(0, len(incomplete) - len(chunks))
+
+    def bounded(prefix: str, rows) -> str:
+        chunks: list[str] = []
+        for index, row in enumerate(rows):
+            candidate = "; ".join((*chunks, chunk(row)))
+            remaining = len(rows) - index - 1
+            suffix = f"; +{remaining} more" if remaining else ""
+            if len(prefix) + len(candidate) + len(suffix) > max_chars:
+                break
+            chunks.append(chunk(row))
+        hidden = max(0, len(rows) - len(chunks))
+        body = "; ".join(chunks)
+        if hidden:
+            body = f"{body}; +{hidden} more" if body else f"+{hidden} more"
+        return f"{prefix}{body}" if body else ""
+
+    requirements = bounded("", incomplete)
+    completed_requirements = bounded("COMPLETED: ", completed)
     return {
         "name": snapshot.name,
         "progress": f"{snapshot.completed}/{snapshot.total}",
-        "requirements": f" | {' | '.join(chunks)}" if chunks else "",
-        "remaining_suffix": f" | +{remaining} remaining" if remaining else "",
+        "requirements": f" | {requirements}" if requirements else "",
+        "completed_requirements": completed_requirements,
+        "remaining_suffix": "",
         "completion_time": "--:--",
     }
 

@@ -663,31 +663,33 @@ class Overlay:
         configure_build.clicked.connect(self.open_build_progression_dialog)
         build_layout.addWidget(configure_build)
         build_cfg = self._overlay_widget_config_by_id().get("build_progression", {})
+        mode_line = QHBoxLayout()
+        mode_line.addWidget(QLabel("Presentation"))
+        self.overlay_build_mode_combo = QComboBox()
+        for caption, value in (
+            ("Full", "full"),
+            ("Compact", "compact"),
+            ("Text only", "text"),
+        ):
+            self.overlay_build_mode_combo.addItem(caption, value)
+        self.overlay_build_mode_combo.setCurrentIndex(
+            max(0, self.overlay_build_mode_combo.findData(build_cfg.get("mode", "compact")))
+        )
+        self.overlay_build_mode_combo.currentIndexChanged.connect(
+            lambda _index: self.save_overlay_settings_from_ui()
+        )
+        mode_line.addWidget(self.overlay_build_mode_combo)
+        mode_line.addStretch(1)
+        build_layout.addLayout(mode_line)
         self.overlay_build_completed_checkbox = QCheckBox("Show completed rows")
         self.overlay_build_completed_checkbox.setChecked(bool(build_cfg.get("show_completed", False)))
-        self.overlay_build_time_checkbox = QCheckBox("Show target time")
-        self.overlay_build_time_checkbox.setChecked(bool(build_cfg.get("show_target_time", True)))
-        self.overlay_build_headings_checkbox = QCheckBox("Show section headings")
-        self.overlay_build_headings_checkbox.setChecked(bool(build_cfg.get("show_section_headings", False)))
-        self.overlay_build_header_checkbox = QCheckBox("Show header")
-        self.overlay_build_header_checkbox.setChecked(bool(build_cfg.get("show_header", True)))
-        self.overlay_build_bg_checkbox = QCheckBox("Show background")
-        self.overlay_build_bg_checkbox.setChecked(float(build_cfg.get("background_opacity", 0)) > 0)
-        self.overlay_build_border_checkbox = QCheckBox("Show border")
-        self.overlay_build_border_checkbox.setChecked(bool(build_cfg.get("show_border", False)))
         self.overlay_build_max_rows_spin = QSpinBox()
         self.overlay_build_max_rows_spin.setRange(1, 20)
         self.overlay_build_max_rows_spin.setValue(int(build_cfg.get("max_rows", 6)))
-        for control in (
-            self.overlay_build_completed_checkbox,
-            self.overlay_build_time_checkbox,
-            self.overlay_build_headings_checkbox,
-            self.overlay_build_header_checkbox,
-            self.overlay_build_bg_checkbox,
-            self.overlay_build_border_checkbox,
-        ):
-            control.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
-            build_layout.addWidget(control)
+        self.overlay_build_completed_checkbox.stateChanged.connect(
+            lambda _state: self.save_overlay_settings_from_ui()
+        )
+        build_layout.addWidget(self.overlay_build_completed_checkbox)
         self.overlay_build_max_rows_spin.valueChanged.connect(lambda _value: self.save_overlay_settings_from_ui())
         rows_line = QHBoxLayout()
         rows_line.addWidget(QLabel("Maximum rows"))
@@ -991,12 +993,8 @@ class Overlay:
                     widget = dict(widget)
                     if getattr(self, "overlay_build_completed_checkbox", None) is not None:
                         widget["show_completed"] = self.overlay_build_completed_checkbox.isChecked()
-                        widget["show_target_time"] = self.overlay_build_time_checkbox.isChecked()
-                        widget["show_section_headings"] = self.overlay_build_headings_checkbox.isChecked()
                         widget["max_rows"] = self.overlay_build_max_rows_spin.value()
-                        widget["show_header"] = self.overlay_build_header_checkbox.isChecked()
-                        widget["background_opacity"] = 0.4 if self.overlay_build_bg_checkbox.isChecked() else 0.0
-                        widget["show_border"] = self.overlay_build_border_checkbox.isChecked()
+                        widget["mode"] = self.overlay_build_mode_combo.currentData() or "compact"
                 widgets.append(widget)
             overlay["widgets"] = widgets
             # `tracked_items` and `tracked_items_source` need no branch here:

@@ -9,7 +9,6 @@ from core.build_progression import (
     BuildProgressionSnapshot,
     BuildRequirement,
     DeadlineKind,
-    Priority,
     RequirementDeadline,
     RequirementKind,
     evaluate_build_progression,
@@ -27,8 +26,6 @@ def definition_from_config(value: Mapping[str, Any] | None) -> BuildProgressionD
                     kind=RequirementKind(str(raw["kind"])),
                     target=str(raw["target"]),
                     required=float(raw["required"]),
-                    ideal=float(raw["ideal"]) if raw.get("ideal") is not None else None,
-                    priority=Priority(str(raw.get("priority") or "normal")),
                     deadline=RequirementDeadline(
                         kind=DeadlineKind(str((raw.get("deadline") or {}).get("kind") or "none")),
                         stage=(raw.get("deadline") or {}).get("stage"),
@@ -57,12 +54,6 @@ def definition_to_config(definition: BuildProgressionDefinition) -> dict[str, An
                 "kind": row.kind.value,
                 "target": row.target,
                 "required": int(row.required) if row.kind is RequirementKind.ITEM else row.required,
-                "ideal": (
-                    int(row.ideal)
-                    if row.kind is RequirementKind.ITEM and row.ideal is not None
-                    else row.ideal
-                ),
-                "priority": row.priority.value,
                 "deadline": {
                     "kind": row.deadline.kind.value,
                     "stage": row.deadline.stage,

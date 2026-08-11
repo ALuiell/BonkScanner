@@ -6,14 +6,13 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import src
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtWidgets import QApplication, QLabel
 
 from core.build_progression import (
     BuildProgressionDefinition,
     BuildRequirement,
     DeadlineKind,
-    Priority,
     RequirementDeadline,
     RequirementKind,
     RequirementStatus,
@@ -53,13 +52,60 @@ def runtime(*, time=100.0, items=("Anvil",), damage=2.0, stage=1, stage_time=0.0
 
 
 class BuildProgressionTests(unittest.TestCase):
-    def test_items_stats_required_and_ideal(self):
+    def test_editor_never_shows_a_parentless_deadline_badge(self):
+        app = QApplication.instance() or QApplication([])
+
+        class ShowWatcher(QObject):
+            def __init__(self):
+                super().__init__()
+                self.parentless_deadline_shows = 0
+
+            def eventFilter(self, watched, event):
+                if (
+                    event.type() == QEvent.Show
+                    and getattr(watched, "objectName", lambda: "")()
+                    == "BuildRequirementDeadline"
+                    and getattr(watched, "parentWidget", lambda: None)() is None
+                ):
+                    self.parentless_deadline_shows += 1
+                return False
+
+        watcher = ShowWatcher()
+        app.installEventFilter(watcher)
+        self.addCleanup(app.removeEventFilter, watcher)
+        settings = SimpleNamespace(
+            read=lambda: {
+                "schema_version": 1,
+                "name": "Test",
+                "deadlines_enabled": True,
+                "requirements": [{
+                    "id": "deadline",
+                    "kind": "item",
+                    "target": "Anvil",
+                    "required": 1,
+                    "deadline": {
+                        "kind": "stage_overtime",
+                        "stage": 2,
+                        "seconds": 300,
+                    },
+                }],
+            },
+            write=MagicMock(),
+        )
+
+        dialog = BuildProgressionDialog(settings, SimpleNamespace())
+        self.addCleanup(dialog.close)
+        app.processEvents()
+
+        self.assertEqual(watcher.parentless_deadline_shows, 0)
+
+    def test_items_and_stats_use_required_thresholds(self):
         _tracker, snap = runtime(items=("Anvil", "Anvil"), damage=3.5)
         definition = BuildProgressionDefinition(
             name="Test",
             requirements=(
-                BuildRequirement("a", RequirementKind.ITEM, "Anvil", 1, 3),
-                BuildRequirement("d", RequirementKind.STAT, "Damage", 3.0, 5.0),
+                BuildRequirement("a", RequirementKind.ITEM, "Anvil", 1),
+                BuildRequirement("d", RequirementKind.STAT, "Damage", 3.0),
             ),
         )
         result = evaluate_build_progression(definition, snap).snapshot
@@ -68,7 +114,6 @@ class BuildProgressionTests(unittest.TestCase):
         rows = {row.id: row for row in result.rows}
         self.assertEqual(rows["a"].current_display, "2")
         self.assertEqual(rows["d"].required_display, "3x")
-        self.assertEqual(rows["d"].ideal_display, "5x")
 
     def test_stacked_live_inventory_strings_use_their_embedded_count(self):
         _tracker, snap = runtime(items=("Wizard's Hat x198", "Beefy Ring x1"))
@@ -106,17 +151,17 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertTrue(dialog._stage_label.isHidden())
         self.assertTrue(dialog._time_label.isHidden())
 
-        run_clock = next(
+        before_tier = next(
             button
             for button in dialog.deadline_group.buttons()
-            if button.property("deadlineKind") == "run_clock"
+            if button.property("deadlineKind") == "stage_start"
         )
-        run_clock.click()
+        before_tier.click()
         app.processEvents()
-        self.assertTrue(dialog.stage.isHidden())
-        self.assertTrue(dialog._stage_label.isHidden())
-        self.assertFalse(dialog.time_entry.isHidden())
-        self.assertFalse(dialog._time_label.isHidden())
+        self.assertFalse(dialog.stage.isHidden())
+        self.assertFalse(dialog._stage_label.isHidden())
+        self.assertTrue(dialog.time_entry.isHidden())
+        self.assertTrue(dialog._time_label.isHidden())
 
     def test_editor_uses_rarity_chips_and_a_single_row_for_requirement_values(self):
         app = QApplication.instance() or QApplication([])
@@ -135,12 +180,6 @@ class BuildProgressionTests(unittest.TestCase):
         app.processEvents()
 
         self.assertEqual(dialog.required.decimals(), 0)
-        self.assertEqual(dialog.ideal.decimals(), 0)
-        self.assertEqual(
-            [dialog.priority.itemText(i) for i in range(dialog.priority.count())],
-            ["High", "Medium", "Low"],
-        )
-        self.assertEqual(dialog.priority.currentText(), "Low")
         anvil = dialog._picker_buttons["Anvil"]
         self.assertEqual(anvil.objectName(), "pickChip")
         self.assertIn("border: 1px solid", anvil.styleSheet())
@@ -148,18 +187,15 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(dialog._selected_target(), "Anvil")
         self.assertTrue(anvil.isChecked())
 
-        field_tops = {
-            dialog.required.parentWidget().geometry().top(),
-            dialog.ideal.parentWidget().geometry().top(),
-            dialog.priority.parentWidget().geometry().top(),
-        }
-        self.assertEqual(len(field_tops), 1)
         self.assertGreaterEqual(dialog.rules.height(), 100)
-        self.assertGreater(
-            dialog._configurator_card.geometry().top(),
-            dialog._picker_card.geometry().top(),
+        self.assertIs(
+            dialog._configurator_card.parentWidget(),
+            dialog._rules_card.parentWidget(),
         )
-        self.assertGreater(dialog._rules_card.height(), dialog._picker_card.height())
+        self.assertIsNot(
+            dialog._configurator_card.parentWidget(),
+            dialog._picker_card.parentWidget(),
+        )
 
         dialog._draft["requirements"] = [
             {
@@ -167,8 +203,6 @@ class BuildProgressionTests(unittest.TestCase):
                 "kind": "item",
                 "target": "Anvil",
                 "required": 1,
-                "ideal": None,
-                "priority": "asap",
                 "deadline": {
                     "kind": "stage_overtime",
                     "stage": 2,
@@ -184,28 +218,14 @@ class BuildProgressionTests(unittest.TestCase):
             dialog.rules.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff
         )
         target = requirement_row.findChild(QLabel, "BuildRequirementTarget")
-        priority = requirement_row.findChild(QLabel, "BuildRequirementPriority")
         deadline = requirement_row.findChild(QLabel, "BuildRequirementDeadline")
         self.assertIn("color:", target.styleSheet())
-        self.assertEqual(priority.text(), "High")
-        self.assertEqual(deadline.text(), "T2 OT · 05:00")
+        self.assertIsNone(requirement_row.findChild(QLabel, "BuildRequirementPriority"))
+        self.assertEqual(deadline.text(), "T2 +05:00")
 
         dialog.kind_combo.setCurrentIndex(dialog.kind_combo.findData("stat"))
         app.processEvents()
         self.assertEqual(dialog.required.decimals(), 2)
-        self.assertEqual(dialog.ideal.decimals(), 2)
-
-    def test_run_clock_warning_and_overdue_boundaries(self):
-        definition = BuildProgressionDefinition(
-            requirements=(BuildRequirement(
-                "a", RequirementKind.ITEM, "Anvil", 2,
-                deadline=RequirementDeadline(DeadlineKind.RUN_CLOCK, seconds=300),
-            ),),
-        )
-        for now, expected in ((180, RequirementStatus.WARNING), (300, RequirementStatus.WARNING), (301, RequirementStatus.OVERDUE)):
-            _tracker, snap = runtime(time=now)
-            row = evaluate_build_progression(definition, snap).snapshot.rows[0]
-            self.assertIs(row.status, expected)
 
     def test_stage_start_and_overtime(self):
         _tracker, snap = runtime(stage=1, stage_time=500, duration=600)
@@ -216,32 +236,51 @@ class BuildProgressionTests(unittest.TestCase):
         rows = {row.id: row for row in evaluate_build_progression(definition, snap).snapshot.rows}
         self.assertIs(rows["start"].status, RequirementStatus.WARNING)
         self.assertIs(rows["ot"].status, RequirementStatus.NEUTRAL)
-        self.assertEqual(rows["start"].deadline_label, "Before T2")
-        self.assertEqual(rows["ot"].deadline_label, "T1 OT · 00:30")
+        self.assertEqual(rows["start"].deadline_label, "BEFORE T2")
+        self.assertEqual(rows["ot"].deadline_label, "T1 +00:30")
         overdue = replace(snap, fast_stage_timer=replace(snap.fast_stage_timer, stage_timer_seconds=631))
         rows = {row.id: row for row in evaluate_build_progression(definition, overdue).snapshot.rows}
         self.assertIs(rows["ot"].status, RequirementStatus.OVERDUE)
 
-    def test_deadlines_master_toggle_and_priority_sort(self):
+    def test_deadlines_master_toggle_preserves_manual_order(self):
         _tracker, snap = runtime(time=500, items=())
         definition = BuildProgressionDefinition(deadlines_enabled=False, requirements=(
-            BuildRequirement("normal", RequirementKind.ITEM, "A", 1, priority=Priority.NORMAL, deadline=RequirementDeadline(DeadlineKind.RUN_CLOCK, seconds=1), order=0),
-            BuildRequirement("asap", RequirementKind.ITEM, "B", 1, priority=Priority.ASAP, order=1),
+            BuildRequirement("first", RequirementKind.ITEM, "A", 1, deadline=RequirementDeadline(DeadlineKind.STAGE_OVERTIME, stage=1, seconds=1), order=0),
+            BuildRequirement("second", RequirementKind.ITEM, "B", 1, order=1),
         ))
         result = evaluate_build_progression(definition, snap).snapshot
-        self.assertEqual([row.id for row in result.rows], ["asap", "normal"])
+        self.assertEqual([row.id for row in result.rows], ["first", "second"])
         self.assertTrue(all(row.status is RequirementStatus.NEUTRAL for row in result.rows))
-        self.assertEqual(
-            [row["priority"] for row in build_progression_payload(result)["rows"]],
-            ["high", "low"],
+        self.assertTrue(
+            all("priority" not in row for row in build_progression_payload(result)["rows"])
         )
+
+    def test_requirements_sort_by_nearest_deadline_then_untimed(self):
+        _tracker, snap = runtime(time=100, items=(), stage=1, stage_time=100, duration=600)
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement(
+                "later", RequirementKind.ITEM, "A", 1,
+                deadline=RequirementDeadline(DeadlineKind.STAGE_OVERTIME, stage=1, seconds=300),
+                order=0,
+            ),
+            BuildRequirement("untimed", RequirementKind.ITEM, "B", 1, order=1),
+            BuildRequirement(
+                "sooner", RequirementKind.ITEM, "C", 1,
+                deadline=RequirementDeadline(DeadlineKind.STAGE_OVERTIME, stage=1, seconds=0),
+                order=2,
+            ),
+        ))
+
+        result = evaluate_build_progression(definition, snap).snapshot
+
+        self.assertEqual([row.id for row in result.rows], ["sooner", "later", "untimed"])
 
     def test_unknown_is_not_zero_or_overdue(self):
         _tracker, snap = runtime(time=500)
         snap = replace(snap, latest_snapshot=None, fast_items=None)
         definition = BuildProgressionDefinition(requirements=(BuildRequirement(
             "a", RequirementKind.ITEM, "Anvil", 1,
-            deadline=RequirementDeadline(DeadlineKind.RUN_CLOCK, seconds=10),
+            deadline=RequirementDeadline(DeadlineKind.STAGE_OVERTIME, stage=1, seconds=10),
         ),))
         row = evaluate_build_progression(definition, snap).snapshot.rows[0]
         self.assertIsNone(row.current)
@@ -270,8 +309,9 @@ class BuildProgressionTests(unittest.TestCase):
         payload = build_progression_payload(result, {"max_rows": 1})
         self.assertEqual(payload["hidden_completed"], 1)
         self.assertEqual(payload["hidden_remaining"], 1)
-        twitch = format_twitch_build(result, max_rows=1)
-        self.assertIn("+1 remaining", twitch["remaining_suffix"])
+        twitch = format_twitch_build(result, max_chars=15)
+        self.assertIn("more", twitch["requirements"])
+        self.assertIn("COMPLETED:", twitch["completed_requirements"])
 
     def test_config_normalization_rejects_duplicates_and_invalid_values(self):
         normalized = config.normalize_build_progression_config({
@@ -286,7 +326,15 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(len(normalized["requirements"]), 1)
         row = normalized["requirements"][0]
         self.assertEqual(row["deadline"]["stage"], 4)
-        self.assertEqual(row["ideal"], 4)
+        self.assertNotIn("ideal", row)
+        self.assertNotIn("priority", row)
+        migrated = config.normalize_build_progression_config({
+            "requirements": [{
+                "id": "old-clock", "kind": "item", "target": "Ice Cube",
+                "required": 1, "deadline": {"kind": "run_clock", "seconds": 300},
+            }]
+        })
+        self.assertEqual(migrated["requirements"][0]["deadline"]["kind"], "none")
 
     def test_in_game_html_escapes_labels(self):
         _tracker, snap = runtime(items=())
@@ -311,6 +359,30 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertIn("0/1", message)
         self.assertNotIn("Next", message)
         self.assertNotIn("Due", message)
+
+    def test_twitch_build_command_sends_completed_requirements_separately(self):
+        tracker, _snap = runtime(items=("Anvil",))
+        service = BuildProgressionService(
+            tracker,
+            BuildProgressionDefinition(
+                name="Chat build",
+                requirements=(
+                    BuildRequirement("done", RequirementKind.ITEM, "Anvil", 1),
+                    BuildRequirement("missing", RequirementKind.ITEM, "Ice Cube", 1),
+                ),
+            ),
+        )
+        bot = TwitchBotWorker(tracker, build_progression_service=service)
+        bot._send_chat = MagicMock()
+
+        bot._handle_build("channel")
+
+        self.assertEqual(bot._send_chat.call_count, 2)
+        first, second = [call.args[1] for call in bot._send_chat.call_args_list]
+        self.assertIn("Ice Cube", first)
+        self.assertNotIn("COMPLETED", first)
+        self.assertIn("COMPLETED:", second)
+        self.assertIn("Anvil", second)
 
 
 if __name__ == "__main__":

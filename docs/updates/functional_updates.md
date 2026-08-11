@@ -25,11 +25,10 @@ Goal:
 
 Build definition:
 
-- An item requirement contains an item name, required copies, optional ideal copies, priority, and an optional deadline.
-- A stat requirement contains a canonical player-stat name, a raw minimum threshold, an optional ideal threshold, priority, and an optional deadline.
-- Priority is only a sorting hint: `High`, `Medium`, or `Low`. It does not change deadline status.
-- Deadlines are `No deadline`, `Run clock`, `Tier start`, or `Tier overtime`.
-- Required controls completion; Ideal is a visible stretch target and never blocks `BUILD COMPLETE`.
+- An item requirement contains an item name, required copies, and an optional deadline.
+- A stat requirement contains a canonical player-stat name, a raw minimum threshold, and an optional deadline.
+- Deadlines are `No deadline`, `Before tier`, or `Tier overtime`.
+- `Before tier` means the requirement must be satisfied before the selected tier begins.
 - Requirements without a target time remain neutral until completed and still count toward overall build completion.
 - The build is complete only while every configured requirement is currently satisfied:
   - current item copies are greater than or equal to the configured count;
@@ -44,12 +43,14 @@ Run lifecycle:
 
 Compact display behavior:
 
-- Show a one-line header with completed/total requirements and the current game time.
-- Hide completed rows by default and replace them with a compact `+N completed` summary.
-- Sort unfinished timed requirements by the nearest deadline; untimed requirements follow them.
+- Show a one-line header with the build name and completed/total requirements; do not repeat the current run time.
+- Hide completed rows by default. `Show completed` restores the green checked rows without adding a `+N completed` summary.
+- Group rows into `ITEMS` and `STATS`. Within each group, sort by nearest deadline; untimed requirements follow timed requirements and preserve their configured order.
+- Keep item labels in their rarity colour and use status colour only on the symbol and deadline, so rarity and runtime state do not compete for the same text.
 - Support a configurable maximum row count so the widget cannot grow across a large part of the OBS or game canvas.
 - When every requirement is satisfied, collapse the widget to `BUILD COMPLETE` with the completion time.
 - Keep OBS and In-Game presentation settings independent while both surfaces consume the same configured checklist and evaluated runtime state.
+- Twitch `!build` sends unfinished requirements first and, when any exist, completed requirements in a second compact `COMPLETED:` message. Each message truncates only between complete requirement chunks.
 
 Status semantics:
 
@@ -62,7 +63,8 @@ Status semantics:
 Configuration UI:
 
 - Expose one shared `Configure Build Progression` editor from both overlay settings areas instead of maintaining two copies of the build.
-- Keep only presentation controls local to each overlay: enabled state, scale, maximum rows, completed-row visibility, target-time visibility, and optional section headings.
+- Keep only presentation controls local to the in-game overlay: enabled state, scale, maximum rows, and completed-row visibility.
+- Let OBS choose a `Full`, `Compact`, or `Text only` presentation mode, plus scale, maximum rows, and completed-row visibility.
 - The editor should support adding, removing, and reordering item/stat requirements without introducing build presets.
 
 Runtime and architecture notes:
@@ -77,7 +79,7 @@ Runtime and architecture notes:
 
 Proposed layouts:
 
-- [Shared Build Progression editor](../../ui_mockups/build_progression/build_progression_settings_v2.html) — the implemented interaction model for item/stat selection and the 2×2 deadline choice.
+- [Shared Build Progression editor](../../ui_mockups/build_progression/build_progression_settings_v2.html) — historical layout reference; the implemented editor now keeps the catalog on the left and the selected requirement form plus deadline-sorted list on the right.
 - [Interactive layout comparison](../../ui_mockups/build_progression/build_progression_overlay_options.html) — switch between in-progress, overdue, and complete states and optionally show completed rows.
 - [OBS readable compact card](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-obs-title) — bounded translucent card intended to remain legible on stream.
 - [In-Game minimal HUD list](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-ingame-title) — frameless, shadowed text intended to stay out of the player's way.

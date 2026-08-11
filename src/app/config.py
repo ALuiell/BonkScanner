@@ -85,7 +85,7 @@ DEFAULT_OVERLAY = {
         {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50, "background_opacity": 0.0, "show_border": False},
         {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True, "short_stat_labels": True},
         {"id": "kps", "enabled": False, "mode": "compact", "order": 60, "selected_kps_metrics": ["current", "minute_avg", "five_minute_avg", "run_avg"], "background_opacity": 0.0, "show_border": False, "show_header": False},
-        {"id": "build_progression", "enabled": False, "mode": "compact", "order": 65, "max_rows": 6, "scale": 1.0, "show_completed": False, "show_target_time": True, "show_section_headings": False, "background_opacity": 0.0, "show_border": False, "show_header": True},
+        {"id": "build_progression", "enabled": False, "mode": "compact", "order": 65, "max_rows": 6, "scale": 1.0, "show_completed": False},
         {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
         # Its own copy of both toggles rather than mirroring the in-game
         # widget's. Not duplication: "show it to chat but not to me" has to be
@@ -141,7 +141,7 @@ DEFAULT_IN_GAME_OVERLAY = {
         },
         "stats": {"enabled": False, "x": 10, "y": 130, "scale": 1.0, "selected_stats": ["Damage", "Difficulty", "XP Gain", "Luck"]},
         "event_timer": {"enabled": False, "x": 10, "y": 160, "scale": 1.0, "warning_seconds": 15},
-        "build_progression": {"enabled": False, "x": 10, "y": 190, "scale": 1.0, "max_rows": 5, "show_completed": False, "show_target_time": True, "show_section_headings": False},
+        "build_progression": {"enabled": False, "x": 10, "y": 190, "scale": 1.0, "max_rows": 5, "show_completed": False},
     }
 }
 
@@ -717,32 +717,17 @@ def normalize_build_progression_config(value):
             continue
         if kind == "item" and not required.is_integer():
             continue
-        ideal = raw.get("ideal")
-        if ideal in (None, ""):
-            ideal = None
-        else:
-            try:
-                ideal = float(ideal)
-            except (TypeError, ValueError):
-                ideal = None
-            if ideal is not None and (
-                not math.isfinite(ideal)
-                or ideal < required
-                or (kind == "item" and not ideal.is_integer())
-            ):
-                ideal = None
-        priority = str(raw.get("priority") or "normal").lower()
-        if priority not in {"normal", "early", "asap"}:
-            priority = "normal"
         deadline_raw = raw.get("deadline") if isinstance(raw.get("deadline"), dict) else {}
         deadline_kind = str(deadline_raw.get("kind") or "none").lower()
-        if deadline_kind not in {"none", "run_clock", "stage_start", "stage_overtime"}:
+        # `run_clock` was removed from the product. Old saved requirements keep
+        # tracking their count, but migrate to an untimed requirement.
+        if deadline_kind not in {"none", "stage_start", "stage_overtime"}:
             deadline_kind = "none"
         stage = None
         seconds = None
         if deadline_kind in {"stage_start", "stage_overtime"}:
             stage = max(1, min(4, coerce_nonnegative_int(deadline_raw.get("stage"), 1) or 1))
-        if deadline_kind in {"run_clock", "stage_overtime"}:
+        if deadline_kind == "stage_overtime":
             seconds = max(0.0, coerce_float(deadline_raw.get("seconds"), 0.0))
         seen.add((kind, target))
         normalized["requirements"].append(
@@ -751,8 +736,6 @@ def normalize_build_progression_config(value):
                 "kind": kind,
                 "target": target,
                 "required": int(required) if kind == "item" else required,
-                "ideal": (int(ideal) if kind == "item" and ideal is not None else ideal),
-                "priority": priority,
                 "deadline": {"kind": deadline_kind, "stage": stage, "seconds": seconds},
                 "order": order,
             }
@@ -775,12 +758,12 @@ def normalize_overlay_config(value):
             widget["enabled"] = bool(widget.get("enabled", False))
             widget["max_rows"] = max(1, min(coerce_nonnegative_int(widget.get("max_rows"), 6) or 6, 20))
             widget["scale"] = max(0.5, min(coerce_float(widget.get("scale"), 1.0), 3.0))
-            for key, default in (
-                ("show_completed", False),
-                ("show_target_time", True),
-                ("show_section_headings", False),
-            ):
-                widget[key] = bool(widget.get(key, default))
+            widget["show_completed"] = bool(widget.get("show_completed", False))
+            widget["mode"] = (
+                widget.get("mode")
+                if widget.get("mode") in {"full", "compact", "text"}
+                else "compact"
+            )
         if widget.get("id") in {"stats", "banishes"}:
             if coerce_nonnegative_int(widget.get("max_rows"), 0) < 40:
                 widget["max_rows"] = 40
@@ -880,8 +863,10 @@ def normalize_in_game_overlay_config(value):
                     min(coerce_nonnegative_int(widgets[key].get("max_rows"), 5) or 5, 20),
                 )
                 widgets[key]["show_completed"] = bool(widgets[key].get("show_completed", False))
-                widgets[key]["show_target_time"] = bool(widgets[key].get("show_target_time", True))
-                widgets[key]["show_section_headings"] = bool(widgets[key].get("show_section_headings", False))
+                # Deadline and ITEMS/STATS columns are part of the compact HUD
+                # grammar now, not optional decorations.
+                widgets[key].pop("show_target_time", None)
+                widgets[key].pop("show_section_headings", None)
             
             if key == "kps":
                 metrics_val = widgets[key].get("metrics")

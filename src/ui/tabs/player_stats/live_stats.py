@@ -262,6 +262,9 @@ class _BuildProgressionRow(QFrame):
             self.style().polish(self)
         self.symbol.setText(str(row.get("symbol") or "·"))
         self.name.setText(str(row.get("label") or ""))
+        self.name.setStyleSheet(
+            f"color: {row.get('label_color') or '#E4E9F0'}; background: transparent;"
+        )
         self.value.setText(str(row.get("value") or ""))
         # Once Required is met, the deadline has done its job.  Keeping an
         # overdue delta or target clock on a green row made it read as both
@@ -708,7 +711,12 @@ class LiveStatsTab:
         snapshot = self._build_progression_snapshot()
         payload = build_progression_payload(
             snapshot,
-            {"max_rows": 20, "show_completed": True, "show_target_time": True},
+            {
+                "max_rows": 20,
+                "show_completed": True,
+                "show_target_time": True,
+                "show_section_headings": True,
+            },
         )
         if not payload.get("configured"):
             header.setText("Build Progression")
@@ -726,8 +734,8 @@ class LiveStatsTab:
             return
         header.setText(str(payload.get("name") or "Build Progression"))
         progress.setText(str(payload.get("progress") or "0/0"))
-        clock.setText(f"RUN {payload.get('run_time') or '--:--'}")
-        clock.show()
+        clock.clear()
+        clock.hide()
 
         if not payload.get("available"):
             empty.setText(

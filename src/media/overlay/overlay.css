@@ -533,19 +533,27 @@ body {
 /* Build Progression consumes a fully evaluated payload; CSS only presents it. */
 .build-progress-widget { min-width: calc(300px * var(--scale)); }
 .build-progress-widget .panel-title { color: var(--hud-cyan); }
-.build-head, .build-row { display: flex; align-items: center; gap: calc(7px * var(--scale)); }
+.build-head { display: flex; align-items: center; gap: calc(7px * var(--scale)); }
 .build-head { justify-content: space-between; margin-bottom: calc(7px * var(--scale)); color: rgba(255,255,255,.72); }
 .build-list { display: flex; flex-direction: column; gap: calc(4px * var(--scale)); }
 .build-section { margin-top: calc(3px * var(--scale)); color: #708096; font-size: calc(9px * var(--scale)); font-weight: 800; letter-spacing: .12em; }
-.build-row { padding: calc(4px * var(--scale)) calc(7px * var(--scale)); border-left: 2px solid currentColor; background: rgba(10,16,22,.42); }
-.build-row .build-label { flex: 1; }
+.build-row {
+  display: grid;
+  grid-template-columns: calc(14px * var(--scale)) minmax(calc(120px * var(--scale)), 1fr) auto minmax(calc(68px * var(--scale)), auto);
+  align-items: center;
+  gap: calc(7px * var(--scale));
+  padding: calc(4px * var(--scale)) 0;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.build-row .build-symbol { color: #8c96a8; text-align: center; }
+.build-row .build-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .build-row strong, .build-time { white-space: nowrap; }
-.build-time { color: inherit; opacity: .86; font-size: calc(11px * var(--scale)); }
-.build-row.status-unknown, .build-row.status-neutral { color: #8c96a8; }
-.build-row.status-warning { color: #f1c861; }
-.build-row.status-overdue { color: #ff6f76; }
-.build-row.status-satisfied { color: #59d890; }
-.build-more { margin-top: calc(4px * var(--scale)); color: #8c96a8; font-size: calc(11px * var(--scale)); }
+.build-row strong { color: rgba(255,255,255,.88); }
+.build-time { color: #8c96a8; text-align: right; opacity: .92; font-size: calc(11px * var(--scale)); }
+.build-row.status-warning .build-symbol, .build-row.status-warning .build-time { color: #f1c861; }
+.build-row.status-overdue .build-symbol, .build-row.status-overdue .build-time { color: #ff6f76; }
+.build-row.status-satisfied .build-symbol, .build-row.status-satisfied .build-time { color: #59d890; }
+.build-mode-text { padding-left: 0; padding-right: 0; border-radius: 0; }
 .build-complete { color: #59d890; font-weight: 800; letter-spacing: .04em; }
 .build-complete span { margin-left: calc(8px * var(--scale)); color: rgba(255,255,255,.75); }
 

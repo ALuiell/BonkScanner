@@ -159,10 +159,33 @@ function renderWidget(widget, state) {
     case "luck_rarity":
       return panel("Luck", renderLuckRarity(state), "wide luck-widget", widget);
     case "build_progression":
-      return panel("Build Progression", renderBuildProgression(state), "wide build-progress-widget", widget);
+      return renderBuildProgressionPanel(widget, state);
     default:
       return "";
   }
+}
+
+function renderBuildProgressionPanel(widget, state) {
+  const mode = ["full", "compact", "text"].includes(widget?.mode)
+    ? widget.mode
+    : "compact";
+  const presentation = {
+    ...widget,
+    show_header: mode === "full",
+    background_opacity: mode === "text" ? 0 : 0.4,
+    show_border: mode !== "text",
+  };
+  return panel(
+    "Build Progression",
+    renderBuildProgression(state),
+    `wide build-progress-widget build-mode-${mode}`,
+    presentation,
+  );
+}
+
+function buildLabelColor(value) {
+  const color = String(value || "");
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : "#e5e7eb";
 }
 
 function renderBuildProgression(state) {
@@ -185,14 +208,12 @@ function renderBuildProgression(state) {
     lastKind = row.kind;
     return `${heading}<div class="build-row status-${escapeHtml(row.status)}">
     <span class="build-symbol">${escapeHtml(row.symbol)}</span>
-    <span class="build-label">${escapeHtml(row.label)}</span>
+    <span class="build-label" style="color:${buildLabelColor(row.label_color)}">${escapeHtml(row.label)}</span>
     <strong>${escapeHtml(row.value)}</strong>
     ${row.time ? `<span class="build-time">${escapeHtml(row.time)}</span>` : ""}
   </div>`;
   }).join("");
-  const completed = build.hidden_completed ? `<div class="build-more">+${build.hidden_completed} completed</div>` : "";
-  const remaining = build.hidden_remaining ? `<div class="build-more">+${build.hidden_remaining} remaining</div>` : "";
-  return `<div class="build-head"><strong>${escapeHtml(build.name)}</strong><span>${escapeHtml(build.progress)} · ${escapeHtml(build.run_time)}</span></div><div class="build-list">${body}</div>${completed}${remaining}`;
+  return `<div class="build-head"><strong>${escapeHtml(build.name)}</strong><span>${escapeHtml(build.progress)}</span></div><div class="build-list">${body}</div>`;
 }
 
 function renderTrackedItems(state) {

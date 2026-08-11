@@ -628,8 +628,6 @@ class InGameOverlay:
         if getattr(self, "igo_build_max_rows_spin", None) is not None:
             widgets["build_progression"]["max_rows"] = self.igo_build_max_rows_spin.value()
             widgets["build_progression"]["show_completed"] = self.igo_build_completed_cb.isChecked()
-            widgets["build_progression"]["show_target_time"] = self.igo_build_time_cb.isChecked()
-            widgets["build_progression"]["show_section_headings"] = self.igo_build_headings_cb.isChecked()
 
         self.apply_in_game_overlay_settings()
         config.save_config(config.user_config)

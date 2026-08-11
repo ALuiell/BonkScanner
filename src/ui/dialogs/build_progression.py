@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
 
 from app.build_progression import definition_from_config
 from app import config
-from core.build_progression import format_priority
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import PLAYER_STAT_SPEC_BY_LABEL
 from projections.tracked_items import (
@@ -36,9 +35,8 @@ from ui.shared import FlowLayout, _clear_layout
 
 DEADLINE_OPTIONS = (
     ("none", "No deadline", "Track progress only"),
-    ("run_clock", "Run clock", "From the start of the run"),
-    ("stage_start", "Tier start", "Before a tier begins"),
-    ("stage_overtime", "Tier overtime", "Before an OT minute"),
+    ("stage_start", "Before tier", "Complete before a tier begins"),
+    ("stage_overtime", "Tier overtime", "Complete before an OT minute"),
 )
 
 
@@ -66,10 +64,9 @@ class BuildProgressionHelpDialog(QDialog):
             height=520,
         )
         text = QLabel(
-            "<b>Required and Ideal</b><br>Required controls completion. Ideal is an optional "
-            "stretch target and never blocks BUILD COMPLETE.<br><br>"
-            "<b>Deadlines</b><br>Use no deadline, a run-clock time, the start of a tier, "
-            "or an overtime minute inside a tier. Yellow means two minutes remain; red "
+            "<b>Required</b><br>The configured amount controls completion.<br><br>"
+            "<b>Deadlines</b><br>Use no deadline, require the target before a tier begins, "
+            "or set an overtime minute inside a tier. Yellow means two minutes remain; red "
             "means the requirement is late.<br><br>"
             "<b>Every run starts clean</b><br>The build definition is saved, but completed, "
             "late, and completion-time state resets when a new run begins.<br><br>"
@@ -108,7 +105,6 @@ class BuildProgressionDialog(QDialog):
         general.addWidget(_eyebrow("Build definition"))
         self.name_entry = QLineEdit(str(self._draft.get("name") or "Build Progression"))
         self.name_entry.setPlaceholderText("Build name")
-        self.name_entry.textChanged.connect(self._refresh_preview)
         general.addWidget(self.name_entry, 1)
         self.deadlines_enabled = QCheckBox("Use deadlines")
         self.deadlines_enabled.setChecked(bool(self._draft.get("deadlines_enabled", True)))
@@ -121,17 +117,11 @@ class BuildProgressionDialog(QDialog):
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
         split.addWidget(self._build_left_column())
-        split.addWidget(self._build_rules())
-        split.setStretchFactor(0, 11)
-        split.setStretchFactor(1, 9)
-        split.setSizes([500, 400])
+        split.addWidget(self._build_right_column())
+        split.setStretchFactor(0, 9)
+        split.setStretchFactor(1, 11)
+        split.setSizes([420, 520])
         layout.addWidget(split, 1)
-
-        preview = QLabel()
-        preview.setObjectName("chatPreview")
-        preview.setWordWrap(True)
-        self.preview = preview
-        layout.addWidget(preview)
 
         save = QPushButton("Save")
         cancel = QPushButton("Cancel")
@@ -161,9 +151,18 @@ class BuildProgressionDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
         self._picker_card = self._build_picker()
-        self._configurator_card = self._build_editor()
         layout.addWidget(self._picker_card, 1)
+        return holder
+
+    def _build_right_column(self) -> QWidget:
+        holder = QWidget()
+        holder.setObjectName("cardContent")
+        layout = QVBoxLayout(holder)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        self._configurator_card = self._build_editor()
         layout.addWidget(self._configurator_card)
+        layout.addWidget(self._build_rules(), 1)
         return holder
 
     def _build_picker(self) -> QWidget:
@@ -224,21 +223,10 @@ class BuildProgressionDialog(QDialog):
         self.required.setDecimals(0)
         self.required.setSingleStep(1)
         self.required.setValue(1)
-        self.ideal = QDoubleSpinBox()
-        self.ideal.setRange(0, 99999)
-        self.ideal.setDecimals(0)
-        self.ideal.setSingleStep(1)
-        self.ideal.setSpecialValueText("Not set")
-        self.priority = QComboBox()
-        for label, value in (("High", "asap"), ("Medium", "early"), ("Low", "normal")):
-            self.priority.addItem(label, value)
-        self.priority.setCurrentIndex(self.priority.findData("normal"))
         fields = QHBoxLayout()
         fields.setContentsMargins(0, 0, 0, 0)
         fields.setSpacing(8)
         fields.addWidget(self._field("Required", self.required), 1)
-        fields.addWidget(self._field("Ideal (optional)", self.ideal), 1)
-        fields.addWidget(self._field("Priority", self.priority), 1)
         builder_layout.addLayout(fields)
 
         grid = QGridLayout()
@@ -249,7 +237,7 @@ class BuildProgressionDialog(QDialog):
             button.setMinimumHeight(52)
             button.setProperty("deadlineKind", value)
             self.deadline_group.addButton(button)
-            grid.addWidget(button, index // 2, index % 2)
+            grid.addWidget(button, 0, index)
             if value == "none":
                 button.setChecked(True)
         self.deadline_group.buttonClicked.connect(self._deadline_changed)
@@ -395,7 +383,7 @@ class BuildProgressionDialog(QDialog):
     def _deadline_changed(self, *_args) -> None:
         kind = self._deadline_kind()
         stage_visible = kind in {"stage_start", "stage_overtime"}
-        time_visible = kind in {"run_clock", "stage_overtime"}
+        time_visible = kind == "stage_overtime"
         self.stage.setVisible(stage_visible)
         self._stage_label.setVisible(stage_visible)
         self.time_entry.setVisible(time_visible)
@@ -417,10 +405,9 @@ class BuildProgressionDialog(QDialog):
                     suffix = "%"
                 elif spec.value_format is PlayerStatFormat.MULTIPLIER:
                     suffix = "x"
-        for spin in (self.required, self.ideal):
-            spin.setDecimals(decimals)
-            spin.setSingleStep(1.0 if kind == "item" or suffix == "%" else 0.1)
-            spin.setSuffix(suffix)
+        self.required.setDecimals(decimals)
+        self.required.setSingleStep(1.0 if kind == "item" or suffix == "%" else 0.1)
+        self.required.setSuffix(suffix)
         self._refresh_summary()
 
     def _refresh_summary(self) -> None:
@@ -461,12 +448,8 @@ class BuildProgressionDialog(QDialog):
             return
         kind = str(self.kind_combo.currentData())
         required = float(self.required.value())
-        ideal = float(self.ideal.value()) or None
-        if kind == "item" and (not required.is_integer() or (ideal is not None and not ideal.is_integer())):
+        if kind == "item" and not required.is_integer():
             QMessageBox.warning(self, "Build Progression", "Item counts must be whole numbers.")
-            return
-        if ideal is not None and ideal < required:
-            QMessageBox.warning(self, "Build Progression", "Ideal must be at least Required.")
             return
         duplicate = next((r for r in self._draft.get("requirements", []) if r.get("kind") == kind and r.get("target") == target and r.get("id") != self._editing_id), None)
         if duplicate:
@@ -474,7 +457,7 @@ class BuildProgressionDialog(QDialog):
             return
         deadline_kind = self._deadline_kind()
         try:
-            seconds = self._seconds(self.time_entry.text()) if deadline_kind in {"run_clock", "stage_overtime"} else None
+            seconds = self._seconds(self.time_entry.text()) if deadline_kind == "stage_overtime" else None
         except ValueError as exc:
             QMessageBox.warning(self, "Build Progression", str(exc))
             return
@@ -483,14 +466,11 @@ class BuildProgressionDialog(QDialog):
             spec = PLAYER_STAT_SPEC_BY_LABEL.get(target)
             display_scale = float(getattr(spec, "display_scale", 1.0) or 1.0)
         stored_required = required / display_scale
-        stored_ideal = ideal / display_scale if ideal is not None else None
         payload = {
             "id": self._editing_id or uuid4().hex,
             "kind": kind,
             "target": target,
             "required": int(required) if kind == "item" else stored_required,
-            "ideal": int(ideal) if kind == "item" and ideal is not None else stored_ideal,
-            "priority": str(self.priority.currentData()),
             "deadline": {
                 "kind": deadline_kind,
                 "stage": self.stage.currentData() if deadline_kind in {"stage_start", "stage_overtime"} else None,
@@ -509,35 +489,50 @@ class BuildProgressionDialog(QDialog):
 
     def _refresh_rules(self) -> None:
         self.rules.clear()
-        requirements = self._draft.get("requirements") or ()
+        requirements = sorted(
+            self._draft.get("requirements") or (),
+            key=self._requirement_display_sort_key,
+        )
         self.rules_count.setText(
             f"{len(requirements)} configured" if requirements else "Empty"
         )
         for row in requirements:
-            deadline = row.get("deadline") or {}
-            kind = deadline.get("kind", "none")
-            if kind == "run_clock":
-                label = f"RUN · {self._clock(deadline.get('seconds'))}"
-            elif kind == "stage_start":
-                label = f"Before T{deadline.get('stage')}"
-            elif kind == "stage_overtime":
-                label = f"T{deadline.get('stage')} OT · {self._clock(deadline.get('seconds'))}"
-            else:
-                label = "No deadline"
-            ideal = f" · ideal {row.get('ideal')}" if row.get("ideal") is not None else ""
-            priority = format_priority(str(row.get("priority") or "normal"))
+            label = self._deadline_label(row.get("deadline") or {})
             item = QListWidgetItem(
-                f"{row.get('target')} · {row.get('required')}{ideal} · {priority} · {label}"
+                f"{row.get('target')} · {row.get('required')} · {label}"
             )
             item.setData(Qt.UserRole, str(row.get("id")))
             self.rules.addItem(item)
-            row_widget = self._build_requirement_row(row, label, priority)
+            row_widget = self._build_requirement_row(row, label)
             item.setSizeHint(row_widget.sizeHint())
             self.rules.setItemWidget(item, row_widget)
-        self._refresh_preview()
 
     @staticmethod
-    def _build_requirement_row(row: dict, deadline: str, priority: str) -> QWidget:
+    def _deadline_label(deadline: dict) -> str:
+        kind = str(deadline.get("kind") or "none")
+        if kind == "stage_start":
+            return f"BEFORE T{deadline.get('stage') or 1}"
+        if kind == "stage_overtime":
+            return f"T{deadline.get('stage') or 1} +{BuildProgressionDialog._clock(deadline.get('seconds'))}"
+        return ""
+
+    @staticmethod
+    def _requirement_display_sort_key(row: dict):
+        deadline = row.get("deadline") or {}
+        kind = str(deadline.get("kind") or "none")
+        deadline_rank = {
+            "stage_start": (0, int(deadline.get("stage") or 1), 0),
+            "stage_overtime": (
+                0,
+                int(deadline.get("stage") or 1),
+                int(deadline.get("seconds") or 0),
+            ),
+            "none": (1, 99, 0),
+        }.get(kind, (1, 99, 0))
+        return deadline_rank, int(row.get("order") or 0)
+
+    @staticmethod
+    def _build_requirement_row(row: dict, deadline: str) -> QWidget:
         widget = QWidget()
         widget.setObjectName("BuildRequirementRow")
         widget.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -563,10 +558,7 @@ class BuildProgressionDialog(QDialog):
         layout.addWidget(target_label, 1)
 
         required = row.get("required")
-        ideal = row.get("ideal")
         goal_text = str(required)
-        if ideal is not None:
-            goal_text += f" · ideal {ideal}"
         goal = QLabel(goal_text)
         goal.setObjectName("BuildRequirementGoal")
         goal.setStyleSheet(
@@ -575,22 +567,6 @@ class BuildProgressionDialog(QDialog):
         goal.setToolTip(goal_text)
         goal.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         layout.addWidget(goal)
-
-        priority_colour = {
-            "High": "#F6B85A",
-            "Medium": "#93C5FD",
-            "Low": "#7F8A98",
-        }.get(priority, "#7F8A98")
-        priority_label = QLabel(priority)
-        priority_label.setObjectName("BuildRequirementPriority")
-        priority_label.setStyleSheet(
-            "QLabel#BuildRequirementPriority {"
-            f" color: {priority_colour}; border: 1px solid {priority_colour};"
-            " background: transparent; border-radius: 6px; padding: 2px 6px;"
-            " font-size: 11px; font-weight: 700;"
-            "}"
-        )
-        layout.addWidget(priority_label)
 
         deadline_label = QLabel(deadline)
         deadline_label.setObjectName("BuildRequirementDeadline")
@@ -602,13 +578,11 @@ class BuildProgressionDialog(QDialog):
             "}"
         )
         layout.addWidget(deadline_label)
+        # A parentless QWidget becomes a temporary top-level window when it is
+        # shown. Parent the badge first: otherwise opening this dialog flashes a
+        # tiny application-titled window before Qt reparents it into the row.
+        deadline_label.setVisible(bool(deadline))
         return widget
-
-    def _refresh_preview(self, *_args) -> None:
-        if not hasattr(self, "preview"):
-            return
-        remaining = len(self._draft.get("requirements") or ())
-        self.preview.setText(f"TWITCH · !BUILD  {self.name_entry.text() or 'Build Progression'} · 0/{remaining} | +{remaining} remaining")
 
     @staticmethod
     def _clock(seconds) -> str:
@@ -616,7 +590,11 @@ class BuildProgressionDialog(QDialog):
         return f"{total // 60:02d}:{total % 60:02d}"
 
     def _ordered_ids(self) -> list[str]:
-        return [str(self.rules.item(i).data(Qt.UserRole)) for i in range(self.rules.count())]
+        return [
+            str(rule_id)
+            for i in range(self.rules.count())
+            if (rule_id := self.rules.item(i).data(Qt.UserRole))
+        ]
 
     def _sync_draft_order(self) -> None:
         ids = self._ordered_ids()
@@ -629,7 +607,10 @@ class BuildProgressionDialog(QDialog):
         item = self.rules.currentItem()
         if item is None:
             return
-        rule_id = str(item.data(Qt.UserRole))
+        rule_id_value = item.data(Qt.UserRole)
+        if not rule_id_value:
+            return
+        rule_id = str(rule_id_value)
         row = next((r for r in self._draft.get("requirements", []) if str(r.get("id")) == rule_id), None)
         if row is None:
             return
@@ -643,8 +624,6 @@ class BuildProgressionDialog(QDialog):
             spec = PLAYER_STAT_SPEC_BY_LABEL.get(str(row.get("target") or ""))
             display_scale = float(getattr(spec, "display_scale", 1.0) or 1.0)
         self.required.setValue(float(row.get("required") or 1) * display_scale)
-        self.ideal.setValue(float(row.get("ideal") or 0) * display_scale)
-        self.priority.setCurrentIndex(max(0, self.priority.findData(row.get("priority", "normal"))))
         deadline = row.get("deadline") or {}
         for button in self.deadline_group.buttons():
             if button.property("deadlineKind") == deadline.get("kind", "none"):
@@ -659,7 +638,10 @@ class BuildProgressionDialog(QDialog):
         item = self.rules.currentItem()
         if item is None:
             return
-        rule_id = str(item.data(Qt.UserRole))
+        rule_id_value = item.data(Qt.UserRole)
+        if not rule_id_value:
+            return
+        rule_id = str(rule_id_value)
         self._draft["requirements"] = [r for r in self._draft.get("requirements", []) if str(r.get("id")) != rule_id]
         self._refresh_rules()
 

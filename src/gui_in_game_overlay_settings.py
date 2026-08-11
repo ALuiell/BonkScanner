@@ -524,15 +524,7 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
         parent_mixin.igo_build_completed_cb = _build_checkbox(
             "Completed", bool(settings.get("show_completed", False)), parent_mixin._on_igo_settings_changed
         )
-        parent_mixin.igo_build_time_cb = _build_checkbox(
-            "Time", bool(settings.get("show_target_time", True)), parent_mixin._on_igo_settings_changed
-        )
-        parent_mixin.igo_build_headings_cb = _build_checkbox(
-            "Headings", bool(settings.get("show_section_headings", False)), parent_mixin._on_igo_settings_changed
-        )
         row.addWidget(parent_mixin.igo_build_completed_cb)
-        row.addWidget(parent_mixin.igo_build_time_cb)
-        row.addWidget(parent_mixin.igo_build_headings_cb)
         row.addStretch(1)
         return holder
 

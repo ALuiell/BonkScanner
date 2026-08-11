@@ -26,30 +26,8 @@ class RequirementKind(str, Enum):
 
 class DeadlineKind(str, Enum):
     NONE = "none"
-    RUN_CLOCK = "run_clock"
     STAGE_START = "stage_start"
     STAGE_OVERTIME = "stage_overtime"
-
-
-class Priority(str, Enum):
-    NORMAL = "normal"
-    EARLY = "early"
-    ASAP = "asap"
-
-
-PRIORITY_LABELS = {
-    Priority.ASAP: "High",
-    Priority.EARLY: "Medium",
-    Priority.NORMAL: "Low",
-}
-
-
-def format_priority(priority: Priority | str) -> str:
-    try:
-        value = priority if isinstance(priority, Priority) else Priority(str(priority))
-    except ValueError:
-        value = Priority.NORMAL
-    return PRIORITY_LABELS[value]
 
 
 class RequirementStatus(str, Enum):
@@ -82,8 +60,6 @@ class BuildRequirement:
     kind: RequirementKind
     target: str
     required: float
-    ideal: float | None = None
-    priority: Priority = Priority.NORMAL
     deadline: RequirementDeadline = RequirementDeadline()
     order: int = 0
 
@@ -102,11 +78,8 @@ class BuildProgressionRow:
     target: str
     current: float | None
     required: float
-    ideal: float | None
     current_display: str
     required_display: str
-    ideal_display: str | None
-    priority: Priority
     deadline: RequirementDeadline
     deadline_label: str
     time_delta_seconds: float | None
@@ -147,12 +120,10 @@ def format_clock(seconds: float | None) -> str:
 def format_deadline(deadline: RequirementDeadline) -> str:
     if deadline.kind is DeadlineKind.NONE:
         return ""
-    if deadline.kind is DeadlineKind.RUN_CLOCK:
-        return f"RUN · {format_clock(deadline.seconds)}"
     stage = max(1, min(4, int(deadline.stage or 1)))
     if deadline.kind is DeadlineKind.STAGE_START:
-        return f"Before T{stage}"
-    return f"T{stage} OT · {format_clock(deadline.seconds)}"
+        return f"BEFORE T{stage}"
+    return f"T{stage} +{format_clock(deadline.seconds)}"
 
 
 def evaluate_build_progression(
@@ -213,15 +184,8 @@ def evaluate_build_progression(
                 target=requirement.target,
                 current=current,
                 required=requirement.required,
-                ideal=requirement.ideal,
                 current_display=_display_value(requirement, current, stat_value),
                 required_display=_display_value(requirement, requirement.required, stat_value),
-                ideal_display=(
-                    _display_value(requirement, requirement.ideal, stat_value)
-                    if requirement.ideal is not None
-                    else None
-                ),
-                priority=requirement.priority,
                 deadline=deadline,
                 deadline_label=format_deadline(deadline),
                 time_delta_seconds=delta,
@@ -285,12 +249,6 @@ def _display_value(requirement, value, stat_value) -> str:
 def _deadline_status(deadline, runtime):
     if deadline.kind is DeadlineKind.NONE:
         return RequirementStatus.NEUTRAL, None
-    run_time = runtime.run_timer_seconds
-    if deadline.kind is DeadlineKind.RUN_CLOCK:
-        if run_time is None or deadline.seconds is None:
-            return RequirementStatus.UNKNOWN, None
-        return _status_for_delta(float(deadline.seconds) - run_time)
-
     target_stage = max(1, min(4, int(deadline.stage or 1)))
     current_stage = max(0, int(runtime.current_stage_index or 0))
     timer = runtime.fast_stage_timer
@@ -337,16 +295,6 @@ def _stat_observation_precedes_deadline(requirement, deadline, runtime) -> bool:
     latest = runtime.latest_snapshot
     if latest is None:
         return deadline.kind is not DeadlineKind.NONE
-    if deadline.kind is DeadlineKind.RUN_CLOCK:
-        return bool(
-            deadline.seconds is not None
-            and runtime.run_timer_seconds is not None
-            and runtime.run_timer_seconds > deadline.seconds
-            and (
-                latest.game_time_seconds is None
-                or latest.game_time_seconds < deadline.seconds
-            )
-        )
     target_stage = max(1, min(4, int(deadline.stage or 1)))
     observed_stage = (
         4
@@ -380,9 +328,6 @@ _STATUS_ORDER = {
     RequirementStatus.UNKNOWN: 2,
     RequirementStatus.SATISFIED: 4,
 }
-_PRIORITY_ORDER = {Priority.ASAP: 0, Priority.EARLY: 1, Priority.NORMAL: 2}
-
-
 def _row_sort_key(row: BuildProgressionRow):
     untimed = row.deadline.kind is DeadlineKind.NONE
     delta = row.time_delta_seconds
@@ -391,9 +336,8 @@ def _row_sort_key(row: BuildProgressionRow):
     else:
         deadline_rank = delta if delta is not None else float("inf")
     return (
-        _STATUS_ORDER[row.status],
+        1 if row.status is RequirementStatus.SATISFIED else 0,
         1 if untimed else 0,
         deadline_rank,
-        _PRIORITY_ORDER[row.priority],
         row.order,
     )

@@ -942,6 +942,9 @@ class TwitchBotWorker(QThread):
             channel,
             truncate_chat_message(self._format_template("build", default, **values)),
         )
+        completed = str(values.get("completed_requirements") or "").strip()
+        if completed:
+            self._send_chat(channel, truncate_chat_message(completed))
 
     def _handle_commands(self, channel: str):
         enabled_cmds = self._enabled_command_names()
