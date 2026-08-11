@@ -120,7 +120,9 @@ def format_clock(seconds: float | None) -> str:
 def format_deadline(deadline: RequirementDeadline) -> str:
     if deadline.kind is DeadlineKind.NONE:
         return ""
-    stage = max(1, min(4, int(deadline.stage or 1)))
+    stage = _target_stage(deadline)
+    if stage is None:
+        return ""
     if deadline.kind is DeadlineKind.STAGE_START:
         return f"BEFORE T{stage}"
     return f"T{stage} +{format_clock(deadline.seconds)}"
@@ -249,7 +251,9 @@ def _display_value(requirement, value, stat_value) -> str:
 def _deadline_status(deadline, runtime):
     if deadline.kind is DeadlineKind.NONE:
         return RequirementStatus.NEUTRAL, None
-    target_stage = max(1, min(4, int(deadline.stage or 1)))
+    target_stage = _target_stage(deadline)
+    if target_stage is None:
+        return RequirementStatus.NEUTRAL, None
     current_stage = max(0, int(runtime.current_stage_index or 0))
     timer = runtime.fast_stage_timer
     if deadline.kind is DeadlineKind.STAGE_START:
@@ -295,7 +299,9 @@ def _stat_observation_precedes_deadline(requirement, deadline, runtime) -> bool:
     latest = runtime.latest_snapshot
     if latest is None:
         return deadline.kind is not DeadlineKind.NONE
-    target_stage = max(1, min(4, int(deadline.stage or 1)))
+    target_stage = _target_stage(deadline)
+    if target_stage is None:
+        return False
     observed_stage = (
         4
         if getattr(latest, "is_final_boss_stage", False)
@@ -321,23 +327,28 @@ def _stat_observation_precedes_deadline(requirement, deadline, runtime) -> bool:
     return False
 
 
-_STATUS_ORDER = {
-    RequirementStatus.OVERDUE: 0,
-    RequirementStatus.WARNING: 1,
-    RequirementStatus.NEUTRAL: 2,
-    RequirementStatus.UNKNOWN: 2,
-    RequirementStatus.SATISFIED: 4,
-}
+def _target_stage(deadline: RequirementDeadline) -> int | None:
+    """Return a supported tier for the selected deadline mode."""
+    stage = int(deadline.stage or 0)
+    if deadline.kind is DeadlineKind.STAGE_START:
+        return stage if stage in {2, 3} else None
+    return max(1, min(4, stage or 1))
+
+
 def _row_sort_key(row: BuildProgressionRow):
     untimed = row.deadline.kind is DeadlineKind.NONE
     delta = row.time_delta_seconds
-    if row.status is RequirementStatus.OVERDUE:
-        deadline_rank = delta if delta is not None else float("-inf")
+    if row.status is RequirementStatus.SATISFIED:
+        group = 3
+    elif row.status is RequirementStatus.OVERDUE:
+        group = 2
+    elif untimed:
+        group = 0
     else:
-        deadline_rank = delta if delta is not None else float("inf")
+        group = 1
+    deadline_rank = delta if delta is not None else float("inf")
     return (
-        1 if row.status is RequirementStatus.SATISFIED else 0,
-        1 if untimed else 0,
+        group,
         deadline_rank,
         row.order,
     )

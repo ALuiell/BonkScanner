@@ -87,7 +87,7 @@ DEFAULT_OVERLAY = {
         {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50, "background_opacity": 0.0, "show_border": False},
         {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True, "short_stat_labels": True},
         {"id": "kps", "enabled": False, "mode": "compact", "order": 60, "selected_kps_metrics": ["current", "minute_avg", "five_minute_avg", "run_avg"], "background_opacity": 0.0, "show_border": False, "show_header": False},
-        {"id": "build_progression", "enabled": False, "mode": "compact", "order": 65, "max_rows": 6, "scale": 1.0, "show_completed": False},
+        {"id": "build_progression", "enabled": False, "order": 65, "max_rows": 6, "scale": 1.0, "show_completed": False, "background_opacity": 0.4, "show_border": True, "show_header": False},
         {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
         # Its own copy of both toggles rather than mirroring the in-game
         # widget's. Not duplication: "show it to chat but not to me" has to be
@@ -737,7 +737,12 @@ def normalize_build_progression_config(value):
         stage = None
         seconds = None
         if deadline_kind in {"stage_start", "stage_overtime"}:
-            stage = max(1, min(4, coerce_nonnegative_int(deadline_raw.get("stage"), 1) or 1))
+            stage = coerce_nonnegative_int(deadline_raw.get("stage"), 0)
+            if deadline_kind == "stage_start" and stage not in {2, 3}:
+                deadline_kind = "none"
+                stage = None
+            elif deadline_kind == "stage_overtime":
+                stage = max(1, min(4, stage or 1))
         if deadline_kind == "stage_overtime":
             seconds = max(0.0, coerce_float(deadline_raw.get("seconds"), 0.0))
         seen.add((kind, target))
@@ -770,11 +775,11 @@ def normalize_overlay_config(value):
             widget["max_rows"] = max(1, min(coerce_nonnegative_int(widget.get("max_rows"), 6) or 6, 20))
             widget["scale"] = max(0.5, min(coerce_float(widget.get("scale"), 1.0), 3.0))
             widget["show_completed"] = bool(widget.get("show_completed", False))
-            widget["mode"] = (
-                widget.get("mode")
-                if widget.get("mode") in {"full", "compact", "text"}
-                else "compact"
-            )
+            legacy_mode = widget.pop("mode", None)
+            if legacy_mode in {"full", "compact", "text"}:
+                widget["show_header"] = legacy_mode == "full"
+                widget["background_opacity"] = 0.0 if legacy_mode == "text" else 0.4
+                widget["show_border"] = legacy_mode != "text"
             # A detached widget used to be observed as 0×0 while the editor
             # replaced its markup after changing max rows. The server correctly
             # clamped that invalid write to 60×40, but that size is unusable for

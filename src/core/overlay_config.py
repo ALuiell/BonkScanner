@@ -122,7 +122,12 @@ def widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
             "selected_stats": _selected_stat_labels(raw_widget.get("selected_stats")),
             "selected_kps_metrics": _selected_kps_metric_ids(raw_widget.get("selected_kps_metrics")),
             "background_opacity": _coerce_bounded_float(raw_widget.get("background_opacity"), default=0.0),
+            "show_border": bool(raw_widget.get("show_border", False)),
             "show_header": bool(raw_widget.get("show_header", True)),
+            # Build Progression only. Keep it in the shared normalization because
+            # both the OBS projection and the HTTP server consume this boundary;
+            # dropping it here made a persisted checked box arrive as False.
+            "show_completed": bool(raw_widget.get("show_completed", False)),
             # Stats-widget only. Defaults to the abbreviated form, which is what
             # the In-Game overlay and the Twitch bot already show; a streamer
             # with room in the scene can switch back to the full stat names.

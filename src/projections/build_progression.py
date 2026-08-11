@@ -22,15 +22,36 @@ def build_progression_payload(
     max_rows = max(1, min(_int(options.get("max_rows"), 6), 20))
     show_completed = bool(options.get("show_completed", False))
     show_time = bool(options.get("show_target_time", True))
-    visible = [
+    incomplete = [
         row
         for row in snapshot.rows
-        if show_completed or row.status is not RequirementStatus.SATISFIED
+        if row.status is not RequirementStatus.SATISFIED
+    ]
+    completed = [
+        row
+        for row in snapshot.rows
+        if row.status is RequirementStatus.SATISFIED
     ]
     show_headings = bool(options.get("show_section_headings", True))
     if show_headings:
-        visible = [row for kind in ("item", "stat") for row in visible if row.kind.value == kind]
-    shown = visible[:max_rows]
+        incomplete = [
+            row
+            for kind in ("item", "stat")
+            for row in incomplete
+            if row.kind.value == kind
+        ]
+        completed = [
+            row
+            for kind in ("item", "stat")
+            for row in completed
+            if row.kind.value == kind
+        ]
+    shown_incomplete = incomplete[:max_rows]
+    # Completed rows are an explicit opt-in group below the useful live rows.
+    # Applying the same cap to the combined list made the checkbox appear broken:
+    # remaining/failed rows filled every slot before a completed row could reach
+    # the renderer. The cap therefore governs only the always-visible group.
+    shown = shown_incomplete + (completed if show_completed else [])
     rows = []
     for row in shown:
         value = f"{row.current_display}/{row.required_display}"
@@ -63,12 +84,8 @@ def build_progression_payload(
                 ),
             }
         )
-    hidden_completed = sum(
-        row.status is RequirementStatus.SATISFIED for row in snapshot.rows
-    ) if not show_completed else 0
-    hidden_remaining = sum(
-        row.status is not RequirementStatus.SATISFIED for row in visible[max_rows:]
-    )
+    hidden_completed = 0 if show_completed else len(completed)
+    hidden_remaining = max(0, len(incomplete) - len(shown_incomplete))
     return {
         "configured": snapshot.configured,
         "available": snapshot.available,
@@ -90,6 +107,7 @@ def format_twitch_build(snapshot: BuildProgressionSnapshot, *, max_chars: int = 
             "name": "Build Progression",
             "progress": "not configured",
             "requirements": "Build not configured",
+            "failed_requirements": "",
             "completed_requirements": "",
             "remaining_suffix": "",
             "completion_time": "--:--",
@@ -99,11 +117,17 @@ def format_twitch_build(snapshot: BuildProgressionSnapshot, *, max_chars: int = 
             "name": snapshot.name,
             "progress": f"BUILD COMPLETE · {format_clock(snapshot.completion_time_seconds)}",
             "requirements": "",
+            "failed_requirements": "",
             "completed_requirements": "",
             "remaining_suffix": "",
             "completion_time": format_clock(snapshot.completion_time_seconds),
         }
-    incomplete = [row for row in snapshot.rows if row.status is not RequirementStatus.SATISFIED]
+    incomplete = [
+        row
+        for row in snapshot.rows
+        if row.status not in {RequirementStatus.SATISFIED, RequirementStatus.OVERDUE}
+    ]
+    failed = [row for row in snapshot.rows if row.status is RequirementStatus.OVERDUE]
     completed = [row for row in snapshot.rows if row.status is RequirementStatus.SATISFIED]
 
     def chunk(row) -> str:
@@ -117,27 +141,42 @@ def format_twitch_build(snapshot: BuildProgressionSnapshot, *, max_chars: int = 
             part for part in (row.symbol, label, value, row.deadline_label) if part
         )
 
-    def bounded(prefix: str, rows) -> str:
+    def bounded(prefix: str, rows, *, limit: int = max_chars) -> str:
         chunks: list[str] = []
         for index, row in enumerate(rows):
-            candidate = "; ".join((*chunks, chunk(row)))
+            candidate = " | ".join((*chunks, chunk(row)))
             remaining = len(rows) - index - 1
-            suffix = f"; +{remaining} more" if remaining else ""
-            if len(prefix) + len(candidate) + len(suffix) > max_chars:
+            suffix = f" | +{remaining} more" if remaining else ""
+            if len(prefix) + len(candidate) + len(suffix) > limit:
                 break
             chunks.append(chunk(row))
         hidden = max(0, len(rows) - len(chunks))
-        body = "; ".join(chunks)
+        body = " | ".join(chunks)
         if hidden:
-            body = f"{body}; +{hidden} more" if body else f"+{hidden} more"
+            body = f"{body} | +{hidden} more" if body else f"+{hidden} more"
         return f"{prefix}{body}" if body else ""
 
-    requirements = bounded("", incomplete)
+    if incomplete and failed:
+        failed_reserve = len("FAILED: +999 more") + len(" | ")
+        requirements = bounded(
+            "REMAINING: ",
+            incomplete,
+            limit=max(1, max_chars - failed_reserve),
+        )
+        failed_requirements = bounded(
+            "FAILED: ",
+            failed,
+            limit=max(1, max_chars - len(requirements) - len(" | ")),
+        )
+    else:
+        requirements = bounded("REMAINING: ", incomplete)
+        failed_requirements = bounded("FAILED: ", failed)
     completed_requirements = bounded("COMPLETED: ", completed)
     return {
         "name": snapshot.name,
         "progress": f"{snapshot.completed}/{snapshot.total}",
-        "requirements": f" | {requirements}" if requirements else "",
+        "requirements": requirements,
+        "failed_requirements": failed_requirements,
         "completed_requirements": completed_requirements,
         "remaining_suffix": "",
         "completion_time": "--:--",

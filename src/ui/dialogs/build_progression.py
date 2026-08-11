@@ -287,8 +287,8 @@ class BuildProgressionDialog(QDialog):
         self._stage_label.setObjectName("dialogHint")
         deadline_details.addWidget(self._stage_label)
         deadline_details.addWidget(self.stage)
-        self.time_entry = QLineEdit("05:00")
-        self.time_entry.setPlaceholderText("MM:SS")
+        self.time_entry = QLineEdit("+05:00")
+        self.time_entry.setPlaceholderText("+MM:SS")
         self._time_label = QLabel("Time")
         self._time_label.setObjectName("dialogHint")
         deadline_details.addWidget(self._time_label)
@@ -415,6 +415,19 @@ class BuildProgressionDialog(QDialog):
 
     def _deadline_changed(self, *_args) -> None:
         kind = self._deadline_kind()
+        previous_stage = self.stage.currentData()
+        allowed_stages = (2, 3) if kind == "stage_start" else (1, 2, 3, 4)
+        current_stages = tuple(
+            self.stage.itemData(index) for index in range(self.stage.count())
+        )
+        if current_stages != allowed_stages:
+            self.stage.blockSignals(True)
+            self.stage.clear()
+            for number in allowed_stages:
+                self.stage.addItem(f"Tier {number}", number)
+            selected = self.stage.findData(previous_stage)
+            self.stage.setCurrentIndex(selected if selected >= 0 else 0)
+            self.stage.blockSignals(False)
         stage_visible = kind in {"stage_start", "stage_overtime"}
         time_visible = kind == "stage_overtime"
         self.stage.setVisible(stage_visible)
@@ -476,12 +489,15 @@ class BuildProgressionDialog(QDialog):
 
     @staticmethod
     def _seconds(text: str) -> float:
-        parts = str(text).strip().split(":")
+        value = str(text).strip()
+        if value.startswith("+"):
+            value = value[1:].strip()
+        parts = value.split(":")
         if len(parts) != 2:
-            raise ValueError("Time must use MM:SS")
+            raise ValueError("Overtime must use +MM:SS")
         minutes, seconds = int(parts[0]), int(parts[1])
         if minutes < 0 or seconds < 0 or seconds > 59:
-            raise ValueError("Time must use MM:SS")
+            raise ValueError("Overtime must use +MM:SS")
         return float(minutes * 60 + seconds)
 
     def _add_or_update(self) -> None:
@@ -688,10 +704,11 @@ class BuildProgressionDialog(QDialog):
         for button in self.deadline_group.buttons():
             if button.property("deadlineKind") == deadline.get("kind", "none"):
                 button.setChecked(True)
-        self.stage.setCurrentIndex(max(0, self.stage.findData(deadline.get("stage"))))
-        self.time_entry.setText(self._clock(deadline.get("seconds")))
-        self.add_button.setText("Update requirement")
         self._deadline_changed()
+        self.stage.setCurrentIndex(max(0, self.stage.findData(deadline.get("stage"))))
+        self.time_entry.setText(f"+{self._clock(deadline.get('seconds'))}")
+        self.add_button.setText("Update requirement")
+        self._refresh_summary()
 
     def _remove_selected(self) -> None:
         self._sync_draft_order()

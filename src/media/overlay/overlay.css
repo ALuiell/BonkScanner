@@ -553,7 +553,6 @@ body {
 .build-row.status-warning .build-symbol, .build-row.status-warning .build-time { color: #f1c861; }
 .build-row.status-overdue .build-symbol, .build-row.status-overdue .build-time { color: #ff6f76; }
 .build-row.status-satisfied .build-symbol, .build-row.status-satisfied .build-time { color: #59d890; }
-.build-mode-text { padding-left: 0; padding-right: 0; border-radius: 0; }
 .build-complete { color: #59d890; font-weight: 800; letter-spacing: .04em; }
 .build-complete span { margin-left: calc(8px * var(--scale)); color: rgba(255,255,255,.75); }
 

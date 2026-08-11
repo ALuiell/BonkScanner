@@ -938,10 +938,21 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, values["requirements"])
             return
         default = config.DEFAULT_TWITCH_BOT["templates"]["build"]
-        self._send_chat(
-            channel,
-            truncate_chat_message(self._format_template("build", default, **values)),
+        header_values = dict(values)
+        header_values["requirements"] = ""
+        header_values["failed_requirements"] = ""
+        header_values["remaining_suffix"] = ""
+        header = self._format_template("build", default, **header_values).strip()
+        # Older saved defaults placed the separator in the template itself.
+        # Lists now have their own chat messages, so do not leave a dangling bar
+        # on the progress-only header.
+        header = header.rstrip(" |;")
+        remaining = str(values.get("requirements") or "").strip()
+        failed = str(values.get("failed_requirements") or "").strip()
+        first_message = " | ".join(
+            part for part in (header, remaining, failed) if part
         )
+        self._send_chat(channel, truncate_chat_message(first_message))
         completed = str(values.get("completed_requirements") or "").strip()
         if completed:
             self._send_chat(channel, truncate_chat_message(completed))

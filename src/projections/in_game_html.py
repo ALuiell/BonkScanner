@@ -58,7 +58,14 @@ HEADER_COLOR = "#ffffff"
 
 
 def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: bool = False) -> str:
-    """Minimal frameless HUD markup for an already evaluated build payload."""
+    """Minimal frameless HUD markup for Qt's limited rich-text renderer.
+
+    This is painted by ``QLabel``, not a browser. Qt rich text supports tables
+    and basic inline styles, but not CSS Grid/Flex or ``gap``. Using browser
+    layout here concatenates adjacent cells into strings such as
+    ``Sucky Magnet--/1T2 +00:00``. Keep this renderer table-only; the OBS
+    version can continue using modern CSS in ``overlay.js``.
+    """
     if not payload.get("configured"):
         return "<div style='color:#8c96a8'>Build not configured</div>" if edit_mode else ""
     if not payload.get("available"):
@@ -79,15 +86,22 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
         kind = str(row.get("kind") or "")
         if payload.get("show_section_headings") and kind != last_kind:
             rows.append(
-                f"<div style='color:#708096;font-size:9px;text-shadow:{shadow};font-weight:800'>"
-                f"{'STATS' if kind == 'stat' else 'ITEMS'}</div>"
+                "<tr><td colspan='4' style='padding-top:4px;padding-bottom:2px;'>"
+                f"<span style='color:#708096;font-size:9px;text-shadow:{shadow};font-weight:800'>"
+                f"{'STATS' if kind == 'stat' else 'ITEMS'}</span></td></tr>"
             )
         last_kind = kind
-        color = colors.get(str(row.get("status")), "#d7dde5")
-        timing = (
-            f"<span style='opacity:.8'>{escape(str(row.get('time')))}</span>"
-            if row.get("time") else ""
+        status = str(row.get("status") or "unknown")
+        color = colors.get(status, "#d7dde5")
+        # Unknown already reads as ``--`` in the value column. A leading '?'
+        # repeats that fact and looks like corrupt text when every row is still
+        # waiting for the first inventory read.
+        symbol = (
+            ""
+            if status in {"unknown", "neutral"}
+            else str(row.get("symbol") or "")
         )
+        timing = escape(str(row.get("time") or ""))
         label_color = str(row.get("label_color") or "#d7dde5")
         if not (
             len(label_color) == 7
@@ -96,20 +110,25 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
         ):
             label_color = "#d7dde5"
         rows.append(
-            f"<div style='display:grid;grid-template-columns:14px minmax(140px,1fr) auto 82px;"
-            f"align-items:center;gap:8px;text-shadow:{shadow}'>"
-            f"<b style='color:{color};text-align:center'>{escape(str(row.get('symbol') or '·'))}</b>"
-            f"<span style='color:{label_color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"
-            f"{escape(str(row.get('label') or '--'))}</span>"
-            f"<b style='color:#d7dde5;text-align:right'>{escape(str(row.get('value') or '--'))}</b>"
-            f"<span style='color:{color};text-align:right'>{timing}</span></div>"
+            "<tr>"
+            f"<td width='16' style='color:{color};text-shadow:{shadow};white-space:nowrap;'>"
+            f"<b>{escape(symbol)}</b>&nbsp;</td>"
+            f"<td style='color:{label_color};text-shadow:{shadow};white-space:nowrap;'>"
+            f"{escape(str(row.get('label') or '--'))}&nbsp;&nbsp;</td>"
+            f"<td align='right' style='color:#d7dde5;text-shadow:{shadow};white-space:nowrap;'>"
+            f"<b>{escape(str(row.get('value') or '--'))}</b>&nbsp;&nbsp;</td>"
+            f"<td align='right' style='color:{color};text-shadow:{shadow};white-space:nowrap;'>"
+            f"{timing}</td>"
+            "</tr>"
         )
+    title = escape(str(payload.get("name") or "Build Progression"))
+    progress = escape(str(payload.get("progress") or "0/0"))
     return (
-        f"<div style='min-width:280px'>"
-        f"<div style='display:flex;justify-content:space-between;color:#fff;text-shadow:{shadow};font-weight:700'>"
-        f"<span>{escape(str(payload.get('name') or 'Build Progression'))}</span>"
-        f"<span>{escape(str(payload.get('progress') or '0/0'))}</span></div>"
-        f"<div style='margin-top:5px;display:grid;gap:4px'>{''.join(rows)}</div></div>"
+        f"<div style='color:#fff;text-shadow:{shadow};font-weight:700'>"
+        f"{title}&nbsp;&middot;&nbsp;{progress}</div>"
+        "<table cellspacing='0' cellpadding='0' "
+        "style='border-collapse:collapse;border-spacing:0;'>"
+        f"{''.join(rows)}</table>"
     )
 #: The colour of "this overlay does not recognise this thing" -- an unrecognised
 #: powerup, or an item whose rarity the catalog has never heard of.

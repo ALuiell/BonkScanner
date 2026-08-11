@@ -5024,15 +5024,49 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_closing_widget_settings_clears_build_progression_controls(self) -> None:
         component = build_overlay_test_component()
-        component.overlay_build_mode_combo = FakeEntry("compact")
+        component.overlay_build_bg_checkbox = FakeCheckbox(True)
+        component.overlay_build_header_checkbox = FakeCheckbox(False)
         component.overlay_build_completed_checkbox = FakeCheckbox(True)
         component.overlay_build_max_rows_spin = FakeEntry("6")
 
         component._clear_overlay_widget_settings_dialog_refs()
 
-        self.assertIsNone(component.overlay_build_mode_combo)
+        self.assertIsNone(component.overlay_build_bg_checkbox)
+        self.assertIsNone(component.overlay_build_header_checkbox)
         self.assertIsNone(component.overlay_build_completed_checkbox)
         self.assertIsNone(component.overlay_build_max_rows_spin)
+
+    def test_overlay_settings_persist_standard_build_progression_choices(self) -> None:
+        component = build_overlay_test_component()
+        component.overlay_port_entry = FakeEntry("17845")
+        component.overlay_auto_start_cb = None
+        component.overlay_widget_checkboxes = {}
+        component.overlay_build_bg_checkbox = FakeCheckbox(False)
+        component.overlay_build_header_checkbox = FakeCheckbox(True)
+        component.overlay_build_completed_checkbox = FakeCheckbox(True)
+        component.overlay_build_max_rows_spin = FakeSpinBox(9)
+        component.overlay_stats_checkboxes = None
+        component.overlay_stage_summary_bg_checkbox = None
+        component.overlay_banishes_bg_checkbox = None
+        component.overlay_tracked_rules_list = None
+        component.update_overlay_state_from_tracker = MagicMock()
+        component.refresh_overlay_ui = MagicMock()
+        overlay_cfg = deepcopy(config.DEFAULT_OVERLAY)
+
+        with patch.object(config, "OVERLAY", overlay_cfg), \
+             patch.object(config, "user_config", {}), \
+             patch.object(config, "save_config"):
+            component.save_overlay_settings_from_ui()
+            saved = next(
+                widget
+                for widget in config.OVERLAY["widgets"]
+                if widget["id"] == "build_progression"
+            )
+            self.assertEqual(saved["background_opacity"], 0.0)
+            self.assertTrue(saved["show_header"])
+            self.assertTrue(saved["show_completed"])
+            self.assertEqual(saved["max_rows"], 9)
+            self.assertNotIn("mode", saved)
 
     def test_overlay_settings_persist_stats_short_label_choice(self) -> None:
         component = build_overlay_test_component()

@@ -520,6 +520,9 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
         parent_mixin.igo_build_max_rows_spin.setValue(int(settings.get("max_rows", 5)))
         parent_mixin.igo_build_max_rows_spin.valueChanged.connect(parent_mixin._on_igo_settings_changed)
         parent_mixin.igo_build_max_rows_spin.setPrefix("Rows ")
+        parent_mixin.igo_build_max_rows_spin.setToolTip(
+            "Limits remaining and failed rows. Completed rows are appended when enabled."
+        )
         row.addWidget(parent_mixin.igo_build_max_rows_spin)
         parent_mixin.igo_build_completed_cb = _build_checkbox(
             "Completed", bool(settings.get("show_completed", False)), parent_mixin._on_igo_settings_changed

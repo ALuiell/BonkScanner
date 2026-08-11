@@ -236,6 +236,24 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertFalse(dialog._stage_label.isHidden())
         self.assertTrue(dialog.time_entry.isHidden())
         self.assertTrue(dialog._time_label.isHidden())
+        self.assertEqual(
+            [dialog.stage.itemData(index) for index in range(dialog.stage.count())],
+            [2, 3],
+        )
+
+        overtime = next(
+            button
+            for button in dialog.deadline_group.buttons()
+            if button.property("deadlineKind") == "stage_overtime"
+        )
+        overtime.click()
+        app.processEvents()
+        self.assertEqual(
+            [dialog.stage.itemData(index) for index in range(dialog.stage.count())],
+            [1, 2, 3, 4],
+        )
+        self.assertEqual(dialog.time_entry.text(), "+05:00")
+        self.assertEqual(BuildProgressionDialog._seconds("+05:00"), 300.0)
 
     def test_editor_uses_rarity_chips_and_a_single_row_for_requirement_values(self):
         app = QApplication.instance() or QApplication([])
@@ -329,7 +347,7 @@ class BuildProgressionTests(unittest.TestCase):
             all("priority" not in row for row in build_progression_payload(result)["rows"])
         )
 
-    def test_requirements_sort_by_nearest_deadline_then_untimed(self):
+    def test_requirements_sort_untimed_before_active_deadlines(self):
         _tracker, snap = runtime(time=100, items=(), stage=1, stage_time=100, duration=600)
         definition = BuildProgressionDefinition(requirements=(
             BuildRequirement(
@@ -347,7 +365,48 @@ class BuildProgressionTests(unittest.TestCase):
 
         result = evaluate_build_progression(definition, snap).snapshot
 
-        self.assertEqual([row.id for row in result.rows], ["sooner", "later", "untimed"])
+        self.assertEqual([row.id for row in result.rows], ["untimed", "sooner", "later"])
+
+    def test_runtime_rows_put_failed_below_active_and_completed_last(self):
+        _tracker, snap = runtime(
+            items=("Anvil",),
+            stage=1,
+            stage_time=631,
+            duration=600,
+        )
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement("done", RequirementKind.ITEM, "Anvil", 1),
+            BuildRequirement(
+                "failed",
+                RequirementKind.ITEM,
+                "Sucky Magnet",
+                1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME,
+                    stage=1,
+                    seconds=0,
+                ),
+            ),
+            BuildRequirement(
+                "active",
+                RequirementKind.ITEM,
+                "Ice Cube",
+                1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME,
+                    stage=1,
+                    seconds=120,
+                ),
+            ),
+            BuildRequirement("untimed", RequirementKind.ITEM, "Joe's Dagger", 1),
+        ))
+
+        result = evaluate_build_progression(definition, snap).snapshot
+
+        self.assertEqual(
+            [row.id for row in result.rows],
+            ["untimed", "active", "failed", "done"],
+        )
 
     def test_unknown_is_not_zero_or_overdue(self):
         _tracker, snap = runtime(time=500)
@@ -383,6 +442,16 @@ class BuildProgressionTests(unittest.TestCase):
         payload = build_progression_payload(result, {"max_rows": 1})
         self.assertEqual(payload["hidden_completed"], 1)
         self.assertEqual(payload["hidden_remaining"], 1)
+        with_completed = build_progression_payload(
+            result,
+            {"max_rows": 1, "show_completed": True},
+        )
+        self.assertEqual(
+            [row["id"] for row in with_completed["rows"]],
+            ["one", "done"],
+        )
+        self.assertEqual(with_completed["hidden_completed"], 0)
+        self.assertEqual(with_completed["hidden_remaining"], 1)
         twitch = format_twitch_build(result, max_chars=15)
         self.assertIn("more", twitch["requirements"])
         self.assertIn("COMPLETED:", twitch["completed_requirements"])
@@ -426,6 +495,62 @@ class BuildProgressionTests(unittest.TestCase):
         })
         self.assertEqual(migrated["requirements"][0]["deadline"]["kind"], "none")
 
+        supported_before_tiers = config.normalize_build_progression_config({
+            "requirements": [
+                {
+                    "id": "before-one",
+                    "kind": "item",
+                    "target": "Ice Cube",
+                    "required": 1,
+                    "deadline": {"kind": "stage_start", "stage": 1},
+                },
+                {
+                    "id": "before-four",
+                    "kind": "item",
+                    "target": "Joe's Dagger",
+                    "required": 1,
+                    "deadline": {"kind": "stage_start", "stage": 4},
+                },
+            ],
+        })
+        self.assertEqual(
+            [row["deadline"]["kind"] for row in supported_before_tiers["requirements"]],
+            ["none", "none"],
+        )
+        self.assertTrue(
+            all(
+                row["deadline"]["stage"] is None
+                for row in supported_before_tiers["requirements"]
+            )
+        )
+
+    def test_obs_build_widget_migrates_modes_to_standard_panel_settings(self):
+        text_overlay = config.normalize_overlay_config({
+            "widgets": [{"id": "build_progression", "mode": "text"}],
+        })
+        text_widget = next(
+            widget
+            for widget in text_overlay["widgets"]
+            if widget["id"] == "build_progression"
+        )
+        self.assertNotIn("mode", text_widget)
+        self.assertFalse(text_widget["show_header"])
+        self.assertEqual(text_widget["background_opacity"], 0.0)
+        self.assertFalse(text_widget["show_border"])
+
+        full_overlay = config.normalize_overlay_config({
+            "widgets": [{"id": "build_progression", "mode": "full"}],
+        })
+        full_widget = next(
+            widget
+            for widget in full_overlay["widgets"]
+            if widget["id"] == "build_progression"
+        )
+        self.assertNotIn("mode", full_widget)
+        self.assertTrue(full_widget["show_header"])
+        self.assertEqual(full_widget["background_opacity"], 0.4)
+        self.assertTrue(full_widget["show_border"])
+
     def test_in_game_html_escapes_labels(self):
         _tracker, snap = runtime(items=())
         definition = BuildProgressionDefinition(name="<build>", requirements=(
@@ -436,6 +561,34 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertIn("&lt;build&gt;", html)
         self.assertNotIn("<item>", html)
 
+    def test_in_game_html_uses_qt_tables_and_hides_unknown_question_marks(self):
+        _tracker, snap = runtime(items=())
+        snap = replace(snap, fast_items=None, latest_snapshot=None)
+        definition = BuildProgressionDefinition(
+            name="Moop Antena",
+            requirements=(
+                BuildRequirement("magnet", RequirementKind.ITEM, "Sucky Magnet", 1),
+            ),
+        )
+        payload = build_progression_payload(
+            evaluate_build_progression(definition, snap).snapshot
+        )
+
+        html = build_build_progression_overlay_html(payload)
+
+        self.assertIn("Moop Antena&nbsp;&middot;&nbsp;0/1", html)
+        self.assertIn("<table", html)
+        self.assertNotIn("display:grid", html)
+        self.assertNotIn("display:flex", html)
+        self.assertNotIn(">?</", html)
+        self.assertIn("Sucky Magnet&nbsp;&nbsp;", html)
+        self.assertIn("--/1", html)
+
+        payload["rows"][0]["status"] = "neutral"
+        payload["rows"][0]["symbol"] = "·"
+        neutral_html = build_build_progression_overlay_html(payload)
+        self.assertNotIn(">·</", neutral_html)
+
     def test_twitch_build_command_uses_shared_service(self):
         tracker, _snap = runtime(items=())
         service = BuildProgressionService(tracker, BuildProgressionDefinition(name="Chat build", requirements=(
@@ -444,9 +597,12 @@ class BuildProgressionTests(unittest.TestCase):
         bot = TwitchBotWorker(tracker, build_progression_service=service)
         bot._send_chat = MagicMock()
         bot._handle_build("channel")
+        self.assertEqual(bot._send_chat.call_count, 1)
         message = bot._send_chat.call_args.args[1]
         self.assertIn("Chat build", message)
         self.assertIn("0/1", message)
+        self.assertIn("REMAINING:", message)
+        self.assertIn("Anvil", message)
         self.assertNotIn("Next", message)
         self.assertNotIn("Due", message)
 
@@ -468,11 +624,56 @@ class BuildProgressionTests(unittest.TestCase):
         bot._handle_build("channel")
 
         self.assertEqual(bot._send_chat.call_count, 2)
-        first, second = [call.args[1] for call in bot._send_chat.call_args_list]
+        first, completed = [
+            call.args[1] for call in bot._send_chat.call_args_list
+        ]
+        self.assertIn("Chat build", first)
+        self.assertIn("REMAINING:", first)
         self.assertIn("Ice Cube", first)
         self.assertNotIn("COMPLETED", first)
-        self.assertIn("COMPLETED:", second)
-        self.assertIn("Anvil", second)
+        self.assertIn("COMPLETED:", completed)
+        self.assertIn("Anvil", completed)
+
+    def test_twitch_build_lists_use_pipe_separators(self):
+        _tracker, snap = runtime(items=("Anvil",))
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement("done", RequirementKind.ITEM, "Anvil", 1),
+            BuildRequirement("missing-one", RequirementKind.ITEM, "Ice Cube", 1),
+            BuildRequirement("missing-two", RequirementKind.ITEM, "Joe's Dagger", 1),
+        ))
+
+        values = format_twitch_build(
+            evaluate_build_progression(definition, snap).snapshot
+        )
+
+        self.assertIn("Ice Cube 0/1 |", values["requirements"])
+        self.assertNotIn(";", values["requirements"])
+        self.assertNotIn(";", values["completed_requirements"])
+
+    def test_twitch_build_separates_remaining_from_failed(self):
+        _tracker, snap = runtime(items=(), stage=1, stage_time=601, duration=600)
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement("active", RequirementKind.ITEM, "Ice Cube", 1),
+            BuildRequirement(
+                "failed",
+                RequirementKind.ITEM,
+                "Sucky Magnet",
+                1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME,
+                    stage=1,
+                    seconds=0,
+                ),
+            ),
+        ))
+
+        values = format_twitch_build(
+            evaluate_build_progression(definition, snap).snapshot
+        )
+
+        self.assertIn("REMAINING: · Ice Cube", values["requirements"])
+        self.assertNotIn("Sucky Magnet", values["requirements"])
+        self.assertIn("FAILED: × Sucky Magnet", values["failed_requirements"])
 
 
 if __name__ == "__main__":

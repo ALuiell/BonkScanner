@@ -159,28 +159,15 @@ function renderWidget(widget, state) {
     case "luck_rarity":
       return panel("Luck", renderLuckRarity(state), "wide luck-widget", widget);
     case "build_progression":
-      return renderBuildProgressionPanel(widget, state);
+      return panel(
+        "Build Progression",
+        renderBuildProgression(state),
+        "wide build-progress-widget",
+        widget,
+      );
     default:
       return "";
   }
-}
-
-function renderBuildProgressionPanel(widget, state) {
-  const mode = ["full", "compact", "text"].includes(widget?.mode)
-    ? widget.mode
-    : "compact";
-  const presentation = {
-    ...widget,
-    show_header: mode === "full",
-    background_opacity: mode === "text" ? 0 : 0.4,
-    show_border: mode !== "text",
-  };
-  return panel(
-    "Build Progression",
-    renderBuildProgression(state),
-    `wide build-progress-widget build-mode-${mode}`,
-    presentation,
-  );
 }
 
 function buildLabelColor(value) {

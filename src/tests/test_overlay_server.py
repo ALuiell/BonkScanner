@@ -107,6 +107,8 @@ class OverlayServerTests(unittest.TestCase):
                  "selected_kps_metrics": ["current", "bogus", "run_avg"]},
                 {"id": "stats", "order": "not-an-int", "scale": 0.01,
                  "selected_stats": ["Damage", "  ", "Luck"]},
+                {"id": "build_progression", "max_rows": 13,
+                 "show_completed": True, "show_border": True},
                 {"id": "  "},
                 "not-a-dict",
             ],
@@ -141,7 +143,7 @@ class OverlayServerTests(unittest.TestCase):
         self.assertEqual(2560, payload["canvas_width"])
         self.assertEqual(1440, payload["canvas_height"])
         # Blank ids and non-dict entries are dropped.
-        self.assertEqual({"kps", "stats"}, set(widgets))
+        self.assertEqual({"kps", "stats", "build_progression"}, set(widgets))
         # Coercions and clamps, so this fails if the normalization is bypassed
         # rather than merely relocated.
         self.assertEqual(4.0, widgets["kps"]["scale"])
@@ -151,6 +153,9 @@ class OverlayServerTests(unittest.TestCase):
         self.assertEqual(20, widgets["stats"]["order"])
         self.assertEqual(["current", "run_avg"], widgets["kps"]["selected_kps_metrics"])
         self.assertEqual(["Damage", "Luck"], widgets["stats"]["selected_stats"])
+        self.assertEqual(13, widgets["build_progression"]["max_rows"])
+        self.assertTrue(widgets["build_progression"]["show_completed"])
+        self.assertTrue(widgets["build_progression"]["show_border"])
 
     def test_unknown_route_returns_404(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
