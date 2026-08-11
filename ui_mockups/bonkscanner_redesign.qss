@@ -264,6 +264,11 @@ QFrame#BuildProgressionDivider {
     min-height: 1px;
     max-height: 1px;
 }
+QScrollArea#BuildProgressionScroll {
+    background: transparent;
+    border: none;
+}
+QScrollArea#BuildProgressionScroll > QWidget > QWidget,
 QWidget#BuildProgressionRows { background: transparent; }
 QFrame#BuildProgressionRow {
     background-color: #0E141B;
@@ -955,26 +960,24 @@ QLabel#pickerCount { color: #5C6675; font-size: 11px; font-weight: 700; backgrou
 /* Build Progression reuses the Tracked Items card vocabulary.  The picker and
    configured list are content inside cards, not a second pair of framed
    windows competing with their container. */
-QTreeWidget#buildPicker,
+QScrollArea#buildPicker,
 QListWidget#buildRequirementList {
     background: transparent;
     border: none;
     outline: none;
     padding: 0;
 }
-QTreeWidget#buildPicker::item,
+QScrollArea#buildPicker > QWidget > QWidget { background: transparent; }
 QListWidget#buildRequirementList::item {
     min-height: 25px;
     padding: 3px 7px;
     border-radius: 6px;
     color: #C7D0DC;
 }
-QTreeWidget#buildPicker::item:hover,
 QListWidget#buildRequirementList::item:hover {
     background-color: #151C24;
     color: #EDF1F5;
 }
-QTreeWidget#buildPicker::item:selected,
 QListWidget#buildRequirementList::item:selected {
     background-color: #10263A;
     color: #E0F2FE;

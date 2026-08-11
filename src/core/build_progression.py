@@ -37,6 +37,21 @@ class Priority(str, Enum):
     ASAP = "asap"
 
 
+PRIORITY_LABELS = {
+    Priority.ASAP: "High",
+    Priority.EARLY: "Medium",
+    Priority.NORMAL: "Low",
+}
+
+
+def format_priority(priority: Priority | str) -> str:
+    try:
+        value = priority if isinstance(priority, Priority) else Priority(str(priority))
+    except ValueError:
+        value = Priority.NORMAL
+    return PRIORITY_LABELS[value]
+
+
 class RequirementStatus(str, Enum):
     UNKNOWN = "unknown"
     NEUTRAL = "neutral"
@@ -136,8 +151,8 @@ def format_deadline(deadline: RequirementDeadline) -> str:
         return f"RUN · {format_clock(deadline.seconds)}"
     stage = max(1, min(4, int(deadline.stage or 1)))
     if deadline.kind is DeadlineKind.STAGE_START:
-        return f"Before S{stage}"
-    return f"S{stage} OT · {format_clock(deadline.seconds)}"
+        return f"Before T{stage}"
+    return f"T{stage} OT · {format_clock(deadline.seconds)}"
 
 
 def evaluate_build_progression(

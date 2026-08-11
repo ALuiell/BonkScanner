@@ -950,9 +950,9 @@ html&gt;body{padding:0}&lt;/style&gt;
             &lt;label class=&quot;bonk2-field&quot;&gt;
               &lt;span&gt;Priority&lt;/span&gt;
               &lt;select id=&quot;bonk2-priority&quot;&gt;
-                &lt;option&gt;Normal&lt;/option&gt;
-                &lt;option&gt;Early&lt;/option&gt;
-                &lt;option selected&gt;ASAP&lt;/option&gt;
+                &lt;option selected&gt;High&lt;/option&gt;
+                &lt;option&gt;Medium&lt;/option&gt;
+                &lt;option&gt;Low&lt;/option&gt;
               &lt;/select&gt;
             &lt;/label&gt;
           &lt;/div&gt;
@@ -970,21 +970,21 @@ html&gt;body{padding:0}&lt;/style&gt;
                 &lt;span&gt;Run clock&lt;/span&gt;&lt;small&gt;From the start of the run&lt;/small&gt;
               &lt;/button&gt;
               &lt;button type=&quot;button&quot; data-deadline=&quot;stage-start&quot; aria-pressed=&quot;false&quot;&gt;
-                &lt;span&gt;Stage start&lt;/span&gt;&lt;small&gt;Before a stage begins&lt;/small&gt;
+                &lt;span&gt;Tier start&lt;/span&gt;&lt;small&gt;Before a tier begins&lt;/small&gt;
               &lt;/button&gt;
               &lt;button type=&quot;button&quot; data-deadline=&quot;overtime&quot; aria-pressed=&quot;true&quot;&gt;
-                &lt;span&gt;Stage overtime&lt;/span&gt;&lt;small&gt;Before an OT minute&lt;/small&gt;
+                &lt;span&gt;Tier overtime&lt;/span&gt;&lt;small&gt;Before an OT minute&lt;/small&gt;
               &lt;/button&gt;
             &lt;/div&gt;
 
             &lt;div id=&quot;bonk2-deadline-fields&quot; class=&quot;bonk2-deadline-fields&quot;&gt;
               &lt;label id=&quot;bonk2-stage-wrap&quot; class=&quot;bonk2-field&quot;&gt;
-                &lt;span&gt;Stage&lt;/span&gt;
+                &lt;span&gt;Tier&lt;/span&gt;
                 &lt;select id=&quot;bonk2-stage&quot;&gt;
-                  &lt;option&gt;Stage 1&lt;/option&gt;
-                  &lt;option selected&gt;Stage 2&lt;/option&gt;
-                  &lt;option&gt;Stage 3&lt;/option&gt;
-                  &lt;option&gt;Stage 4&lt;/option&gt;
+                  &lt;option&gt;Tier 1&lt;/option&gt;
+                  &lt;option selected&gt;Tier 2&lt;/option&gt;
+                  &lt;option&gt;Tier 3&lt;/option&gt;
+                  &lt;option&gt;Tier 4&lt;/option&gt;
                 &lt;/select&gt;
               &lt;/label&gt;
               &lt;label id=&quot;bonk2-time-wrap&quot; class=&quot;bonk2-field&quot;&gt;
@@ -996,7 +996,7 @@ html&gt;body{padding:0}&lt;/style&gt;
 
           &lt;div class=&quot;bonk2-sentence&quot;&gt;
             &lt;span&gt;RESULT&lt;/span&gt;
-            &lt;strong id=&quot;bonk2-summary&quot;&gt;Collect 1× Joe&#x27;s Dagger before Stage 2 overtime reaches 05:00. Priority: ASAP.&lt;/strong&gt;
+            &lt;strong id=&quot;bonk2-summary&quot;&gt;Collect 1× Joe&#x27;s Dagger before Tier 2 overtime reaches 05:00. Priority: High.&lt;/strong&gt;
           &lt;/div&gt;
 
           &lt;div class=&quot;bonk2-actions&quot;&gt;
@@ -1011,10 +1011,10 @@ html&gt;body{padding:0}&lt;/style&gt;
             &lt;button type=&quot;button&quot; class=&quot;bonk2-text-action&quot;&gt;Manage all&lt;/button&gt;
           &lt;/div&gt;
           &lt;div id=&quot;bonk2-rule-list&quot; class=&quot;bonk2-rule-list&quot;&gt;
-            &lt;div class=&quot;bonk2-rule&quot;&gt;&lt;span class=&quot;bonk2-grip&quot;&gt;⠿&lt;/span&gt;&lt;div&gt;&lt;b&gt;Joe&#x27;s Dagger &lt;i&gt;×1&lt;/i&gt;&lt;/b&gt;&lt;small class=&quot;bonk2-asap&quot;&gt;ASAP&lt;/small&gt;&lt;/div&gt;&lt;span class=&quot;bonk2-deadline&quot;&gt;S2 OT · 05:00&lt;/span&gt;&lt;button type=&quot;button&quot; aria-label=&quot;Edit Joe&#x27;s Dagger&quot;&gt;Edit&lt;/button&gt;&lt;/div&gt;
-            &lt;div class=&quot;bonk2-rule&quot;&gt;&lt;span class=&quot;bonk2-grip&quot;&gt;⠿&lt;/span&gt;&lt;div&gt;&lt;b&gt;Ice Cube &lt;i&gt;×1&lt;/i&gt;&lt;/b&gt;&lt;small&gt;Maybe for extension T1&lt;/small&gt;&lt;/div&gt;&lt;span class=&quot;bonk2-deadline&quot;&gt;S2 OT · 03:00&lt;/span&gt;&lt;button type=&quot;button&quot;&gt;Edit&lt;/button&gt;&lt;/div&gt;
-            &lt;div class=&quot;bonk2-rule&quot;&gt;&lt;span class=&quot;bonk2-grip&quot;&gt;⠿&lt;/span&gt;&lt;div&gt;&lt;b&gt;Spicy Meatball &lt;i&gt;×1&lt;/i&gt;&lt;/b&gt;&lt;small&gt;Ideal ×5&lt;/small&gt;&lt;/div&gt;&lt;span class=&quot;bonk2-deadline&quot;&gt;S2 OT · 12:00&lt;/span&gt;&lt;button type=&quot;button&quot;&gt;Edit&lt;/button&gt;&lt;/div&gt;
-            &lt;div class=&quot;bonk2-rule&quot;&gt;&lt;span class=&quot;bonk2-grip&quot;&gt;⠿&lt;/span&gt;&lt;div&gt;&lt;b&gt;Duration &lt;i&gt;3×&lt;/i&gt;&lt;/b&gt;&lt;small&gt;Ideal 5×&lt;/small&gt;&lt;/div&gt;&lt;span class=&quot;bonk2-deadline&quot;&gt;S2 OT · 15:00&lt;/span&gt;&lt;button type=&quot;button&quot;&gt;Edit&lt;/button&gt;&lt;/div&gt;
+            &lt;div class=&quot;bonk2-rule&quot;&gt;&lt;span class=&quot;bonk2-grip&quot;&gt;⠿&lt;/span&gt;&lt;div&gt;&lt;b&gt;Joe&#x27;s Dagger &lt;i&gt;×1&lt;/i&gt;&lt;/b&gt;&lt;small class=&quot;bonk2-asap&quot;&gt;High&lt;/small&gt;&lt;/div&gt;&lt;span class=&quot;bonk2-deadline&quot;&gt;T2 OT · 05:00&lt;/span&gt;&lt;button type=&quot;button&quot; aria-label=&quot;Edit Joe&#x27;s Dagger&quot;&gt;Edit&lt;/button&gt;&lt;/div&gt;
+            &lt;div class=&quot;bonk2-rule&quot;&gt;&lt;span class=&quot;bonk2-grip&quot;&gt;⠿&lt;/span&gt;&lt;div&gt;&lt;b&gt;Ice Cube &lt;i&gt;×1&lt;/i&gt;&lt;/b&gt;&lt;small&gt;Maybe for extension T1&lt;/small&gt;&lt;/div&gt;&lt;span class=&quot;bonk2-deadline&quot;&gt;T2 OT · 03:00&lt;/span&gt;&lt;button type=&quot;button&quot;&gt;Edit&lt;/button&gt;&lt;/div&gt;
+            &lt;div class=&quot;bonk2-rule&quot;&gt;&lt;span class=&quot;bonk2-grip&quot;&gt;⠿&lt;/span&gt;&lt;div&gt;&lt;b&gt;Spicy Meatball &lt;i&gt;×1&lt;/i&gt;&lt;/b&gt;&lt;small&gt;Ideal ×5&lt;/small&gt;&lt;/div&gt;&lt;span class=&quot;bonk2-deadline&quot;&gt;T2 OT · 12:00&lt;/span&gt;&lt;button type=&quot;button&quot;&gt;Edit&lt;/button&gt;&lt;/div&gt;
+            &lt;div class=&quot;bonk2-rule&quot;&gt;&lt;span class=&quot;bonk2-grip&quot;&gt;⠿&lt;/span&gt;&lt;div&gt;&lt;b&gt;Duration &lt;i&gt;3×&lt;/i&gt;&lt;/b&gt;&lt;small&gt;Ideal 5×&lt;/small&gt;&lt;/div&gt;&lt;span class=&quot;bonk2-deadline&quot;&gt;T2 OT · 15:00&lt;/span&gt;&lt;button type=&quot;button&quot;&gt;Edit&lt;/button&gt;&lt;/div&gt;
           &lt;/div&gt;
         &lt;/section&gt;
       &lt;/div&gt;
@@ -1022,7 +1022,7 @@ html&gt;body{padding:0}&lt;/style&gt;
 
     &lt;section class=&quot;bonk2-preview&quot; aria-label=&quot;Twitch command preview&quot;&gt;
       &lt;span&gt;TWITCH · !BUILD&lt;/span&gt;
-      &lt;p id=&quot;bonk2-preview-text&quot;&gt;Community T2 build · 4/14 | Ice Cube 0/1 · S2 OT 03:00 | Joe&#x27;s Dagger 0/1 · ASAP | +8 remaining&lt;/p&gt;
+      &lt;p id=&quot;bonk2-preview-text&quot;&gt;Community T2 build · 4/14 | Ice Cube 0/1 · T2 OT 03:00 | Joe&#x27;s Dagger 0/1 · High | +8 remaining&lt;/p&gt;
     &lt;/section&gt;
 
     &lt;footer class=&quot;bonk2-footer&quot;&gt;
@@ -1175,7 +1175,8 @@ html&gt;body{padding:0}&lt;/style&gt;
     #bonk-build-v2 .bonk2-grow { max-width: none; }
     #bonk-build-v2 .bonk2-switch { margin-left: 0; justify-content: flex-end; }
     #bonk-build-v2 .bonk2-layout {
-      grid-template-columns: 318px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 11fr) minmax(360px, 9fr);
+      grid-template-rows: minmax(220px, 1fr) auto;
       gap: 12px;
       padding: 12px 16px;
     }
@@ -1186,10 +1187,10 @@ html&gt;body{padding:0}&lt;/style&gt;
       border-radius: 12px;
       background: #0b0f14;
     }
-    #bonk-build-v2 .bonk2-picker { padding: 12px; }
-    #bonk-build-v2 .bonk2-editor-column { display: grid; align-content: start; gap: 12px; background: transparent; }
-    #bonk-build-v2 .bonk2-editor { padding: 12px; }
-    #bonk-build-v2 .bonk2-requirements { padding: 12px; }
+    #bonk-build-v2 .bonk2-picker { grid-column: 1; grid-row: 1; min-height: 0; padding: 12px; overflow: auto; }
+    #bonk-build-v2 .bonk2-editor-column { display: contents; }
+    #bonk-build-v2 .bonk2-editor { grid-column: 1; grid-row: 2; padding: 12px; }
+    #bonk-build-v2 .bonk2-requirements { grid-column: 2; grid-row: 1 / span 2; min-height: 0; padding: 12px; }
     #bonk-build-v2 .bonk2-section-title { min-height: 28px; }
     #bonk-build-v2 .bonk2-step {
       width: 21px;
@@ -1301,6 +1302,9 @@ html&gt;body{padding:0}&lt;/style&gt;
       #bonk-build-v2 .bonk2-layout { grid-template-columns: 1fr; }
       #bonk-build-v2 .bonk2-general { margin-left: 12px; margin-right: 12px; }
       #bonk-build-v2 .bonk2-layout { padding-left: 12px; padding-right: 12px; }
+      #bonk-build-v2 .bonk2-picker,
+      #bonk-build-v2 .bonk2-editor,
+      #bonk-build-v2 .bonk2-requirements { grid-column: 1; grid-row: auto; }
       #bonk-build-v2 .bonk2-switch { justify-content: space-between; }
     }
   &lt;/style&gt;
@@ -1417,7 +1421,7 @@ html&gt;body{padding:0}&lt;/style&gt;
       document.getElementById(&#x27;bonk2-add&#x27;).addEventListener(&#x27;click&#x27;, () =&gt; {
         const row = document.createElement(&#x27;div&#x27;);
         row.className = &#x27;bonk2-rule&#x27;;
-        const deadlineLabel = deadline === &#x27;none&#x27; || !deadlineEnabled.checked ? &#x27;No deadline&#x27; : deadline === &#x27;run&#x27; ? `RUN · ${time.value}` : deadline === &#x27;stage-start&#x27; ? `Before ${stage.value.replace(&#x27;Stage &#x27;, &#x27;S&#x27;)}` : `${stage.value.replace(&#x27;Stage &#x27;, &#x27;S&#x27;)} OT · ${time.value}`;
+        const deadlineLabel = deadline === &#x27;none&#x27; || !deadlineEnabled.checked ? &#x27;No deadline&#x27; : deadline === &#x27;run&#x27; ? `RUN · ${time.value}` : deadline === &#x27;stage-start&#x27; ? `Before ${stage.value.replace(&#x27;Tier &#x27;, &#x27;T&#x27;)}` : `${stage.value.replace(&#x27;Tier &#x27;, &#x27;T&#x27;)} OT · ${time.value}`;
         row.innerHTML = `&lt;span class=&quot;bonk2-grip&quot;&gt;⠿&lt;/span&gt;&lt;div&gt;&lt;b&gt;${selected} &lt;i&gt;${kind === &#x27;item&#x27; ? &#x27;×&#x27; : &#x27;&#x27;}${required.value}&lt;/i&gt;&lt;/b&gt;&lt;small&gt;${priority.value}&lt;/small&gt;&lt;/div&gt;&lt;span class=&quot;bonk2-deadline&quot;&gt;${deadlineLabel}&lt;/span&gt;&lt;button type=&quot;button&quot;&gt;Edit&lt;/button&gt;`;
         document.getElementById(&#x27;bonk2-rule-list&#x27;).prepend(row);
       });

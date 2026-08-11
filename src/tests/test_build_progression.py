@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import src
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QLabel
 
 from core.build_progression import (
     BuildProgressionDefinition,
@@ -117,6 +118,83 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertFalse(dialog.time_entry.isHidden())
         self.assertFalse(dialog._time_label.isHidden())
 
+    def test_editor_uses_rarity_chips_and_a_single_row_for_requirement_values(self):
+        app = QApplication.instance() or QApplication([])
+        settings = SimpleNamespace(
+            read=lambda: {
+                "schema_version": 1,
+                "name": "Test",
+                "deadlines_enabled": True,
+                "requirements": [],
+            },
+            write=MagicMock(),
+        )
+        dialog = BuildProgressionDialog(settings, SimpleNamespace())
+        self.addCleanup(dialog.close)
+        dialog.show()
+        app.processEvents()
+
+        self.assertEqual(dialog.required.decimals(), 0)
+        self.assertEqual(dialog.ideal.decimals(), 0)
+        self.assertEqual(
+            [dialog.priority.itemText(i) for i in range(dialog.priority.count())],
+            ["High", "Medium", "Low"],
+        )
+        self.assertEqual(dialog.priority.currentText(), "Low")
+        anvil = dialog._picker_buttons["Anvil"]
+        self.assertEqual(anvil.objectName(), "pickChip")
+        self.assertIn("border: 1px solid", anvil.styleSheet())
+        anvil.click()
+        self.assertEqual(dialog._selected_target(), "Anvil")
+        self.assertTrue(anvil.isChecked())
+
+        field_tops = {
+            dialog.required.parentWidget().geometry().top(),
+            dialog.ideal.parentWidget().geometry().top(),
+            dialog.priority.parentWidget().geometry().top(),
+        }
+        self.assertEqual(len(field_tops), 1)
+        self.assertGreaterEqual(dialog.rules.height(), 100)
+        self.assertGreater(
+            dialog._configurator_card.geometry().top(),
+            dialog._picker_card.geometry().top(),
+        )
+        self.assertGreater(dialog._rules_card.height(), dialog._picker_card.height())
+
+        dialog._draft["requirements"] = [
+            {
+                "id": "colour-row",
+                "kind": "item",
+                "target": "Anvil",
+                "required": 1,
+                "ideal": None,
+                "priority": "asap",
+                "deadline": {
+                    "kind": "stage_overtime",
+                    "stage": 2,
+                    "seconds": 300,
+                },
+            }
+        ]
+        dialog._refresh_rules()
+        requirement_row = dialog.rules.itemWidget(dialog.rules.item(0))
+        self.assertIsNotNone(requirement_row)
+        self.assertGreaterEqual(requirement_row.minimumHeight(), 40)
+        self.assertEqual(
+            dialog.rules.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff
+        )
+        target = requirement_row.findChild(QLabel, "BuildRequirementTarget")
+        priority = requirement_row.findChild(QLabel, "BuildRequirementPriority")
+        deadline = requirement_row.findChild(QLabel, "BuildRequirementDeadline")
+        self.assertIn("color:", target.styleSheet())
+        self.assertEqual(priority.text(), "High")
+        self.assertEqual(deadline.text(), "T2 OT · 05:00")
+
+        dialog.kind_combo.setCurrentIndex(dialog.kind_combo.findData("stat"))
+        app.processEvents()
+        self.assertEqual(dialog.required.decimals(), 2)
+        self.assertEqual(dialog.ideal.decimals(), 2)
+
     def test_run_clock_warning_and_overdue_boundaries(self):
         definition = BuildProgressionDefinition(
             requirements=(BuildRequirement(
@@ -138,6 +216,8 @@ class BuildProgressionTests(unittest.TestCase):
         rows = {row.id: row for row in evaluate_build_progression(definition, snap).snapshot.rows}
         self.assertIs(rows["start"].status, RequirementStatus.WARNING)
         self.assertIs(rows["ot"].status, RequirementStatus.NEUTRAL)
+        self.assertEqual(rows["start"].deadline_label, "Before T2")
+        self.assertEqual(rows["ot"].deadline_label, "T1 OT · 00:30")
         overdue = replace(snap, fast_stage_timer=replace(snap.fast_stage_timer, stage_timer_seconds=631))
         rows = {row.id: row for row in evaluate_build_progression(definition, overdue).snapshot.rows}
         self.assertIs(rows["ot"].status, RequirementStatus.OVERDUE)
@@ -151,6 +231,10 @@ class BuildProgressionTests(unittest.TestCase):
         result = evaluate_build_progression(definition, snap).snapshot
         self.assertEqual([row.id for row in result.rows], ["asap", "normal"])
         self.assertTrue(all(row.status is RequirementStatus.NEUTRAL for row in result.rows))
+        self.assertEqual(
+            [row["priority"] for row in build_progression_payload(result)["rows"]],
+            ["high", "low"],
+        )
 
     def test_unknown_is_not_zero_or_overdue(self):
         _tracker, snap = runtime(time=500)

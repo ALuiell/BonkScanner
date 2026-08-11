@@ -346,6 +346,7 @@ class LiveStatsTab:
         self._build_progression_empty = None
         self._build_progression_complete = None
         self._build_progression_footer = None
+        self._build_progression_scroll = None
         self._build_progression_rows_layout = None
         self._build_progression_rows: list[_BuildProgressionRow] = []
 
@@ -1300,15 +1301,29 @@ class LiveStatsTab:
         self._build_progression_rows_layout = QVBoxLayout(rows_host)
         self._build_progression_rows_layout.setContentsMargins(0, 0, 0, 0)
         self._build_progression_rows_layout.setSpacing(6)
-        build_card_layout.addWidget(rows_host)
+        self._build_progression_rows_layout.setAlignment(Qt.AlignTop)
+        self._build_progression_scroll = QScrollArea()
+        self._build_progression_scroll.setObjectName("BuildProgressionScroll")
+        self._build_progression_scroll.setWidgetResizable(True)
+        self._build_progression_scroll.setFrameShape(QFrame.NoFrame)
+        self._build_progression_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+        self._build_progression_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded
+        )
+        self._build_progression_scroll.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
+        self._build_progression_scroll.setWidget(rows_host)
+        build_card_layout.addWidget(self._build_progression_scroll, 1)
 
         self._build_progression_footer = QLabel()
         self._build_progression_footer.setObjectName("BuildProgressionFooter")
         self._build_progression_footer.setAlignment(Qt.AlignRight)
         build_card_layout.addWidget(self._build_progression_footer)
 
-        build_progression_layout.addWidget(build_card)
-        build_progression_layout.addStretch(1)
+        build_progression_layout.addWidget(build_card, 1)
         # These eight widgets are the component's, not the shared namespace's.
         # As `self.player_stats_weapons_layout` and friends they were reached
         # by composed name from `cards.py` behind guards that returned silently

@@ -128,7 +128,7 @@ _PREVIEW_COMMANDS = ("build", "items", "weapons")
 _SAMPLE_TAGS = {
     "name": "Community T2 build",
     "progress": "4/14",
-    "requirements": " | ! Ice Cube 0/1 · S2 OT 03:00 | × Joe's Dagger 0/1 · +00:42",
+    "requirements": " | ! Ice Cube 0/1 · T2 OT 03:00 | × Joe's Dagger 0/1 · +00:42",
     "remaining_suffix": " | +8 remaining",
     "completion_time": "11:34",
     "kps": "188",

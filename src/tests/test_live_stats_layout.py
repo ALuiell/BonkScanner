@@ -46,6 +46,7 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
             import src
             from types import SimpleNamespace
+            from PySide6.QtCore import Qt
             from PySide6.QtWidgets import (
                 QApplication,
                 QFrame,
@@ -100,7 +101,12 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             assert build_card is not None
             assert build_card.findChild(QLabel, "BuildProgressionName") is not None
             assert build_card.findChild(QLabel, "BuildProgressionProgress").text() == "NOT CONFIGURED"
-            assert build_card.findChild(QWidget, "BuildProgressionRows") is not None
+            build_scroll = build_card.findChild(QScrollArea, "BuildProgressionScroll")
+            build_rows = build_card.findChild(QWidget, "BuildProgressionRows")
+            assert build_scroll is not None and build_rows is not None
+            assert build_scroll.widget() is build_rows
+            assert build_scroll.verticalScrollBarPolicy() == Qt.ScrollBarAsNeeded
+            assert build_scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
             assert view._banishes_label.parent().objectName() == "LiveStatsBanishes"
             assert view._banishes_label.objectName() == "LiveStatsBanishesText"
             assert view._banishes_chips_container.objectName() == "BanishesChips"

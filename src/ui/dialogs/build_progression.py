@@ -7,19 +7,23 @@ from uuid import uuid4
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QDoubleSpinBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton,
-    QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
 
 from app.build_progression import definition_from_config
 from app import config
+from core.build_progression import format_priority
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import PLAYER_STAT_SPEC_BY_LABEL
 from projections.tracked_items import (
     available_tracked_item_names,
     group_tracked_items_by_rarity,
+    tracked_item_color,
+    tracked_item_display_name,
 )
+from ui.dialogs.tracked_items import _chip_stylesheet, _pick_stylesheet
 from ui.dialogs.shell import (
     DIALOG_REGULAR,
     DIALOG_TALL,
@@ -27,13 +31,14 @@ from ui.dialogs.shell import (
     dialog_body,
     dialog_footer,
 )
+from ui.shared import FlowLayout, _clear_layout
 
 
 DEADLINE_OPTIONS = (
     ("none", "No deadline", "Track progress only"),
     ("run_clock", "Run clock", "From the start of the run"),
-    ("stage_start", "Stage start", "Before a stage begins"),
-    ("stage_overtime", "Stage overtime", "Before an OT minute"),
+    ("stage_start", "Tier start", "Before a tier begins"),
+    ("stage_overtime", "Tier overtime", "Before an OT minute"),
 )
 
 
@@ -63,8 +68,8 @@ class BuildProgressionHelpDialog(QDialog):
         text = QLabel(
             "<b>Required and Ideal</b><br>Required controls completion. Ideal is an optional "
             "stretch target and never blocks BUILD COMPLETE.<br><br>"
-            "<b>Deadlines</b><br>Use no deadline, a run-clock time, the start of a stage, "
-            "or an overtime minute inside a stage. Yellow means two minutes remain; red "
+            "<b>Deadlines</b><br>Use no deadline, a run-clock time, the start of a tier, "
+            "or an overtime minute inside a tier. Yellow means two minutes remain; red "
             "means the requirement is late.<br><br>"
             "<b>Every run starts clean</b><br>The build definition is saved, but completed, "
             "late, and completion-time state resets when a new run begins.<br><br>"
@@ -115,9 +120,11 @@ class BuildProgressionDialog(QDialog):
 
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
-        split.addWidget(self._build_picker())
-        split.addWidget(self._build_editor())
-        split.setSizes([390, 510])
+        split.addWidget(self._build_left_column())
+        split.addWidget(self._build_rules())
+        split.setStretchFactor(0, 11)
+        split.setStretchFactor(1, 9)
+        split.setSizes([500, 400])
         layout.addWidget(split, 1)
 
         preview = QLabel()
@@ -143,9 +150,21 @@ class BuildProgressionDialog(QDialog):
         self._refresh_rules()
         # Apply the default/loaded radio immediately.  Without this first
         # synchronization a freshly opened editor selected ``No deadline``
-        # while still showing both Stage and Time, until the user clicked a
+        # while still showing both Tier and Time, until the user clicked a
         # different deadline and came back.
         self._deadline_changed()
+
+    def _build_left_column(self) -> QWidget:
+        holder = QWidget()
+        holder.setObjectName("cardContent")
+        layout = QVBoxLayout(holder)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        self._picker_card = self._build_picker()
+        self._configurator_card = self._build_editor()
+        layout.addWidget(self._picker_card, 1)
+        layout.addWidget(self._configurator_card)
+        return holder
 
     def _build_picker(self) -> QWidget:
         holder = _card()
@@ -158,7 +177,7 @@ class BuildProgressionDialog(QDialog):
         self.kind_combo = QComboBox()
         self.kind_combo.addItem("Items", "item")
         self.kind_combo.addItem("Stats", "stat")
-        self.kind_combo.currentIndexChanged.connect(self._refresh_picker)
+        self.kind_combo.currentIndexChanged.connect(self._kind_changed)
         kind_row.addWidget(self.kind_combo)
         layout.addLayout(kind_row)
         self.search = QLineEdit()
@@ -166,45 +185,61 @@ class BuildProgressionDialog(QDialog):
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._refresh_picker)
         layout.addWidget(self.search)
-        self.picker = QTreeWidget()
+        self.picker = QScrollArea()
         self.picker.setObjectName("buildPicker")
-        self.picker.setHeaderHidden(True)
-        self.picker.setRootIsDecorated(True)
-        self.picker.setIndentation(14)
-        self.picker.itemSelectionChanged.connect(self._target_changed)
+        self.picker.setWidgetResizable(True)
+        self.picker.setFrameShape(QFrame.NoFrame)
+        self.picker.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._picker_body = QWidget()
+        self._picker_body.setObjectName("cardContent")
+        self._picker_groups = QVBoxLayout(self._picker_body)
+        self._picker_groups.setContentsMargins(0, 0, 0, 0)
+        self._picker_groups.setSpacing(5)
+        self.picker.setWidget(self._picker_body)
         layout.addWidget(self.picker, 1)
+        self._picker_buttons: dict[str, QPushButton] = {}
+        self._selected_target_name = ""
+        self._picker_empty = QLabel("Nothing matches that search")
+        self._picker_empty.setObjectName("tableEmpty")
+        self._picker_empty.setVisible(False)
+        layout.addWidget(self._picker_empty)
         return holder
 
     def _build_editor(self) -> QWidget:
-        holder = QWidget()
-        layout = QVBoxLayout(holder)
-        layout.setContentsMargins(8, 0, 0, 0)
-        layout.setSpacing(10)
-
         builder = _card()
         builder_layout = QVBoxLayout(builder)
         builder_layout.setContentsMargins(12, 12, 12, 12)
-        builder_layout.setSpacing(10)
-        builder_layout.addWidget(_eyebrow("Configure requirement"))
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(8)
+        builder_layout.setSpacing(8)
+        editor_head = QHBoxLayout()
+        editor_head.setContentsMargins(0, 0, 0, 0)
+        editor_head.addWidget(_eyebrow("Configure requirement"))
+        editor_head.addStretch(1)
+        self.selected_target = QLabel("Choose a target")
+        self.selected_target.setObjectName("buildSelectedTarget")
+        editor_head.addWidget(self.selected_target)
+        builder_layout.addLayout(editor_head)
+
         self.required = QDoubleSpinBox()
-        self.required.setRange(0.01, 99999)
-        self.required.setDecimals(2)
+        self.required.setRange(1, 99999)
+        self.required.setDecimals(0)
+        self.required.setSingleStep(1)
         self.required.setValue(1)
-        form.addRow("Required", self.required)
         self.ideal = QDoubleSpinBox()
         self.ideal.setRange(0, 99999)
-        self.ideal.setDecimals(2)
+        self.ideal.setDecimals(0)
+        self.ideal.setSingleStep(1)
         self.ideal.setSpecialValueText("Not set")
-        form.addRow("Ideal (optional)", self.ideal)
         self.priority = QComboBox()
-        for label, value in (("Normal", "normal"), ("Early", "early"), ("ASAP", "asap")):
+        for label, value in (("High", "asap"), ("Medium", "early"), ("Low", "normal")):
             self.priority.addItem(label, value)
-        form.addRow("Priority", self.priority)
-        builder_layout.addLayout(form)
+        self.priority.setCurrentIndex(self.priority.findData("normal"))
+        fields = QHBoxLayout()
+        fields.setContentsMargins(0, 0, 0, 0)
+        fields.setSpacing(8)
+        fields.addWidget(self._field("Required", self.required), 1)
+        fields.addWidget(self._field("Ideal (optional)", self.ideal), 1)
+        fields.addWidget(self._field("Priority", self.priority), 1)
+        builder_layout.addLayout(fields)
 
         grid = QGridLayout()
         self.deadline_group = QButtonGroup(self)
@@ -221,32 +256,41 @@ class BuildProgressionDialog(QDialog):
         grid.setSpacing(8)
         builder_layout.addLayout(grid)
 
-        deadline_form = QFormLayout()
+        deadline_details = QHBoxLayout()
+        deadline_details.setContentsMargins(0, 0, 0, 0)
+        deadline_details.setSpacing(8)
         self.stage = QComboBox()
         for number in range(1, 5):
-            self.stage.addItem(f"Stage {number}", number)
-        deadline_form.addRow("Stage", self.stage)
-        self._stage_label = deadline_form.labelForField(self.stage)
+            self.stage.addItem(f"Tier {number}", number)
+        self._stage_label = QLabel("Tier")
+        self._stage_label.setObjectName("dialogHint")
+        deadline_details.addWidget(self._stage_label)
+        deadline_details.addWidget(self.stage)
         self.time_entry = QLineEdit("05:00")
         self.time_entry.setPlaceholderText("MM:SS")
-        deadline_form.addRow("Time", self.time_entry)
-        self._time_label = deadline_form.labelForField(self.time_entry)
-        builder_layout.addLayout(deadline_form)
+        self._time_label = QLabel("Time")
+        self._time_label.setObjectName("dialogHint")
+        deadline_details.addWidget(self._time_label)
+        deadline_details.addWidget(self.time_entry)
+        deadline_details.addStretch(1)
+        builder_layout.addLayout(deadline_details)
 
         self.summary = QLabel()
         self.summary.setObjectName("dialogHint")
-        self.summary.setWordWrap(True)
-        builder_layout.addWidget(self.summary)
+        self.summary.setWordWrap(False)
         actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.addWidget(self.summary, 1)
         self.add_button = QPushButton("Add requirement")
         self.add_button.setObjectName("primary")
         self.add_button.clicked.connect(self._add_or_update)
         actions.addWidget(self.add_button)
-        actions.addStretch(1)
         builder_layout.addLayout(actions)
-        layout.addWidget(builder)
+        return builder
 
+    def _build_rules(self) -> QWidget:
         rules_card = _card()
+        self._rules_card = rules_card
         rules_layout = QVBoxLayout(rules_card)
         rules_layout.setContentsMargins(12, 12, 12, 12)
         rules_layout.setSpacing(8)
@@ -259,6 +303,7 @@ class BuildProgressionDialog(QDialog):
         rules_layout.addLayout(rules_head)
         self.rules = QListWidget()
         self.rules.setObjectName("buildRequirementList")
+        self.rules.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.rules.setDragDropMode(QListWidget.InternalMove)
         self.rules.itemDoubleClicked.connect(lambda _item: self._edit_selected())
         rules_layout.addWidget(self.rules, 1)
@@ -271,30 +316,77 @@ class BuildProgressionDialog(QDialog):
         rule_actions.addWidget(remove)
         rule_actions.addStretch(1)
         rules_layout.addLayout(rule_actions)
-        layout.addWidget(rules_card, 1)
-        return holder
+        return rules_card
+
+    @staticmethod
+    def _field(caption: str, control: QWidget) -> QWidget:
+        field = QWidget()
+        field.setObjectName("buildField")
+        layout = QVBoxLayout(field)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        label = QLabel(caption)
+        label.setObjectName("dialogHint")
+        layout.addWidget(label)
+        layout.addWidget(control)
+        return field
 
     def _refresh_picker(self, *_args) -> None:
-        self.picker.clear()
+        _clear_layout(self._picker_groups)
+        self._picker_buttons = {}
         kind = self.kind_combo.currentData() or "item"
         query = self.search.text().strip().casefold()
         if kind == "item":
             groups = group_tracked_items_by_rarity(available_tracked_item_names())
         else:
             groups = (("Player stats", tuple(config.ALL_STAT_LABELS)),)
+        visible_total = 0
         for caption, names in groups:
-            visible = [name for name in names if not query or query in str(name).casefold()]
+            visible = [
+                name
+                for name in names
+                if not query
+                or query in tracked_item_display_name(name).casefold()
+                or query in str(name).casefold()
+            ]
             if not visible:
                 continue
-            group = QTreeWidgetItem([f"{caption} · {len(visible)}"])
-            group.setFlags(group.flags() & ~Qt.ItemIsSelectable)
-            self.picker.addTopLevelItem(group)
+            visible_total += len(visible)
+            header = QLabel(f"{caption} · {len(visible)}")
+            header.setObjectName("pickerGroup")
+            self._picker_groups.addWidget(header)
+            row = QWidget()
+            row.setObjectName("cardContent")
+            flow = FlowLayout(row, margin=0, spacing=5)
             for name in visible:
-                child = QTreeWidgetItem([str(name)])
-                child.setData(0, Qt.UserRole, str(name))
-                group.addChild(child)
-            group.setExpanded(True)
+                button = QPushButton(tracked_item_display_name(name))
+                button.setObjectName("pickChip")
+                button.setCheckable(True)
+                button.setChecked(str(name) == self._selected_target_name)
+                button.setCursor(Qt.PointingHandCursor)
+                colour = tracked_item_color(name) if kind == "item" else "#93C5FD"
+                button.setStyleSheet(_pick_stylesheet(colour))
+                button.clicked.connect(
+                    lambda _checked=False, target=str(name): self._select_target(target)
+                )
+                self._picker_buttons[str(name)] = button
+                flow.addWidget(button)
+            self._picker_groups.addWidget(row)
+        self._picker_groups.addStretch(1)
+        self._picker_empty.setVisible(visible_total == 0)
         self._refresh_summary()
+
+    def _kind_changed(self, *_args) -> None:
+        self._selected_target_name = ""
+        self.search.clear()
+        self._refresh_picker()
+        self._target_changed()
+
+    def _select_target(self, target: str) -> None:
+        self._selected_target_name = str(target)
+        for name, button in self._picker_buttons.items():
+            button.setChecked(name == self._selected_target_name)
+        self._target_changed()
 
     def _deadline_kind(self) -> str:
         checked = self.deadline_group.checkedButton()
@@ -311,13 +403,13 @@ class BuildProgressionDialog(QDialog):
         self._refresh_summary()
 
     def _selected_target(self) -> str:
-        selected = self.picker.selectedItems()
-        return str(selected[0].data(0, Qt.UserRole) or "") if selected else ""
+        return self._selected_target_name
 
     def _target_changed(self) -> None:
         kind = self.kind_combo.currentData() or "item"
         suffix = ""
         decimals = 0 if kind == "item" else 2
+        self.required.setMinimum(1 if kind == "item" else 0.01)
         if kind == "stat":
             spec = PLAYER_STAT_SPEC_BY_LABEL.get(self._selected_target())
             if spec is not None:
@@ -333,7 +425,23 @@ class BuildProgressionDialog(QDialog):
 
     def _refresh_summary(self) -> None:
         target = self._selected_target() or "Choose an item or stat"
-        self.summary.setText(f"{target} · required {self.required.value():g} · {self._deadline_kind().replace('_', ' ')}")
+        kind = self.kind_combo.currentData() or "item"
+        colour = (
+            tracked_item_color(target)
+            if self._selected_target() and kind == "item"
+            else "#93C5FD"
+        )
+        self.selected_target.setText(target)
+        if self._selected_target():
+            self.selected_target.setStyleSheet(
+                _chip_stylesheet(colour).replace("pickedChip", "buildSelectedTarget")
+            )
+        else:
+            self.selected_target.setStyleSheet("")
+        self.summary.setText(
+            f"{target} · required {self.required.value():g} · "
+            f"{self._deadline_kind().replace('_', ' ')}"
+        )
 
     @staticmethod
     def _seconds(text: str) -> float:
@@ -411,16 +519,90 @@ class BuildProgressionDialog(QDialog):
             if kind == "run_clock":
                 label = f"RUN · {self._clock(deadline.get('seconds'))}"
             elif kind == "stage_start":
-                label = f"Before S{deadline.get('stage')}"
+                label = f"Before T{deadline.get('stage')}"
             elif kind == "stage_overtime":
-                label = f"S{deadline.get('stage')} OT · {self._clock(deadline.get('seconds'))}"
+                label = f"T{deadline.get('stage')} OT · {self._clock(deadline.get('seconds'))}"
             else:
                 label = "No deadline"
             ideal = f" · ideal {row.get('ideal')}" if row.get("ideal") is not None else ""
-            item = QListWidgetItem(f"{row.get('target')} · {row.get('required')}{ideal} · {str(row.get('priority', 'normal')).upper()} · {label}")
+            priority = format_priority(str(row.get("priority") or "normal"))
+            item = QListWidgetItem(
+                f"{row.get('target')} · {row.get('required')}{ideal} · {priority} · {label}"
+            )
             item.setData(Qt.UserRole, str(row.get("id")))
             self.rules.addItem(item)
+            row_widget = self._build_requirement_row(row, label, priority)
+            item.setSizeHint(row_widget.sizeHint())
+            self.rules.setItemWidget(item, row_widget)
         self._refresh_preview()
+
+    @staticmethod
+    def _build_requirement_row(row: dict, deadline: str, priority: str) -> QWidget:
+        widget = QWidget()
+        widget.setObjectName("BuildRequirementRow")
+        widget.setAttribute(Qt.WA_TransparentForMouseEvents)
+        widget.setMinimumHeight(40)
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(7, 6, 7, 6)
+        layout.setSpacing(9)
+
+        target = str(row.get("target") or "Requirement")
+        target_colour = (
+            tracked_item_color(target)
+            if str(row.get("kind") or "item") == "item"
+            else "#93C5FD"
+        )
+        target_label = QLabel(target)
+        target_label.setObjectName("BuildRequirementTarget")
+        target_label.setStyleSheet(
+            f"color: {target_colour}; background: transparent;"
+            " font-size: 12px; font-weight: 700;"
+        )
+        target_label.setToolTip(target)
+        target_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        layout.addWidget(target_label, 1)
+
+        required = row.get("required")
+        ideal = row.get("ideal")
+        goal_text = str(required)
+        if ideal is not None:
+            goal_text += f" · ideal {ideal}"
+        goal = QLabel(goal_text)
+        goal.setObjectName("BuildRequirementGoal")
+        goal.setStyleSheet(
+            "color: #C7D0DC; background: transparent; font-size: 11px;"
+        )
+        goal.setToolTip(goal_text)
+        goal.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        layout.addWidget(goal)
+
+        priority_colour = {
+            "High": "#F6B85A",
+            "Medium": "#93C5FD",
+            "Low": "#7F8A98",
+        }.get(priority, "#7F8A98")
+        priority_label = QLabel(priority)
+        priority_label.setObjectName("BuildRequirementPriority")
+        priority_label.setStyleSheet(
+            "QLabel#BuildRequirementPriority {"
+            f" color: {priority_colour}; border: 1px solid {priority_colour};"
+            " background: transparent; border-radius: 6px; padding: 2px 6px;"
+            " font-size: 11px; font-weight: 700;"
+            "}"
+        )
+        layout.addWidget(priority_label)
+
+        deadline_label = QLabel(deadline)
+        deadline_label.setObjectName("BuildRequirementDeadline")
+        deadline_label.setStyleSheet(
+            "QLabel#BuildRequirementDeadline {"
+            " color: #B9DFFF; background-color: #10263A;"
+            " border: 1px solid #1F4D70; border-radius: 6px;"
+            " padding: 2px 7px; font-size: 11px; font-weight: 700;"
+            "}"
+        )
+        layout.addWidget(deadline_label)
+        return widget
 
     def _refresh_preview(self, *_args) -> None:
         if not hasattr(self, "preview"):
@@ -455,9 +637,7 @@ class BuildProgressionDialog(QDialog):
         self.kind_combo.setCurrentIndex(0 if row.get("kind") == "item" else 1)
         self.search.setText(str(row.get("target") or ""))
         self._refresh_picker()
-        matches = self.picker.findItems(str(row.get("target")), Qt.MatchExactly | Qt.MatchRecursive)
-        if matches:
-            self.picker.setCurrentItem(matches[0])
+        self._select_target(str(row.get("target") or ""))
         display_scale = 1.0
         if row.get("kind") == "stat":
             spec = PLAYER_STAT_SPEC_BY_LABEL.get(str(row.get("target") or ""))

@@ -7,6 +7,7 @@ from core.build_progression import (
     BuildProgressionSnapshot,
     RequirementStatus,
     format_clock,
+    format_priority,
 )
 
 
@@ -51,7 +52,7 @@ def build_progression_payload(
                 "kind": row.kind.value,
                 "label": row.target,
                 "value": value,
-                "priority": row.priority.value,
+                "priority": format_priority(row.priority).lower(),
                 "status": row.status.value,
                 "symbol": row.symbol,
                 "time": time_text,

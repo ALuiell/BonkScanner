@@ -27,7 +27,8 @@ Build definition:
 
 - An item requirement contains an item name, required copies, optional ideal copies, priority, and an optional deadline.
 - A stat requirement contains a canonical player-stat name, a raw minimum threshold, an optional ideal threshold, priority, and an optional deadline.
-- Deadlines are `No deadline`, `Run clock`, `Stage start`, or `Stage overtime`.
+- Priority is only a sorting hint: `High`, `Medium`, or `Low`. It does not change deadline status.
+- Deadlines are `No deadline`, `Run clock`, `Tier start`, or `Tier overtime`.
 - Required controls completion; Ideal is a visible stretch target and never blocks `BUILD COMPLETE`.
 - Requirements without a target time remain neutral until completed and still count toward overall build completion.
 - The build is complete only while every configured requirement is currently satisfied:
