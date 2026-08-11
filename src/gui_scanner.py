@@ -18,15 +18,12 @@ Cancellation is two `threading.Event`s and one predicate:
   `abort_condition` lambda. `RunControl` now asks this predicate through a
   port, so there is one definition of "the scan was cancelled".
 
-The worker is still `daemon=True` and still not joined, and that is a decision
-rather than an omission. It blocks in `scan_event.wait()` and in the client's
-own waits; the stop path sets both events, which is what unblocks it, and every
-blocking call it makes takes an abort condition. An explicit `join` would add a
-shutdown deadline for a thread whose only remaining work after `stop_event` is
-to fall out of a `while` -- and `on_closing` runs on the Qt thread, so a join
-that did not return would hang the close instead of the process. The trace
-asserts the thread is actually dead after both the stop and the shutdown path,
-which is the property a join would have been buying.
+The worker remains `daemon=True` for process-level resilience, but shutdown now
+joins it after setting both events.  Python 3.12 can abort during interpreter
+finalization when a daemon thread is still executing Python or writing an
+exception, so "the loop was asked to stop" is not a sufficient lifecycle
+boundary. Every blocking call takes the abort predicate; the soft wait is only
+diagnostic and the final join guarantees the interpreter never inherits it.
 """
 from __future__ import annotations
 
@@ -36,6 +33,7 @@ import time
 from typing import Any, Callable
 
 from app import config
+from infra.crash_journal import log_runtime_event
 from app.map_scoring import calculate_map_score, evaluate_candidate, format_stats
 from ui.tabs.session_stats import SessionStatsTab
 from app.player_stats_view import player_stats_view
@@ -229,6 +227,29 @@ class Scanner:
         self.stop_event.set()
         self.scan_event.set()
         self._flush_total_rerolls(force=True)
+        worker = self.scanner_thread
+        if worker is None or worker is threading.current_thread():
+            return
+        is_alive = getattr(worker, "is_alive", None)
+        join = getattr(worker, "join", None)
+        if not callable(is_alive) or not callable(join) or not is_alive():
+            return
+        started_at = time.monotonic()
+        join(timeout=12.0)
+        alive_after = bool(is_alive())
+        log_runtime_event(
+            "scanner.worker.wait",
+            running=alive_after,
+            elapsed_ms=round((time.monotonic() - started_at) * 1000),
+        )
+        if alive_after:
+            log_runtime_event("scanner.worker.wait_extended")
+            join()
+            log_runtime_event(
+                "scanner.worker.wait_extended_complete",
+                running=bool(is_alive()),
+                elapsed_ms=round((time.monotonic() - started_at) * 1000),
+            )
 
     def _score_tier_color_tag(self, tier: str) -> str:
         colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
@@ -462,7 +483,11 @@ class Scanner:
             self.pause_reason = None
             self.scan_event.clear()
             self.stop_event.clear()
-            self.scanner_thread = threading.Thread(target=self.background_loop, daemon=True)
+            self.scanner_thread = threading.Thread(
+                target=self.background_loop,
+                name="BonkScannerWorker",
+                daemon=True,
+            )
             self.scanner_thread.start()
             self._filters.sync()
             self.update_status_ui()

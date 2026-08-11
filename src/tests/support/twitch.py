@@ -155,8 +155,10 @@ class FakeAuthThread:
         self.shutdowns += 1
         self.running = False
 
-    def wait(self, ms) -> None:
+    def wait(self, ms=None) -> bool:
         self.waited.append(ms)
+        self.running = False
+        return True
 
 
 class FakeValidationWorker:
@@ -178,8 +180,10 @@ class FakeValidationWorker:
     def deleteLater(self) -> None:
         pass
 
-    def wait(self, ms) -> None:
+    def wait(self, ms=None) -> bool:
         self.waited.append(ms)
+        self._running = False
+        return True
 
     def start(self) -> None:
         self.started += 1
@@ -212,8 +216,10 @@ class FakeRevokeWorker:
     def deleteLater(self) -> None:
         pass
 
-    def wait(self, ms) -> None:
+    def wait(self, ms=None) -> bool:
         self.waited.append(ms)
+        self._running = False
+        return True
 
     def start(self) -> None:
         self.started += 1
@@ -246,8 +252,10 @@ class FakeBotWorker:
         self.stopped += 1
         self.running = False
 
-    def wait(self, ms) -> None:
+    def wait(self, ms=None) -> bool:
         self.waited.append(ms)
+        self.running = False
+        return True
 
 
 def _explodes(name):

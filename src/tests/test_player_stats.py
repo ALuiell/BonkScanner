@@ -1303,15 +1303,14 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertEqual(client.get_killed_mobs(), 91)
 
-    def test_get_passive_items_uses_default_stack_when_count_is_unreadable(self) -> None:
+    def test_get_passive_items_rejects_sample_when_stack_count_is_unreadable(self) -> None:
         memory = self.build_memory()
         item_value = 0x20000900
         del memory.ints[item_value + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET]
         client = PlayerStatsClient(memory=memory)
 
-        items = client.get_passive_items()
-
-        self.assertEqual(items, ("Wrench x1",))
+        with self.assertRaises(MemoryReadError):
+            client.get_passive_items()
 
     def test_get_passive_items_raises_for_invalid_dictionary_count(self) -> None:
         memory = self.build_memory()
@@ -1324,7 +1323,7 @@ class PlayerStatsClientTests(unittest.TestCase):
         with self.assertRaises(MemoryReadError):
             client.get_passive_items()
 
-    def test_get_passive_items_skips_broken_entries_and_keeps_valid_ones(self) -> None:
+    def test_get_passive_items_rejects_partial_dictionary_walk(self) -> None:
         memory = self.build_memory()
         passive_dict = 0x20000700
         passive_entries = 0x20000800
@@ -1339,9 +1338,8 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         client = PlayerStatsClient(memory=memory)
 
-        items = client.get_passive_items()
-
-        self.assertEqual(items, ("Wrench x2",))
+        with self.assertRaises(MemoryReadError):
+            client.get_passive_items()
 
     def test_get_passive_items_raises_when_positive_count_has_no_decodable_entries(self) -> None:
         memory = self.build_memory()

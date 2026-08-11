@@ -297,3 +297,48 @@ Benefits:
 - map-specific timer semantics are isolated from generic synchronization mechanics;
 - expected stage resets and Ghost Phase jumps no longer appear as false desynchronizations;
 - the UI uses one authoritative phase/timer projection instead of duplicating fragile map rules across overlays.
+
+#### 4. Reject Partial Passive-Inventory Reads Before Item-Delta Tracking
+
+Status: `[Implemented]`
+
+Goal:
+
+- Prevent transient or partial memory reads from being interpreted as real item losses followed by new pickups.
+- Keep legitimate stack increases and genuine remove/re-acquire sequences countable without inflating Session Stats, OBS, or Twitch tracked-item totals.
+
+Problem Analysis:
+
+- `_read_passive_item_dictionary` previously returned the successfully decoded entries even when one or more live dictionary entries could not be decoded. The resulting tuple was a partial inventory, but downstream code received it as an available, authoritative sample.
+- An unreadable stack count previously degraded to `x1` on both the full-walk and cached-layout paths. For a real stack such as `Anvil x4`, two consecutive failed reads could therefore appear as a stable decrease to `Anvil x1`.
+- `process_item_deltas` deliberately confirms a decrease after a second agreeing sample and lowers its baseline so a genuinely removed item can be counted when it is acquired again. This is correct only when both samples are complete inventory reads.
+- Combining those behaviors created phantom pickups. For example, `x4 -> x1 -> x1 -> x4 -> x4` confirmed a loss of three and then credited the same three copies again. Likewise, an entry omitted from two partial dictionary walks was confirmed as removed and credited again when decoding recovered.
+- This failure shape has been observed in recorded data: individual items have temporarily disappeared from otherwise non-empty inventories. The existing whole-inventory empty guard cannot protect against a partial tuple that still contains other items.
+
+Implemented Behavior:
+
+1. Treat any walk with `broken_entries > 0` as an unavailable inventory sample. Do not publish the successfully decoded subset as a complete inventory.
+2. Treat an unreadable stack count as an unavailable inventory sample instead of fabricating `x1`.
+3. Preserve the last confirmed inventory and item-delta baseline when a sample is unavailable. A failed read must produce neither a loss nor a gain candidate.
+4. Apply the same validity rule to the uncached dictionary walk, cached-layout path, 1-second passive-item lane, and 10-second full snapshot path.
+5. Continue accepting a genuinely empty, successfully read dictionary as an empty inventory where run lifecycle logic requires it; distinguish this from a failed or incomplete walk.
+6. Keep actual stack increases countable by `gained_count`, including multiple copies obtained during one run.
+7. Keep genuine item removal and later re-acquisition countable once both sides are supported by complete inventory samples.
+
+Implementation:
+
+- The entire passive-inventory read now fails at the memory-client boundary, before it reaches `LiveSnapshotStore` or `LiveRunTracker`. Downstream consumers never receive a tuple with omitted entries.
+- An incomplete walk or failed cached stack read invalidates the passive-item layout so the next pass performs a clean rebuild.
+- `MemoryReadError` from a stack address now propagates through the existing refresh error path instead of becoming a plausible-looking `x1`.
+- Fast and slow consumers share the same source-validity contract, so one lane cannot confirm a decrease produced by a bad sample from the other.
+- Rejected samples follow the existing refresh failure path and never reach the tracker, so they cannot create loss or gain candidates.
+
+Regression Coverage:
+
+- A broken entry in an otherwise valid dictionary rejects the entire sample and preserves the previous tracked-item baseline.
+- Two consecutive partial reads omitting the same item, followed by recovery, produce no loss event and no additional tracked pickup.
+- Two consecutive unreadable stack counts for a real `x4` stack, followed by recovery, leave the tracked total unchanged.
+- A torn stack read where the two stabilizing reads disagree remains rejected on both cached and uncached paths.
+- A genuine `x1 -> x2 -> x2` increase is still credited once, while holding `x2` produces no further increments.
+- A genuine, completely read decrease followed by a completely read re-acquisition remains countable according to the existing tracked-item rules.
+- Fast and slow item lanes observing the same rejected sample cannot jointly confirm a false decrease.

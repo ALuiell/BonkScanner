@@ -462,6 +462,66 @@ class TwitchSessionTests(unittest.TestCase):
         self.assertEqual(validation.waited, [6000])
         self.assertEqual(revoke.waited, [6000])
 
+    def test_shutdown_extends_a_timed_out_worker_wait_before_window_teardown(self) -> None:
+        harness = build_session()
+        validation = FakeValidationWorker("token", running=True)
+        waits = []
+
+        def wait(ms=None):
+            waits.append(ms)
+            if ms is None:
+                validation._running = False
+                return True
+            return False
+
+        validation.wait = wait
+        harness.session._validation_worker = validation
+
+        harness.session.shutdown()
+
+        self.assertEqual(waits, [6000, None])
+        self.assertFalse(validation.isRunning())
+
+    def test_validation_result_cannot_start_a_bot_after_shutdown_begins(self) -> None:
+        harness = build_session()
+        harness.session.shutdown()
+        validation = SimpleNamespace(valid=True, login="viewer")
+
+        harness.session._on_validation_finished(
+            "token",
+            validation,
+            False,
+            True,
+            "",
+            "start_bot",
+        )
+
+        self.assertEqual(harness.calls["bot_workers"], [])
+
+    def test_late_auth_and_bot_callbacks_are_ignored_during_shutdown(self) -> None:
+        harness = build_session()
+        harness.session.shutdown()
+
+        with patch("app.twitch_session.set_twitch_oauth_token") as store_token:
+            harness.session.on_auth_success("viewer", "token")
+        harness.session.on_auth_error("late error")
+        harness.session.on_bot_status("Connected")
+        harness.session.on_bot_log("late log")
+
+        store_token.assert_not_called()
+        self.assertEqual(harness.logs, [])
+        self.assertEqual(harness.tab.calls, [])
+
+    def test_stale_finished_signal_does_not_clear_a_new_validation_worker(self) -> None:
+        harness = build_session()
+        old_worker = FakeValidationWorker("old")
+        new_worker = FakeValidationWorker("new")
+        harness.session._validation_worker = new_worker
+
+        harness.session._on_validation_worker_finished(old_worker)
+
+        self.assertIs(harness.session._validation_worker, new_worker)
+
     def test_start_bot_without_a_token_reports_not_connected(self) -> None:
         harness = build_session()
 

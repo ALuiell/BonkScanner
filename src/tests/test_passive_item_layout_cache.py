@@ -152,17 +152,17 @@ class PassiveItemLayoutCacheTests(unittest.TestCase):
         with self.assertRaises(MemoryReadError):
             client._read_passive_item_dictionary(0x39000000)
 
-    def test_a_torn_walk_is_not_memoised(self) -> None:
-        """A pass that skipped an entry saw an incomplete inventory. Caching it
-        would keep that item invisible until the next Add/Remove instead of
-        until the next read."""
+    def test_a_torn_walk_rejects_the_whole_inventory_and_is_not_memoised(self) -> None:
+        """A decoded subset is not an inventory: publishing it can confirm a
+        false loss and count the missing item again when the read recovers."""
         C = PlayerStatsClient
         memory = build_memory()
         entry_1 = ENTRIES + C.DICT_ENTRY_START_OFFSET + C.DICT_ENTRY_SIZE
         del memory.pointers[entry_1 + C.DICT_ENTRY_VALUE_OFFSET]
         client = client_for(memory)
 
-        self.assertEqual(client._read_passive_item_dictionary(DICT), ("Anvil x1",))
+        with self.assertRaises(MemoryReadError):
+            client._read_passive_item_dictionary(DICT)
         self.assertIsNone(client._cached_item_layout)
 
         memory.pointers[entry_1 + C.DICT_ENTRY_VALUE_OFFSET] = WRENCH_VALUE
@@ -170,7 +170,7 @@ class PassiveItemLayoutCacheTests(unittest.TestCase):
             client._read_passive_item_dictionary(DICT), ("Anvil x1", "Wrench x1")
         )
 
-    def test_an_unnameable_entry_is_not_memoised_as_a_clean_walk(self) -> None:
+    def test_an_unnameable_entry_rejects_the_whole_inventory(self) -> None:
         """The silent sibling of `test_a_torn_walk_is_not_memoised`.
 
         An entry can be dropped without any `MemoryReadError`: the key id is
@@ -194,7 +194,8 @@ class PassiveItemLayoutCacheTests(unittest.TestCase):
         memory.pointers[WRENCH_VALUE + C.ITEM_CLASS_META_OFFSET] = 0
         client = client_for(memory)
 
-        self.assertEqual(client._read_passive_item_dictionary(DICT), ("Anvil x1",))
+        with self.assertRaises(MemoryReadError):
+            client._read_passive_item_dictionary(DICT)
         self.assertIsNone(
             client._cached_item_layout,
             "an incomplete walk was memoised; the dropped item is now invisible "
@@ -250,6 +251,25 @@ class PassiveItemLayoutCacheTests(unittest.TestCase):
 
         with self.assertRaises(InvalidItemStackCountError):
             client._read_passive_item_dictionary(DICT)
+
+        self.assertIsNone(client._cached_item_layout)
+
+    def test_an_unreadable_cached_stack_rejects_the_pass_and_invalidates_layout(self) -> None:
+        memory = build_memory(anvil_stack=4)
+        client = client_for(memory)
+        client._read_passive_item_dictionary(DICT)
+        stack_address = ANVIL_VALUE + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET
+        del memory.ints[stack_address]
+
+        with self.assertRaises(MemoryReadError):
+            client._read_passive_item_dictionary(DICT)
+
+        self.assertIsNone(client._cached_item_layout)
+        memory.ints[stack_address] = 4
+        self.assertEqual(
+            client._read_passive_item_dictionary(DICT),
+            ("Anvil x4", "Wrench x1"),
+        )
 
 
 if __name__ == "__main__":

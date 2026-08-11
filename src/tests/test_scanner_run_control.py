@@ -1224,6 +1224,29 @@ class SessionStatsTests(unittest.TestCase):
         self.assertTrue(scanner.scan_event.is_set())
         save_config.assert_called_once_with(config.user_config)
 
+    def test_shutdown_joins_a_live_scanner_worker(self) -> None:
+        scanner = build_scanner()
+
+        class Worker:
+            def __init__(self) -> None:
+                self.alive = True
+                self.joins = []
+
+            def is_alive(self) -> bool:
+                return self.alive
+
+            def join(self, timeout=None) -> None:
+                self.joins.append(timeout)
+                self.alive = False
+
+        worker = Worker()
+        scanner.scanner_thread = worker
+
+        scanner.shutdown()
+
+        self.assertEqual(worker.joins, [12.0])
+        self.assertFalse(worker.is_alive())
+
 
 class BoundaryStructureTests(unittest.TestCase):
     """One AST pass over both modules, rather than a test per forbidden name.

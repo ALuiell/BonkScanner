@@ -349,7 +349,10 @@ class TemplateManagerDialog(QDialog):
             title="Templates",
             subtitle="Pick one from the list and its settings open under the card.",
             width=DIALOG_WIDE,
-            height=DIALOG_TALL,
+            # The expanded form almost fills the 720 px viewport. Give its
+            # Save button enough room to remain fully visible after the card
+            # is scrolled into view.
+            height=DIALOG_TALL + 15,
         )
         self.scroll, self.scroll_content, self.scroll_layout = _make_scroll_section()
         layout.addWidget(self.scroll, 1)
