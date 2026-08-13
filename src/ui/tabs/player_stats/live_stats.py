@@ -724,8 +724,8 @@ class LiveStatsTab:
             clock.clear()
             clock.hide()
             empty.setText(
-                "No build configured yet. Add items or stats, then the same "
-                "checklist will appear here, in overlays, and in Twitch chat."
+                "No active build yet. Create or import a build, then set it active; the "
+                "same checklist will appear here, in overlays, and in Twitch chat."
             )
             empty.show()
             complete.hide()

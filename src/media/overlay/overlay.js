@@ -188,9 +188,10 @@ function renderBuildProgression(state) {
   }
   const rows = Array.isArray(build.rows) ? build.rows : [];
   let lastKind = "";
+  const sectionLabels = { item: "ITEMS", stat: "STATS", progress: "PROGRESS" };
   const body = rows.map((row) => {
     const heading = build.show_section_headings && row.kind !== lastKind
-      ? `<div class="build-section">${row.kind === "stat" ? "STATS" : "ITEMS"}</div>`
+      ? `<div class="build-section">${sectionLabels[row.kind] || "PROGRESS"}</div>`
       : "";
     lastKind = row.kind;
     return `${heading}<div class="build-row status-${escapeHtml(row.status)}">

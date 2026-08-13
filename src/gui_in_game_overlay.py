@@ -731,9 +731,9 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
 
 
 def _open_build_progression_for_app(app: Any) -> None:
-    from ui.dialogs.build_progression import BuildProgressionDialog
+    from ui.dialogs.build_progression import BuildProgressionManagerDialog
 
-    dialog = BuildProgressionDialog(
+    dialog = BuildProgressionManagerDialog(
         app.coordinator.build_progression_settings,
         app.coordinator.build_progression_service,
         getattr(app, "window", None),

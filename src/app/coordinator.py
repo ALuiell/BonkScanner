@@ -22,7 +22,7 @@ from typing import Any, Callable, Sequence
 
 from app.refresh_coordinator import RefreshCoordinator
 from app.settings import ConfigBuildProgressionSettings, ConfigOverlaySettings, ConfigRecordingSettings
-from app.build_progression import BuildProgressionService, definition_from_config
+from app.build_progression import BuildProgressionService, active_definition_from_config
 from app.snapshot_store import LiveSnapshotStore
 from infra import vod_storage
 from infra.overlay_server import LocalOverlayServer, OverlayStateStore
@@ -93,7 +93,7 @@ class AppCoordinator:
         self.build_progression_settings = ConfigBuildProgressionSettings()
         self.build_progression_service = BuildProgressionService(
             self.live_run_tracker,
-            definition_from_config(self.build_progression_settings.read()),
+            active_definition_from_config(self.build_progression_settings.read()),
         )
         self.overlay_server = LocalOverlayServer(
             host=overlay_host,

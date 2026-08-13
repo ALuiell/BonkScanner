@@ -7,8 +7,7 @@ import threading
 from uuid import uuid4
 from dataclasses import dataclass
 
-from core.stats.formats import PlayerStatFormat
-from core.stats.types import PLAYER_STAT_SPEC_BY_LABEL
+from core.build_progression import PROGRESS_TARGETS
 from infra import paths
 
 colorama.init(autoreset=True)
@@ -149,10 +148,9 @@ DEFAULT_IN_GAME_OVERLAY = {
 
 
 DEFAULT_BUILD_PROGRESSION = {
-    "schema_version": 1,
-    "name": "Build Progression",
-    "deadlines_enabled": True,
-    "requirements": [],
+    "schema_version": 3,
+    "builds": [],
+    "active_build_id": None,
 }
 
 
@@ -695,22 +693,38 @@ def _merge_dict_defaults(value, defaults):
     return result
 
 
-def normalize_build_progression_config(value):
+def _unique_build_name(name, used_names):
+    base = str(name or "Build Progression").strip() or "Build Progression"
+    candidate = base
+    suffix = 2
+    while candidate.casefold() in used_names:
+        candidate = f"{base} ({suffix})"
+        suffix += 1
+    used_names.add(candidate.casefold())
+    return candidate
+
+
+def normalize_build_definition_config(value, *, regenerate_ids=False, build_id=None):
+    """Normalize one build without knowing which library contains it."""
     source = value if isinstance(value, dict) else {}
-    source_schema_version = coerce_nonnegative_int(source.get("schema_version"), 1)
     normalized = {
-        "schema_version": 2,
+        "id": str(build_id or source.get("id") or uuid4().hex),
         "name": str(source.get("name") or "Build Progression").strip() or "Build Progression",
         "deadlines_enabled": bool(source.get("deadlines_enabled", True)),
         "requirements": [],
     }
     seen: set[tuple[str, str]] = set()
+    seen_ids: set[str] = set()
     for order, raw in enumerate(source.get("requirements") or ()):
         if not isinstance(raw, dict):
             continue
         kind = str(raw.get("kind") or "").strip().lower()
         target = str(raw.get("target") or "").strip()
-        if kind not in {"item", "stat"} or not target or (kind, target) in seen:
+        if kind not in {"item", "stat", "progress"} or not target or (kind, target) in seen:
+            continue
+        if kind == "stat" and target not in ALL_STAT_LABELS:
+            continue
+        if kind == "progress" and target not in PROGRESS_TARGETS:
             continue
         try:
             required = float(raw.get("required"))
@@ -718,20 +732,10 @@ def normalize_build_progression_config(value):
             continue
         if not math.isfinite(required) or required <= 0:
             continue
-        if kind == "item" and not required.is_integer():
+        if kind in {"item", "progress"} and not required.is_integer():
             continue
-        # Version 1 accepted the percentage the user typed (``100``) as the
-        # raw player-stat value. The formatter then applied its normal percent
-        # conversion and rendered ``10000%``. Store percentage targets in the
-        # same 0..1 scale as the memory reader from version 2 onward.
-        if source_schema_version < 2 and kind == "stat":
-            spec = PLAYER_STAT_SPEC_BY_LABEL.get(target)
-            if spec is not None and spec.value_format is PlayerStatFormat.PERCENT:
-                required /= 100.0
         deadline_raw = raw.get("deadline") if isinstance(raw.get("deadline"), dict) else {}
         deadline_kind = str(deadline_raw.get("kind") or "none").lower()
-        # `run_clock` was removed from the product. Old saved requirements keep
-        # tracking their count, but migrate to an untimed requirement.
         if deadline_kind not in {"none", "stage_start", "stage_overtime"}:
             deadline_kind = "none"
         stage = None
@@ -745,18 +749,56 @@ def normalize_build_progression_config(value):
                 stage = max(1, min(4, stage or 1))
         if deadline_kind == "stage_overtime":
             seconds = max(0.0, coerce_float(deadline_raw.get("seconds"), 0.0))
+        requirement_id = str(raw.get("id") or "").strip()
+        if regenerate_ids or not requirement_id or requirement_id in seen_ids:
+            requirement_id = uuid4().hex
         seen.add((kind, target))
+        seen_ids.add(requirement_id)
         normalized["requirements"].append(
             {
-                "id": str(raw.get("id") or uuid4().hex),
+                "id": requirement_id,
                 "kind": kind,
                 "target": target,
-                "required": int(required) if kind == "item" else required,
+                "required": int(required) if kind in {"item", "progress"} else required,
                 "deadline": {"kind": deadline_kind, "stage": stage, "seconds": seconds},
                 "order": order,
             }
         )
     return normalized
+
+
+def normalize_build_progression_config(value):
+    """Return the schema-v3 build library; legacy single-build data is discarded."""
+    source = value if isinstance(value, dict) else {}
+    if coerce_nonnegative_int(source.get("schema_version"), 0) != 3:
+        return {"schema_version": 3, "builds": [], "active_build_id": None}
+    raw_builds = source.get("builds")
+    if not isinstance(raw_builds, list):
+        return {"schema_version": 3, "builds": [], "active_build_id": None}
+
+    builds = []
+    used_ids: set[str] = set()
+    used_names: set[str] = set()
+    for raw in raw_builds:
+        if not isinstance(raw, dict):
+            continue
+        build_id = str(raw.get("id") or "").strip()
+        if not build_id or build_id in used_ids:
+            build_id = uuid4().hex
+        build = normalize_build_definition_config(raw, build_id=build_id)
+        build["name"] = _unique_build_name(build["name"], used_names)
+        used_ids.add(build_id)
+        builds.append(build)
+
+    requested_active = str(source.get("active_build_id") or "").strip()
+    active_build_id = requested_active if requested_active in used_ids else None
+    if builds and active_build_id is None:
+        active_build_id = builds[0]["id"]
+    return {
+        "schema_version": 3,
+        "builds": builds,
+        "active_build_id": active_build_id,
+    }
 
 
 def normalize_overlay_config(value):

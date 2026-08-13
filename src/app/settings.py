@@ -5,6 +5,7 @@ in `core/settings.py`.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Callable
 
 from app import config
@@ -57,12 +58,13 @@ class ConfigRecordingSettings:
 
 class ConfigBuildProgressionSettings:
     def read(self) -> dict[str, Any]:
-        return dict(config.BUILD_PROGRESSION)
+        with config.config_lock:
+            return deepcopy(config.BUILD_PROGRESSION)
 
     def write(self, payload: dict[str, Any]) -> dict[str, Any]:
         normalized = config.normalize_build_progression_config(payload)
         with config.config_lock:
             config.BUILD_PROGRESSION = normalized
-            config.user_config["BUILD_PROGRESSION"] = normalized
+            config.user_config["BUILD_PROGRESSION"] = deepcopy(normalized)
             config.save_config(config.user_config)
-        return normalized
+        return deepcopy(normalized)

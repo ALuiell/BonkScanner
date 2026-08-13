@@ -1,21 +1,34 @@
-"""The one shared editor for the Build Progression definition."""
+"""Build Progression library manager and the shared build editor."""
 from __future__ import annotations
 
 from copy import deepcopy
+from html import escape
+import json
+import os
+from pathlib import Path
+import re
 from uuid import uuid4
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton,
-    QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QComboBox, QDialog,
+    QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QFileDialog, QLineEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy,
+    QSplitter, QVBoxLayout, QWidget,
 )
 
-from app.build_progression import definition_from_config
+from app.build_progression import (
+    active_build_from_config,
+    build_export_payload,
+    build_from_export_payload,
+    clone_build_config,
+    definition_from_config,
+    unique_build_name,
+)
 from app import config
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import PLAYER_STAT_SPEC_BY_LABEL
+from core.build_progression import PROGRESS_TARGETS
 from projections.tracked_items import (
     available_tracked_item_names,
     group_tracked_items_by_rarity,
@@ -29,9 +42,16 @@ from ui.dialogs.shell import (
     DIALOG_TALL,
     DIALOG_WIDE,
     dialog_body,
+    dialog_danger_card,
     dialog_footer,
+    dialog_info_card,
+    dialog_note,
 )
 from ui.shared import FlowLayout, _clear_layout
+from ui.styles import (
+    _template_manager_card_stylesheet,
+    _template_manager_header_stylesheet,
+)
 
 
 DEADLINE_OPTIONS = (
@@ -40,23 +60,10 @@ DEADLINE_OPTIONS = (
     ("stage_overtime", "Tier overtime", "Complete before an OT minute"),
 )
 
-BUILD_DIALOG_TARGET_SIZE = (1240, 900)
-BUILD_DIALOG_MINIMUM_SIZE = (1050, 720)
-BUILD_DIALOG_SCREEN_FRACTION = 0.90
-
-
-def _build_dialog_dimensions(
-    available_width: int,
-    available_height: int,
-) -> tuple[int, int, int, int]:
-    """Return initial and minimum sizes that remain usable on a small screen."""
-    target_width, target_height = BUILD_DIALOG_TARGET_SIZE
-    minimum_width, minimum_height = BUILD_DIALOG_MINIMUM_SIZE
-    screen_width = max(1, int(available_width * BUILD_DIALOG_SCREEN_FRACTION))
-    screen_height = max(1, int(available_height * BUILD_DIALOG_SCREEN_FRACTION))
-    width = min(target_width, screen_width)
-    height = min(target_height, screen_height)
-    return width, height, min(minimum_width, width), min(minimum_height, height)
+KIND_COLORS = {
+    "stat": "#93C5FD",
+    "progress": "#5EEAD4",
+}
 
 
 def _card() -> QFrame:
@@ -69,6 +76,109 @@ def _eyebrow(text: str) -> QLabel:
     label = QLabel(str(text).upper())
     label.setObjectName("kpiLabel")
     return label
+
+
+def _build_pick_stylesheet(colour: str) -> str:
+    # The shared picker only changes the fill on hover. In this dense editor
+    # that leaves the strong checked outline on a different chip, which makes
+    # the visual hover target appear offset from the cursor.
+    return (
+        _pick_stylesheet(colour)
+        + "QPushButton#pickChip:hover {"
+        + f"border: 1px solid {colour};"
+        + "}"
+    )
+
+
+class BuildProgressionNoticeDialog(QDialog):
+    """A silent, app-styled replacement for native QMessageBox notices."""
+
+    def __init__(self, parent, *, title: str, message: str, danger: bool = False) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(str(title))
+        body = dialog_body(
+            self,
+            title=str(title),
+            subtitle="Build Progression",
+            width=DIALOG_REGULAR,
+        )
+        safe_message = escape(str(message)).replace("\n", "<br>")
+        body.addWidget(
+            dialog_danger_card(safe_message)
+            if danger
+            else dialog_info_card(safe_message)
+        )
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.accept)
+        dialog_footer(self, primary=close_button)
+
+
+class BuildProgressionConfirmDialog(QDialog):
+    """A silent, app-styled yes/no decision with an explicit result."""
+
+    def __init__(
+        self,
+        parent,
+        *,
+        title: str,
+        message: str,
+        confirm_text: str,
+        destructive: bool = False,
+    ) -> None:
+        super().__init__(parent)
+        self.confirmed = False
+        self.setWindowTitle(str(title))
+        body = dialog_body(self, title=str(title), width=DIALOG_REGULAR)
+        message_label = QLabel(str(message))
+        message_label.setObjectName("dialogSubject")
+        message_label.setWordWrap(True)
+        body.addWidget(message_label)
+        if destructive:
+            body.addWidget(dialog_note("This action cannot be undone."))
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        confirm_button = QPushButton(str(confirm_text))
+        confirm_button.clicked.connect(self._confirm)
+        if destructive:
+            dialog_footer(
+                self,
+                secondary=cancel_button,
+                destructive=confirm_button,
+            )
+        else:
+            dialog_footer(self, secondary=cancel_button, primary=confirm_button)
+
+    def _confirm(self) -> None:
+        self.confirmed = True
+        self.accept()
+
+
+def _show_notice(parent, title: str, message: str, *, danger: bool = False) -> None:
+    BuildProgressionNoticeDialog(
+        parent,
+        title=title,
+        message=message,
+        danger=danger,
+    ).exec()
+
+
+def _ask_confirmation(
+    parent,
+    title: str,
+    message: str,
+    *,
+    confirm_text: str,
+    destructive: bool = False,
+) -> bool:
+    dialog = BuildProgressionConfirmDialog(
+        parent,
+        title=title,
+        message=message,
+        confirm_text=confirm_text,
+        destructive=destructive,
+    )
+    dialog.exec()
+    return dialog.confirmed
 
 
 class BuildProgressionHelpDialog(QDialog):
@@ -84,13 +194,16 @@ class BuildProgressionHelpDialog(QDialog):
         )
         text = QLabel(
             "<b>Required</b><br>The configured amount controls completion.<br><br>"
+            "<b>Targets</b><br>Items track inventory, Stats track player attributes, "
+            "and Progress tracks run goals such as kills or player level.<br><br>"
             "<b>Deadlines</b><br>Use no deadline, require the target before a tier begins, "
             "or set an overtime minute inside a tier. Yellow means two minutes remain; red "
             "means the requirement is late.<br><br>"
             "<b>Every run starts clean</b><br>The build definition is saved, but completed, "
             "late, and completion-time state resets when a new run begins.<br><br>"
-            "<b>One build, separate presentation</b><br>OBS and the in-game overlay use the same "
-            "requirements while keeping their own size and row-limit settings."
+            "<b>Active build</b><br>Your library can contain many builds. The active one is shared "
+            "by Live Stats, OBS, the in-game overlay, and Twitch, while each overlay keeps its own "
+            "size and row-limit settings."
         )
         text.setWordWrap(True)
         text.setTextFormat(Qt.RichText)
@@ -101,58 +214,455 @@ class BuildProgressionHelpDialog(QDialog):
         layout.addWidget(buttons)
 
 
-class BuildProgressionDialog(QDialog):
+class BuildProgressionManagerDialog(QDialog):
+    """A lightweight hub; each card opens the existing full build editor."""
+
+    CARD_COLOUR = "#5BA7FF"
+
     def __init__(self, settings, service, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Build Progression")
         self._settings = settings
         self._service = service
-        self._draft = deepcopy(settings.read())
-        self._editing_id: str | None = None
+        self._library = config.normalize_build_progression_config(settings.read())
+        self.card_widgets: dict[str, dict[str, QWidget]] = {}
+        self.changed = False
 
         layout = dialog_body(
             self,
             title="Build Progression",
-            subtitle="Define what the build needs and when each requirement should be ready.",
+            subtitle="Choose a build to configure, or select which build all live surfaces track.",
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
+        )
+
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(8)
+        library_label = _eyebrow("Build library")
+        toolbar.addWidget(library_label)
+        toolbar.addStretch(1)
+        self.import_button = QPushButton("Import Build")
+        self.import_button.clicked.connect(self._import_build)
+        toolbar.addWidget(self.import_button)
+        self.new_button = QPushButton("New Build")
+        self.new_button.setObjectName("primary")
+        self.new_button.clicked.connect(self._new_build)
+        toolbar.addWidget(self.new_button)
+        layout.addLayout(toolbar)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_content = QWidget()
+        self.scroll_content.setObjectName("cardContent")
+        self.cards_layout = QVBoxLayout(self.scroll_content)
+        self.cards_layout.setContentsMargins(0, 0, 4, 0)
+        self.cards_layout.setSpacing(10)
+        self.scroll.setWidget(self.scroll_content)
+        layout.addWidget(self.scroll, 1)
+
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.accept)
+        dialog_footer(self, secondary=close_button)
+        self._refresh_cards()
+
+    @property
+    def library(self) -> dict:
+        return deepcopy(self._library)
+
+    def _builds(self) -> list[dict]:
+        return self._library.setdefault("builds", [])
+
+    def _build(self, build_id: str) -> dict | None:
+        return next(
+            (build for build in self._builds() if str(build.get("id")) == str(build_id)),
+            None,
+        )
+
+    def _existing_names(self, *, exclude_id: str | None = None) -> list[str]:
+        return [
+            str(build.get("name") or "")
+            for build in self._builds()
+            if str(build.get("id")) != str(exclude_id)
+        ]
+
+    def _persist(self, *, refresh_service: bool) -> None:
+        self._library = self._settings.write(self._library)
+        if refresh_service:
+            self._service.replace_definition(
+                definition_from_config(active_build_from_config(self._library))
+            )
+        self.changed = True
+        self._refresh_cards()
+
+    def _refresh_cards(self) -> None:
+        _clear_layout(self.cards_layout)
+        self.card_widgets.clear()
+        builds = self._builds()
+        if not builds:
+            self.cards_layout.addWidget(self._build_empty_state())
+            self.cards_layout.addStretch(1)
+            return
+        active_id = str(self._library.get("active_build_id") or "")
+        for build in builds:
+            build_id = str(build.get("id") or "")
+            card = self._build_card(build, active=build_id == active_id)
+            self.cards_layout.addWidget(card)
+        self.cards_layout.addStretch(1)
+
+    def _build_empty_state(self) -> QWidget:
+        card = _card()
+        card.setObjectName("BuildManagerEmpty")
+        body = QVBoxLayout(card)
+        body.setContentsMargins(24, 28, 24, 28)
+        body.setSpacing(12)
+        title = QLabel("No builds yet")
+        title.setObjectName("sectionTitle")
+        title.setAlignment(Qt.AlignCenter)
+        body.addWidget(title)
+        note = QLabel(
+            "Create a build from scratch or import a shared BonkScanner build file."
+        )
+        note.setObjectName("dialogHint")
+        note.setAlignment(Qt.AlignCenter)
+        note.setWordWrap(True)
+        body.addWidget(note)
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+        import_button = QPushButton("Import Build")
+        import_button.clicked.connect(self._import_build)
+        actions.addWidget(import_button)
+        create_button = QPushButton("New Build")
+        create_button.setObjectName("primary")
+        create_button.clicked.connect(self._new_build)
+        actions.addWidget(create_button)
+        actions.addStretch(1)
+        body.addLayout(actions)
+        return card
+
+    @staticmethod
+    def _summary(build: dict) -> str:
+        counts = {"item": 0, "stat": 0, "progress": 0}
+        for requirement in build.get("requirements") or ():
+            kind = str(requirement.get("kind") or "")
+            if kind in counts:
+                counts[kind] += 1
+        return (
+            f"Items {counts['item']}  •  Stats {counts['stat']}  •  "
+            f"Progress {counts['progress']}"
+        )
+
+    @staticmethod
+    def _display_name(name: str) -> str:
+        return name if len(name) <= 72 else f"{name[:69]}…"
+
+    def _build_card(self, build: dict, *, active: bool) -> QWidget:
+        build_id = str(build.get("id") or "")
+        name = str(build.get("name") or "Build Progression")
+        card = QFrame()
+        card.setObjectName("TemplateManagerCard")
+        card.setStyleSheet(
+            _template_manager_card_stylesheet(self.CARD_COLOUR, active)
+        )
+        body = QVBoxLayout(card)
+        body.setContentsMargins(16, 14, 16, 14)
+        body.setSpacing(10)
+
+        header = QHBoxLayout()
+        open_button = QPushButton(self._display_name(name))
+        open_button.setObjectName("BuildManagerOpen")
+        open_button.setCursor(Qt.PointingHandCursor)
+        open_button.setToolTip(f"Configure {name}")
+        open_button.setMinimumWidth(0)
+        open_button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        open_button.setStyleSheet(
+            _template_manager_header_stylesheet(self.CARD_COLOUR)
+        )
+        open_button.clicked.connect(
+            lambda _checked=False, selected_id=build_id: self._edit_build(selected_id)
+        )
+        header.addWidget(open_button, 1)
+        if active:
+            badge = QLabel("ACTIVE")
+            badge.setObjectName("condBadge")
+            badge.setToolTip("This build is shown in Live Stats, overlays, and Twitch")
+            header.addWidget(badge)
+        body.addLayout(header)
+
+        summary = QLabel(self._summary(build))
+        summary.setObjectName("dialogHint")
+        body.addWidget(summary)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        actions.addStretch(1)
+        configure_button = QPushButton("Configure")
+        configure_button.setToolTip(f"Configure {name}")
+        configure_button.clicked.connect(
+            lambda _checked=False, selected_id=build_id: self._edit_build(selected_id)
+        )
+        actions.addWidget(configure_button)
+        active_button = QPushButton("Active" if active else "Set Active")
+        active_button.setEnabled(not active)
+        active_button.setToolTip(
+            "Currently active" if active else "Use this build on every live surface"
+        )
+        active_button.clicked.connect(
+            lambda _checked=False, selected_id=build_id: self._set_active(selected_id)
+        )
+        actions.addWidget(active_button)
+        duplicate_button = QPushButton("Duplicate")
+        duplicate_button.clicked.connect(
+            lambda _checked=False, selected_id=build_id: self._duplicate_build(selected_id)
+        )
+        actions.addWidget(duplicate_button)
+        export_button = QPushButton("Export")
+        export_button.clicked.connect(
+            lambda _checked=False, selected_id=build_id: self._export_build(selected_id)
+        )
+        actions.addWidget(export_button)
+        delete_button = QPushButton("Delete")
+        delete_button.setObjectName("danger")
+        delete_button.clicked.connect(
+            lambda _checked=False, selected_id=build_id: self._delete_build(selected_id)
+        )
+        actions.addWidget(delete_button)
+        body.addLayout(actions)
+        self.card_widgets[build_id] = {
+            "card": card,
+            "open": open_button,
+            "configure": configure_button,
+            "active": active_button,
+            "duplicate": duplicate_button,
+            "export": export_button,
+            "delete": delete_button,
+        }
+        return card
+
+    def _open_editor(self, build: dict, *, create: bool) -> None:
+        build_id = str(build.get("id") or "")
+        dialog = BuildProgressionDialog(
+            build,
+            existing_names=self._existing_names(exclude_id=None if create else build_id),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
+            return
+        result = dialog.result_payload
+        if create:
+            self._builds().append(result)
+            became_active = not self._library.get("active_build_id")
+            if became_active:
+                self._library["active_build_id"] = result["id"]
+            self._persist(refresh_service=became_active)
+            return
+        for index, current in enumerate(self._builds()):
+            if str(current.get("id")) == build_id:
+                self._builds()[index] = result
+                break
+        self._persist(
+            refresh_service=str(self._library.get("active_build_id") or "") == build_id
+        )
+
+    def _new_build(self) -> None:
+        draft = config.normalize_build_definition_config(
+            {
+                "id": uuid4().hex,
+                "name": unique_build_name("New Build", self._existing_names()),
+                "deadlines_enabled": True,
+                "requirements": [],
+            }
+        )
+        self._open_editor(draft, create=True)
+
+    def _edit_build(self, build_id: str) -> None:
+        build = self._build(build_id)
+        if build is not None:
+            self._open_editor(deepcopy(build), create=False)
+
+    def _duplicate_build(self, build_id: str) -> None:
+        build = self._build(build_id)
+        if build is None:
+            return
+        duplicate = clone_build_config(build, self._existing_names())
+        self._open_editor(duplicate, create=True)
+
+    def _set_active(self, build_id: str) -> None:
+        if self._build(build_id) is None:
+            return
+        if str(self._library.get("active_build_id") or "") == build_id:
+            return
+        self._library["active_build_id"] = build_id
+        self._persist(refresh_service=True)
+
+    def _delete_build(self, build_id: str) -> None:
+        build = self._build(build_id)
+        if build is None:
+            return
+        if not _ask_confirmation(
+            self,
+            "Delete Build",
+            f'Delete "{build.get("name") or "Build Progression"}"?',
+            confirm_text="Delete",
+            destructive=True,
+        ):
+            return
+        builds = self._builds()
+        index = next(
+            (i for i, current in enumerate(builds) if str(current.get("id")) == build_id),
+            None,
+        )
+        if index is None:
+            return
+        was_active = str(self._library.get("active_build_id") or "") == build_id
+        del builds[index]
+        if was_active:
+            self._library["active_build_id"] = (
+                builds[min(index, len(builds) - 1)]["id"] if builds else None
+            )
+        self._persist(refresh_service=was_active)
+
+    def _import_build(self) -> None:
+        filename, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Import Build",
+            "",
+            "BonkScanner Build (*.json);;JSON Files (*.json)",
+        )
+        if not filename:
+            return
+        try:
+            payload = json.loads(Path(filename).read_text(encoding="utf-8"))
+            build = build_from_export_payload(payload, self._existing_names())
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            _show_notice(self, "Import Failed", str(exc), danger=True)
+            return
+        became_active = not self._library.get("active_build_id")
+        self._builds().append(build)
+        if became_active:
+            self._library["active_build_id"] = build["id"]
+        self._persist(refresh_service=became_active)
+        _show_notice(
+            self,
+            "Build Imported",
+            f'Imported "{build["name"]}".',
+        )
+
+    @staticmethod
+    def _safe_filename(name: str) -> str:
+        safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", str(name)).strip(" ._")
+        return safe or "BonkScanner Build"
+
+    def _export_build(self, build_id: str) -> None:
+        build = self._build(build_id)
+        if build is None:
+            return
+        suggested = f"{self._safe_filename(str(build.get('name') or 'Build'))}.json"
+        filename, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export Build",
+            suggested,
+            "BonkScanner Build (*.json);;JSON Files (*.json)",
+        )
+        if not filename:
+            return
+        destination = Path(filename)
+        if destination.suffix.lower() != ".json":
+            destination = destination.with_suffix(".json")
+        temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
+        try:
+            temporary.write_text(
+                json.dumps(build_export_payload(build), indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(temporary, destination)
+        except OSError as exc:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            _show_notice(
+                self,
+                "Export Failed",
+                f"Could not export the build: {exc}",
+                danger=True,
+            )
+            return
+        _show_notice(
+            self,
+            "Build Exported",
+            f'Exported "{build.get("name") or "Build Progression"}".',
+        )
+
+
+class BuildProgressionDialog(QDialog):
+    def __init__(self, build=None, *, existing_names=(), parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Configure Build")
+        self.result_payload: dict | None = None
+        self._draft = config.normalize_build_definition_config(build or {})
+        self._original_draft = deepcopy(self._draft)
+        self._existing_names = {
+            str(name).strip().casefold() for name in existing_names if str(name).strip()
+        }
+        self._editing_id: str | None = None
+        self._editing_form_snapshot: tuple | None = None
+
+        layout = dialog_body(
+            self,
+            title="Configure Build",
+            subtitle="Define the items, stats, and run progress the build needs.",
             width=DIALOG_WIDE,
             height=DIALOG_TALL,
         )
         general_card = _card()
-        general = QHBoxLayout(general_card)
-        general.setContentsMargins(12, 12, 12, 12)
-        general.setSpacing(10)
-        general.addWidget(_eyebrow("Build definition"))
+        general_outer = QVBoxLayout(general_card)
+        general_outer.setContentsMargins(12, 12, 12, 12)
+        general_outer.setSpacing(6)
+        general = QGridLayout()
+        general.setContentsMargins(0, 0, 0, 0)
+        general.setHorizontalSpacing(10)
+        general.setVerticalSpacing(8)
+        general.addWidget(_eyebrow("Build definition"), 0, 0)
         self.name_entry = QLineEdit(str(self._draft.get("name") or "Build Progression"))
         self.name_entry.setPlaceholderText("Build name")
-        general.addWidget(self.name_entry, 1)
+        general.addWidget(self.name_entry, 0, 1, 1, 2)
         self.deadlines_enabled = QCheckBox("Use deadlines")
         self.deadlines_enabled.setChecked(bool(self._draft.get("deadlines_enabled", True)))
-        general.addWidget(self.deadlines_enabled)
+        general.addWidget(self.deadlines_enabled, 1, 1)
         help_btn = QPushButton("How it works")
         help_btn.clicked.connect(lambda: BuildProgressionHelpDialog(self).exec())
-        general.addWidget(help_btn)
+        general.addWidget(help_btn, 1, 2)
+        general.setColumnStretch(1, 1)
+        general_outer.addLayout(general)
+        self.name_error = QLabel()
+        self.name_error.setObjectName("formError")
+        self.name_error.hide()
+        general_outer.addWidget(self.name_error)
+        self.name_entry.textChanged.connect(self._clear_name_error)
         layout.addWidget(general_card)
 
-        split = QSplitter(Qt.Horizontal)
-        split.setChildrenCollapsible(False)
-        split.addWidget(self._build_left_column())
-        split.addWidget(self._build_right_column())
-        split.setStretchFactor(0, 42)
-        split.setStretchFactor(1, 58)
-        split.setSizes([500, 700])
-        layout.addWidget(split, 1)
+        self._split = QSplitter(Qt.Horizontal)
+        self._split.setChildrenCollapsible(False)
+        self._split.addWidget(self._build_left_column())
+        self._split.addWidget(self._build_right_column())
+        self._split.setStretchFactor(0, 42)
+        self._split.setStretchFactor(1, 58)
+        self._split.setSizes([500, 700])
+        layout.addWidget(self._split, 1)
 
         save = QPushButton("Save")
         cancel = QPushButton("Cancel")
-        clear = QPushButton("Remove all")
-        clear.clicked.connect(self._remove_all)
+        self.clear_button = QPushButton("Remove all")
+        self.clear_button.clicked.connect(self._remove_all)
         save.clicked.connect(self._save)
         cancel.clicked.connect(self.reject)
         dialog_footer(
             self,
             primary=save,
             secondary=cancel,
-            destructive=clear,
+            destructive=self.clear_button,
         )
 
         self._refresh_picker()
@@ -162,20 +672,6 @@ class BuildProgressionDialog(QDialog):
         # while still showing both Tier and Time, until the user clicked a
         # different deadline and came back.
         self._deadline_changed()
-        self._apply_initial_size()
-
-    def _apply_initial_size(self) -> None:
-        screen = self.screen() or QApplication.primaryScreen()
-        if screen is None:
-            width, height = BUILD_DIALOG_TARGET_SIZE
-            minimum_width, minimum_height = BUILD_DIALOG_MINIMUM_SIZE
-        else:
-            available = screen.availableGeometry()
-            width, height, minimum_width, minimum_height = _build_dialog_dimensions(
-                available.width(), available.height()
-            )
-        self.setMinimumSize(minimum_width, minimum_height)
-        self.resize(width, height)
 
     def _build_left_column(self) -> QWidget:
         holder = QWidget()
@@ -209,6 +705,7 @@ class BuildProgressionDialog(QDialog):
         self.kind_combo = QComboBox()
         self.kind_combo.addItem("Items", "item")
         self.kind_combo.addItem("Stats", "stat")
+        self.kind_combo.addItem("Progress", "progress")
         self.kind_combo.currentIndexChanged.connect(self._kind_changed)
         kind_row.addWidget(self.kind_combo)
         layout.addLayout(kind_row)
@@ -246,10 +743,11 @@ class BuildProgressionDialog(QDialog):
         editor_head.setContentsMargins(0, 0, 0, 0)
         editor_head.addWidget(_eyebrow("Configure requirement"))
         editor_head.addStretch(1)
+        builder_layout.addLayout(editor_head)
         self.selected_target = QLabel("Choose a target")
         self.selected_target.setObjectName("buildSelectedTarget")
-        editor_head.addWidget(self.selected_target)
-        builder_layout.addLayout(editor_head)
+        self.selected_target.setWordWrap(True)
+        builder_layout.addWidget(self.selected_target)
 
         self.required = QDoubleSpinBox()
         self.required.setRange(1, 99999)
@@ -298,15 +796,28 @@ class BuildProgressionDialog(QDialog):
 
         self.summary = QLabel()
         self.summary.setObjectName("dialogHint")
-        self.summary.setWordWrap(False)
+        self.summary.setWordWrap(True)
+        builder_layout.addWidget(self.summary)
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
-        actions.addWidget(self.summary, 1)
+        actions.addStretch(1)
+        self.cancel_edit_button = QPushButton("Cancel edit")
+        self.cancel_edit_button.clicked.connect(self._cancel_edit)
+        self.cancel_edit_button.hide()
+        actions.addWidget(self.cancel_edit_button)
         self.add_button = QPushButton("Add requirement")
         self.add_button.setObjectName("primary")
         self.add_button.clicked.connect(self._add_or_update)
         actions.addWidget(self.add_button)
         builder_layout.addLayout(actions)
+        self.validation_error = QLabel()
+        self.validation_error.setObjectName("addNote")
+        self.validation_error.setStyleSheet(
+            "QLabel#addNote { color: #FB7185; background: transparent; }"
+        )
+        self.validation_error.setWordWrap(True)
+        self.validation_error.hide()
+        builder_layout.addWidget(self.validation_error)
         return builder
 
     def _build_rules(self) -> QWidget:
@@ -322,21 +833,24 @@ class BuildProgressionDialog(QDialog):
         self.rules_count.setObjectName("pickerCount")
         rules_head.addWidget(self.rules_count)
         rules_layout.addLayout(rules_head)
-        self.rules = QListWidget()
-        self.rules.setObjectName("buildRequirementList")
-        self.rules.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.rules.setDragDropMode(QListWidget.InternalMove)
-        self.rules.itemDoubleClicked.connect(lambda _item: self._edit_selected())
-        rules_layout.addWidget(self.rules, 1)
-        rule_actions = QHBoxLayout()
-        edit = QPushButton("Edit")
-        edit.clicked.connect(self._edit_selected)
-        remove = QPushButton("Remove")
-        remove.clicked.connect(self._remove_selected)
-        rule_actions.addWidget(edit)
-        rule_actions.addWidget(remove)
-        rule_actions.addStretch(1)
-        rules_layout.addLayout(rule_actions)
+        self.rules_scroll = QScrollArea()
+        self.rules_scroll.setObjectName("buildRequirementList")
+        self.rules_scroll.setWidgetResizable(True)
+        self.rules_scroll.setFrameShape(QFrame.NoFrame)
+        self.rules_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._rules_host = QWidget()
+        self._rules_host.setObjectName("cardContent")
+        self._rules_layout = QVBoxLayout(self._rules_host)
+        self._rules_layout.setContentsMargins(0, 0, 0, 0)
+        self._rules_layout.setSpacing(0)
+        self._rules_layout.setAlignment(Qt.AlignTop)
+        self.rules_scroll.setWidget(self._rules_host)
+        rules_layout.addWidget(self.rules_scroll, 1)
+        self._rules_empty = QLabel("No requirements configured")
+        self._rules_empty.setObjectName("tableEmpty")
+        rules_layout.addWidget(self._rules_empty)
+        self._rendered_rule_ids: list[str] = []
+        self._rule_widgets: dict[str, QWidget] = {}
         return rules_card
 
     @staticmethod
@@ -359,8 +873,10 @@ class BuildProgressionDialog(QDialog):
         query = self.search.text().strip().casefold()
         if kind == "item":
             groups = group_tracked_items_by_rarity(available_tracked_item_names())
-        else:
+        elif kind == "stat":
             groups = (("Player stats", tuple(config.ALL_STAT_LABELS)),)
+        else:
+            groups = (("Run progress", PROGRESS_TARGETS),)
         visible_total = 0
         for caption, names in groups:
             visible = [
@@ -385,8 +901,8 @@ class BuildProgressionDialog(QDialog):
                 button.setCheckable(True)
                 button.setChecked(str(name) == self._selected_target_name)
                 button.setCursor(Qt.PointingHandCursor)
-                colour = tracked_item_color(name) if kind == "item" else "#93C5FD"
-                button.setStyleSheet(_pick_stylesheet(colour))
+                colour = self._target_colour(kind, str(name))
+                button.setStyleSheet(_build_pick_stylesheet(colour))
                 button.clicked.connect(
                     lambda _checked=False, target=str(name): self._select_target(target)
                 )
@@ -398,12 +914,14 @@ class BuildProgressionDialog(QDialog):
         self._refresh_summary()
 
     def _kind_changed(self, *_args) -> None:
+        self._clear_validation_error()
         self._selected_target_name = ""
         self.search.clear()
         self._refresh_picker()
         self._target_changed()
 
     def _select_target(self, target: str) -> None:
+        self._clear_validation_error()
         self._selected_target_name = str(target)
         for name, button in self._picker_buttons.items():
             button.setChecked(name == self._selected_target_name)
@@ -414,6 +932,7 @@ class BuildProgressionDialog(QDialog):
         return str(checked.property("deadlineKind") if checked else "none")
 
     def _deadline_changed(self, *_args) -> None:
+        self._clear_validation_error()
         kind = self._deadline_kind()
         previous_stage = self.stage.currentData()
         allowed_stages = (2, 3) if kind == "stage_start" else (1, 2, 3, 4)
@@ -442,8 +961,9 @@ class BuildProgressionDialog(QDialog):
     def _target_changed(self) -> None:
         kind = self.kind_combo.currentData() or "item"
         suffix = ""
-        decimals = 0 if kind == "item" else 2
-        self.required.setMinimum(1 if kind == "item" else 0.01)
+        whole_number = kind in {"item", "progress"}
+        decimals = 0 if whole_number else 2
+        self.required.setMinimum(1 if whole_number else 0.01)
         if kind == "stat":
             spec = PLAYER_STAT_SPEC_BY_LABEL.get(self._selected_target())
             if spec is not None:
@@ -452,7 +972,7 @@ class BuildProgressionDialog(QDialog):
                 elif spec.value_format is PlayerStatFormat.MULTIPLIER:
                     suffix = "x"
         self.required.setDecimals(decimals)
-        self.required.setSingleStep(1.0 if kind == "item" or suffix == "%" else 0.1)
+        self.required.setSingleStep(1.0 if whole_number or suffix == "%" else 0.1)
         self.required.setSuffix(suffix)
         self._refresh_summary()
 
@@ -468,13 +988,9 @@ class BuildProgressionDialog(QDialog):
         return scale
 
     def _refresh_summary(self) -> None:
-        target = self._selected_target() or "Choose an item or stat"
+        target = self._selected_target() or "Choose a target"
         kind = self.kind_combo.currentData() or "item"
-        colour = (
-            tracked_item_color(target)
-            if self._selected_target() and kind == "item"
-            else "#93C5FD"
-        )
+        colour = self._target_colour(kind, target)
         self.selected_target.setText(target)
         if self._selected_target():
             self.selected_target.setStyleSheet(
@@ -501,25 +1017,26 @@ class BuildProgressionDialog(QDialog):
         return float(minutes * 60 + seconds)
 
     def _add_or_update(self) -> None:
+        self._clear_validation_error()
         self._sync_draft_order()
         target = self._selected_target()
         if not target:
-            QMessageBox.warning(self, "Build Progression", "Choose an item or stat first.")
+            self._show_validation_error("Choose a target first.")
             return
         kind = str(self.kind_combo.currentData())
         required = float(self.required.value())
-        if kind == "item" and not required.is_integer():
-            QMessageBox.warning(self, "Build Progression", "Item counts must be whole numbers.")
+        if kind in {"item", "progress"} and not required.is_integer():
+            self._show_validation_error("This target requires a whole number.")
             return
         duplicate = next((r for r in self._draft.get("requirements", []) if r.get("kind") == kind and r.get("target") == target and r.get("id") != self._editing_id), None)
         if duplicate:
-            QMessageBox.warning(self, "Build Progression", "That requirement is already configured.")
+            self._show_validation_error("That requirement is already configured.")
             return
         deadline_kind = self._deadline_kind()
         try:
             seconds = self._seconds(self.time_entry.text()) if deadline_kind == "stage_overtime" else None
         except ValueError as exc:
-            QMessageBox.warning(self, "Build Progression", str(exc))
+            self._show_validation_error(str(exc))
             return
         entry_scale = self._stat_entry_scale(target) if kind == "stat" else 1.0
         stored_required = required / entry_scale
@@ -527,7 +1044,7 @@ class BuildProgressionDialog(QDialog):
             "id": self._editing_id or uuid4().hex,
             "kind": kind,
             "target": target,
-            "required": int(required) if kind == "item" else stored_required,
+            "required": int(required) if kind in {"item", "progress"} else stored_required,
             "deadline": {
                 "kind": deadline_kind,
                 "stage": self.stage.currentData() if deadline_kind in {"stage_start", "stage_overtime"} else None,
@@ -540,12 +1057,13 @@ class BuildProgressionDialog(QDialog):
             rules[index] = payload
         else:
             rules.append(payload)
-        self._editing_id = None
-        self.add_button.setText("Add requirement")
+        self._reset_editing_state()
+        self._clear_editor_form()
         self._refresh_rules()
 
     def _refresh_rules(self) -> None:
-        self.rules.clear()
+        _clear_layout(self._rules_layout)
+        self._rule_widgets = {}
         requirements = sorted(
             self._draft.get("requirements") or (),
             key=self._requirement_display_sort_key,
@@ -553,16 +1071,21 @@ class BuildProgressionDialog(QDialog):
         self.rules_count.setText(
             f"{len(requirements)} configured" if requirements else "Empty"
         )
-        for row in requirements:
+        self._rules_empty.setVisible(not requirements)
+        self._rendered_rule_ids = [str(row.get("id") or "") for row in requirements]
+        for index, row in enumerate(requirements):
             label = self._deadline_label(row.get("deadline") or {})
-            item = QListWidgetItem(
-                f"{row.get('target')} · {row.get('required')} · {label}"
+            required = self._required_display(row)
+            row_widget = self._build_requirement_row(
+                row,
+                label,
+                required,
+                last=index == len(requirements) - 1,
             )
-            item.setData(Qt.UserRole, str(row.get("id")))
-            self.rules.addItem(item)
-            row_widget = self._build_requirement_row(row, label)
-            item.setSizeHint(row_widget.sizeHint())
-            self.rules.setItemWidget(item, row_widget)
+            rule_id = str(row.get("id") or "")
+            self._rule_widgets[rule_id] = row_widget
+            self._rules_layout.addWidget(row_widget)
+        self._refresh_rule_actions()
 
     @staticmethod
     def _deadline_label(deadline: dict) -> str:
@@ -591,7 +1114,7 @@ class BuildProgressionDialog(QDialog):
         # together above stats, make the simple untimed requirements easiest to
         # scan, then group items from the rarest tier down. Runtime surfaces keep
         # their own deadline-based ordering.
-        kind_rank = 0 if kind == "item" else 1
+        kind_rank = {"item": 0, "stat": 1, "progress": 2}.get(kind, 3)
         untimed_rank = 0 if deadline_kind == "none" else 1
         rarity_rank = (
             -tracked_item_rarity_rank(str(row.get("target") or ""))
@@ -606,57 +1129,86 @@ class BuildProgressionDialog(QDialog):
             int(row.get("order") or 0),
         )
 
-    @staticmethod
-    def _build_requirement_row(row: dict, deadline: str) -> QWidget:
+    def _build_requirement_row(
+        self,
+        row: dict,
+        deadline: str,
+        required_text: str,
+        *,
+        last: bool,
+    ) -> QWidget:
         widget = QWidget()
-        widget.setObjectName("BuildRequirementRow")
-        widget.setAttribute(Qt.WA_TransparentForMouseEvents)
-        widget.setMinimumHeight(40)
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(7, 6, 7, 6)
-        layout.setSpacing(9)
+        widget.setObjectName("trackedRowLast" if last else "trackedRow")
+        widget.setMinimumHeight(66)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 7, 0, 7)
+        layout.setSpacing(4)
+
+        definition_row = QHBoxLayout()
+        definition_row.setContentsMargins(0, 0, 0, 0)
+        definition_row.setSpacing(8)
 
         target = str(row.get("target") or "Requirement")
-        target_colour = (
-            tracked_item_color(target)
-            if str(row.get("kind") or "item") == "item"
-            else "#93C5FD"
+        target_colour = self._target_colour(
+            str(row.get("kind") or "item"), target
         )
         target_label = QLabel(target)
-        target_label.setObjectName("BuildRequirementTarget")
-        target_label.setStyleSheet(
-            f"color: {target_colour}; background: transparent;"
-            " font-size: 12px; font-weight: 700;"
-        )
+        target_label.setObjectName("pickedChip")
+        target_label.setStyleSheet(_chip_stylesheet(target_colour))
         target_label.setToolTip(target)
-        target_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        layout.addWidget(target_label, 1)
+        target_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        target_label.setMinimumWidth(64)
+        definition_row.addWidget(target_label)
 
-        required = row.get("required")
-        goal_text = str(required)
-        goal = QLabel(goal_text)
-        goal.setObjectName("BuildRequirementGoal")
-        goal.setStyleSheet(
-            "color: #C7D0DC; background: transparent; font-size: 11px;"
-        )
-        goal.setToolTip(goal_text)
-        goal.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        layout.addWidget(goal)
+        goal = QLabel(f"Required {required_text}")
+        goal.setObjectName("condBadgeMuted")
+        goal.setToolTip(f"Required {required_text}")
+        goal.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        goal.setMinimumWidth(72)
+        definition_row.addWidget(goal)
+        definition_row.addStretch(1)
+        layout.addLayout(definition_row)
+
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(8)
+        action_row.addStretch(1)
+        # Attach the nested layout before any child is explicitly shown.  A
+        # visible label in an unattached layout is briefly a top-level window.
+        layout.addLayout(action_row)
 
         deadline_label = QLabel(deadline)
-        deadline_label.setObjectName("BuildRequirementDeadline")
-        deadline_label.setStyleSheet(
-            "QLabel#BuildRequirementDeadline {"
-            " color: #B9DFFF; background-color: #10263A;"
-            " border: 1px solid #1F4D70; border-radius: 6px;"
-            " padding: 2px 7px; font-size: 11px; font-weight: 700;"
-            "}"
-        )
-        layout.addWidget(deadline_label)
+        deadline_label.setObjectName("condBadge")
+        action_row.addWidget(deadline_label)
         # A parentless QWidget becomes a temporary top-level window when it is
         # shown. Parent the badge first: otherwise opening this dialog flashes a
         # tiny application-titled window before Qt reparents it into the row.
         deadline_label.setVisible(bool(deadline))
+
+        rule_id = str(row.get("id") or "")
+        edit = QPushButton("Edit")
+        edit.setObjectName("buildRuleEdit")
+        edit.setCursor(Qt.PointingHandCursor)
+        edit.setToolTip("Edit this requirement")
+        edit.setStyleSheet(
+            "QPushButton#buildRuleEdit { background: transparent; color: #93C5FD;"
+            " border: 1px solid #2A3542; border-radius: 6px; padding: 2px 7px; }"
+            "QPushButton#buildRuleEdit:hover { border-color: #3E82C6; color: #B9DFFF; }"
+        )
+        edit.clicked.connect(
+            lambda _checked=False, selected_id=rule_id: self._edit_rule(selected_id)
+        )
+        action_row.addWidget(edit)
+
+        remove = QPushButton("✕")
+        remove.setObjectName("chipRemove")
+        remove.setFixedSize(20, 20)
+        remove.setCursor(Qt.PointingHandCursor)
+        remove.setToolTip("Remove this requirement")
+        remove.clicked.connect(
+            lambda _checked=False, selected_id=rule_id: self._remove_rule(selected_id)
+        )
+        action_row.addWidget(remove)
         return widget
 
     @staticmethod
@@ -664,12 +1216,77 @@ class BuildProgressionDialog(QDialog):
         total = max(0, int(seconds or 0))
         return f"{total // 60:02d}:{total % 60:02d}"
 
+    @staticmethod
+    def _target_colour(kind: str, target: str) -> str:
+        if kind == "item":
+            return tracked_item_color(target)
+        return KIND_COLORS.get(kind, "#C7D0DC")
+
+    @staticmethod
+    def _required_display(row: dict) -> str:
+        kind = str(row.get("kind") or "item")
+        try:
+            value = float(row.get("required") or 0)
+        except (TypeError, ValueError):
+            return "--"
+        if kind in {"item", "progress"}:
+            return str(int(value))
+        target = str(row.get("target") or "")
+        spec = PLAYER_STAT_SPEC_BY_LABEL.get(target)
+        value *= BuildProgressionDialog._stat_entry_scale(target)
+        suffix = ""
+        if spec is not None:
+            if spec.value_format is PlayerStatFormat.PERCENT:
+                suffix = "%"
+            elif spec.value_format is PlayerStatFormat.MULTIPLIER:
+                suffix = "x"
+        return f"{value:g}{suffix}"
+
+    def _reset_editing_state(self) -> None:
+        self._editing_id = None
+        self._editing_form_snapshot = None
+        self.add_button.setText("Add requirement")
+        self.cancel_edit_button.hide()
+
+    def _show_validation_error(self, message: str) -> None:
+        self.validation_error.setText(str(message))
+        self.validation_error.show()
+
+    def _clear_validation_error(self) -> None:
+        error = getattr(self, "validation_error", None)
+        if error is not None:
+            error.clear()
+            error.hide()
+
+    def _clear_editor_form(self) -> None:
+        self._selected_target_name = ""
+        self.search.clear()
+        for button in self._picker_buttons.values():
+            button.setChecked(False)
+        self.required.setValue(1)
+        for button in self.deadline_group.buttons():
+            if button.property("deadlineKind") == "none":
+                button.setChecked(True)
+                break
+        self._deadline_changed()
+        self.time_entry.setText("+05:00")
+        self._target_changed()
+
+    def _cancel_edit(self) -> None:
+        """Leave edit mode without mutating the draft requirement."""
+        self._reset_editing_state()
+        self._clear_editor_form()
+        self._clear_validation_error()
+
+    def _refresh_rule_actions(self, *_args) -> None:
+        self.clear_button.setEnabled(bool(self._draft.get("requirements")))
+
+    def _clear_name_error(self, *_args) -> None:
+        self.name_error.clear()
+        self.name_error.hide()
+
     def _ordered_ids(self) -> list[str]:
-        return [
-            str(rule_id)
-            for i in range(self.rules.count())
-            if (rule_id := self.rules.item(i).data(Qt.UserRole))
-        ]
+        return list(self._rendered_rule_ids)
 
     def _sync_draft_order(self) -> None:
         ids = self._ordered_ids()
@@ -678,19 +1295,13 @@ class BuildProgressionDialog(QDialog):
         by_id = {str(row.get("id")): row for row in self._draft.get("requirements", [])}
         self._draft["requirements"] = [by_id[rule_id] for rule_id in ids if rule_id in by_id]
 
-    def _edit_selected(self) -> None:
-        item = self.rules.currentItem()
-        if item is None:
-            return
-        rule_id_value = item.data(Qt.UserRole)
-        if not rule_id_value:
-            return
-        rule_id = str(rule_id_value)
+    def _edit_rule(self, rule_id: str) -> None:
         row = next((r for r in self._draft.get("requirements", []) if str(r.get("id")) == rule_id), None)
         if row is None:
             return
         self._editing_id = rule_id
-        self.kind_combo.setCurrentIndex(0 if row.get("kind") == "item" else 1)
+        kind_index = self.kind_combo.findData(str(row.get("kind") or "item"))
+        self.kind_combo.setCurrentIndex(max(0, kind_index))
         self.search.setText(str(row.get("target") or ""))
         self._refresh_picker()
         self._select_target(str(row.get("target") or ""))
@@ -708,30 +1319,96 @@ class BuildProgressionDialog(QDialog):
         self.stage.setCurrentIndex(max(0, self.stage.findData(deadline.get("stage"))))
         self.time_entry.setText(f"+{self._clock(deadline.get('seconds'))}")
         self.add_button.setText("Update requirement")
+        self.cancel_edit_button.show()
         self._refresh_summary()
+        self._editing_form_snapshot = self._form_signature()
 
-    def _remove_selected(self) -> None:
+    def _remove_rule(self, rule_id: str) -> None:
         self._sync_draft_order()
-        item = self.rules.currentItem()
-        if item is None:
-            return
-        rule_id_value = item.data(Qt.UserRole)
-        if not rule_id_value:
-            return
-        rule_id = str(rule_id_value)
         self._draft["requirements"] = [r for r in self._draft.get("requirements", []) if str(r.get("id")) != rule_id]
+        if self._editing_id == rule_id:
+            self._reset_editing_state()
         self._refresh_rules()
 
     def _remove_all(self) -> None:
-        if QMessageBox.question(self, "Build Progression", "Remove every requirement?") == QMessageBox.Yes:
+        if _ask_confirmation(
+            self,
+            "Remove All Requirements?",
+            "Remove every requirement from this build?",
+            confirm_text="Remove All",
+            destructive=True,
+        ):
             self._draft["requirements"] = []
+            self._reset_editing_state()
             self._refresh_rules()
 
+    def _current_payload(self) -> dict:
+        self._sync_draft_order()
+        payload = deepcopy(self._draft)
+        payload["name"] = self.name_entry.text().strip()
+        payload["deadlines_enabled"] = self.deadlines_enabled.isChecked()
+        return payload
+
+    def _form_signature(self) -> tuple:
+        return (
+            str(self.kind_combo.currentData() or "item"),
+            self._selected_target(),
+            float(self.required.value()),
+            self._deadline_kind(),
+            self.stage.currentData(),
+            self.time_entry.text().strip(),
+        )
+
+    def _is_dirty(self) -> bool:
+        pending_edit_changed = (
+            self._editing_id is not None
+            and self._editing_form_snapshot is not None
+            and self._form_signature() != self._editing_form_snapshot
+        )
+        return self._current_payload() != self._original_draft or pending_edit_changed
+
+    def _confirm_discard(self) -> bool:
+        if not self._is_dirty():
+            return True
+        return _ask_confirmation(
+            self,
+            "Discard Changes?",
+            "Discard the unsaved changes to this build?",
+            confirm_text="Discard",
+            destructive=True,
+        )
+
+    def reject(self) -> None:
+        if self._confirm_discard():
+            super().reject()
+
+    def closeEvent(self, event) -> None:
+        if self.result() == QDialog.Accepted or self._confirm_discard():
+            event.accept()
+        else:
+            event.ignore()
+
     def _save(self) -> None:
-        by_id = {str(row.get("id")): row for row in self._draft.get("requirements", [])}
-        self._draft["requirements"] = [by_id[rule_id] for rule_id in self._ordered_ids() if rule_id in by_id]
-        self._draft["name"] = self.name_entry.text().strip() or "Build Progression"
-        self._draft["deadlines_enabled"] = self.deadlines_enabled.isChecked()
-        normalized = self._settings.write(self._draft)
-        self._service.replace_definition(definition_from_config(normalized))
+        if self._editing_id is not None:
+            self._show_validation_error(
+                "Update or cancel the requirement edit before saving the build."
+            )
+            self.add_button.setFocus()
+            return
+        payload = self._current_payload()
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            self.name_error.setText("Enter a build name.")
+            self.name_error.show()
+            self.name_entry.setFocus()
+            return
+        if name.casefold() in self._existing_names:
+            self.name_error.setText("A build with this name already exists.")
+            self.name_error.show()
+            self.name_entry.setFocus()
+            return
+        payload["name"] = name
+        normalized = config.normalize_build_definition_config(payload)
+        self.result_payload = normalized
+        self._original_draft = deepcopy(normalized)
         self.accept()

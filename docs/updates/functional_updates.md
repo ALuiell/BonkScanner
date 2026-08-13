@@ -20,24 +20,27 @@ Status: `[Implemented]`
 Goal:
 
 - Add one shared `Build Progression` feature to Live Stats, OBS Overlay, In-Game Overlay, and Twitch `!build`.
-- Let each user configure one personal build checklist from scratch. BonkScanner will not ship predefined builds, progression presets, or Early/Mid/Late phases.
+- Let each user keep a personal library of build checklists, choose one active build, and share individual builds as JSON files. BonkScanner does not ship predefined builds or Early/Mid/Late phases.
 - Answer the two questions that matter during a run: what is still missing from the finished build, and whether each timed requirement is still on schedule.
 
 Build definition:
 
 - An item requirement contains an item name, required copies, and an optional deadline.
 - A stat requirement contains a canonical player-stat name, a raw minimum threshold, and an optional deadline.
+- A progress requirement contains a supported run counter such as kills or player level, a required whole-number target, and an optional deadline.
 - Deadlines are `No deadline`, `Before tier`, or `Tier overtime`.
 - `Before tier` means the requirement must be satisfied before the selected tier begins.
 - Requirements without a target time remain neutral until completed and still count toward overall build completion.
 - The build is complete only while every configured requirement is currently satisfied:
   - current item copies are greater than or equal to the configured count;
-  - current stat values are greater than or equal to the configured threshold.
-- If an item disappears or a stat falls below its threshold, the build returns to an incomplete state.
+  - current stat values are greater than or equal to the configured threshold;
+  - current progress counters are greater than or equal to the configured target.
+- If an item disappears or a live value falls below its threshold, the build returns to an incomplete state.
 
 Run lifecycle:
 
-- The configured checklist persists between launches and runs.
+- The build library and active build selection persist between launches and runs.
+- Switching the active build applies immediately on every live surface and starts that build's temporary transition timestamps cleanly.
 - Runtime progress, completion timestamps, deadline state, and the `BUILD COMPLETE` state reset for every new game/run.
 - Runtime progress must be keyed to the tracker's run identity and must never be written back into `config.json`.
 
@@ -45,7 +48,7 @@ Compact display behavior:
 
 - Show a one-line header with the build name and completed/total requirements; do not repeat the current run time.
 - Hide completed rows by default. `Show completed` restores the green checked rows without adding a `+N completed` summary.
-- Group rows into `ITEMS` and `STATS`. Within each group, sort by nearest deadline; untimed requirements follow timed requirements and preserve their configured order.
+- Group rows into `ITEMS`, `STATS`, and `PROGRESS`. Within each group, sort by nearest deadline; untimed requirements follow timed requirements and preserve their configured order.
 - Keep item labels in their rarity colour and use status colour only on the symbol and deadline, so rarity and runtime state do not compete for the same text.
 - Support a configurable maximum row count so the widget cannot grow across a large part of the OBS or game canvas.
 - When every requirement is satisfied, collapse the widget to `BUILD COMPLETE` with the completion time.
@@ -62,10 +65,12 @@ Status semantics:
 
 Configuration UI:
 
-- Expose one shared `Configure Build Progression` editor from both overlay settings areas instead of maintaining two copies of the build.
+- Expose one shared Build Manager from Live Stats and both overlay settings areas instead of maintaining separate definitions.
+- Use the manager as a lightweight hub: clicking a card opens the existing full Configure Build editor, while a separate `Set Active` action changes the live build.
+- Support creating, duplicating, deleting, importing, and exporting individual builds. Export files contain only portable definition data; imported builds receive new internal IDs.
 - Keep only presentation controls local to the in-game overlay: enabled state, scale, maximum rows, and completed-row visibility.
 - Let OBS choose a `Full`, `Compact`, or `Text only` presentation mode, plus scale, maximum rows, and completed-row visibility.
-- The editor should support adding, removing, and reordering item/stat requirements without introducing build presets.
+- The editor supports adding, removing, and reordering item/stat/progress requirements without introducing built-in presets.
 
 Runtime and architecture notes:
 

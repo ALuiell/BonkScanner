@@ -81,6 +81,7 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
         "overdue": "#ff6f76", "satisfied": "#59d890",
     }
     rows = []
+    section_labels = {"item": "ITEMS", "stat": "STATS", "progress": "PROGRESS"}
     last_kind = ""
     for row in payload.get("rows") or ():
         kind = str(row.get("kind") or "")
@@ -88,7 +89,7 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
             rows.append(
                 "<tr><td colspan='4' style='padding-top:4px;padding-bottom:2px;'>"
                 f"<span style='color:#708096;font-size:9px;text-shadow:{shadow};font-weight:800'>"
-                f"{'STATS' if kind == 'stat' else 'ITEMS'}</span></td></tr>"
+                f"{section_labels.get(kind, 'PROGRESS')}</span></td></tr>"
             )
         last_kind = kind
         status = str(row.get("status") or "unknown")

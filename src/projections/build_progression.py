@@ -12,6 +12,9 @@ from core.item_metadata import item_display_color
 from core.stat_labels import abbreviate_stat_label
 
 
+SECTION_KINDS = ("item", "stat", "progress")
+
+
 def build_progression_payload(
     snapshot: BuildProgressionSnapshot | None,
     options: dict[str, Any] | None = None,
@@ -36,13 +39,13 @@ def build_progression_payload(
     if show_headings:
         incomplete = [
             row
-            for kind in ("item", "stat")
+            for kind in SECTION_KINDS
             for row in incomplete
             if row.kind.value == kind
         ]
         completed = [
             row
-            for kind in ("item", "stat")
+            for kind in SECTION_KINDS
             for row in completed
             if row.kind.value == kind
         ]
@@ -51,7 +54,22 @@ def build_progression_payload(
     # Applying the same cap to the combined list made the checkbox appear broken:
     # remaining/failed rows filled every slot before a completed row could reach
     # the renderer. The cap therefore governs only the always-visible group.
-    shown = shown_incomplete + (completed if show_completed else [])
+    if show_headings:
+        # Keep each semantic section contiguous. Appending every completed row
+        # after every live row produced ITEM -> STAT -> ITEM -> STAT and made
+        # renderers emit the same pair of headings twice. Completed entries
+        # belong at the end of their own section instead.
+        shown = [
+            row
+            for kind in SECTION_KINDS
+            for row in (
+                shown_incomplete
+                + (completed if show_completed else [])
+            )
+            if row.kind.value == kind
+        ]
+    else:
+        shown = shown_incomplete + (completed if show_completed else [])
     rows = []
     for row in shown:
         value = f"{row.current_display}/{row.required_display}"
@@ -80,7 +98,7 @@ def build_progression_payload(
                 "label_color": (
                     item_display_color(row.target) or "#E5E7EB"
                     if row.kind.value == "item"
-                    else "#93C5FD"
+                    else ("#93C5FD" if row.kind.value == "stat" else "#5EEAD4")
                 ),
             }
         )

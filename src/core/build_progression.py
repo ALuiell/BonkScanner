@@ -17,11 +17,17 @@ from core.run_summary import item_counts as count_items
 
 
 WARNING_WINDOW_SECONDS = 120.0
+PROGRESS_TARGET_FIELDS: Mapping[str, str] = {
+    "Kills": "mob_kills",
+    "Player Level": "player_level",
+}
+PROGRESS_TARGETS = tuple(PROGRESS_TARGET_FIELDS)
 
 
 class RequirementKind(str, Enum):
     ITEM = "item"
     STAT = "stat"
+    PROGRESS = "progress"
 
 
 class DeadlineKind(str, Enum):
@@ -151,7 +157,12 @@ def evaluate_build_progression(
     rows: list[BuildProgressionRow] = []
     next_satisfied: dict[str, float] = {}
     for requirement in definition.requirements:
-        current, stat_value = _current_value(requirement, item_counts, stats)
+        current, stat_value = _current_value(
+            requirement,
+            item_counts,
+            stats,
+            latest,
+        )
         satisfied = current is not None and current >= requirement.required
         deadline = (
             requirement.deadline
@@ -165,7 +176,7 @@ def evaluate_build_progression(
             status = RequirementStatus.SATISFIED
         elif (
             deadline_status is RequirementStatus.OVERDUE
-            and _stat_observation_precedes_deadline(requirement, deadline, runtime)
+            and _snapshot_observation_precedes_deadline(requirement, deadline, runtime)
         ):
             status = RequirementStatus.WARNING
         else:
@@ -221,11 +232,19 @@ def evaluate_build_progression(
     return BuildProgressionEvaluation(snapshot, next_satisfied, completion_time)
 
 
-def _current_value(requirement, item_counts, stats):
+def _current_value(requirement, item_counts, stats, latest):
     if requirement.kind is RequirementKind.ITEM:
         if item_counts is None:
             return None, None
         return float(item_counts.get(requirement.target, 0)), None
+    if requirement.kind is RequirementKind.PROGRESS:
+        field = PROGRESS_TARGET_FIELDS.get(requirement.target)
+        value = getattr(latest, field, None) if latest is not None and field else None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None, None
+        return (parsed if isfinite(parsed) else None), None
     stat = stats.get(requirement.target) if isinstance(stats, dict) else None
     value = getattr(stat, "value", stat)
     try:
@@ -238,7 +257,7 @@ def _current_value(requirement, item_counts, stats):
 def _display_value(requirement, value, stat_value) -> str:
     if value is None:
         return "--"
-    if requirement.kind is RequirementKind.ITEM:
+    if requirement.kind in {RequirementKind.ITEM, RequirementKind.PROGRESS}:
         return str(int(value))
     spec = getattr(stat_value, "spec", None)
     value_format = getattr(spec, "value_format", None)
@@ -293,8 +312,8 @@ def _status_for_delta(delta: float):
     return RequirementStatus.NEUTRAL, delta
 
 
-def _stat_observation_precedes_deadline(requirement, deadline, runtime) -> bool:
-    if requirement.kind is not RequirementKind.STAT:
+def _snapshot_observation_precedes_deadline(requirement, deadline, runtime) -> bool:
+    if requirement.kind not in {RequirementKind.STAT, RequirementKind.PROGRESS}:
         return False
     latest = runtime.latest_snapshot
     if latest is None:

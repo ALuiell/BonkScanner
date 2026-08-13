@@ -1463,14 +1463,15 @@ def _build_live_stats_view(app):
 
 
 def _open_build_progression_settings(app) -> None:
-    from ui.dialogs.build_progression import BuildProgressionDialog
+    from ui.dialogs.build_progression import BuildProgressionManagerDialog
 
-    dialog = BuildProgressionDialog(
+    dialog = BuildProgressionManagerDialog(
         app.coordinator.build_progression_settings,
         app.coordinator.build_progression_service,
         getattr(app, "window", None),
     )
-    if dialog.exec():
+    dialog.exec()
+    if dialog.changed:
         view = getattr(app, "_player_stats_view", None)
         if view is not None:
             view.refresh_build_progression()

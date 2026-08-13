@@ -1,13 +1,26 @@
 from __future__ import annotations
 
+from copy import deepcopy
+import ast
 from dataclasses import replace
+import inspect
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import src
+import ui.dialogs.build_progression as build_progression_dialogs
 from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QLabel,
+    QPushButton,
+)
 
 from core.build_progression import (
     BuildProgressionDefinition,
@@ -21,18 +34,34 @@ from core.build_progression import (
 from core.stats.types import PLAYER_STAT_SPEC_BY_LABEL, PlayerStatValue
 from core.tracker.live_run import LiveRunTracker
 from core.tracker.snapshots import LiveRunSnapshot
-from app.build_progression import BuildProgressionService
+from app.build_progression import (
+    BuildProgressionService,
+    active_definition_from_config,
+    build_export_payload,
+    build_from_export_payload,
+    clone_build_config,
+)
 from app import config
 from projections.build_progression import build_progression_payload, format_twitch_build
 from projections.in_game_html import build_build_progression_overlay_html
 from twitch_bot import TwitchBotWorker
 from ui.dialogs.build_progression import (
     BuildProgressionDialog,
-    _build_dialog_dimensions,
+    BuildProgressionManagerDialog,
 )
 
 
-def runtime(*, time=100.0, items=("Anvil",), damage=2.0, stage=1, stage_time=0.0, duration=600.0):
+def runtime(
+    *,
+    time=100.0,
+    items=("Anvil",),
+    damage=2.0,
+    stage=1,
+    stage_time=0.0,
+    duration=600.0,
+    kills=None,
+    player_level=None,
+):
     tracker = LiveRunTracker(clock=lambda: 10.0)
     tracker.update(
         LiveRunSnapshot(
@@ -42,6 +71,8 @@ def runtime(*, time=100.0, items=("Anvil",), damage=2.0, stage=1, stage_time=0.0
             game_time_seconds=time,
             stage_ptr=1,
             stage_index=max(0, stage - 1),
+            mob_kills=kills,
+            player_level=player_level,
         )
     )
     tracker.update_fast_run_timer(time)
@@ -55,16 +86,6 @@ def runtime(*, time=100.0, items=("Anvil",), damage=2.0, stage=1, stage_time=0.0
 
 
 class BuildProgressionTests(unittest.TestCase):
-    def test_editor_size_targets_large_screens_and_adapts_to_small_ones(self):
-        self.assertEqual(
-            _build_dialog_dimensions(1920, 1080),
-            (1240, 900, 1050, 720),
-        )
-        self.assertEqual(
-            _build_dialog_dimensions(1366, 768),
-            (1229, 691, 1050, 691),
-        )
-
     def test_editor_groups_items_before_stats_with_untimed_items_first(self):
         rows = [
             {
@@ -111,9 +132,9 @@ class BuildProgressionTests(unittest.TestCase):
             ["legendary", "rare", "common", "timed-legendary", "stat"],
         )
 
-    def test_percentage_requirements_store_and_migrate_on_the_raw_stat_scale(self):
-        legacy = config.normalize_build_progression_config({
-            "schema_version": 1,
+    def test_percentage_requirements_stay_on_the_raw_stat_scale(self):
+        build = config.normalize_build_definition_config({
+            "name": "Percent build",
             "requirements": [{
                 "id": "crit",
                 "kind": "stat",
@@ -121,8 +142,7 @@ class BuildProgressionTests(unittest.TestCase):
                 "required": 100,
             }],
         })
-        self.assertEqual(legacy["schema_version"], 2)
-        self.assertEqual(legacy["requirements"][0]["required"], 1.0)
+        self.assertEqual(build["requirements"][0]["required"], 100.0)
         self.assertEqual(BuildProgressionDialog._stat_entry_scale("Crit Chance"), 100.0)
         self.assertEqual(BuildProgressionDialog._stat_entry_scale("Crit Damage"), 2.0)
 
@@ -138,7 +158,7 @@ class BuildProgressionTests(unittest.TestCase):
                 if (
                     event.type() == QEvent.Show
                     and getattr(watched, "objectName", lambda: "")()
-                    == "BuildRequirementDeadline"
+                    == "condBadge"
                     and getattr(watched, "parentWidget", lambda: None)() is None
                 ):
                     self.parentless_deadline_shows += 1
@@ -147,12 +167,10 @@ class BuildProgressionTests(unittest.TestCase):
         watcher = ShowWatcher()
         app.installEventFilter(watcher)
         self.addCleanup(app.removeEventFilter, watcher)
-        settings = SimpleNamespace(
-            read=lambda: {
-                "schema_version": 1,
-                "name": "Test",
-                "deadlines_enabled": True,
-                "requirements": [{
+        build = {
+            "name": "Test",
+            "deadlines_enabled": True,
+            "requirements": [{
                     "id": "deadline",
                     "kind": "item",
                     "target": "Anvil",
@@ -163,12 +181,10 @@ class BuildProgressionTests(unittest.TestCase):
                         "seconds": 300,
                     },
                 }],
-            },
-            write=MagicMock(),
-        )
+        }
 
-        dialog = BuildProgressionDialog(settings, SimpleNamespace())
-        self.addCleanup(dialog.close)
+        dialog = BuildProgressionDialog(build)
+        self.addCleanup(dialog.done, QDialog.Rejected)
         app.processEvents()
 
         self.assertEqual(watcher.parentless_deadline_shows, 0)
@@ -189,6 +205,27 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(rows["a"].current_display, "2")
         self.assertEqual(rows["d"].required_display, "3x")
 
+    def test_progress_requirements_use_live_kills_and_player_level(self):
+        _tracker, snap = runtime(items=(), kills=250, player_level=42)
+        definition = BuildProgressionDefinition(
+            requirements=(
+                BuildRequirement("kills", RequirementKind.PROGRESS, "Kills", 200),
+                BuildRequirement(
+                    "level", RequirementKind.PROGRESS, "Player Level", 50
+                ),
+            ),
+        )
+
+        rows = {
+            row.id: row
+            for row in evaluate_build_progression(definition, snap).snapshot.rows
+        }
+
+        self.assertEqual(rows["kills"].current_display, "250")
+        self.assertIs(rows["kills"].status, RequirementStatus.SATISFIED)
+        self.assertEqual(rows["level"].current_display, "42")
+        self.assertIsNot(rows["level"].status, RequirementStatus.SATISFIED)
+
     def test_stacked_live_inventory_strings_use_their_embedded_count(self):
         _tracker, snap = runtime(items=("Wizard's Hat x198", "Beefy Ring x1"))
         definition = BuildProgressionDefinition(requirements=(
@@ -208,17 +245,8 @@ class BuildProgressionTests(unittest.TestCase):
 
     def test_editor_hides_irrelevant_deadline_fields_on_first_open(self):
         app = QApplication.instance() or QApplication([])
-        settings = SimpleNamespace(
-            read=lambda: {
-                "schema_version": 1,
-                "name": "Test",
-                "deadlines_enabled": True,
-                "requirements": [],
-            },
-            write=MagicMock(),
-        )
-        dialog = BuildProgressionDialog(settings, SimpleNamespace())
-        self.addCleanup(dialog.close)
+        dialog = BuildProgressionDialog({"name": "Test", "requirements": []})
+        self.addCleanup(dialog.done, QDialog.Rejected)
 
         self.assertTrue(dialog.stage.isHidden())
         self.assertTrue(dialog.time_entry.isHidden())
@@ -257,17 +285,8 @@ class BuildProgressionTests(unittest.TestCase):
 
     def test_editor_uses_rarity_chips_and_a_single_row_for_requirement_values(self):
         app = QApplication.instance() or QApplication([])
-        settings = SimpleNamespace(
-            read=lambda: {
-                "schema_version": 1,
-                "name": "Test",
-                "deadlines_enabled": True,
-                "requirements": [],
-            },
-            write=MagicMock(),
-        )
-        dialog = BuildProgressionDialog(settings, SimpleNamespace())
-        self.addCleanup(dialog.close)
+        dialog = BuildProgressionDialog({"name": "Test", "requirements": []})
+        self.addCleanup(dialog.done, QDialog.Rejected)
         dialog.show()
         app.processEvents()
 
@@ -275,11 +294,13 @@ class BuildProgressionTests(unittest.TestCase):
         anvil = dialog._picker_buttons["Anvil"]
         self.assertEqual(anvil.objectName(), "pickChip")
         self.assertIn("border: 1px solid", anvil.styleSheet())
+        hover_style = anvil.styleSheet().rsplit("QPushButton#pickChip:hover", 1)[1]
+        self.assertIn("border: 1px solid", hover_style.split("}", 1)[0])
         anvil.click()
         self.assertEqual(dialog._selected_target(), "Anvil")
         self.assertTrue(anvil.isChecked())
 
-        self.assertGreaterEqual(dialog.rules.height(), 100)
+        self.assertGreaterEqual(dialog.rules_scroll.height(), 100)
         self.assertIs(
             dialog._configurator_card.parentWidget(),
             dialog._rules_card.parentWidget(),
@@ -303,21 +324,173 @@ class BuildProgressionTests(unittest.TestCase):
             }
         ]
         dialog._refresh_rules()
-        requirement_row = dialog.rules.itemWidget(dialog.rules.item(0))
+        app.processEvents()
+        requirement_row = dialog._rule_widgets["colour-row"]
         self.assertIsNotNone(requirement_row)
-        self.assertGreaterEqual(requirement_row.minimumHeight(), 40)
+        self.assertGreaterEqual(requirement_row.minimumHeight(), 66)
         self.assertEqual(
-            dialog.rules.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff
+            dialog.rules_scroll.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff
         )
-        target = requirement_row.findChild(QLabel, "BuildRequirementTarget")
-        deadline = requirement_row.findChild(QLabel, "BuildRequirementDeadline")
+        target = requirement_row.findChild(QLabel, "pickedChip")
+        goal = requirement_row.findChild(QLabel, "condBadgeMuted")
+        deadline = requirement_row.findChild(QLabel, "condBadge")
+        self.assertEqual(target.text(), "Anvil")
+        self.assertGreaterEqual(target.width(), 64)
+        self.assertGreaterEqual(
+            target.width() - target.contentsMargins().left() - target.contentsMargins().right(),
+            target.fontMetrics().horizontalAdvance(target.text()),
+        )
+        self.assertEqual(goal.text(), "Required 1")
+        self.assertGreaterEqual(goal.width(), 72)
+        self.assertGreaterEqual(
+            goal.width() - goal.contentsMargins().left() - goal.contentsMargins().right(),
+            goal.fontMetrics().horizontalAdvance(goal.text()),
+        )
         self.assertIn("color:", target.styleSheet())
         self.assertIsNone(requirement_row.findChild(QLabel, "BuildRequirementPriority"))
         self.assertEqual(deadline.text(), "T2 +05:00")
+        self.assertEqual(requirement_row.objectName(), "trackedRowLast")
+        self.assertIsNotNone(requirement_row.findChild(QPushButton, "chipRemove"))
 
         dialog.kind_combo.setCurrentIndex(dialog.kind_combo.findData("stat"))
         app.processEvents()
         self.assertEqual(dialog.required.decimals(), 2)
+
+        dialog.kind_combo.setCurrentIndex(dialog.kind_combo.findData("progress"))
+        app.processEvents()
+        self.assertEqual(dialog.required.decimals(), 0)
+        self.assertEqual(set(dialog._picker_buttons), {"Kills", "Player Level"})
+
+    def test_editor_keeps_long_requirement_text_and_edit_action_visible(self):
+        app = QApplication.instance() or QApplication([])
+        requirements = [
+            {
+                "id": "long-item",
+                "kind": "item",
+                "target": "Grandma's Secret Tonic",
+                "required": 15,
+                "deadline": {
+                    "kind": "stage_overtime",
+                    "stage": 4,
+                    "seconds": 720,
+                },
+            },
+            {
+                "id": "long-stat",
+                "kind": "stat",
+                "target": "Elite Spawn Increase",
+                "required": 5,
+                "deadline": {"kind": "none", "stage": None, "seconds": None},
+            },
+        ]
+        dialog = BuildProgressionDialog(
+            {"name": "Long labels", "requirements": requirements}
+        )
+        self.addCleanup(dialog.done, QDialog.Rejected)
+        dialog.show()
+        app.processEvents()
+
+        for row_widget in dialog._rule_widgets.values():
+            for object_name in ("pickedChip", "condBadgeMuted"):
+                label = row_widget.findChild(QLabel, object_name)
+                margins = label.contentsMargins()
+                available = label.width() - margins.left() - margins.right()
+                self.assertGreaterEqual(
+                    available,
+                    label.fontMetrics().horizontalAdvance(label.text()),
+                )
+
+        dialog._edit_rule("long-item")
+        app.processEvents()
+        self.assertEqual(dialog.selected_target.text(), "Grandma's Secret Tonic")
+        self.assertTrue(dialog.selected_target.wordWrap())
+        self.assertEqual(dialog.add_button.text(), "Update requirement")
+        self.assertGreaterEqual(
+            dialog.add_button.width(),
+            dialog.add_button.sizeHint().width(),
+        )
+
+    def test_editor_returns_to_add_mode_when_edited_rules_are_removed(self):
+        app = QApplication.instance() or QApplication([])
+        requirement = {
+            "id": "anvil",
+            "kind": "item",
+            "target": "Anvil",
+            "required": 1,
+            "deadline": {"kind": "none", "stage": None, "seconds": None},
+        }
+        dialog = BuildProgressionDialog(
+            {"name": "Test", "deadlines_enabled": True, "requirements": [requirement]}
+        )
+        self.addCleanup(dialog.done, QDialog.Rejected)
+
+        dialog._edit_rule("anvil")
+        self.assertEqual(dialog.add_button.text(), "Update requirement")
+        self.assertFalse(dialog.cancel_edit_button.isHidden())
+        dialog.required.setValue(9)
+        dialog._save()
+        self.assertIsNone(dialog.result_payload)
+        self.assertEqual(
+            dialog.validation_error.text(),
+            "Update or cancel the requirement edit before saving the build.",
+        )
+        dialog._cancel_edit()
+
+        self.assertEqual(dialog.add_button.text(), "Add requirement")
+        self.assertTrue(dialog.cancel_edit_button.isHidden())
+        self.assertIsNone(dialog._editing_id)
+        self.assertEqual(dialog._selected_target(), "")
+        self.assertEqual(dialog.required.value(), 1)
+        self.assertEqual(dialog._draft["requirements"][0]["required"], 1)
+
+        dialog._edit_rule("anvil")
+        dialog._remove_rule("anvil")
+
+        self.assertEqual(dialog.add_button.text(), "Add requirement")
+        self.assertEqual(dialog._rendered_rule_ids, [])
+        self.assertFalse(dialog.clear_button.isEnabled())
+
+        dialog._draft["requirements"] = [requirement]
+        dialog._refresh_rules()
+        dialog._edit_rule("anvil")
+        with patch("ui.dialogs.build_progression._ask_confirmation", return_value=True):
+            dialog._remove_all()
+        app.processEvents()
+
+        self.assertEqual(dialog.add_button.text(), "Add requirement")
+        self.assertEqual(dialog._rendered_rule_ids, [])
+
+    def test_editor_reports_add_validation_inline_without_a_system_dialog(self):
+        app = QApplication.instance() or QApplication([])
+        dialog = BuildProgressionDialog({"name": "Test", "requirements": []})
+        self.addCleanup(dialog.done, QDialog.Rejected)
+
+        dialog._add_or_update()
+        self.assertFalse(dialog.validation_error.isHidden())
+        self.assertEqual(dialog.validation_error.text(), "Choose a target first.")
+
+        dialog._select_target("Anvil")
+        dialog._add_or_update()
+        app.processEvents()
+
+        self.assertEqual(len(dialog._draft["requirements"]), 1)
+        self.assertEqual(dialog._selected_target(), "")
+        self.assertEqual(dialog.add_button.text(), "Add requirement")
+        self.assertTrue(dialog.validation_error.isHidden())
+
+    def test_editor_formats_saved_stat_targets_for_people(self):
+        self.assertEqual(
+            BuildProgressionDialog._required_display(
+                {"kind": "stat", "target": "Crit Chance", "required": 1.0}
+            ),
+            "100%",
+        )
+        self.assertEqual(
+            BuildProgressionDialog._required_display(
+                {"kind": "progress", "target": "Kills", "required": 250.0}
+            ),
+            "250",
+        )
 
     def test_stage_start_and_overtime(self):
         _tracker, snap = runtime(stage=1, stage_time=500, duration=600)
@@ -456,6 +629,45 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertIn("more", twitch["requirements"])
         self.assertIn("COMPLETED:", twitch["completed_requirements"])
 
+    def test_projection_keeps_completed_rows_inside_single_kind_sections(self):
+        _tracker, snap = runtime(
+            items=("Anvil",), damage=2.0, kills=100, player_level=20
+        )
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement("active-item", RequirementKind.ITEM, "Ice Cube", 1),
+            BuildRequirement("done-item", RequirementKind.ITEM, "Anvil", 1),
+            BuildRequirement("active-stat", RequirementKind.STAT, "Damage", 3.0),
+            BuildRequirement("done-stat", RequirementKind.STAT, "Damage", 1.0),
+            BuildRequirement(
+                "active-progress", RequirementKind.PROGRESS, "Player Level", 30
+            ),
+            BuildRequirement(
+                "done-progress", RequirementKind.PROGRESS, "Kills", 50
+            ),
+        ))
+        result = evaluate_build_progression(definition, snap).snapshot
+
+        payload = build_progression_payload(
+            result,
+            {"max_rows": 20, "show_completed": True},
+        )
+        html = build_build_progression_overlay_html(payload)
+
+        self.assertEqual(
+            [row["id"] for row in payload["rows"]],
+            [
+                "active-item",
+                "done-item",
+                "active-stat",
+                "done-stat",
+                "active-progress",
+                "done-progress",
+            ],
+        )
+        self.assertEqual(html.count(">ITEMS</span>"), 1)
+        self.assertEqual(html.count(">STATS</span>"), 1)
+        self.assertEqual(html.count(">PROGRESS</span>"), 1)
+
     def test_stat_labels_are_compact_in_build_overlay_and_twitch_output(self):
         _tracker, snap = runtime(items=(), damage=2.0)
         definition = BuildProgressionDefinition(requirements=(
@@ -473,7 +685,7 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertIn("DMG", html)
 
     def test_config_normalization_rejects_duplicates_and_invalid_values(self):
-        normalized = config.normalize_build_progression_config({
+        normalized = config.normalize_build_definition_config({
             "name": "  My build  ",
             "requirements": [
                 {"id": "one", "kind": "item", "target": "Anvil", "required": 2, "ideal": 4, "priority": "asap", "deadline": {"kind": "stage_overtime", "stage": 9, "seconds": 30}},
@@ -487,7 +699,7 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(row["deadline"]["stage"], 4)
         self.assertNotIn("ideal", row)
         self.assertNotIn("priority", row)
-        migrated = config.normalize_build_progression_config({
+        migrated = config.normalize_build_definition_config({
             "requirements": [{
                 "id": "old-clock", "kind": "item", "target": "Ice Cube",
                 "required": 1, "deadline": {"kind": "run_clock", "seconds": 300},
@@ -495,7 +707,7 @@ class BuildProgressionTests(unittest.TestCase):
         })
         self.assertEqual(migrated["requirements"][0]["deadline"]["kind"], "none")
 
-        supported_before_tiers = config.normalize_build_progression_config({
+        supported_before_tiers = config.normalize_build_definition_config({
             "requirements": [
                 {
                     "id": "before-one",
@@ -523,6 +735,41 @@ class BuildProgressionTests(unittest.TestCase):
                 for row in supported_before_tiers["requirements"]
             )
         )
+
+        progress = config.normalize_build_definition_config({
+            "requirements": [
+                {"id": "kills", "kind": "progress", "target": "Kills", "required": 100},
+                {"id": "level", "kind": "progress", "target": "Player Level", "required": 25},
+                {"id": "bad-target", "kind": "progress", "target": "Gold", "required": 10},
+                {"id": "fraction", "kind": "progress", "target": "Kills", "required": 1.5},
+            ],
+        })
+        self.assertEqual(
+            [row["target"] for row in progress["requirements"]],
+            ["Kills", "Player Level"],
+        )
+
+    def test_build_library_discards_legacy_shape_and_repairs_active_selection(self):
+        legacy = config.normalize_build_progression_config(
+            {"schema_version": 2, "name": "Old build", "requirements": []}
+        )
+        self.assertEqual(
+            legacy,
+            {"schema_version": 3, "builds": [], "active_build_id": None},
+        )
+
+        library = config.normalize_build_progression_config(
+            {
+                "schema_version": 3,
+                "active_build_id": "missing",
+                "builds": [
+                    {"id": "one", "name": "Build", "requirements": []},
+                    {"id": "two", "name": "build", "requirements": []},
+                ],
+            }
+        )
+        self.assertEqual(library["active_build_id"], "one")
+        self.assertEqual([build["name"] for build in library["builds"]], ["Build", "build (2)"])
 
     def test_obs_build_widget_migrates_modes_to_standard_panel_settings(self):
         text_overlay = config.normalize_overlay_config({
@@ -674,6 +921,299 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertIn("REMAINING: · Ice Cube", values["requirements"])
         self.assertNotIn("Sucky Magnet", values["requirements"])
         self.assertIn("FAILED: × Sucky Magnet", values["failed_requirements"])
+
+
+class BuildProgressionLibraryTests(unittest.TestCase):
+    @staticmethod
+    def _build(build_id: str, name: str, *, target="Anvil") -> dict:
+        return config.normalize_build_definition_config(
+            {
+                "id": build_id,
+                "name": name,
+                "deadlines_enabled": True,
+                "requirements": [
+                    {
+                        "id": f"{build_id}-requirement",
+                        "kind": "item",
+                        "target": target,
+                        "required": 2,
+                        "deadline": {"kind": "none", "stage": None, "seconds": None},
+                    }
+                ],
+            }
+        )
+
+    @classmethod
+    def _library(cls) -> dict:
+        return {
+            "schema_version": 3,
+            "builds": [cls._build("one", "First"), cls._build("two", "Second")],
+            "active_build_id": "one",
+        }
+
+    def test_active_definition_uses_only_the_selected_build(self):
+        definition = active_definition_from_config(self._library())
+        self.assertEqual(definition.name, "First")
+        self.assertEqual([row.id for row in definition.requirements], ["one-requirement"])
+        self.assertEqual(active_definition_from_config({}).requirements, ())
+
+    def test_clone_generates_new_build_and_requirement_ids_and_unique_name(self):
+        original = self._build("one", "First")
+        duplicate = clone_build_config(original, ["First"])
+        self.assertNotEqual(duplicate["id"], original["id"])
+        self.assertNotEqual(
+            duplicate["requirements"][0]["id"], original["requirements"][0]["id"]
+        )
+        self.assertEqual(duplicate["name"], "First (2)")
+
+    def test_export_round_trip_strips_internal_ids_and_resolves_name_collision(self):
+        original = self._build("one", "First")
+        payload = build_export_payload(original)
+        encoded = json.loads(json.dumps(payload))
+
+        self.assertEqual(encoded["format"], "bonkscanner-build")
+        self.assertNotIn("id", encoded["build"])
+        self.assertNotIn("id", encoded["build"]["requirements"][0])
+
+        imported = build_from_export_payload(encoded, ["First"])
+        self.assertEqual(imported["name"], "First (2)")
+        self.assertNotEqual(imported["id"], original["id"])
+        self.assertNotEqual(
+            imported["requirements"][0]["id"], original["requirements"][0]["id"]
+        )
+
+    def test_import_rejects_invalid_envelopes_and_partial_requirements(self):
+        valid = build_export_payload(self._build("one", "First"))
+        cases = [
+            {},
+            {**valid, "format": "other"},
+            {**valid, "version": 99},
+            {**valid, "build": {**valid["build"], "requirements": "bad"}},
+            {
+                **valid,
+                "build": {
+                    **valid["build"],
+                    "requirements": [
+                        {
+                            "kind": "progress",
+                            "target": "Unknown",
+                            "required": 1,
+                            "deadline": {"kind": "none"},
+                        }
+                    ],
+                },
+            },
+        ]
+        for payload in cases:
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    build_from_export_payload(payload)
+
+    def test_build_progression_uses_app_dialogs_for_messages_and_confirmations(self):
+        tree = ast.parse(inspect.getsource(build_progression_dialogs))
+        forbidden = {"QMessageBox", "QColorDialog", "QInputDialog"}
+        used = {
+            node.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name) and node.id in forbidden
+        }
+        self.assertEqual(used, set())
+
+    def test_manager_marks_active_card_and_switches_immediately(self):
+        app = QApplication.instance() or QApplication([])
+        state = self._library()
+        writes = []
+
+        def write(payload):
+            nonlocal state
+            state = config.normalize_build_progression_config(deepcopy(payload))
+            writes.append(deepcopy(state))
+            return deepcopy(state)
+
+        service = MagicMock()
+        manager = BuildProgressionManagerDialog(
+            SimpleNamespace(read=lambda: deepcopy(state), write=write), service
+        )
+        self.addCleanup(manager.done, QDialog.Rejected)
+        manager.show()
+        app.processEvents()
+
+        self.assertFalse(manager.card_widgets["one"]["active"].isEnabled())
+        self.assertTrue(manager.card_widgets["two"]["active"].isEnabled())
+        self.assertIsNotNone(
+            manager.card_widgets["one"]["card"].findChild(QLabel, "condBadge")
+        )
+
+        manager._set_active("two")
+
+        self.assertEqual(state["active_build_id"], "two")
+        self.assertEqual(len(writes), 1)
+        service.replace_definition.assert_called_once()
+        self.assertEqual(service.replace_definition.call_args.args[0].name, "Second")
+        self.assertFalse(manager.card_widgets["two"]["active"].isEnabled())
+
+    def test_card_and_configure_button_open_editor_without_activating_build(self):
+        app = QApplication.instance() or QApplication([])
+        state = self._library()
+        settings = SimpleNamespace(
+            read=lambda: deepcopy(state),
+            write=lambda payload: config.normalize_build_progression_config(payload),
+        )
+        manager = BuildProgressionManagerDialog(settings, MagicMock())
+        self.addCleanup(manager.done, QDialog.Rejected)
+        manager._edit_build = MagicMock()
+
+        manager.card_widgets["two"]["open"].click()
+        app.processEvents()
+
+        manager._edit_build.assert_called_once_with("two")
+        manager._edit_build.reset_mock()
+
+        manager.card_widgets["two"]["configure"].click()
+        app.processEvents()
+
+        manager._edit_build.assert_called_once_with("two")
+        self.assertEqual(manager.library["active_build_id"], "one")
+
+    def test_deleting_active_build_selects_next_and_last_delete_leaves_empty(self):
+        state = self._library()
+
+        def write(payload):
+            nonlocal state
+            state = config.normalize_build_progression_config(deepcopy(payload))
+            return deepcopy(state)
+
+        service = MagicMock()
+        manager = BuildProgressionManagerDialog(
+            SimpleNamespace(read=lambda: deepcopy(state), write=write), service
+        )
+        self.addCleanup(manager.done, QDialog.Rejected)
+        with patch("ui.dialogs.build_progression._ask_confirmation", return_value=True):
+            manager._delete_build("one")
+            self.assertEqual(state["active_build_id"], "two")
+            manager._delete_build("two")
+
+        self.assertEqual(state["builds"], [])
+        self.assertIsNone(state["active_build_id"])
+        self.assertEqual(service.replace_definition.call_count, 2)
+
+    def test_manager_exports_and_imports_one_build_file(self):
+        state = self._library()
+
+        def write(payload):
+            nonlocal state
+            state = config.normalize_build_progression_config(deepcopy(payload))
+            return deepcopy(state)
+
+        manager = BuildProgressionManagerDialog(
+            SimpleNamespace(read=lambda: deepcopy(state), write=write), MagicMock()
+        )
+        self.addCleanup(manager.done, QDialog.Rejected)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "shared-build.json"
+            with (
+                patch.object(
+                    QFileDialog,
+                    "getSaveFileName",
+                    return_value=(str(path), ""),
+                ) as save_picker,
+                patch("ui.dialogs.build_progression._show_notice"),
+            ):
+                manager._export_build("one")
+            self.assertEqual(save_picker.call_args.args[1], "Export Build")
+            self.assertIn("*.json", save_picker.call_args.args[3])
+            exported = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(exported["build"]["name"], "First")
+
+            with (
+                patch.object(
+                    QFileDialog,
+                    "getOpenFileName",
+                    return_value=(str(path), ""),
+                ) as open_picker,
+                patch("ui.dialogs.build_progression._show_notice"),
+            ):
+                manager._import_build()
+            self.assertEqual(open_picker.call_args.args[1], "Import Build")
+            self.assertIn("*.json", open_picker.call_args.args[3])
+
+        self.assertEqual(
+            [build["name"] for build in state["builds"]],
+            ["First", "Second", "First (2)"],
+        )
+        self.assertEqual(state["active_build_id"], "one")
+
+    def test_first_saved_build_becomes_active_and_cancel_creates_nothing(self):
+        state = {"schema_version": 3, "builds": [], "active_build_id": None}
+
+        def write(payload):
+            nonlocal state
+            state = config.normalize_build_progression_config(deepcopy(payload))
+            return deepcopy(state)
+
+        service = MagicMock()
+        manager = BuildProgressionManagerDialog(
+            SimpleNamespace(read=lambda: deepcopy(state), write=write), service
+        )
+        self.addCleanup(manager.done, QDialog.Rejected)
+        draft = self._build("created", "Created")
+
+        cancelled = SimpleNamespace(exec=lambda: QDialog.Rejected, result_payload=None)
+        with patch("ui.dialogs.build_progression.BuildProgressionDialog", return_value=cancelled):
+            manager._open_editor(draft, create=True)
+        self.assertEqual(state["builds"], [])
+
+        saved = SimpleNamespace(exec=lambda: QDialog.Accepted, result_payload=draft)
+        with patch("ui.dialogs.build_progression.BuildProgressionDialog", return_value=saved):
+            manager._open_editor(draft, create=True)
+        self.assertEqual([build["id"] for build in state["builds"]], ["created"])
+        self.assertEqual(state["active_build_id"], "created")
+        service.replace_definition.assert_called_once()
+
+    def test_editing_inactive_build_does_not_reset_active_runtime_state(self):
+        state = self._library()
+
+        def write(payload):
+            nonlocal state
+            state = config.normalize_build_progression_config(deepcopy(payload))
+            return deepcopy(state)
+
+        service = MagicMock()
+        manager = BuildProgressionManagerDialog(
+            SimpleNamespace(read=lambda: deepcopy(state), write=write), service
+        )
+        self.addCleanup(manager.done, QDialog.Rejected)
+        edited = deepcopy(state["builds"][1])
+        edited["name"] = "Second Edited"
+        child = SimpleNamespace(exec=lambda: QDialog.Accepted, result_payload=edited)
+        with patch("ui.dialogs.build_progression.BuildProgressionDialog", return_value=child):
+            manager._open_editor(deepcopy(state["builds"][1]), create=False)
+
+        self.assertEqual(state["builds"][1]["name"], "Second Edited")
+        service.replace_definition.assert_not_called()
+
+    def test_editor_validates_unique_name_and_confirms_dirty_cancel(self):
+        app = QApplication.instance() or QApplication([])
+        dialog = BuildProgressionDialog(
+            self._build("one", "First"), existing_names=["Second"]
+        )
+        self.addCleanup(dialog.done, QDialog.Rejected)
+        dialog.show()
+        app.processEvents()
+
+        dialog.name_entry.setText("second")
+        dialog._save()
+        self.assertIsNone(dialog.result_payload)
+        self.assertFalse(dialog.name_error.isHidden())
+
+        dialog.name_entry.setText("Changed")
+        with patch("ui.dialogs.build_progression._ask_confirmation", return_value=False):
+            dialog.reject()
+        self.assertTrue(dialog.isVisible())
+        with patch("ui.dialogs.build_progression._ask_confirmation", return_value=True):
+            dialog.reject()
+        self.assertFalse(dialog.isVisible())
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from app import config
 from ui.canvas_preview import CanvasPreview, PreviewWidget
 from ui.dialogs.tracked_items import TrackedItemsDialog
-from ui.dialogs.build_progression import BuildProgressionDialog
+from ui.dialogs.build_progression import BuildProgressionManagerDialog
 from ui.module_tile import ModuleTile
 from ui.run_toggle import OVERLAY_SERVER_CAPTIONS
 from ui.segmented_toggle import ROLE_GO, SegmentedToggle
@@ -1057,12 +1057,13 @@ class Overlay:
             )
 
     def open_build_progression_dialog(self) -> None:
-        dialog = BuildProgressionDialog(
+        dialog = BuildProgressionManagerDialog(
             self.coordinator.build_progression_settings,
             self.coordinator.build_progression_service,
             self.tab_overlay,
         )
-        if dialog.exec() == QDialog.Accepted:
+        dialog.exec()
+        if dialog.changed:
             self.update_overlay_state_from_tracker()
 
     def _build_progression_snapshot(self):
