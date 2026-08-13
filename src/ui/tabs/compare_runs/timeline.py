@@ -67,8 +67,11 @@ def shared_series_scales(
     model_a: scrubber_model.ScrubberModel,
     model_b: scrubber_model.ScrubberModel,
     series_keys,
+    *,
+    cap_keys=(),
 ) -> dict[str, float]:
-    """One raw maximum per metric across both recordings."""
+    """One raw maximum per metric across both recordings and visible caps."""
+    capped = set(cap_keys)
     scales: dict[str, float] = {}
     for key in dict.fromkeys(series_keys):
         values = []
@@ -80,6 +83,8 @@ def shared_series_scales(
                     for value in series.values
                     if value is not None and isfinite(float(value))
                 )
+            if key in capped:
+                values.extend(float(step.value) for step in model.caps(key))
         scales[key] = max((value for value in values if value >= 0.0), default=1.0) or 1.0
     return scales
 
@@ -201,7 +206,12 @@ class CompareRunsTimeline(QWidget):
         self._cap_keys = caps
         self._lane_a = _Lane(snapshots_a, model_a, snapshot_times(snapshots_a), ())
         self._lane_b = _Lane(snapshots_b, model_b, snapshot_times(snapshots_b), ())
-        self._shared_scales = shared_series_scales(model_a, model_b, model_keys)
+        self._shared_scales = shared_series_scales(
+            model_a,
+            model_b,
+            model_keys,
+            cap_keys=caps,
+        )
         self._stage_deltas = stage_start_deltas(
             model_a,
             model_b,

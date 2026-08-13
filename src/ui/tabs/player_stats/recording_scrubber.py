@@ -491,7 +491,7 @@ class RecordingScrubber(QWidget):
                 series.values,
                 self._projection.positions,
                 plot,
-                series.scale,
+                self._model.series_scale(key, include_cap=key in self._cap_keys),
             )
             if path.elementCount():
                 built.append((path, QColor(series.color)))
@@ -510,7 +510,7 @@ class RecordingScrubber(QWidget):
                 steps,
                 self._projection.positions,
                 plot,
-                series.scale,
+                self._model.series_scale(key, include_cap=True),
             )
             for step, cap in zip(steps, geometries):
                 result.append(

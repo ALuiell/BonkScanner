@@ -180,6 +180,20 @@ class ScrubberModel:
                 return step.value
         return None
 
+    def series_scale(self, key: str, *, include_cap: bool = False) -> float:
+        """The vertical scale for ``key``, optionally including its ceiling.
+
+        A curve normally uses its own recorded maximum so a quiet run remains
+        readable. Once its cap is drawn, however, both values share an axis: a
+        cap above the recording must expand that axis instead of being clamped
+        onto the curve's maximum at the top edge.
+        """
+        series = self.series(key)
+        scale = float(series.scale) if series is not None else 0.0
+        if include_cap:
+            scale = max(scale, *(float(step.value) for step in self.caps(key)))
+        return scale
+
     def position(self, index: int) -> float:
         """Where snapshot ``index`` sits along the track, ``0.0..1.0``."""
         if self.count <= 1:

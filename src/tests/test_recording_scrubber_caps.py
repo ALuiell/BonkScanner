@@ -54,6 +54,30 @@ def test_difficulty_caps_carry_percent_labels_without_over_cap_geometry() -> Non
     assert not widget.grab().isNull()
 
 
+def test_visible_cap_expands_scale_instead_of_collapsing_onto_curve() -> None:
+    QApplication.instance() or QApplication([])
+    widget = RecordingScrubber()
+    widget.resize(500, 150)
+    widget.set_slots((("Difficulty",),))
+    widget.set_cap_keys(("Difficulty",))
+    widget.set_model(
+        ScrubberModel(
+            count=2,
+            _series={
+                "Difficulty": _series("Difficulty", (1.0, 1.396), scale=1.396)
+            },
+            _caps={"Difficulty": (CapStep(0, 1, 5.71),)},
+        )
+    )
+    widget._ensure_render_cache()
+
+    cap_y = widget._cached_caps[0][2]
+    curve = widget._cached_paths[0][0]
+    curve_end_y = curve.elementAt(curve.elementCount() - 1).y
+    assert curve_end_y > cap_y
+    assert widget._model.series_scale("Difficulty", include_cap=True) == 5.71
+
+
 def test_xp_cap_keeps_its_line_without_a_difficulty_percent_caption() -> None:
     app = QApplication.instance() or QApplication([])
     widget = RecordingScrubber()

@@ -151,6 +151,22 @@ def test_shared_scale_is_the_maximum_of_both_runs() -> None:
     assert shared_series_scales(model_a, model_b, ("Damage",))["Damage"] == 50.0
 
 
+def test_shared_scale_includes_a_visible_cap() -> None:
+    a = _vod((0.0, 2.0))
+    b = _vod((0.0, 5.0))
+    model_a = scrubber.build_model(a.snapshots, series_keys=("Difficulty",))
+    model_b = scrubber.build_model(b.snapshots, series_keys=("Difficulty",))
+
+    scales = shared_series_scales(
+        model_a,
+        model_b,
+        ("Difficulty",),
+        cap_keys=("Difficulty",),
+    )
+
+    assert scales["Difficulty"] == 5.71
+
+
 def test_stage_delta_matches_equal_stage_numbers() -> None:
     a = _vod((0.0, 10.0, 20.0), stages=(0, 1, 1))
     b = _vod((0.0, 13.0, 25.0), stages=(0, 1, 1))
