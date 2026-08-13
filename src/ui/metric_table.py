@@ -367,12 +367,6 @@ class CompactMetricCellView(QFrame):
         self._delta.setText(f"Δ {row.delta}")
 
         direction = row.direction
-        # Finishing a stage sooner is an improvement, unlike the count metrics.
-        if str(row.label).casefold() == "time":
-            if direction == DELTA_POSITIVE:
-                direction = DELTA_NEGATIVE
-            elif direction == DELTA_NEGATIVE:
-                direction = DELTA_POSITIVE
         if self._direction != direction:
             self._direction = direction
             self._delta.setStyleSheet(

@@ -305,9 +305,9 @@ def test_stage_cards_use_a_pooled_two_column_grid() -> None:
     ] == [(0, 0), (0, 1), (1, 0), (1, 1)]
     assert tuple(view._cards) == pooled_cards
     assert tuple(tuple(card._cells) for card in view._cards) == pooled_cells
-    assert "#22C55E" in view._cards[0]._cells[0]._delta.styleSheet()
+    assert "#FB7185" in view._cards[0]._cells[0]._delta.styleSheet()
 
-    updated_rows = (MetricRow("Time", "03:41", "03:30", "-11s"),) + rows[1:]
+    updated_rows = (MetricRow("Time", "24:54", "24:43", "+11s"),) + rows[1:]
     view.set_table(
         MetricTable(
             sections=tuple(
@@ -322,6 +322,7 @@ def test_stage_cards_use_a_pooled_two_column_grid() -> None:
     )
     assert tuple(view._cards) == pooled_cards
     assert tuple(tuple(card._cells) for card in view._cards) == pooled_cells
+    assert "#22C55E" in view._cards[0]._cells[0]._delta.styleSheet()
 
     view.resize(700, 400)
     app.processEvents()
