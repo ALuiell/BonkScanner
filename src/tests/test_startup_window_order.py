@@ -28,6 +28,11 @@ class StartupWindowOrderTests(unittest.TestCase):
             app = MegabonkApp()
             qt = QApplication.instance()
 
+            assert app.window.width() == 1320
+            assert app.window.height() == 830
+            assert app.window.minimumWidth() == 480
+            assert app.window.minimumHeight() == 360
+
             def class_names():
                 return {
                     widget.metaObject().className()

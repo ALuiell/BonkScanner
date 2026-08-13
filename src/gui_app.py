@@ -71,7 +71,11 @@ class MegabonkApp:
 
         self.setWindowTitle(f"BonkScanner v{CURRENT_VERSION}")
         self.resize(1320, 830)
-        self.setMinimumSize(1120, 710)
+        # Keep the comfortable desktop size as the default, but let users on
+        # portrait displays (especially with OS scaling) shrink the window far
+        # below it. Some dense tabs will need scrolling/clipping at this size;
+        # fitting the window on the available screen takes precedence here.
+        self.setMinimumSize(480, 360)
         icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
