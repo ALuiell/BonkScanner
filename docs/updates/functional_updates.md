@@ -1,6 +1,6 @@
 # Functional Updates
 
-Date: 2026-08-10
+Date: 2026-08-16
 
 This file tracks open and partially completed functional/runtime work that does not fit cleanly into UI-only or performance-only buckets.
 
@@ -91,6 +91,208 @@ Proposed layouts:
 - [Ultra-compact urgent target](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-focus-title) — only the next urgent missing requirement plus overall progress.
 
 ## Open Updates
+
+### Build Progression
+
+Status: `[Open]`
+
+Remaining open work:
+
+- Add an optional background panel behind the Build Progression widget in the In-Game Overlay so its text remains readable against the game world. Reuse the visual style of the existing OBS Overlay Build Progression widget and add a checkbox to the `In-Game Overlay` tab for enabling or disabling the background.
+- Keep each entry in the Build Requirements list on one line instead of wrapping its deadline and action controls onto a second line.
+- Apply the base item-rarity colours consistently. Verify that the `Stonks` power-up colour is visually distinct from the legendary-item colour rather than using the same colour one-to-one.
+- Add item-specific progress rules for `Spicy Meatball` and other items whose progress cannot be represented correctly by the generic inventory-copy count.
+
+### In-Game Map Activity Markers
+
+Status: `[Planned / Requires In-Game Verification]`
+
+Goal:
+
+- Add optional activity markers over the game's full map so a player can return to an activity they already discovered, such as a Microwave, Shady Guy, Chest, Moai, or another shrine.
+- Keep this strictly as a quality-of-life memory aid. BonkScanner must not reveal activities that the player has not approached or otherwise discovered through normal gameplay.
+- Implement the feature entirely in the existing external application through read-only process-memory access and the current in-game overlay. BepInEx, injected DLLs, and game-memory writes are out of scope.
+
+Recommended hybrid model:
+
+1. Automatically discover an activity only after the game itself selects it as the player's current interaction target.
+2. Record an approximate position immediately, using the player's position at the time of discovery.
+3. Show the resulting type-specific marker only while the full map is open.
+4. Let the user move, replace, hide, or delete an automatically created marker through a manual marker-edit mode.
+5. Later, replace the approximate player position with the discovered object's exact Unity Transform if live testing shows that the approximation is not accurate enough. This must not require enumerating undiscovered map objects.
+
+Current product decision:
+
+- Ship two discovery paths: automatic proximity discovery through the unmodified `currentInteractable`, and explicit manual placement for an activity the player saw but did not approach.
+- Keep the game's normal interaction range unchanged. Live verification read `DetectInteractables.interactableRange = 5.0`, which in practice requires the player to stand nearly next to a Microwave.
+- Do not implement a custom `20--25 m` memory-based field-of-view detector in the current scope. Distance and camera-angle checks cannot prove that an object is not behind a wall or terrain, while scene-wide object enumeration would read undiscovered activities before the fair-play filter is applied.
+- Do not write a larger value into `interactableRange`; that would alter the game's own prompt and interaction behavior rather than add an external QoL marker.
+- Revisit longer-range automatic discovery only if it gains a reliable positive visibility signal, such as robust on-screen recognition, without exposing hidden object locations.
+
+Automatic discovery source:
+
+Use the short, already live-validated `DetectInteractables.currentInteractable` path:
+
+```text
+GameAssembly.dll + MyPlayer TypeInfo
+  -> static fields
+  -> MyPlayer.Instance
+  -> MyPlayer.playerInput
+  -> PlayerInput.detectInteractables
+  -> DetectInteractables.currentInteractable
+```
+
+- Read only this short chain on the fast activity-marker lane. Existing chest investigation found `25 ms` reliable for short-lived interaction targets; the final interval should be confirmed with Microwaves, Shady Guys, and representative shrine classes.
+- Resolve the selected object's IL2CPP class name and map only an explicit allowlist of supported `BaseInteractable` subclasses to marker types.
+- Candidate classes include `InteractableMicrowave`, `InteractableChest`, `InteractableShadyGuy`, `ChargeShrine`, `InteractableShrineMagnet`, `InteractableShrineGreed`, `InteractableShrineMoai`, `InteractableShrineChallenge`, `InteractableShrineCursed`, and `InteractableShrineBalance`.
+- Require a valid object pointer and recognized class. An unavailable, corrupt, or unsupported read creates no marker.
+- Prefer a small stability requirement, such as two agreeing observations or approximately `50--100 ms`, if live tests show that it avoids incidental targets without missing fast fly-bys.
+- The same object pointer seen again during the same map/stage updates the existing marker instead of creating a duplicate.
+- Treat `currentInteractable` as an observation event, not as persistent marker state. Live testing showed nearby Pots temporarily replacing a Microwave as the selected target; losing selection must not remove a previously discovered marker.
+
+Fair-play boundary:
+
+- Do not enumerate every `BaseInteractable`, spawn list, scene object, or minimap icon on the map.
+- Do not derive markers from the aggregate `InteractablesStatus` totals; those values say how many activities exist or were used, but not which individual locations the player discovered.
+- Do not create a marker merely because an object exists inside generated map data or process memory.
+- A marker may enter BonkScanner's local discovered-object ledger only after the corresponding object appears in `currentInteractable`, meaning the game's own interaction system has already selected it near the player.
+- Never use a failed fog, position, class, or lifecycle read as permission to display an object. Unknown state must fail closed.
+- Optional fog-state validation may be added as a second positive check, but it must not replace proximity-based discovery or become a filter over a map-wide hidden-object scan.
+
+Marker record and scope:
+
+Each discovered marker should retain enough identity to reject stale pointers and survive ordinary overlay refreshes:
+
+```text
+marker_id
+marker_type
+object_ptr
+map_seed
+current_map_ptr
+stage_ptr / resolved stage identity
+world_x, world_y, world_z
+position_source       # player_nearby | exact_object | manual
+discovered_at
+last_confirmed_at
+activity_state
+manually_adjusted
+```
+
+- Keep marker state in memory for the active run. Do not persist run-specific pointers or coordinates into `config.json`.
+- Manual marker preferences and icon visibility settings may persist, but individual run markers must not.
+- Clear or invalidate the ledger on a new run, map reset, relevant stage transition, `MyPlayer.Instance` replacement, or a confirmed map identity change.
+- Revalidate a cached object before reading subclass-specific fields. Never continue walking an old pointer after its run/map identity has expired.
+
+Position acquisition:
+
+For the MVP, capture the player's world position when the target is discovered.
+
+- `PlayerMovement.lastGroundedPosition` is a candidate approximate source and has been observed changing with live movement.
+- Characterize its accuracy while running, jumping, flying, falling, and approaching an object without touching the ground. If it can lag materially during normal discovery, do not ship it as the only position source.
+- Approximate positions should be labelled internally as `player_nearby`; the expected error is bounded by the interaction range rather than being presented as the object's exact center.
+- Manual adjustment must preserve the marker's discovery provenance while replacing only its displayed coordinates.
+
+For a later exact-position path:
+
+- Start from the already discovered `currentInteractable` pointer and resolve only that object's Unity Transform.
+- Reconstruct and live-validate the current Unity native `Component/GameObject/Transform` layout reached through the managed object's cached native pointer.
+- Do not introduce a scene-wide Transform or object scan merely to improve marker precision.
+
+World-to-map projection:
+
+The current dump exposes `MapInfo.mapCenter`, `mapSize`, and map bounds, while `FullMap` owns `worldSize`, `textureSize`, the fog state, and its display Transform. Native inspection indicates that fog/map cells are derived from world `X/Z` approximately as:
+
+```text
+u = (world_x + world_size / 2) / world_size
+v = (world_z + world_size / 2) / world_size
+```
+
+- Verify the exact axis orientation, vertical inversion, map centering, and clamping on every supported map family.
+- Resolve the visible full-map rectangle inside the game client so normalized `u/v` coordinates can be converted into overlay pixels.
+- Test windowed, borderless, fullscreen, non-16:9, UI-scale, and resolution changes. Marker placement must follow the existing overlay's synchronized game-client geometry.
+- If the map rectangle cannot yet be read reliably from Unity UI state, use a small resolution-aware calibration layer rather than hard-coded absolute pixels.
+- Keep projection independent from discovery and marker state so it can be corrected without losing the run ledger.
+
+Map-open detection and overlay behavior:
+
+- Show map markers only while the full map is visibly open.
+- A foreground-only `Tab` key observation can provide the first MVP signal, but it can desynchronize if the game ignores the key, a menu consumes it, or the binding changes.
+- Prefer a persistent game/UI state such as `FullMap.mapsOpen` or active-state validation once the `FullMap` instance path is recovered.
+- Keep the overlay `Qt.WindowTransparentForInput` during normal gameplay and normal map viewing.
+- Enter an explicit marker-edit mode before accepting pointer input. Exiting the mode restores click-through behavior immediately.
+
+Activity lifecycle:
+
+- Classify lifecycle behavior per supported activity instead of applying one generic "remove after interaction" rule.
+- A Microwave can remain useful after the first interaction and exposes state candidates such as `usesLeft`, `isCooking`, `hasItem`, and `readyAtTime`. Its marker may transition through available, cooking, ready, exhausted, or destroyed states.
+- Shrines commonly expose `done`, `completed`, or `rewardGiven`-style fields. Confirm each class live before using those fields as authoritative.
+- Chests expose their own type/opening state and already have aggregate counters, but an aggregate count change alone must not remove an arbitrary chest marker.
+- When an exact individual completion cannot be attributed safely, retain the last known marker or mark its state uncertain; do not guess which location was consumed.
+- Offer settings to hide completed markers immediately, keep them dimmed, or show only still-usable activities.
+
+Manual marker mode:
+
+- Provide a small type palette while the map is open.
+- Allow creating a manual marker, dragging an automatic or manual marker, changing its type, and deleting it.
+- Store marker coordinates normalized to the map, not as raw desktop pixels.
+- Visually distinguish manual, approximate automatic, and exact automatic placement only if that distinction is useful to the player; provenance must remain available internally for diagnostics.
+- Manual mode is both a fallback for unsupported activities and a correction tool for interaction-range position error.
+- Manual placement is also the intentional path for activities seen from farther than the game's approximately five-metre interaction range. Automatic discovery must not attempt to infer those sightings from hidden scene objects.
+
+Proposed architecture:
+
+```text
+ActivityDiscoveryReader
+  -> read-only currentInteractable/class/subclass state
+  -> emits discovered-target observations
+
+MapMarkerService
+  -> owns the active-run discovered-object ledger
+  -> deduplicates pointers and applies lifecycle/reset rules
+  -> never reads or renders hidden map objects
+
+MapProjection
+  -> converts world/normalized map coordinates to overlay pixels
+  -> owns map rectangle, axis orientation, scale, and clamping
+
+MapMarkerOverlayWidget
+  -> renders markers while the full map is open
+  -> handles explicit manual edit mode only
+```
+
+- Own `MapMarkerService` on `AppCoordinator` with other run-scoped services.
+- Keep memory reading and projection Qt-free where practical; the QWidget layer should receive a ready-to-render immutable snapshot.
+- Do not attach the 25 ms reader to the general 10-second player-stat snapshot. Start it only when map markers are enabled and an active run/player instance exists.
+- Publish marker snapshots to the GUI thread through the existing scheduling/signalling boundary rather than mutating Qt widgets from the polling thread.
+- Bound shutdown and invalidate all pointers before closing the shared memory client.
+
+Suggested delivery stages:
+
+1. **Diagnostic probe:** Log target class, object pointer, approximate player position, run/map/stage identity, and relevant subclass fields without rendering anything.
+2. **Manual-only overlay:** Validate map-open detection, map rectangle, normalized coordinates, resizing, and edit-mode input behavior.
+3. **Automatic MVP:** Add proximity-discovered markers using the approximate player position, deduplication, run resets, and manual correction.
+4. **Lifecycle support:** Add verified available/completed/cooking/ready states class by class.
+5. **Exact positioning:** Resolve only a discovered object's Transform if approximation tests justify the additional native Unity work.
+
+Required live validation before implementation:
+
+- Approach, leave, re-approach, and interact with at least two different Microwaves in one run; record pointer stability and every relevant field transition.
+- Repeat for Shady Guy, a Chest, Charge Shrine, Magnet Shrine, Moai, Greed Shrine, and Challenge Shrine.
+- Measure how long `currentInteractable` remains non-null during slow approach, immediate interaction, and fast fly-by.
+- Compare the approximate player position with the visible activity location while grounded and airborne.
+- Capture known world positions and their full-map screen positions on Forest, Desert, and Graveyard to solve and verify projection orientation.
+- Verify stage transitions, boss rooms, Graveyard crypt/main-map transitions, reset, death, and a new run for stale-marker cleanup.
+- Verify full-map open/close behavior with other menus, pause, focus loss, resolution changes, and the existing overlay layout hotkey.
+- Confirm that no marker appears for any activity that was never selected by the game's interaction system.
+
+Acceptance criteria for the first automatic release:
+
+- An enabled marker appears only after a supported activity has been selected as `currentInteractable` during the current run.
+- Re-approaching the same object does not create duplicates.
+- No marker from a previous map, stage scope, player instance, or run survives into an unrelated map state.
+- Marker placement remains useful across supported resolutions and can be corrected manually.
+- Opening and closing the full map never leaves the overlay capturing gameplay input.
+- A failed memory read, unresolved class, unknown coordinate transform, or unsupported lifecycle state cannot reveal or fabricate an activity.
 
 ### Twitch Commands
 
