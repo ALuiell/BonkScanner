@@ -746,8 +746,11 @@ class BuildProgressionDialog(QDialog):
         builder_layout.addLayout(editor_head)
         self.selected_target = QLabel("Choose a target")
         self.selected_target.setObjectName("buildSelectedTarget")
-        self.selected_target.setWordWrap(True)
-        builder_layout.addWidget(self.selected_target)
+        self.selected_target.setWordWrap(False)
+        self.selected_target.setSizePolicy(
+            QSizePolicy.Maximum, QSizePolicy.Fixed
+        )
+        builder_layout.addWidget(self.selected_target, 0, Qt.AlignLeft)
 
         self.required = QDoubleSpinBox()
         self.required.setRange(1, 99999)
@@ -1139,14 +1142,10 @@ class BuildProgressionDialog(QDialog):
     ) -> QWidget:
         widget = QWidget()
         widget.setObjectName("trackedRowLast" if last else "trackedRow")
-        widget.setMinimumHeight(66)
-        layout = QVBoxLayout(widget)
+        widget.setMinimumHeight(42)
+        layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 7, 0, 7)
-        layout.setSpacing(4)
-
-        definition_row = QHBoxLayout()
-        definition_row.setContentsMargins(0, 0, 0, 0)
-        definition_row.setSpacing(8)
+        layout.setSpacing(8)
 
         target = str(row.get("target") or "Requirement")
         target_colour = self._target_colour(
@@ -1158,31 +1157,21 @@ class BuildProgressionDialog(QDialog):
         target_label.setToolTip(target)
         target_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         target_label.setMinimumWidth(64)
-        definition_row.addWidget(target_label)
+        layout.addWidget(target_label)
 
         goal = QLabel(f"Required {required_text}")
         goal.setObjectName("condBadgeMuted")
         goal.setToolTip(f"Required {required_text}")
         goal.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         goal.setMinimumWidth(72)
-        definition_row.addWidget(goal)
-        definition_row.addStretch(1)
-        layout.addLayout(definition_row)
-
-        action_row = QHBoxLayout()
-        action_row.setContentsMargins(0, 0, 0, 0)
-        action_row.setSpacing(8)
-        action_row.addStretch(1)
-        # Attach the nested layout before any child is explicitly shown.  A
-        # visible label in an unattached layout is briefly a top-level window.
-        layout.addLayout(action_row)
+        layout.addWidget(goal)
+        layout.addStretch(1)
 
         deadline_label = QLabel(deadline)
         deadline_label.setObjectName("condBadge")
-        action_row.addWidget(deadline_label)
-        # A parentless QWidget becomes a temporary top-level window when it is
-        # shown. Parent the badge first: otherwise opening this dialog flashes a
-        # tiny application-titled window before Qt reparents it into the row.
+        layout.addWidget(deadline_label)
+        # Add the badge to the row before changing visibility. A parentless
+        # visible QWidget would briefly become a top-level window.
         deadline_label.setVisible(bool(deadline))
 
         rule_id = str(row.get("id") or "")
@@ -1198,7 +1187,7 @@ class BuildProgressionDialog(QDialog):
         edit.clicked.connect(
             lambda _checked=False, selected_id=rule_id: self._edit_rule(selected_id)
         )
-        action_row.addWidget(edit)
+        layout.addWidget(edit)
 
         remove = QPushButton("✕")
         remove.setObjectName("chipRemove")
@@ -1208,7 +1197,7 @@ class BuildProgressionDialog(QDialog):
         remove.clicked.connect(
             lambda _checked=False, selected_id=rule_id: self._remove_rule(selected_id)
         )
-        action_row.addWidget(remove)
+        layout.addWidget(remove)
         return widget
 
     @staticmethod

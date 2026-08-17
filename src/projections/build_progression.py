@@ -8,7 +8,11 @@ from core.build_progression import (
     RequirementStatus,
     format_clock,
 )
-from core.item_metadata import item_display_color
+from core.item_metadata import (
+    ITEM_RARITY_BY_NAME,
+    ITEM_RARITY_COLOR_MAP,
+    normalize_item_name_for_rarity,
+)
 from core.stat_labels import abbreviate_stat_label
 
 
@@ -96,7 +100,7 @@ def build_progression_payload(
                 "symbol": row.symbol,
                 "time": time_text,
                 "label_color": (
-                    item_display_color(row.target) or "#E5E7EB"
+                    _item_rarity_color(row.target)
                     if row.kind.value == "item"
                     else ("#93C5FD" if row.kind.value == "stat" else "#5EEAD4")
                 ),
@@ -117,6 +121,12 @@ def build_progression_payload(
         "hidden_remaining": hidden_remaining,
         "show_section_headings": show_headings,
     }
+
+
+def _item_rarity_color(item_name: str) -> str:
+    canonical_name = normalize_item_name_for_rarity(item_name)
+    rarity = ITEM_RARITY_BY_NAME.get(canonical_name)
+    return ITEM_RARITY_COLOR_MAP.get(rarity, "#E5E7EB")
 
 
 def format_twitch_build(snapshot: BuildProgressionSnapshot, *, max_chars: int = 430) -> dict[str, str]:

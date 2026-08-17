@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QPushButton,
 )
@@ -327,7 +328,8 @@ class BuildProgressionTests(unittest.TestCase):
         app.processEvents()
         requirement_row = dialog._rule_widgets["colour-row"]
         self.assertIsNotNone(requirement_row)
-        self.assertGreaterEqual(requirement_row.minimumHeight(), 66)
+        self.assertIsInstance(requirement_row.layout(), QHBoxLayout)
+        self.assertLessEqual(requirement_row.minimumHeight(), 48)
         self.assertEqual(
             dialog.rules_scroll.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff
         )
@@ -403,7 +405,11 @@ class BuildProgressionTests(unittest.TestCase):
         dialog._edit_rule("long-item")
         app.processEvents()
         self.assertEqual(dialog.selected_target.text(), "Grandma's Secret Tonic")
-        self.assertTrue(dialog.selected_target.wordWrap())
+        self.assertFalse(dialog.selected_target.wordWrap())
+        self.assertEqual(
+            dialog.selected_target.width(), dialog.selected_target.sizeHint().width()
+        )
+        self.assertLess(dialog.selected_target.width(), dialog.width() // 2)
         self.assertEqual(dialog.add_button.text(), "Update requirement")
         self.assertGreaterEqual(
             dialog.add_button.width(),
@@ -628,6 +634,24 @@ class BuildProgressionTests(unittest.TestCase):
         twitch = format_twitch_build(result, max_chars=15)
         self.assertIn("more", twitch["requirements"])
         self.assertIn("COMPLETED:", twitch["completed_requirements"])
+
+    def test_projection_uses_shared_base_item_rarity_colours(self):
+        from core.item_metadata import ITEM_RARITY_COLOR_MAP
+
+        _tracker, snap = runtime(items=())
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement("legendary", RequirementKind.ITEM, "Anvil", 1),
+            BuildRequirement("common", RequirementKind.ITEM, "Key", 1),
+        ))
+
+        payload = build_progression_payload(
+            evaluate_build_progression(definition, snap).snapshot,
+            {"max_rows": 20},
+        )
+        colours = {row["id"]: row["label_color"] for row in payload["rows"]}
+
+        self.assertEqual(colours["legendary"], ITEM_RARITY_COLOR_MAP["LEGENDARY"])
+        self.assertEqual(colours["common"], ITEM_RARITY_COLOR_MAP["COMMON"])
 
     def test_projection_keeps_completed_rows_inside_single_kind_sections(self):
         _tracker, snap = runtime(
