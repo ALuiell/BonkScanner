@@ -755,9 +755,9 @@ def normalize_build_definition_config(value, *, regenerate_ids=False, build_id=N
         seen.add((kind, target))
         seen_ids.add(requirement_id)
 
-        # --- max_required (items only) ---
+        # --- Second target: Max for items, Ideal for stats ---
         max_required_value = None
-        if kind == "item":
+        if kind in {"item", "stat"}:
             raw_max = raw.get("max_required")
             if raw_max is not None:
                 try:
@@ -768,11 +768,11 @@ def normalize_build_definition_config(value, *, regenerate_ids=False, build_id=N
                     if (
                         not math.isfinite(max_required_value)
                         or max_required_value <= 0
-                        or not max_required_value.is_integer()
                         or max_required_value < required
+                        or (kind == "item" and not max_required_value.is_integer())
                     ):
                         max_required_value = None
-                    else:
+                    elif kind == "item":
                         max_required_value = int(max_required_value)
 
         # --- cap_tracking (supported items only) ---

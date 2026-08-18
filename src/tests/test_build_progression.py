@@ -206,6 +206,30 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(rows["a"].current_display, "2")
         self.assertEqual(rows["d"].required_display, "3x")
 
+    def test_stat_min_ideal_switches_the_numeric_target_without_overlay_label(self):
+        _tracker, snap = runtime(items=(), damage=3.5)
+        definition = BuildProgressionDefinition(
+            requirements=(
+                BuildRequirement(
+                    "damage",
+                    RequirementKind.STAT,
+                    "Damage",
+                    2.0,
+                    max_required=4.0,
+                ),
+            ),
+        )
+
+        result = evaluate_build_progression(definition, snap).snapshot
+        row = result.rows[0]
+        payload_row = build_progression_payload(result)["rows"][0]
+
+        self.assertTrue(row.min_met)
+        self.assertEqual(row.required_display, "4x")
+        self.assertIsNot(row.status, RequirementStatus.SATISFIED)
+        self.assertEqual(payload_row["value"], "3.5x/4x")
+        self.assertEqual(payload_row["time"], "")
+
     def test_progress_requirements_use_live_kills_and_player_level(self):
         _tracker, snap = runtime(items=(), kills=250, player_level=42)
         definition = BuildProgressionDefinition(
@@ -497,6 +521,31 @@ class BuildProgressionTests(unittest.TestCase):
             ),
             "250",
         )
+
+    def test_editor_uses_min_and_optional_ideal_for_stats(self):
+        app = QApplication.instance() or QApplication([])
+        dialog = BuildProgressionDialog({"name": "Test", "requirements": []})
+        self.addCleanup(dialog.done, QDialog.Rejected)
+
+        dialog.kind_combo.setCurrentIndex(dialog.kind_combo.findData("stat"))
+        dialog._select_target("Crit Chance")
+        dialog.required.setValue(20)
+        dialog.ideal_required.setValue(50)
+        app.processEvents()
+
+        self.assertFalse(dialog._required_field.isHidden())
+        self.assertFalse(dialog._ideal_field.isHidden())
+        self.assertEqual(dialog._required_field.findChild(QLabel).text(), "Min")
+        self.assertEqual(dialog.summary.text(), "Crit Chance · min 20 ideal 50 · none")
+
+        dialog._add_or_update()
+        saved = dialog._draft["requirements"][0]
+        self.assertAlmostEqual(saved["required"], 0.2)
+        self.assertAlmostEqual(saved["max_required"], 0.5)
+
+        row_widget = dialog._rule_widgets[saved["id"]]
+        goal = row_widget.findChild(QLabel, "condBadgeMuted")
+        self.assertEqual(goal.text(), "Min 20% · Ideal 50%")
 
     def test_stage_start_and_overtime(self):
         _tracker, snap = runtime(stage=1, stage_time=500, duration=600)
@@ -1330,7 +1379,7 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertFalse(result2.snapshot.rows[0].late)
 
     def test_config_normalization_validates_max_required(self):
-        """Config normalization validates max_required for items."""
+        """Config normalization validates the item Max and stat Ideal target."""
         # Valid max_required
         res1 = config.normalize_build_definition_config({
             "name": "Test",
@@ -1351,15 +1400,25 @@ class BuildProgressionTests(unittest.TestCase):
         })
         self.assertNotIn("max_required", res2["requirements"][0])
 
-        # Invalid: max on stat -> stripped
+        # Valid stat Ideal can use decimals.
         res3 = config.normalize_build_definition_config({
             "name": "Test",
             "requirements": [{
                 "id": "r3", "kind": "stat", "target": "Damage",
+                "required": 1.5, "max_required": 2.75,
+            }],
+        })
+        self.assertEqual(res3["requirements"][0]["max_required"], 2.75)
+
+        # Run progress keeps a single required target.
+        res4 = config.normalize_build_definition_config({
+            "name": "Test",
+            "requirements": [{
+                "id": "r4", "kind": "progress", "target": "Kills",
                 "required": 100, "max_required": 200,
             }],
         })
-        self.assertNotIn("max_required", res3["requirements"][0])
+        self.assertNotIn("max_required", res4["requirements"][0])
 
     def test_config_normalization_cap_tracking_only_supported_items(self):
         """Only CAP_SUPPORTED_ITEMS allow cap_tracking; unsupported items ignore it."""
@@ -1441,8 +1500,8 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(cloned["requirements"][0]["max_required"], 10)
         self.assertTrue(cloned["requirements"][1]["cap_tracking"])
 
-    def test_late_row_stays_in_payload_when_completed_rows_are_hidden(self):
-        """Late completed rows are never hidden even when show_completed is False."""
+    def test_late_completed_row_follows_show_completed_filter(self):
+        """A late row is still completed and follows the completed-row toggle."""
         definition = BuildProgressionDefinition(
             requirements=(BuildRequirement(
                 id="r1", kind=RequirementKind.ITEM, target="Anvil",
@@ -1452,9 +1511,36 @@ class BuildProgressionTests(unittest.TestCase):
         )
         _tracker, snap = runtime(items=("Anvil",), stage=2)
         eval_res = evaluate_build_progression(definition, snap)
-        payload = build_progression_payload(eval_res.snapshot, {"show_completed": False})
+        hidden = build_progression_payload(
+            eval_res.snapshot, {"show_completed": False}
+        )
+        shown = build_progression_payload(
+            eval_res.snapshot, {"show_completed": True}
+        )
+
+        self.assertEqual(hidden["rows"], [])
+        self.assertEqual(hidden["hidden_completed"], 1)
+        self.assertEqual(len(shown["rows"]), 1)
+        self.assertTrue(shown["rows"][0]["late"])
+
+    def test_late_row_with_an_active_max_target_remains_visible(self):
+        """Late minimums remain visible while their Max target is unfinished."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, max_required=5,
+                deadline=RequirementDeadline(kind=DeadlineKind.STAGE_START, stage=2),
+            ),),
+        )
+        _tracker, snap = runtime(items=("Anvil",), stage=2)
+        eval_res = evaluate_build_progression(definition, snap)
+        payload = build_progression_payload(
+            eval_res.snapshot, {"show_completed": False}
+        )
+
         self.assertEqual(len(payload["rows"]), 1)
         self.assertTrue(payload["rows"][0]["late"])
+        self.assertEqual(payload["rows"][0]["value"], "1/5")
 
     def test_payload_includes_late_complete_flag(self):
         """Projection payload carries late_complete flag from snapshot."""

@@ -666,6 +666,7 @@ class BuildProgressionDialog(QDialog):
         )
 
         self._refresh_picker()
+        self._select_target("")
         self._refresh_rules()
         self._deadline_changed()
 
@@ -748,7 +749,7 @@ class BuildProgressionDialog(QDialog):
         )
         builder_layout.addWidget(self.selected_target, 0, Qt.AlignLeft)
 
-        # --- Required (stats/progress) ---
+        # --- Required (progress) / Min (stats) ---
         self.required = QDoubleSpinBox()
         self.required.setRange(1, 99999)
         self.required.setDecimals(0)
@@ -756,6 +757,15 @@ class BuildProgressionDialog(QDialog):
         self.required.setValue(1)
         self.required.valueChanged.connect(self._refresh_summary)
         self._required_field = self._field("Required", self.required)
+
+        self.ideal_required = QDoubleSpinBox()
+        self.ideal_required.setRange(0, 99999)
+        self.ideal_required.setDecimals(2)
+        self.ideal_required.setSingleStep(0.1)
+        self.ideal_required.setValue(0)
+        self.ideal_required.setSpecialValueText(" ")
+        self.ideal_required.valueChanged.connect(self._refresh_summary)
+        self._ideal_field = self._field("Ideal", self.ideal_required)
 
         # --- Min/Max (items) ---
         self.min_required = QSpinBox()
@@ -792,6 +802,7 @@ class BuildProgressionDialog(QDialog):
         fields.setContentsMargins(0, 0, 0, 0)
         fields.setSpacing(8)
         fields.addWidget(self._required_field, 1)
+        fields.addWidget(self._ideal_field, 1)
         fields.addWidget(self._min_field, 1)
         fields.addWidget(self._max_field, 1)
         fields.addWidget(self._cap_first_copy_label)
@@ -918,6 +929,12 @@ class BuildProgressionDialog(QDialog):
         layout.addWidget(control)
         return field
 
+    @staticmethod
+    def _set_field_caption(field: QWidget, caption: str) -> None:
+        label = field.findChild(QLabel)
+        if label is not None:
+            label.setText(caption)
+
     def _refresh_picker(self, *_args) -> None:
         _clear_layout(self._picker_groups)
         self._picker_buttons = {}
@@ -970,7 +987,7 @@ class BuildProgressionDialog(QDialog):
         self._selected_target_name = ""
         self.search.clear()
         self._refresh_picker()
-        self._target_changed()
+        self._select_target("")
 
     def _select_target(self, target: str) -> None:
         self._clear_validation_error()
@@ -978,12 +995,16 @@ class BuildProgressionDialog(QDialog):
         for name, button in self._picker_buttons.items():
             button.setChecked(name == self._selected_target_name)
 
-        is_item = (self.kind_combo.currentData() or "item") == "item"
+        kind = self.kind_combo.currentData() or "item"
+        is_item = kind == "item"
+        is_stat = kind == "stat"
         cap_supported = is_item and target in CAP_SUPPORTED_ITEMS
         if not cap_supported and self.cap_checkbox.isChecked():
             self.cap_checkbox.setChecked(False)
 
+        self._set_field_caption(self._required_field, "Min" if is_stat else "Required")
         self._required_field.setVisible(not is_item)
+        self._ideal_field.setVisible(is_stat)
         self._min_field.setVisible(is_item and not self.cap_checkbox.isChecked())
         self._max_field.setVisible(is_item and not self.cap_checkbox.isChecked())
         self._cap_widget.setVisible(cap_supported)
@@ -1042,6 +1063,11 @@ class BuildProgressionDialog(QDialog):
         self.required.setDecimals(decimals)
         self.required.setSingleStep(1.0 if whole_number or suffix == "%" else 0.1)
         self.required.setSuffix(suffix)
+        self.ideal_required.setDecimals(decimals)
+        self.ideal_required.setSingleStep(
+            1.0 if whole_number or suffix == "%" else 0.1
+        )
+        self.ideal_required.setSuffix(suffix)
         self._refresh_summary()
 
     @staticmethod
@@ -1074,6 +1100,10 @@ class BuildProgressionDialog(QDialog):
                 req_text = f"min {self.min_required.value()}"
                 if self.max_required.value() > 0:
                     req_text += f" max {self.max_required.value()}"
+        elif kind == "stat":
+            req_text = f"min {self.required.value():g}"
+            if self.ideal_required.value() > 0:
+                req_text += f" ideal {self.ideal_required.value():g}"
         else:
             req_text = f"required {self.required.value():g}"
 
@@ -1116,6 +1146,14 @@ class BuildProgressionDialog(QDialog):
                 if max_required is not None and max_required < required:
                     self._show_validation_error("Max must be ≥ Min")
                     return
+        elif kind == "stat":
+            required = float(self.required.value())
+            ideal_val = float(self.ideal_required.value())
+            max_required = ideal_val if ideal_val > 0 else None
+            cap_tracking = False
+            if max_required is not None and max_required < required:
+                self._show_validation_error("Ideal must be ≥ Min")
+                return
         else:
             required = float(self.required.value())
             max_required = None
@@ -1136,6 +1174,11 @@ class BuildProgressionDialog(QDialog):
             return
         entry_scale = self._stat_entry_scale(target) if kind == "stat" else 1.0
         stored_required = required / entry_scale
+        stored_max_required = (
+            max_required / entry_scale
+            if kind == "stat" and max_required is not None
+            else max_required
+        )
         payload = {
             "id": self._editing_id or uuid4().hex,
             "kind": kind,
@@ -1147,8 +1190,12 @@ class BuildProgressionDialog(QDialog):
                 "seconds": seconds,
             },
         }
-        if max_required is not None:
-            payload["max_required"] = int(max_required)
+        if stored_max_required is not None:
+            payload["max_required"] = (
+                int(stored_max_required)
+                if kind == "item"
+                else stored_max_required
+            )
         if cap_tracking:
             payload["cap_tracking"] = True
 
@@ -1262,6 +1309,14 @@ class BuildProgressionDialog(QDialog):
                 badge_text = f"Min {required_val} \u00b7 Max {int(max_val)}"
             else:
                 badge_text = f"Required {required_val}"
+        elif kind == "stat":
+            required_text = self._required_display(row)
+            ideal_value = row.get("max_required")
+            if ideal_value is not None:
+                ideal_text = self._required_display(row, value=ideal_value)
+                badge_text = f"Min {required_text} \u00b7 Ideal {ideal_text}"
+            else:
+                badge_text = f"Required {required_text}"
         else:
             badge_text = f"Required {self._required_display(row)}"
 
@@ -1317,10 +1372,10 @@ class BuildProgressionDialog(QDialog):
         return KIND_COLORS.get(kind, "#C7D0DC")
 
     @staticmethod
-    def _required_display(row: dict) -> str:
+    def _required_display(row: dict, *, value=None) -> str:
         kind = str(row.get("kind") or "item")
         try:
-            value = float(row.get("required") or 0)
+            value = float(row.get("required") if value is None else value)
         except (TypeError, ValueError):
             return "--"
         if kind in {"item", "progress"}:
@@ -1358,6 +1413,7 @@ class BuildProgressionDialog(QDialog):
         for button in self._picker_buttons.values():
             button.setChecked(False)
         self.required.setValue(1)
+        self.ideal_required.setValue(0)
         self.min_required.setValue(1)
         self.max_required.setValue(0)
         self.cap_checkbox.setChecked(False)
@@ -1408,8 +1464,13 @@ class BuildProgressionDialog(QDialog):
             self.min_required.setValue(int(row.get("required") or 1))
             self.max_required.setValue(int(row.get("max_required") or 0))
             self.cap_checkbox.setChecked(bool(row.get("cap_tracking", False)))
-        else:
+        elif kind == "stat":
             self.required.setValue(float(row.get("required") or 1) * entry_scale)
+            self.ideal_required.setValue(
+                float(row.get("max_required") or 0) * entry_scale
+            )
+        else:
+            self.required.setValue(float(row.get("required") or 1))
         deadline = row.get("deadline") or {}
         for button in self.deadline_group.buttons():
             if button.property("deadlineKind") == deadline.get("kind", "none"):
@@ -1454,7 +1515,11 @@ class BuildProgressionDialog(QDialog):
             kind,
             self._selected_target(),
             float(self.min_required.value()) if kind == "item" else float(self.required.value()),
-            int(self.max_required.value()) if kind == "item" else None,
+            (
+                int(self.max_required.value())
+                if kind == "item"
+                else float(self.ideal_required.value()) if kind == "stat" else None
+            ),
             bool(self.cap_checkbox.isChecked()) if kind == "item" else False,
             self._deadline_kind(),
             self.stage.currentData(),

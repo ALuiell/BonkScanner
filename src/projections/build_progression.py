@@ -29,17 +29,15 @@ def build_progression_payload(
     max_rows = max(1, min(_int(options.get("max_rows"), 6), 20))
     show_completed = bool(options.get("show_completed", False))
     show_time = bool(options.get("show_target_time", True))
-    # A late-completed row remains actionable information, so it is never
-    # hidden by the regular completed-rows toggle.
     incomplete = [
         row
         for row in snapshot.rows
-        if row.status is not RequirementStatus.SATISFIED or row.late
+        if row.status is not RequirementStatus.SATISFIED
     ]
     completed = [
         row
         for row in snapshot.rows
-        if row.status is RequirementStatus.SATISFIED and not row.late
+        if row.status is RequirementStatus.SATISFIED
     ]
     show_headings = bool(options.get("show_section_headings", True))
     if show_headings:
@@ -117,7 +115,10 @@ def _progress_hint(row) -> str:
     if row.min_met and row.cap_tracking:
         return "CAP ACTIVE"
     if row.min_met and row.max_required is not None:
-        return "TO MAX"
+        # The stat editor calls the second target "Ideal", but overlays only
+        # replace the numeric target after Min is reached; they do not expose
+        # either internal/semantic label.
+        return "TO MAX" if row.kind.value == "item" else ""
     return "NO DEADLINE" if not row.deadline_label else ""
 
 
