@@ -4,7 +4,157 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
-## Recently Handled Items (Archived 2026-08-08)
+## Recently Handled Items (Archived 2026-08-18)
+
+### Build Progression
+
+Status: `[Archived]`
+
+Goal:
+
+- Add one shared `Build Progression` feature to Live Stats, OBS Overlay, In-Game Overlay, and Twitch `!build`.
+- Let each user keep a personal library of build checklists, choose one active build, and share individual builds as JSON files. BonkScanner does not ship predefined builds or Early/Mid/Late phases.
+- Answer the two questions that matter during a run: what is still missing from the finished build, and whether each timed requirement is still on schedule.
+
+Build definition & two-stage targets:
+
+- An item requirement supports single-stage or two-stage counts: `Minimum copies` and optional `Maximum copies` (e.g. `0/1` -> `1/15` -> `15/15`).
+- A stat requirement contains a canonical player-stat name, a minimum threshold, an optional ideal target, and an optional deadline. After the minimum is reached, the displayed numeric target switches to the ideal without adding an `Ideal` label to the overlay.
+- A progress requirement contains a supported run counter such as kills or player level, a required whole-number target, and an optional deadline.
+- Deadlines are `No deadline`, `Before tier` (e.g., `BEFORE T2`), or `Tier overtime` (e.g., `T2 +05:00`). For item Min/Max, stat Min/Ideal, and dynamic-cap requirements, the deadline applies only to the minimum stage.
+- Dynamic-cap tracking (`Track radius cap`) for items like Spicy Meatball and Grandma's Secret Tonic dynamically calculates the cap target from captured `Size` via formula `Radius(n, S) = min(max((3 + n) * S, 1), 8)`. Extra pickups beyond the calculated cap do not inflate the requirement (e.g. displays `2/1`).
+- The build is complete only while every configured requirement is currently satisfied. If an item disappears or a live value falls below its threshold, the build returns to an incomplete state.
+
+Run lifecycle & state retention:
+
+- The build library and active build selection persist between launches and runs.
+- Switching or replacing active build definitions mid-run preserves historical timestamps and late states (`_min_satisfied_at`, `_satisfied_at`, `_late`, `_cap_states`) for existing requirements.
+- Runtime progress, completion timestamps, deadline state, and the `BUILD COMPLETE` state reset cleanly for every new game/run.
+
+Colour and status behavior:
+
+- Item and stat labels always use their respective rarity or category colour (e.g., Legendary yellow `#FACC15`, Rare purple `#E879F9`, Common green `#22C55E`, Stat blue `#93C5FD`).
+- Current / target counts remain neutral (white/gray `#d7dde5`).
+- Status colours apply strictly to status indicators (leading symbol `✓`/`!` and deadline text):
+  - Neutral/gray: incomplete with no deadline or outside warning window;
+  - Yellow: incomplete inside warning window (<= 120s);
+  - Red: overdue / incomplete after target time;
+  - Green: satisfied on-time;
+  - Orange (`#F97316`): `late completed` (satisfied after deadline expires) for both the leading symbol and deadline label.
+- Fully completed late requirements follow the same `Show completed` setting as other completed rows. A late requirement remains visible while its Max, Ideal, or dynamic-cap target is still active.
+- When all requirements are satisfied with at least one late item, the widget displays `! BUILD COMPLETE` in orange.
+
+Compact display & UI surfaces:
+
+- Shared Live Stats, OBS Overlay, In-Game Overlay, and Twitch `!build` consume the same evaluated snapshot.
+- Compact view shows build name and progress (e.g., `5/15`) and groups rows into `ITEMS`, `STATS`, and `PROGRESS`. Within each section it shows active second-stage targets first, then on-time completed rows without and with deadlines, late-completed rows, and finally unfinished rows ordered by urgency (`overdue`, warning, other timed, untimed).
+- Twitch `!build` formats unfinished requirements first and completed requirements in a compact `COMPLETED:` block.
+
+Runtime and architecture:
+
+- Evaluator in `core/build_progression.py` is pure and Qt-free.
+- `BuildProgressionService` in `app/build_progression.py` manages run-scoped state and dynamic cap resolution.
+- Comprehensive test suite in `tests/test_build_progression.py` covers all count evaluations, dynamic caps, deadline states, late transitions, and UI formatting.
+
+Proposed layouts:
+
+- [Shared Build Progression editor](../../ui_mockups/build_progression/build_progression_settings_v2.html) — historical layout reference; the implemented editor now keeps the catalog on the left and the selected requirement form plus deadline-sorted list on the right.
+- [Interactive layout comparison](../../ui_mockups/build_progression/build_progression_overlay_options.html) — switch between in-progress, overdue, and complete states and optionally show completed rows.
+- [OBS readable compact card](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-obs-title) — bounded translucent card intended to remain legible on stream.
+- [In-Game minimal HUD list](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-ingame-title) — frameless, shadowed text intended to stay out of the player's way.
+- [Ultra-compact urgent target](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-focus-title) — only the next urgent missing requirement plus overall progress.
+
+### Live Run Refactor Fixes
+
+#### 1. Reject Partial Passive-Inventory Reads Before Item-Delta Tracking
+
+Status: `[Archived]`
+
+Goal:
+
+- Prevent transient or partial memory reads from being interpreted as real item losses followed by new pickups.
+- Keep legitimate stack increases and genuine remove/re-acquire sequences countable without inflating Session Stats, OBS, or Twitch tracked-item totals.
+
+Problem Analysis:
+
+- `_read_passive_item_dictionary` previously returned the successfully decoded entries even when one or more live dictionary entries could not be decoded. The resulting tuple was a partial inventory, but downstream code received it as an available, authoritative sample.
+- An unreadable stack count previously degraded to `x1` on both the full-walk and cached-layout paths. For a real stack such as `Anvil x4`, two consecutive failed reads could therefore appear as a stable decrease to `Anvil x1`.
+- `process_item_deltas` deliberately confirms a decrease after a second agreeing sample and lowers its baseline so a genuinely removed item can be counted when it is acquired again. This is correct only when both samples are complete inventory reads.
+- Combining those behaviors created phantom pickups. For example, `x4 -> x1 -> x1 -> x4 -> x4` confirmed a loss of three and then credited the same three copies again. Likewise, an entry omitted from two partial dictionary walks was confirmed as removed and credited again when decoding recovered.
+- This failure shape has been observed in recorded data: individual items have temporarily disappeared from otherwise non-empty inventories. The existing whole-inventory empty guard cannot protect against a partial tuple that still contains other items.
+
+Implemented Behavior:
+
+1. Treat any walk with `broken_entries > 0` as an unavailable inventory sample. Do not publish the successfully decoded subset as a complete inventory.
+2. Treat an unreadable stack count as an unavailable inventory sample instead of fabricating `x1`.
+3. Preserve the last confirmed inventory and item-delta baseline when a sample is unavailable. A failed read must produce neither a loss nor a gain candidate.
+4. Apply the same validity rule to the uncached dictionary walk, cached-layout path, 1-second passive-item lane, and 10-second full snapshot path.
+5. Continue accepting a genuinely empty, successfully read dictionary as an empty inventory where run lifecycle logic requires it; distinguish this from a failed or incomplete walk.
+6. Keep actual stack increases countable by `gained_count`, including multiple copies obtained during one run.
+7. Keep genuine item removal and later re-acquisition countable once both sides are supported by complete inventory samples.
+
+Implementation:
+
+- The entire passive-inventory read now fails at the memory-client boundary, before it reaches `LiveSnapshotStore` or `LiveRunTracker`. Downstream consumers never receive a tuple with omitted entries.
+- An incomplete walk or failed cached stack read invalidates the passive-item layout so the next pass performs a clean rebuild.
+- `MemoryReadError` from a stack address now propagates through the existing refresh error path instead of becoming a plausible-looking `x1`.
+- Fast and slow consumers share the same source-validity contract, so one lane cannot confirm a decrease produced by a bad sample from the other.
+- Rejected samples follow the existing refresh failure path and never reach the tracker, so they cannot create loss or gain candidates.
+
+Regression Coverage:
+
+- A broken entry in an otherwise valid dictionary rejects the entire sample and preserves the previous tracked-item baseline.
+- Two consecutive partial reads omitting the same item, followed by recovery, produce no loss event and no additional tracked pickup.
+- Two consecutive unreadable stack counts for a real `x4` stack, followed by recovery, leave the tracked total unchanged.
+- A torn stack read where the two stabilizing reads disagree remains rejected on both cached and uncached paths.
+- A genuine `x1 -> x2 -> x2` increase is still credited once, while holding `x2` produces no further increments.
+- A genuine, completely read decrease followed by a completely read re-acquisition remains countable according to the existing tracked-item rules.
+- Fast and slow item lanes observing the same rejected sample cannot jointly confirm a false decrease.
+
+#### 2. Untimed Moai Exclusion and Banished Items Support in Loot Tracker
+
+Status: `[Archived]`
+
+Goal:
+
+- Separate Moai exclusion mechanics from Shady Guy and eliminate the expiring forward time window for Moai statues.
+- Guarantee that any item selected and obtained from an activated Moai statue is excluded from Luck rarity calculations (`actual` and `expected`), regardless of how long the player takes to choose the item.
+- Track banished items as valid chest rolls in Luck calculations (`actual` and `expected`), since items can only be banished when dropped from chests onto the floor.
+
+Mechanics & Problem Analysis:
+
+- **Asymmetry between Moai and Shady Guy:**
+  - `Shady Guy`: the counter increments *after* purchasing and receiving the item (closing the trade UI). Retaining the backward window (`SHADY_GUY_BACKWARD_WINDOW_SECONDS = 2.0s`) with retro-exclusion via `recent_gains` remains correct.
+  - `Moai`: the counter (`InteractablesStatus["Moais"].numUsed`) increments *immediately upon interacting with the statue* (opening the 3-item choice interface), before the item is chosen.
+- **Why the previous 3.0s forward window failed:**
+  - `MOAI_FORWARD_WINDOW_SECONDS = 3.0s` assumed that item grant occurs within 1-2 seconds.
+  - The player cannot leave the Moai selection prompt without taking an item (or ignoring the statue entirely). If the player deliberates, reads descriptions, or kites mobs for more than 3.0 seconds, the pending exclusion expires by timeout (`_expire_exclusions`).
+  - When the item is finally taken, the tracker treats it as an unexcluded chest roll, inflating `actual` and `expected`.
+- **Banished Items as Legitimate Chest Rolls:**
+  - When an item drops from a chest onto the floor, the player can choose to banish it instead of picking it up.
+  - Banished items do not enter `PASSIVE_ITEMS` (they enter `LIVE_BANISHES` / `snapshot.banishes`).
+  - Because an item on the floor was rolled from a chest according to the player's Luck stat at that moment, ignoring banished items causes `actual` and `expected` to miss legitimate rolls.
+
+Implemented Behavior:
+
+1. **Untimed Moai Exclusion Queue:**
+   - When the `Moais` counter increments ($\Delta > 0$), register an untimed pending Moai exclusion.
+   - The very next confirmed item gain(s) on the current map consume the pending Moai exclusion and are excluded from `actual` and `expected` calculations.
+   - No expiring forward time limit (`MOAI_FORWARD_WINDOW_SECONDS`) is applied.
+2. **Map Scope & Cleanup:**
+   - Outstanding Moai exclusions are cleared on map generation/transition (`note_map_identity` / `_clear_map_scoped_state`), ensuring an abandoned statue choice does not leak into subsequent stages.
+3. **Shady Guy Isolation:**
+   - Shady Guy continues using its dedicated backward-window and retro-exclusion pipeline without alteration.
+4. **Banished Items Tracking:**
+   - `LIVE_BANISHES` is read in the existing 1-second passive-item loot pass together with Luck; the 10-second snapshot remains a fallback consumer of the same source.
+   - The first successful banish collection establishes a baseline. Later unique additions are retained in a run-scoped union, so cached, repeated, or transiently partial reads cannot count the same banish twice.
+   - Each newly banished passive item is resolved against `ITEM_RARITY_BY_NAME` and counted with the Luck value from the observing pass as a valid chest roll in both `actual` and `expected`.
+   - Weapons, tomes, and unknown non-item entries in the shared banish collection are ignored.
+   - Banish rolls do not consume Moai, Shady Guy, or microwave exclusions and are not retained for Shady Guy retro-exclusion.
+
+---
+
+## Older Handled Items (Archived 2026-08-08)
 
 ### Map Scanner and Scores
 
