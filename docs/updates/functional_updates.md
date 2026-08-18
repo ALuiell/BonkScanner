@@ -617,3 +617,44 @@ Regression Coverage:
 - A genuine `x1 -> x2 -> x2` increase is still credited once, while holding `x2` produces no further increments.
 - A genuine, completely read decrease followed by a completely read re-acquisition remains countable according to the existing tracked-item rules.
 - Fast and slow item lanes observing the same rejected sample cannot jointly confirm a false decrease.
+
+#### 5. Untimed Moai Exclusion and Banished Items Support in Loot Tracker
+
+Status: `[Implemented]`
+
+Goal:
+
+- Separate Moai exclusion mechanics from Shady Guy and eliminate the expiring forward time window for Moai statues.
+- Guarantee that any item selected and obtained from an activated Moai statue is excluded from Luck rarity calculations (`actual` and `expected`), regardless of how long the player takes to choose the item.
+- Track banished items as valid chest rolls in Luck calculations (`actual` and `expected`), since items can only be banished when dropped from chests onto the floor.
+
+Mechanics & Problem Analysis:
+
+- **Asymmetry between Moai and Shady Guy:**
+  - `Shady Guy`: the counter increments *after* purchasing and receiving the item (closing the trade UI). Retaining the backward window (`SHADY_GUY_BACKWARD_WINDOW_SECONDS = 2.0s`) with retro-exclusion via `recent_gains` remains correct.
+  - `Moai`: the counter (`InteractablesStatus["Moais"].numUsed`) increments *immediately upon interacting with the statue* (opening the 3-item choice interface), before the item is chosen.
+- **Why the previous 3.0s forward window failed:**
+  - `MOAI_FORWARD_WINDOW_SECONDS = 3.0s` assumed that item grant occurs within 1-2 seconds.
+  - The player cannot leave the Moai selection prompt without taking an item (or ignoring the statue entirely). If the player deliberates, reads descriptions, or kites mobs for more than 3.0 seconds, the pending exclusion expires by timeout (`_expire_exclusions`).
+  - When the item is finally taken, the tracker treats it as an unexcluded chest roll, inflating `actual` and `expected`.
+- **Banished Items as Legitimate Chest Rolls:**
+  - When an item drops from a chest onto the floor, the player can choose to banish it instead of picking it up.
+  - Banished items do not enter `PASSIVE_ITEMS` (they enter `LIVE_BANISHES` / `snapshot.banishes`).
+  - Because an item on the floor was rolled from a chest according to the player's Luck stat at that moment, ignoring banished items causes `actual` and `expected` to miss legitimate rolls.
+
+Implemented Behavior:
+
+1. **Untimed Moai Exclusion Queue:**
+   - When the `Moais` counter increments ($\Delta > 0$), register an untimed pending Moai exclusion.
+   - The very next confirmed item gain(s) on the current map consume the pending Moai exclusion and are excluded from `actual` and `expected` calculations.
+   - No expiring forward time limit (`MOAI_FORWARD_WINDOW_SECONDS`) is applied.
+2. **Map Scope & Cleanup:**
+   - Outstanding Moai exclusions are cleared on map generation/transition (`note_map_identity` / `_clear_map_scoped_state`), ensuring an abandoned statue choice does not leak into subsequent stages.
+3. **Shady Guy Isolation:**
+   - Shady Guy continues using its dedicated backward-window and retro-exclusion pipeline without alteration.
+4. **Banished Items Tracking:**
+   - `LIVE_BANISHES` is read in the existing 1-second passive-item loot pass together with Luck; the 10-second snapshot remains a fallback consumer of the same source.
+   - The first successful banish collection establishes a baseline. Later unique additions are retained in a run-scoped union, so cached, repeated, or transiently partial reads cannot count the same banish twice.
+   - Each newly banished passive item is resolved against `ITEM_RARITY_BY_NAME` and counted with the Luck value from the observing pass as a valid chest roll in both `actual` and `expected`.
+   - Weapons, tomes, and unknown non-item entries in the shared banish collection are ignored.
+   - Banish rolls do not consume Moai, Shady Guy, or microwave exclusions and are not retained for Shady Guy retro-exclusion.

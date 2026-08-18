@@ -8,8 +8,10 @@ The question this answers is "did the run's rolls land where the game's own
 model said they would".  Because a *dropped* chest is invisible to every
 counter the game exposes, the count of chest openings cannot drive the maths.
 The design is therefore inverted: **every confirmed item gain is a roll**, and
-only the three sources that use a different model are excluded.  No per-item
-source attribution is needed, and none is attempted.
+only the three sources that use a different model are excluded.  A newly
+banished item is also a roll: it came from a chest but deliberately never
+entered the inventory.  No per-item source attribution beyond that persistent
+banish ledger is needed, and none is attempted.
 
 Three exclusions, and they are not the same shape as each other:
 
@@ -23,8 +25,9 @@ Three exclusions, and they are not the same shape as each other:
   the debt settles against the chest item and the craft output is counted
   instead, and since the two carry the same tier the totals are identical
   either way.  Item identity never enters the maths.
-* **Moai** -- the counter fires when the player picks, *before* the grant, so
-  the increment excludes the **next** gain (3 s forward).
+* **Moai** -- the counter fires when the choice opens, *before* the grant, so
+  the increment excludes the **next** gain.  The player cannot leave the choice
+  without taking exactly one item, so this is an untimed, map-scoped queue.
 * **Shady Guy** -- the counter fires once trading ends, *after* the item is
   granted, so the increment excludes the **preceding** gain (2 s backward).
 
@@ -53,14 +56,9 @@ from core.luck_rarity import LUCK_RARITY_ORDER, calculate_luck_rarity_probabilit
 from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 from core.tracker.snapshots import ItemGainEvent, ItemLossEvent, LootStatsSnapshot
 
-# Measured live on 2026-07-25 with `tools/probe_loot_sources.py` at 250 ms
-# sampling.  Moai's counter fires at the pick rather than at the statue opening,
-# so player deliberation never lands in the gap: 0.75 / 1.00 / 1.77 s.  The
-# merchant's counter and its item arrive together (same tick, twice), so its
-# window only has to absorb a 1 s poll splitting them across two reads.  The
-# earlier estimates of 20 s and 8 s were derived from assumed deliberation and
-# were wrong by an order of magnitude.
-MOAI_FORWARD_WINDOW_SECONDS = 3.0
+# The merchant's counter and its item arrive together, so the backward window
+# only has to absorb a 1 s poll splitting them across two reads. Moai deliberately
+# has no time constant: its choice cannot be left without taking one item.
 SHADY_GUY_BACKWARD_WINDOW_SECONDS = 2.0
 
 MOAI_COUNTER_LABEL = "Moais"
@@ -98,14 +96,9 @@ def _zero_expected() -> dict[str, float]:
 
 
 @dataclass
-class _PendingExclusion:
-    """One interactable increment waiting to be paired with one gain.
+class _PendingShadyExclusion:
+    """One merchant increment waiting for its preceding inventory gain."""
 
-    All three sources share the rule -- one increment, one excluded gain -- and
-    differ only in direction, which is what ``forward`` carries.
-    """
-
-    forward: bool
     opened_at: float
 
 
@@ -138,10 +131,13 @@ class _LootState:
     # Consumed tiers awaiting their craft output, oldest first. A queue rather
     # than a set: two crafts of the same tier owe two exclusions.
     tier_debts: list[str] = field(default_factory=list)
-    pending_exclusions: list[_PendingExclusion] = field(default_factory=list)
+    pending_moai_exclusions: int = 0
+    pending_shady_exclusions: list[_PendingShadyExclusion] = field(default_factory=list)
     recent_gains: deque[_RecordedGain] = field(
         default_factory=lambda: deque(maxlen=_RECENT_GAIN_MEMORY)
     )
+    banish_baseline_initialized: bool = False
+    seen_banishes: set[str] = field(default_factory=set)
     counter_values: dict[str, int] = field(default_factory=dict)
     map_identity: tuple[int, int | None] | None = None
     last_game_time_seconds: float | None = None
@@ -157,8 +153,11 @@ def _clear_run_totals(state: _LootState) -> None:
     state.availability_decided = False
     state.observed_empty_first_map = False
     state.tier_debts = []
-    state.pending_exclusions = []
+    state.pending_moai_exclusions = 0
+    state.pending_shady_exclusions = []
     state.recent_gains.clear()
+    state.banish_baseline_initialized = False
+    state.seen_banishes.clear()
     state.counter_values = {}
     state.map_identity = None
     state.last_game_time_seconds = None
@@ -316,7 +315,8 @@ def note_map_identity(
 
 def _clear_map_scoped_state(state: _LootState) -> None:
     state.tier_debts = []
-    state.pending_exclusions = []
+    state.pending_moai_exclusions = 0
+    state.pending_shady_exclusions = []
     state.counter_values = {}
 
 
@@ -356,35 +356,35 @@ def update_interactable_counters(
             state.map_chest_opens += delta
             continue
         if label == MOAI_COUNTER_LABEL:
-            _open_exclusions(state, delta, forward=True, opened_at=captured_at)
+            state.pending_moai_exclusions += delta
         elif label == SHADY_GUY_COUNTER_LABEL:
-            _open_exclusions(state, delta, forward=False, opened_at=captured_at)
+            _open_shady_exclusions(state, delta, opened_at=captured_at)
 
     if map_generation_seen:
         # Not `_clear_map_scoped_state`: the counter baseline this loop just
         # wrote belongs to the *new* map and is what its first increment will
         # be measured from, so it stays.
         state.tier_debts = []
-        state.pending_exclusions = []
+        state.pending_moai_exclusions = 0
+        state.pending_shady_exclusions = []
 
-    _expire_exclusions(state, captured_at)
+    _expire_shady_exclusions(state, captured_at)
 
 
-def _open_exclusions(
+def _open_shady_exclusions(
     state: _LootState,
     count: int,
     *,
-    forward: bool,
     opened_at: float,
 ) -> None:
     for _ in range(max(0, int(count))):
-        if not forward and _exclude_recorded_gain(state, opened_at):
+        if _exclude_recorded_gain(state, opened_at):
             # The merchant's gain was already counted, which happens whenever a
             # pass reports the gain before the counter read lands. Undo it in
             # place rather than parking a window that has nothing left to catch.
             continue
-        state.pending_exclusions.append(
-            _PendingExclusion(forward=forward, opened_at=float(opened_at))
+        state.pending_shady_exclusions.append(
+            _PendingShadyExclusion(opened_at=float(opened_at))
         )
 
 
@@ -404,17 +404,11 @@ def _exclude_recorded_gain(state: _LootState, opened_at: float) -> bool:
     return False
 
 
-def _expire_exclusions(state: _LootState, now: float) -> None:
-    state.pending_exclusions = [
+def _expire_shady_exclusions(state: _LootState, now: float) -> None:
+    state.pending_shady_exclusions = [
         pending
-        for pending in state.pending_exclusions
-        if now
-        <= pending.opened_at
-        + (
-            MOAI_FORWARD_WINDOW_SECONDS
-            if pending.forward
-            else SHADY_GUY_BACKWARD_WINDOW_SECONDS
-        )
+        for pending in state.pending_shady_exclusions
+        if now <= pending.opened_at + SHADY_GUY_BACKWARD_WINDOW_SECONDS
     ]
 
 
@@ -451,7 +445,7 @@ def process_item_gains(
                 # out of the exclusion machinery too -- an item we cannot score
                 # must not spend a window that a scorable one is waiting for.
                 continue
-            if _settle_pending_exclusion(state, gain.captured_at):
+            if _settle_inventory_exclusion(state, gain.captured_at):
                 continue
             if tier in state.tier_debts:
                 # The craft output, or an ordinary roll standing in for it. The
@@ -465,38 +459,101 @@ def process_item_gains(
                 # halves apart by exactly one item, which is the drift the
                 # ambiguity rule exists to prevent.
                 continue
-            contribution = {
-                candidate: (probabilities.get(candidate) or 0.0) / 100.0
-                for candidate in LUCK_RARITY_ORDER
-            }
-            state.actual[tier] += 1
-            for candidate, value in contribution.items():
-                state.expected[candidate] += value
-            state.recent_gains.append(
-                _RecordedGain(
-                    captured_at=float(gain.captured_at),
-                    tier=tier,
-                    expected=contribution,
-                )
+            _record_roll(
+                state,
+                tier=tier,
+                probabilities=probabilities,
+                captured_at=gain.captured_at,
+                remember_for_shady=True,
             )
 
 
-def _settle_pending_exclusion(state: _LootState, captured_at: float) -> bool:
-    """Spend the one pending window this gain falls inside, if there is one."""
-    for index, pending in enumerate(state.pending_exclusions):
-        if pending.forward:
-            in_window = (
-                captured_at >= pending.opened_at
-                and captured_at - pending.opened_at <= MOAI_FORWARD_WINDOW_SECONDS
+def process_banishes(
+    state: _LootState,
+    banishes: tuple[str, ...] | list[str],
+    *,
+    luck: float | None,
+    captured_at: float,
+) -> None:
+    """Count newly persistent item banishes as chest rolls.
+
+    The first successful collection is a baseline: when the app attaches during
+    a run, the Luck that produced standing banishes is unknowable. Thereafter the
+    game only adds unique names to this run-scoped set, so retaining the union is
+    both the delta detector and protection against a transient partial read.
+
+    Weapons and tomes share ``LIVE_BANISHES`` with passive items but have no
+    entry in the item-rarity table and are ignored. A banish never enters the
+    inventory, so it cannot settle a Moai, Shady Guy, or microwave exclusion and
+    cannot become a candidate for Shady Guy's backward correction.
+    """
+    canonical_names = tuple(
+        normalize_item_name_for_rarity(str(name)) for name in (banishes or ())
+    )
+    if not state.banish_baseline_initialized:
+        state.seen_banishes.update(canonical_names)
+        state.banish_baseline_initialized = True
+        return
+
+    for canonical_name in canonical_names:
+        if canonical_name in state.seen_banishes:
+            continue
+        state.seen_banishes.add(canonical_name)
+        tier = ITEM_RARITY_BY_NAME.get(canonical_name)
+        if tier not in state.actual:
+            continue
+        state.acquisitions += 1
+        probabilities = calculate_luck_rarity_probabilities(luck)
+        if probabilities.get(tier) is None:
+            continue
+        _record_roll(
+            state,
+            tier=tier,
+            probabilities=probabilities,
+            captured_at=captured_at,
+            remember_for_shady=False,
+        )
+
+
+def _record_roll(
+    state: _LootState,
+    *,
+    tier: str,
+    probabilities: dict[str, float | None],
+    captured_at: float,
+    remember_for_shady: bool,
+) -> None:
+    contribution = {
+        candidate: (probabilities.get(candidate) or 0.0) / 100.0
+        for candidate in LUCK_RARITY_ORDER
+    }
+    state.actual[tier] += 1
+    for candidate, value in contribution.items():
+        state.expected[candidate] += value
+    if remember_for_shady:
+        state.recent_gains.append(
+            _RecordedGain(
+                captured_at=float(captured_at),
+                tier=tier,
+                expected=contribution,
             )
-        else:
-            in_window = (
-                captured_at <= pending.opened_at
-                and pending.opened_at - captured_at
-                <= SHADY_GUY_BACKWARD_WINDOW_SECONDS
-            )
+        )
+
+
+def _settle_inventory_exclusion(state: _LootState, captured_at: float) -> bool:
+    """Spend one Moai debt or matching Shady Guy backward window."""
+    if state.pending_moai_exclusions > 0:
+        state.pending_moai_exclusions -= 1
+        return True
+
+    for index, pending in enumerate(state.pending_shady_exclusions):
+        in_window = (
+            captured_at <= pending.opened_at
+            and pending.opened_at - captured_at
+            <= SHADY_GUY_BACKWARD_WINDOW_SECONDS
+        )
         if in_window:
-            del state.pending_exclusions[index]
+            del state.pending_shady_exclusions[index]
             return True
     return False
 

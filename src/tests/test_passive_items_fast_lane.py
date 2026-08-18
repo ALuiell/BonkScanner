@@ -13,11 +13,11 @@ boundary already existed (`_fast_stage_boundaries`, committed by
 the fast lane could supply an inventory. With one, it becomes the closing
 observation a stage needs to keep its own pickups.
 
-The task has since become the whole *loot sample*: `MAP_ACTIVITY_VALUES` and
-`LUCK` are read in the same pass as the inventory. That is one change, not
-three reads -- a key resolves once per `RefreshTickContext`, so items, the
-interactable counters and Luck carry one timestamp and are coherent by
-construction rather than by matching timestamps afterwards.
+The task has since become the whole *loot sample*: `MAP_ACTIVITY_VALUES`,
+`LIVE_BANISHES` and `LUCK` are read in the same pass as the inventory. A key
+resolves once per `RefreshTickContext`, so items, banishes, interactable counters
+and Luck carry one timestamp and are coherent by construction rather than by
+matching timestamps afterwards.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import config
-from app.read_sources import LUCK, MAP_ACTIVITY_VALUES, PASSIVE_ITEMS
+from app.read_sources import LIVE_BANISHES, LUCK, MAP_ACTIVITY_VALUES, PASSIVE_ITEMS
 from app.refresh_coordinator import RefreshTickContext
 from app.refresh_tasks import (
     PASSIVE_ITEMS_REFRESH_MS,
@@ -432,7 +432,7 @@ class LootSamplePassTests(unittest.TestCase):
     questions instead of being answered by matching two buffers.
     """
 
-    def _stats_client(self, *, items=("Anvil x1",), luck=1.25):
+    def _stats_client(self, *, items=("Anvil x1",), luck=1.25, banishes=()):
         return type(
             "Client",
             (),
@@ -443,6 +443,9 @@ class LootSamplePassTests(unittest.TestCase):
                 ),
                 "get_luck": lambda self, owner=None: (
                     luck() if callable(luck) else luck
+                ),
+                "get_live_banishes": lambda self: (
+                    banishes() if callable(banishes) else banishes
                 ),
             },
         )()
@@ -466,16 +469,17 @@ class LootSamplePassTests(unittest.TestCase):
         self.context = RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
 
     def _build(self, **kwargs):
-        world_state = SimpleNamespace(luck=[], contexts=[], items=[])
+        world_state = SimpleNamespace(luck=[], banishes=[], contexts=[], items=[])
         service, world = build_refresh_tasks(world=world_state, **kwargs)
         world.tracker.update_fast_luck = lambda value: world.luck.append(value)
+        world.tracker.update_banishes = lambda value: world.banishes.append(value)
         world.tracker.update_powerup_map_context = lambda ctx: world.contexts.append(ctx)
         world.tracker.update_items = lambda items: world.items.append(items) or True
         return service, world
 
-    def test_one_tick_yields_items_counters_and_luck_together(self) -> None:
+    def test_one_tick_yields_items_banishes_counters_and_luck_together(self) -> None:
         service, world = self._build(
-            stats_client=self._stats_client(),
+            stats_client=self._stats_client(banishes=("Clover",)),
             game_data_client=self._game_data_client(),
         )
 
@@ -483,11 +487,12 @@ class LootSamplePassTests(unittest.TestCase):
 
         self.assertEqual(world.items, [("Anvil x1",)])
         self.assertEqual(world.luck, [1.25])
+        self.assertEqual(world.banishes, [("Clover",)])
         self.assertEqual([ctx.activity_max for ctx in world.contexts], [{"Moais": 3}])
-        # The load-bearing assertion: all three resolved inside *this* pass, so
-        # they carry one timestamp. Three sources read on three passes would
+        # The load-bearing assertion: all four resolved inside *this* pass, so
+        # they carry one timestamp. Four sources read on four passes would
         # satisfy every assertion above and none of this one.
-        for key in (PASSIVE_ITEMS, MAP_ACTIVITY_VALUES, LUCK):
+        for key in (PASSIVE_ITEMS, LIVE_BANISHES, MAP_ACTIVITY_VALUES, LUCK):
             self.assertIsNotNone(self.context.metadata_for(key), key)
 
     def test_the_counters_cost_no_extra_read_when_the_snapshot_is_also_due(self) -> None:

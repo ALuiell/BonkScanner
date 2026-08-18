@@ -64,8 +64,15 @@ class LootRun:
         self.stage_ptr = 1000
         self.map_seed = 100
         self.luck = luck
+        self.banishes: tuple[str, ...] = ()
 
-    def begin(self, items=(), *, counters: dict[str, int] | None = None) -> "LootRun":
+    def begin(
+        self,
+        items=(),
+        *,
+        counters: dict[str, int] | None = None,
+        banishes: tuple[str, ...] = (),
+    ) -> "LootRun":
         """The pass that seeds the item baseline, which is never a gain.
 
         A run starts with an empty inventory, so `items` is only for the
@@ -77,13 +84,14 @@ class LootRun:
         whose rolls were never observed, and the reason a late-attached run has
         to report itself unmeasurable rather than short.
         """
-        return self.tick(items, counters=counters)
+        return self.tick(items, counters=counters, banishes=banishes)
 
     def tick(
         self,
         items=None,
         *,
         counters: dict[str, int] | None = None,
+        banishes: tuple[str, ...] | None = None,
         luck: float | None = None,
         advance: float = 1.0,
     ) -> "LootRun":
@@ -91,6 +99,8 @@ class LootRun:
         self.clock.now = self.time
         if items is not None:
             self.items = tuple(items)
+        if banishes is not None:
+            self.banishes = tuple(banishes)
         self.tracker.update_fast_luck(self.luck if luck is None else luck)
         if counters is not None:
             self.tracker.update_loot_interactables(counters)
@@ -99,6 +109,7 @@ class LootRun:
                 captured_at=self.time,
                 stats={},
                 items=self.items,
+                banishes=self.banishes,
                 game_time_seconds=self.time,
                 stage_time_seconds=self.time,
                 map_seed=self.map_seed,
@@ -263,10 +274,9 @@ class LootExclusionTests(unittest.TestCase):
             "an undone roll leaves no expectation behind either",
         )
 
-    def test_an_increment_with_no_gain_in_its_window_excludes_nothing(self) -> None:
-        """The statue the player opened and walked away from -- and the guard
-        against a window that never closes quietly eating an unrelated roll
-        minutes later."""
+    def test_moai_exclusion_does_not_expire_while_the_player_chooses(self) -> None:
+        """The choice is atomic in the game: once opened, exactly one item must
+        be taken. Deliberation therefore changes latency, not attribution."""
         idle = {loot.MOAI_COUNTER_LABEL: 0, loot.SHADY_GUY_COUNTER_LABEL: 0}
         run = LootRun().begin()
         run.tick(counters=idle)
@@ -276,7 +286,29 @@ class LootExclusionTests(unittest.TestCase):
             run.tick(counters={**idle, loot.MOAI_COUNTER_LABEL: 1})
 
         run.acquire(LEGENDARY_ITEMS[0], counters={**idle, loot.MOAI_COUNTER_LABEL: 1})
+        self.assertEqual(run.actual()["LEGENDARY"], 0)
+
+    def test_moai_exclusion_clears_on_map_transition(self) -> None:
+        idle = {loot.MOAI_COUNTER_LABEL: 0, loot.SHADY_GUY_COUNTER_LABEL: 0}
+        run = LootRun().begin()
+        run.tick(counters=idle)
+        run.tick(counters={**idle, loot.MOAI_COUNTER_LABEL: 1})
+
+        run.new_map()
+        run.acquire(LEGENDARY_ITEMS[0])
+
         self.assertEqual(run.actual()["LEGENDARY"], 1)
+
+    def test_shady_guy_keeps_only_its_backward_time_window(self) -> None:
+        idle = {loot.MOAI_COUNTER_LABEL: 0, loot.SHADY_GUY_COUNTER_LABEL: 0}
+        run = LootRun().begin()
+        run.tick(counters=idle)
+        run.tick(counters={**idle, loot.SHADY_GUY_COUNTER_LABEL: 1})
+        run.tick(counters={**idle, loot.SHADY_GUY_COUNTER_LABEL: 1}, advance=3.0)
+
+        run.acquire(RARE_ITEM, counters={**idle, loot.SHADY_GUY_COUNTER_LABEL: 1})
+
+        self.assertEqual(run.actual()["RARE"], 1)
 
     def test_counters_resetting_at_map_generation_is_not_an_increment(self) -> None:
         """Every counter resets per map. Read as movement, a stage change would
@@ -315,6 +347,76 @@ class LootAccumulationTests(unittest.TestCase):
         self.assertNotAlmostEqual(
             at_observation["LEGENDARY"], at_confirmation["LEGENDARY"], places=3
         )
+
+    def test_a_new_item_banish_is_one_roll_at_the_observed_luck(self) -> None:
+        observing_luck = 0.5
+        run = LootRun().begin()
+        run.acquire(COMMON_ITEM)
+        before = run.stats()
+
+        run.tick(banishes=(LEGENDARY_ITEMS[0],), luck=observing_luck)
+        after = run.stats()
+
+        self.assertEqual(after.actual["LEGENDARY"], before.actual["LEGENDARY"] + 1)
+        self.assertEqual(after.acquisitions, before.acquisitions + 1)
+        contribution = expectation_for(observing_luck)
+        for tier, value in contribution.items():
+            self.assertAlmostEqual(after.expected[tier] - before.expected[tier], value)
+
+        run.tick(banishes=(LEGENDARY_ITEMS[0],), luck=50.0)
+        self.assertEqual(run.stats(), after, "the persistent set is not counted twice")
+
+    def test_fast_banish_entry_point_uses_the_shared_fast_luck(self) -> None:
+        run = LootRun(luck=4.25).begin()
+        run.acquire(COMMON_ITEM)
+        before = run.stats()
+
+        self.assertTrue(run.tracker.update_banishes((RARE_ITEM,)))
+        after = run.stats()
+
+        self.assertEqual(after.actual["RARE"], before.actual["RARE"] + 1)
+        contribution = expectation_for(4.25)
+        for tier, value in contribution.items():
+            self.assertAlmostEqual(after.expected[tier] - before.expected[tier], value)
+
+    def test_first_banish_collection_is_a_baseline_and_non_items_are_ignored(self) -> None:
+        state = loot._LootState()
+        loot.process_banishes(
+            state,
+            (LEGENDARY_ITEMS[0], "Damage Tome", "Sword"),
+            luck=DEFAULT_LUCK,
+            captured_at=1.0,
+        )
+        self.assertEqual(state.acquisitions, 0)
+
+        loot.process_banishes(
+            state,
+            (LEGENDARY_ITEMS[0], "Damage Tome", "Sword", RARE_ITEM),
+            luck=DEFAULT_LUCK,
+            captured_at=2.0,
+        )
+
+        self.assertEqual(state.actual["LEGENDARY"], 0)
+        self.assertEqual(state.actual["RARE"], 1)
+        self.assertEqual(state.acquisitions, 1)
+
+    def test_banish_does_not_spend_a_pending_moai_exclusion(self) -> None:
+        idle = {loot.MOAI_COUNTER_LABEL: 0, loot.SHADY_GUY_COUNTER_LABEL: 0}
+        run = LootRun().begin()
+        run.acquire(COMMON_ITEM)
+        run.tick(counters=idle)
+        run.tick(counters={**idle, loot.MOAI_COUNTER_LABEL: 1})
+
+        run.tick(
+            banishes=(RARE_ITEM,),
+            counters={**idle, loot.MOAI_COUNTER_LABEL: 1},
+        )
+        self.assertEqual(run.actual()["RARE"], 1, "the chest banish is a roll")
+
+        run.acquire(
+            LEGENDARY_ITEMS[0], counters={**idle, loot.MOAI_COUNTER_LABEL: 1}
+        )
+        self.assertEqual(run.actual()["LEGENDARY"], 0, "the Moai debt remains")
 
     def test_an_unresolvable_rarity_contributes_to_neither_side(self) -> None:
         """A Corrupt-chest item, or one a game update added after our table was

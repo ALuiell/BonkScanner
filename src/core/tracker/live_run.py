@@ -742,6 +742,32 @@ class LiveRunTracker:
         self._fast_luck = FastLuck(captured_at=self.clock(), luck=float(luck))
 
     @with_lock
+    def update_banishes(self, banishes: tuple[str, ...] | None) -> bool:
+        """Fold the fast lane's persistent banish set into Loot Rarity.
+
+        This is deliberately separate from ``update_items``: banished items
+        never enter the inventory and must not participate in its two-read gain
+        confirmation or spend any inventory-source exclusion.
+        """
+        latest = self._latest_snapshot_unlocked()
+        if latest is None or not self._is_active_snapshot(latest) or banishes is None:
+            return False
+        loot.observe_run_position(
+            self._loot_state,
+            stage_index=self.current_stage_index,
+            game_time_seconds=self._fresh_fast_run_timer_unlocked(),
+            item_count=None,
+            items_available=False,
+        )
+        loot.process_banishes(
+            self._loot_state,
+            tuple(banishes),
+            luck=self._pass_luck_unlocked(latest),
+            captured_at=self.clock(),
+        )
+        return True
+
+    @with_lock
     def fast_luck(self) -> float | None:
         """The fast lane's Luck, or ``None`` when there is no fresh reading.
 
@@ -1292,11 +1318,12 @@ class LiveRunTracker:
         return False
 
     def _process_item_deltas(self, snapshot: LiveRunSnapshot) -> tuple[ItemLossEvent, ...]:
+        pass_luck = self._pass_luck_unlocked(snapshot)
         losses = items.process_item_deltas(
             self._tracked_item_state,
             snapshot,
             current_stage_index=self.current_stage_index,
-            luck=self._pass_luck_unlocked(snapshot),
+            luck=pass_luck,
         )
         # Losses before gains: a decrease opens the debt that a gain in the same
         # pass may settle. The craft output takes seconds to reach the inventory
@@ -1318,6 +1345,12 @@ class LiveRunTracker:
             self._loot_state,
             stage_ptr=snapshot.stage_ptr,
             map_seed=snapshot.map_seed,
+        )
+        loot.process_banishes(
+            self._loot_state,
+            snapshot.banishes,
+            luck=pass_luck,
+            captured_at=snapshot.captured_at,
         )
         loot.process_item_losses(self._loot_state, losses)
         loot.process_item_gains(self._loot_state, self._last_item_gains)

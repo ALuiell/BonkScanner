@@ -28,19 +28,22 @@ class ReadCensusRatchetTests(unittest.TestCase):
     def test_boundary_populations_are_derived_from_the_tree(self) -> None:
         census = _load_census()
 
-        # 28 since the `passive_items` task became the whole loot sample. Two
-        # of the twenty-eight arrived together and mean different things:
+        # 29 since the `passive_items` task became the whole loot sample. Three
+        # of the twenty-nine arrived through that expansion and mean different
+        # things:
         #
         # `get_map_activity_values` is a *second* call site for an already
         # enrolled source, which is what this count is supposed to move for --
         # the 10 s snapshot reads the same key, so the pass cache shares the one
         # physical walk. `get_luck` is genuinely new, and it is a new *source*
-        # too (`LUCK`), declared in the census beside the rest;
+        # too (`LUCK`). The latest site is the fast consumer of the already
+        # enrolled `LIVE_BANISHES` source; it shares the full snapshot's read.
+        # Both keys are declared in the census beside the rest;
         # `test_current_on_tick_source_set_is_exact_and_has_no_bypasses` is what
         # proves it went in through the pass rather than around it.
         self.assertEqual(
             census.boundary_site_count([census.SRC / rel for rel in census.ON_TICK_FILES]),
-            28,
+            29,
         )
         # 4 since `reroll_map` stopped reading the map state and stats itself:
         # `wait_for_map_ready` hands the scan loop the stats it waited for, so

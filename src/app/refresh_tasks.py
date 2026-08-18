@@ -86,6 +86,7 @@ from app.read_sources import (
     CHAOS_TRACKING_STATE,
     EXPECTED_CHEST_INPUTS,
     KPS_GROUP_SPAN_LIMIT_SECONDS,
+    LIVE_BANISHES,
     LUCK,
     MOB_KILLS,
     PASSIVE_ITEMS,
@@ -538,6 +539,26 @@ class RefreshTasks:
         if callable(update_fast_luck):
             update_fast_luck(luck)
 
+    def _publish_fast_banishes(self, context: RefreshTickContext) -> None:
+        """Persistent chest-item banishes, read with the Luck that scores them.
+
+        The full snapshot remains the health owner for ``LIVE_BANISHES``. This
+        second consumer only reduces detection latency from ten seconds to one;
+        the pass cache still permits at most one physical read when both tasks
+        are due. A failed read publishes nothing, preserving the last successful
+        delta baseline rather than turning failure into an empty set.
+        """
+        try:
+            client = self._fast_task_client(context)
+            banishes = read_memory_source(
+                context, LIVE_BANISHES, client.get_live_banishes
+            )
+        except Exception:
+            return
+        update_banishes = getattr(self._tracker(), "update_banishes", None)
+        if callable(update_banishes):
+            update_banishes(tuple(banishes or ()))
+
     def _publish_fast_size(self, context: RefreshTickContext) -> None:
         service = self._build_progression_service()
         if not service or not getattr(service, "has_cap_demand", lambda: False)():
@@ -647,8 +668,8 @@ class RefreshTasks:
         )
 
     def _refresh_passive_items_task(self, context: RefreshTickContext) -> bool:
-        """Read the whole loot sample -- items, the interactable counters and
-        Luck -- in one pass.
+        """Read the whole loot sample -- items, banishes, counters and Luck --
+        in one pass.
 
         Resolved through the named ``PASSIVE_ITEMS`` source, which is the point
         of step 28's composable reads: on a pass where the full snapshot is also
@@ -659,9 +680,9 @@ class RefreshTasks:
         existing source; it does not split the existing path. The same holds for
         ``MAP_ACTIVITY_VALUES``.
 
-        The three sources are read here rather than by three tasks because a
-        key resolves **once** per ``RefreshTickContext``: items, counters and
-        Luck therefore carry one timestamp and are coherent by construction.
+        The sources are read here rather than by separate tasks because a key
+        resolves **once** per ``RefreshTickContext``: items, banishes, counters
+        and Luck therefore carry one timestamp and are coherent by construction.
         The "did the counter move before or after this gain" question and the
         "which Luck applied to this roll" question stop existing rather than
         being solved by matching two buffers.
@@ -671,6 +692,7 @@ class RefreshTasks:
         starve them.
         """
         self._publish_fast_luck(context)
+        self._publish_fast_banishes(context)
         self._publish_fast_size(context)
         self._publish_fast_map_activity(context)
         self._publish_item_cooldowns(context)
