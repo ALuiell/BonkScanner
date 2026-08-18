@@ -59,6 +59,7 @@ class SupportPopupTests(unittest.TestCase):
         self.assertFalse(self.popup._names_host.isVisibleTo(self.popup))
         self.assertFalse(self.popup._rule.isVisibleTo(self.popup))
         self.assertEqual(self.popup._title.text(), "Support BonkScanner")
+        self.assertEqual(self.popup._note.text(), SupportPopup.DEFAULT_NOTE)
 
     def test_blank_and_malformed_entries_do_not_become_rows(self):
         self.popup.set_supporters(["", "  ", {"name": ""}, {"tier": "patreon"}, None])
@@ -141,6 +142,7 @@ class SupportPopupTests(unittest.TestCase):
         self.assertEqual(_names(self.popup), [])
         self.assertEqual(self.popup._card.width(), SupportPopup.NARROW_WIDTH)
         self.assertEqual(self.popup._title.text(), "Support BonkScanner")
+        self.assertEqual(self.popup._note.text(), SupportPopup.DEFAULT_NOTE)
 
 
 class SupportPopupPlacementTests(unittest.TestCase):

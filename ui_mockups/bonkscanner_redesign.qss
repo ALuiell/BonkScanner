@@ -1681,8 +1681,7 @@ QPushButton#footerSupportLink:hover {
 }
 
 /* Всплывашка выбора площадки. Площадок две, и выбирать за пользователя
-   незачем; заодно это единственная форма, в которую влезает фраза
-   «программа бесплатная» — голая ссылка контекста не несёт. */
+   незачем; голая ссылка контекста не несёт. */
 QFrame#supportPopup { background: transparent; }
 QFrame#supportPopupCard {
     background-color: #101419;
@@ -1691,7 +1690,7 @@ QFrame#supportPopupCard {
 }
 QFrame#supportPopupCard QLabel { background: transparent; }
 QLabel#supportPopupTitle { color: #B9C2CE; font-size: 12.5px; font-weight: 800; }
-QLabel#supportPopupNote { color: #8A94A3; font-size: 11px; }
+QLabel#supportPopupNote { color: #8A94A3; font-size: 12px; font-weight: 600; }
 /* Список саппортеров. Имена приходят из supporters.json в репозитории —
    `app.supporters.load_supporters`. Пустой случай и есть отгружаемый: без
    списка карточка выглядит ровно как раньше. */

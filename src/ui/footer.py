@@ -73,8 +73,7 @@ class SupportPopup(QFrame):
 
     A popup rather than a link straight to Patreon, because there are two
     platforms and picking one for the user is a decision nobody asked us to
-    make. It is also the only shape that can carry the "free, and stays free"
-    sentence -- a bare link carries no context at all -- and the same shape
+    make. It provides the brief context a bare link lacks, and the same shape
     grows into the supporters list later without moving.
 
     `Qt.Popup` gives the dismiss-on-outside-click behaviour for free. The
@@ -97,10 +96,9 @@ class SupportPopup(QFrame):
 
         card = QFrame(self)
         card.setObjectName("supportPopupCard")
-        # Left to `adjustSize` the card came out 238px wide and broke the note
-        # after "useful to" -- three words on the second line under twelve on
-        # the first. The width is what sets the wrap, so it is stated.
-        card.setFixedWidth(268)
+        # The wider card gives the support message room to breathe instead of
+        # leaving it as a dense caption above the two platform buttons.
+        card.setFixedWidth(self.NARROW_WIDTH)
         outer.addWidget(card)
 
         body = QVBoxLayout(card)
@@ -111,11 +109,7 @@ class SupportPopup(QFrame):
         title.setObjectName("supportPopupTitle")
         body.addWidget(title)
 
-        note = QLabel(
-            "BonkScanner is free to download and stays that way. "
-            "If it is useful to you:",
-            card,
-        )
+        note = QLabel(self.DEFAULT_NOTE, card)
         note.setObjectName("supportPopupNote")
         note.setWordWrap(True)
         body.addWidget(note)
@@ -164,11 +158,12 @@ class SupportPopup(QFrame):
         body.addLayout(buttons)
         self._card = card
 
-    #: Card widths. The narrow one is set by the note's wrap (see above); the
+    #: Card widths. The narrow one gives the support message a relaxed wrap; the
     #: wide one by two columns of display name, which are user-supplied text and
     #: can be any length -- they ellipsise rather than widen the card further.
-    NARROW_WIDTH = 268
+    NARROW_WIDTH = 320
     WIDE_WIDTH = 400
+    DEFAULT_NOTE = "If it helps your runs, you can throw a little fuel its way."
     #: Names past this are not listed; the count in the caption still includes
     #: them. A popup is not a page, and a scroll bar inside one is a worse
     #: answer than "and 40 others".
@@ -245,10 +240,7 @@ class SupportPopup(QFrame):
 
         if not people:
             self._title.setText("Support BonkScanner")
-            self._note.setText(
-                "BonkScanner is free to download and stays that way. "
-                "If it is useful to you:"
-            )
+            self._note.setText(self.DEFAULT_NOTE)
             self._reanchor()
             return
 
