@@ -274,8 +274,10 @@ class _BuildProgressionRow(QFrame):
         late = bool(row.get("late"))
         if late:
             self.symbol.setStyleSheet("color: #F97316;")
+            self.deadline.setStyleSheet("color: #F97316;")
         else:
             self.symbol.setStyleSheet("")
+            self.deadline.setStyleSheet("")
         self.deadline.setText(timing)
         self.deadline.setVisible(bool(timing))
         self.setVisible(True)

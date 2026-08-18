@@ -614,7 +614,7 @@ class BuildProgressionDialog(QDialog):
             title="Configure Build",
             subtitle="Define the items, stats, and run progress the build needs.",
             width=DIALOG_WIDE,
-            height=DIALOG_TALL,
+            height=DIALOG_TALL + 40,
         )
         general_card = _card()
         general_outer = QVBoxLayout(general_card)
