@@ -676,7 +676,7 @@ class BuildProgressionTests(unittest.TestCase):
         )
         self.assertEqual(
             [row["id"] for row in with_completed["rows"]],
-            ["one", "done"],
+            ["done", "one"],
         )
         self.assertEqual(with_completed["hidden_completed"], 0)
         self.assertEqual(with_completed["hidden_remaining"], 1)
@@ -729,12 +729,12 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(
             [row["id"] for row in payload["rows"]],
             [
-                "active-item",
                 "done-item",
-                "active-stat",
+                "active-item",
                 "done-stat",
-                "active-progress",
+                "active-stat",
                 "done-progress",
+                "active-progress",
             ],
         )
         self.assertEqual(html.count(">ITEMS</span>"), 1)
@@ -756,6 +756,98 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertIn("DMG", twitch["requirements"])
         self.assertNotIn("Damage", twitch["requirements"])
         self.assertIn("DMG", html)
+
+    def test_projection_orders_rows_by_user_facing_lifecycle(self):
+        _tracker, snap = runtime(
+            items=("Anvil", "Boots", "Joe's Dagger", "Ice Cube"),
+            stage=1,
+            stage_time=631,
+            duration=600,
+        )
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement(
+                "active", RequirementKind.ITEM, "Anvil", 1,
+                max_required=5,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=0,
+                ),
+            ),
+            BuildRequirement("done-untimed", RequirementKind.ITEM, "Boots", 1),
+            BuildRequirement(
+                "done-timed", RequirementKind.ITEM, "Joe's Dagger", 1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=120,
+                ),
+            ),
+            BuildRequirement(
+                "done-late", RequirementKind.ITEM, "Ice Cube", 1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=0,
+                ),
+            ),
+            BuildRequirement(
+                "missing-overdue", RequirementKind.ITEM, "Sucky Magnet", 1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=0,
+                ),
+            ),
+            BuildRequirement(
+                "warning-close", RequirementKind.ITEM,
+                "Grandma's Secret Tonic", 1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=60,
+                ),
+            ),
+            BuildRequirement(
+                "warning-far", RequirementKind.ITEM, "Cursed Doll", 1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=120,
+                ),
+            ),
+            BuildRequirement(
+                "missing-timed", RequirementKind.ITEM, "Lightning Orb", 1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=300,
+                ),
+            ),
+            BuildRequirement(
+                "missing-untimed", RequirementKind.ITEM,
+                "Overpowered Lamp", 1,
+            ),
+        ))
+
+        payload = build_progression_payload(
+            evaluate_build_progression(definition, snap).snapshot,
+            {"max_rows": 20, "show_completed": True},
+        )
+
+        self.assertEqual(
+            [row["id"] for row in payload["rows"]],
+            [
+                "active",
+                "done-untimed",
+                "done-timed",
+                "done-late",
+                "missing-overdue",
+                "warning-close",
+                "warning-far",
+                "missing-timed",
+                "missing-untimed",
+            ],
+        )
+
+    def test_in_game_build_values_start_at_the_left_edge_of_the_value_column(self):
+        _tracker, snap = runtime(items=())
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement("missing", RequirementKind.ITEM, "Sucky Magnet", 1),
+        ))
+        payload = build_progression_payload(
+            evaluate_build_progression(definition, snap).snapshot
+        )
+
+        html = build_build_progression_overlay_html(payload)
+
+        self.assertIn("<td align='left' style='color:#d7dde5", html)
 
     def test_config_normalization_rejects_duplicates_and_invalid_values(self):
         normalized = config.normalize_build_definition_config({

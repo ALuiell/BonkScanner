@@ -54,15 +54,17 @@ def build_progression_payload(
             if row.kind.value == kind
         ]
     shown_incomplete = incomplete[:max_rows]
+    visible = shown_incomplete + (completed if show_completed else [])
+    visible.sort(key=_display_sort_key)
     if show_headings:
         shown = [
             row
             for kind in SECTION_KINDS
-            for row in (shown_incomplete + (completed if show_completed else []))
+            for row in visible
             if row.kind.value == kind
         ]
     else:
-        shown = shown_incomplete + (completed if show_completed else [])
+        shown = visible
 
     rows = []
     for row in shown:
@@ -105,6 +107,31 @@ def build_progression_payload(
         "hidden_remaining": hidden_remaining,
         "show_section_headings": show_headings,
     }
+
+
+def _display_sort_key(row) -> tuple[int, float]:
+    """Order each rendered section by the row's user-facing lifecycle."""
+    satisfied = row.status is RequirementStatus.SATISFIED
+    if not satisfied and row.min_met:
+        # Min is complete while Max, Ideal, or a dynamic cap remains active.
+        return 0, 0.0
+    if satisfied and not row.late and not row.deadline_label:
+        return 1, 0.0
+    if satisfied and not row.late:
+        return 2, 0.0
+    if satisfied:
+        return 3, 0.0
+
+    delta = row.time_delta_seconds
+    deadline_rank = float(delta) if delta is not None else float("inf")
+    if row.status is RequirementStatus.OVERDUE:
+        # A tier-start deadline has no numeric delta, but it is already missed.
+        return 4, deadline_rank if delta is not None else float("-inf")
+    if row.status is RequirementStatus.WARNING:
+        return 5, deadline_rank
+    if row.deadline_label:
+        return 6, deadline_rank
+    return 7, 0.0
 
 
 def _progress_hint(row) -> str:

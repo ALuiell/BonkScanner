@@ -125,7 +125,7 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
             f"<b>{escape(symbol)}</b>&nbsp;</td>"
             f"<td style='color:{label_color};text-shadow:{shadow};white-space:nowrap;'>"
             f"{escape(str(row.get('label') or '--'))}&nbsp;&nbsp;</td>"
-            f"<td align='right' style='color:#d7dde5;text-shadow:{shadow};white-space:nowrap;'>"
+            f"<td align='left' style='color:#d7dde5;text-shadow:{shadow};white-space:nowrap;'>"
             f"<b>{escape(str(row.get('value') or '--'))}</b>&nbsp;&nbsp;</td>"
             f"<td align='right' style='color:{timing_color};text-shadow:{shadow};white-space:nowrap;'>"
             f"{timing}</td>"
