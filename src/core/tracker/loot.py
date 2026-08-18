@@ -502,6 +502,14 @@ def process_banishes(
         tier = ITEM_RARITY_BY_NAME.get(canonical_name)
         if tier not in state.actual:
             continue
+        # A persistent item-banish delta is just as conclusive as seeing the
+        # first inventory item -- but only after an empty first-map inventory
+        # has already proved that no earlier rolls were missed.  Without that
+        # retained evidence, a late-attached run must remain unavailable even
+        # though this particular banish is observable.
+        if not state.availability_decided and state.observed_empty_first_map:
+            state.available = True
+            state.availability_decided = True
         state.acquisitions += 1
         probabilities = calculate_luck_rarity_probabilities(luck)
         if probabilities.get(tier) is None:

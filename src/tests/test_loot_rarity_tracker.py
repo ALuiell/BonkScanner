@@ -366,6 +366,28 @@ class LootAccumulationTests(unittest.TestCase):
         run.tick(banishes=(LEGENDARY_ITEMS[0],), luck=50.0)
         self.assertEqual(run.stats(), after, "the persistent set is not counted twice")
 
+    def test_first_item_banish_makes_an_observed_empty_run_measurable(self) -> None:
+        """A banished first chest roll never enters the inventory.
+
+        The empty first-map reading retained by ``begin`` proves there were no
+        earlier rolls, so this observed delta can safely open the Loot summary
+        instead of leaving its real Expected contribution hidden behind the
+        inventory-only measurability gate.
+        """
+        observing_luck = 0.5
+        run = LootRun().begin()
+
+        self.assertFalse(run.stats().available)
+        run.tick(banishes=(LEGENDARY_ITEMS[0],), luck=observing_luck)
+
+        stats = run.stats()
+        self.assertTrue(stats.available)
+        self.assertTrue(stats.availability_decided)
+        self.assertEqual(stats.actual["LEGENDARY"], 1)
+        self.assertEqual(stats.acquisitions, 1)
+        for tier, value in expectation_for(observing_luck).items():
+            self.assertAlmostEqual(stats.expected[tier], value)
+
     def test_fast_banish_entry_point_uses_the_shared_fast_luck(self) -> None:
         run = LootRun(luck=4.25).begin()
         run.acquire(COMMON_ITEM)
