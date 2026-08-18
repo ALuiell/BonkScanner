@@ -110,7 +110,12 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/infra/keyboard_run_control.py](../../src/infra/keyboard_run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |
 | [src/infra/process.py](../../src/infra/process.py) | Pure win32 window/process helpers used to find and score the game window. |
 | [src/infra/hotkeys.py](../../src/infra/hotkeys.py) | Low-level system keyboard hook manager mapping global keystrokes to restart commands. |
-| **Integrations & Recording** | |
+| [src/infra/crash_journal.py](../../src/infra/crash_journal.py) | Structured crash and exception journal writer for diagnostics and troubleshooting. |
+| **Integrations, Projections & Recording** | |
+| [src/core/build_progression.py](../../src/core/build_progression.py) | Pure domain model and evaluation rules for build requirements, copy counts, and deadlines. |
+| [src/app/build_progression.py](../../src/app/build_progression.py) | Coordinator-owned service tracking runtime requirement transitions and build state. |
+| [src/ui/dialogs/build_progression.py](../../src/ui/dialogs/build_progression.py) | Build manager dialog for creating, editing, and managing build progression checklists. |
+| [src/projections/build_progression.py](../../src/projections/build_progression.py) | Formats build progression state for overlays and Twitch bot output. |
 | [src/infra/vod_storage.py](../../src/infra/vod_storage.py) | Serializes and deserializes snapshot data to `.jsonl` run records. |
 | [src/twitch_bot.py](../../src/twitch_bot.py) | Handles Twitch channel connection, IRC message handling, and command processing. |
 | [src/twitch_auth.py](../../src/twitch_auth.py) | Client library for Twitch OAuth token generation and authorization scopes. |

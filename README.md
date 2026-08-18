@@ -66,7 +66,7 @@ Some parts of the project use technical names, so here is what they mean:
 - compares saved runs side by side with synced in-game time and configurable diff sections;
 - serves a local OBS browser overlay with draggable/resizable widgets and widget-specific URLs;
 - provides a transparent in-game overlay with status, KPS, powerups, Luck,
-  stats, event-timer and timed-item cooldown widgets;
+  stats, event-timer, timed-item cooldown, and build-progression widgets;
 - runs an optional Twitch chat bot with live stat commands and stage announcements;
 - uses the configured keyboard reset hotkey for run restarts;
 - stores app settings, templates, score rules, overlay settings, Twitch bot settings, and update preferences in `config.json`.
@@ -216,10 +216,9 @@ Recording is not required; the overlay uses live stats reads.
 
 Overlay features:
 - transparent browser page for OBS;
-- selectable widgets for `Stage Summary`, `Tracked Items`, `Stats`, and `Banishes`;
-- `KPS` as an additional widget-specific source;
+- selectable widgets for `Stage Summary`, `Tracked Items`, `Stats`, `Banishes`, `KPS`, `Luck Rarity`, and `Build Progression`;
 - tracked item rules, including map-1-only tracking;
-- widget-specific URLs such as `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, and `/overlay/stage_summary`;
+- widget-specific URLs such as `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, `/overlay/stage_summary`, `/overlay/kps`, `/overlay/luck_rarity`, and `/overlay/build_progression`;
 - visual layout editor at `/overlay?edit=true`;
 - draggable widget positions;
 - per-widget scaling;
@@ -238,7 +237,7 @@ optionally enable auto-start, then use **Edit Layout** or the configured edit
 hotkey (F9 by default) to position widgets.
 
 Available widgets are Scanner status, Recording status, KPS, Active powerups,
-Luck rarity %, Stats, Event timer, and Item cooldowns. The timed-item widget
+Luck rarity %, Stats, Event timer, Item cooldowns, and Build Progression. The timed-item widget
 currently supports Bob's Light, hides when no supported item is held, and
 correctly freezes while the game is paused.
 
@@ -258,6 +257,7 @@ bot should join and respond.
 
 Available chat commands:
 - `!stats` / `!bonkstats`: current selected live stats.
+- `!session`: session stats summary (reroll count, match rate, best/worst maps, tracked item counters).
 - `!bans` / `!banishes`: banished items.
 - `!disabled`: lists highlighted items globally disabled in lobby.
 - `!items` / `!tracked`: collected items, sorted by rarity and compressed when needed.
@@ -266,9 +266,12 @@ Available chat commands:
 - `!chaos` / `!chaostome`: tracked Chaos Tome level and stat roll totals.
 - `!stages`: stage summary.
 - `!powerups`: active powerup duration info.
+- `!kps`: current and average kill rate metrics.
+- `!build`: active build checklist progress and missing requirements.
+- `!luck`: item rarity drop chances and expected counts based on current Luck.
 - `!chests` / `!chest`: displays per-stage and total chest progress, paid openings, actual and expected Key procs, inherently free chests, and the current Key proc chance. The same data is arranged as six readable rows in the sixth Stats card and saved in recordings.
 - `!scanner`: general info about the BonkScanner app and download link.
-- `!presets`: active templates or score tiers and weights.
+- `!presets` / `!preset`: active templates or score tiers and weights.
 - `!bonkhelp` / `!bonkcmds` / `!bonkcommands` / `!bhelp`: list of all active Twitch bot commands.
 
 Command settings support:

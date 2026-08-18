@@ -71,6 +71,8 @@ Each widget has independent enable, position and scale settings:
 - **Item cooldowns** — timed passive-item countdowns. Bob's Light is the first
   supported item; the widget is empty and hidden when no supported timed item is
   held.
+- **Build progression** — active build checklist tracking item counts, stat thresholds,
+  and progress targets against configurable stage/time deadlines.
 
 `item_cooldowns` is intentionally separate from `powerups`: a powerup card
 hides when no buff is active, while a timed passive item can remain relevant for

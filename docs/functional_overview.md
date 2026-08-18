@@ -403,6 +403,33 @@ Risks:
 - Full weapon stats contain more than the upgraded stat pool.
 - Some weapon upgrade pools may need special handling after more validation.
 
+## In-Game Desktop Overlay
+
+Purpose:
+
+- Provide a transparent, click-through desktop overlay directly aligned to the Megabonk game window without needing OBS or recording.
+
+Implementation shape:
+
+- Owned by `src/gui_in_game_overlay.py` with the click-through window canvas in `src/gui_in_game_overlay_window.py`.
+- Consumes read-only `RuntimeStateSnapshot` projections generated in `src/projections/in_game.py` and rendered as HTML in `src/projections/in_game_html.py`.
+- Features a single 500 ms timer for repaints and window geometry tracking.
+- Interactive edit mode (toggled via F9 or UI) allows in-place dragging of widgets over the game window.
+- Available widgets: Scanner status, Recording status, KPS, Active powerups, Luck rarity %, Stats, Event timer, Item cooldowns, and Build Progression.
+
+## Build Progression
+
+Purpose:
+
+- Track customizable build checklists (required item copies, stat thresholds, and run-counter targets) against phase/time deadlines across Live Stats, OBS, In-Game Overlay, and Twitch (`!build`).
+
+Implementation shape:
+
+- Domain rules and evaluation logic in `src/core/build_progression.py`.
+- Runtime progression service owned by `AppCoordinator` in `src/app/build_progression.py`.
+- UI editor in `src/ui/dialogs/build_progression.py` and projection formatters in `src/projections/build_progression.py`.
+- Evaluation resets cleanly per run identity and consumes fast inventory/stat passes without extra polling.
+
 ## Hotkeys And Settings
 
 Purpose:
@@ -411,12 +438,10 @@ Purpose:
 
 Main hotkeys:
 
-- Scan hotkey.
-- Reset hotkey.
-- Record hotkey.
-- Toggle chest skip.
-- Toggle auto level-up.
-- Toggle particles opacity.
+- Scan hotkey (arms/pauses the scanner loop).
+- Reset hotkey (triggers community keyboard restart).
+- Record hotkey (starts/stops player stats snapshot recording).
+- In-Game Overlay Edit hotkey (toggles layout editor mode).
 
 Implementation shape:
 
@@ -429,25 +454,6 @@ Risks:
 
 - Global hotkeys may need elevated privileges.
 - Game config layout can change.
-- Native hook mode can fail if injection, process bitness, or permissions are
-  wrong.
-
-## Native Hook Restart
-
-Purpose:
-
-- Provide an alternative restart path that can work better while alt-tabbed or
-  when keyboard input is unreliable.
-
-Implementation shape:
-
-- Build uses project-local toolchain scripts under `tools/`.
-
-Risks:
-
-- Native injection is more fragile than keyboard input.
-- Antivirus or OS policy can interfere.
-- Game updates can break hook-ready paths.
 
 ## Update System
 

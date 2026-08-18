@@ -120,7 +120,7 @@ OBS Overlay
 - **Widget Scaling**: In Layout Editor mode, hover over any widget to reveal a scale toolbar. Use `+` / `-` buttons or type a custom percentage (e.g. `125`) directly to zoom individual widgets.
 - **Widget Resizing**: Drag the bottom-right corner of any widget in Layout Editor to stretch its width and height. Stats and Banishes automatically reflow into multiple columns when widened.
 - **Game Preview Background**: Layout Editor shows an actual game screenshot as background so you can align widgets precisely with the in-game HUD.
-- **Widget-Specific URLs**: Each widget can be added as a separate OBS Browser Source using its own URL (e.g. `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, `/overlay/stage_summary`, `/overlay/kps`).
+- **Widget-Specific URLs**: Each widget can be added as a separate OBS Browser Source using its own URL (e.g. `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, `/overlay/stage_summary`, `/overlay/kps`, `/overlay/luck_rarity`, `/overlay/build_progression`).
 - **Important: OBS Cache**: After updating BonkScanner or changing layout, right-click your Browser Source in OBS → Properties → click `Refresh cache of current page` → OK. Without this, OBS may show the old layout.
 
 
@@ -140,9 +140,8 @@ In-Game Overlay
   - `Luck Rarity %` — shows the probability of item rarity rolls based on current Luck, with an optional progress bar.
   - `Stats` — displays the selected player-stat rows.
   - `Event Timer` — shows phase-aware map-event warnings.
-  - `Item Cooldowns` — shows the countdown to the next trigger of supported
-    timed passive items. Bob's Light is supported first; the widget stays hidden
-    when no supported item is held and freezes correctly while the game is paused.
+  - `Item Cooldowns` — shows the countdown to the next trigger of supported timed passive items (Bob's Light).
+  - `Build Progression` — shows active build requirements checklist (items, stats, progress targets) and deadline status.
 - Note: The overlay will automatically hide when the game window loses focus, and reappear when it is focused.
 
 
@@ -166,13 +165,15 @@ Available chat commands:
 - `!session` — displays current app session stats: resets, found seeds, seed rate, and configured tracked item counters.
 - `!bans` / `!banishes` — list of banished items.
 - `!disabled` — lists the highlighted/selected items that are globally disabled in the game lobby settings. (Note: due to game architecture, actual disabled items are only available in memory once a match starts. When configuring this via the bot UI in the main menu, use "Show all items" to select them beforehand.)
-- `!items` — list of collected items (automatically sorted by rarity; if there are too many items, the bot compresses the list to fit Twitch's limits).
+- `!items` / `!tracked` — list of collected items (automatically sorted by rarity; if there are too many items, the bot compresses the list to fit Twitch's limits).
 - `!weapons` — your weapons and only their active/upgraded stats.
 - `!tomes` — your tomes with their stat values (Chaos Tome shows level only).
 - `!chaos` / `!chaostome` — displays tracked Chaos Tome level and stat roll totals.
 - `!kps` — displays current kills per second (KPS) and short/long averages (60s, 5m, run averages).
 - `!stages` — detailed stage summary of kills and elapsed time for stages 1-4.
 - `!powerups` — displays active powerups (Rage, Shield, Stonks, Clock) with their pickup and expiration timestamps.
+- `!build` — displays active build checklist progression and missing requirements.
+- `!luck` — displays item rarity roll chances based on current Luck.
 - `!chests` / `!chest` — displays the number of chests opened per stage, keys count, and free chest openings (Free chest includes naturally free chests + chests opened for free using keys).
 - `!presets` / `!preset` — displays active reroller templates or score tiers and weights.
 - `!bonkhelp` — lists all active scanner bot commands (aliases: `!bonkcmds`, `!bonkcommands`, `!bhelp`).

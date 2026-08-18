@@ -48,6 +48,28 @@ sequenceDiagram
    map. A bot connected mid-run seeds its count and does not announce an old
    pickup.
 
+### Supported Chat Commands
+
+| Command | Aliases | Description |
+| :--- | :--- | :--- |
+| `!stats` | `!bonkstats` | Current player statistics (damage, speed, luck, etc.). |
+| `!session` | — | Session stats: resets, found target seeds, tracked item totals. |
+| `!bans` | `!banishes` | Currently banished items. |
+| `!disabled` | — | Items disabled in game lobby settings. |
+| `!items` | `!tracked` | Collected passive items sorted by rarity. |
+| `!weapons` | — | Weapons list and isolated upgrade modifiers. |
+| `!tomes` | — | Active tomes and bonuses. |
+| `!chaos` | `!chaostome` | Chaos Tome level and stat rolls sum. |
+| `!stages` | — | Stage summary (time and kills per stage). |
+| `!powerups` | — | Active powerups and remaining durations. |
+| `!kps` | — | Current and rolling average kill rates. |
+| `!build` | — | Active build checklist and missing requirements. |
+| `!luck` | — | Rarity drop probabilities based on current Luck. |
+| `!chests` | `!chest` | Chest counts, keys, and free chest opening metrics. |
+| `!presets` | `!preset` | Active search templates or score tier rules. |
+| `!scanner` | — | App info and download link. |
+| `!bonkhelp` | `!bonkcmds`, `!bonkcommands`, `!bhelp` | List of enabled bot commands. |
+
 ---
 
 ## 2. OBS Stream Overlays Server
@@ -69,6 +91,8 @@ The server listens for requests starting with `/overlay/` and supports the follo
 | `/overlay/stats` | Shows real-time player statistics (Damage, Speed, Cooldown, Crit). |
 | `/overlay/banishes` | Lists items currently banished in the active run. |
 | `/overlay/kps` | Displays selected KPS metrics. |
+| `/overlay/luck_rarity` | Displays item rarity percentage bars and expected chest counts. |
+| `/overlay/build_progression` | Renders the active build progression checklist and requirement deadlines. |
 | `/api/overlay-state` | Returns the raw state store in JSON format (polled by widget frontends). |
 
 ### Thread-Safe State Store
