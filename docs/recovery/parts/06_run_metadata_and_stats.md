@@ -16,13 +16,23 @@ This component reads overall run metadata and analytics from memory, including:
 
 ## Memory Chain Diagrams
 
-### 1. In-game Timers (MyTime Class)
+### 1. In-game Timers & Stage Timeline (MyTime & StageData Classes)
 ```
 GameAssembly.dll + RUN_TIMER_TYPE_INFO_OFFSET (0x02F62398)
   -> [Class Pointer]
     -> +0xB8 (CLASS_STATIC_FIELDS_OFFSET) -> [Static Fields Pointer]
-      -> +0x1C (STAGE_TIMER_OFFSET) -> float (stage_timer)
-      -> +0x20 (RUN_TIMER_OFFSET)   -> float (run_timer)
+      -> +0x00 (MY_TIME_PAUSED_OFFSET)             -> bool (is_paused)
+      -> +0x04 (MY_TIME_TIME_OFFSET)               -> float (clock timestamp)
+      -> +0x1C (STAGE_TIMER_OFFSET)                -> float (stage_timer)
+      -> +0x20 (RUN_TIMER_OFFSET)                  -> float (run_timer)
+      -> +0x24 (FINAL_SWARM_TIMER_OFFSET)          -> float (final_swarm_timer)
+      -> +0x28 (DIFFICULTY_TIMER_OFFSET)           -> float (difficulty_timer)
+      -> +0x2C (CRYPT_TIMER_OFFSET)                -> float (crypt_timer)
+
+StageData (Timeline)
+current_stage_ptr (from MapController)
+  -> +0xD0 (STAGE_DATA_TIMELINE_OFFSET) -> [StageTimeline Object Pointer]
+    -> +0x10 (STAGE_TIMELINE_STAGE_TIME_OFFSET) -> float (configured stage duration)
 ```
 
 ### 2. Mob Kills Counter (RunStats Class)

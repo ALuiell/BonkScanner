@@ -343,21 +343,78 @@ Even better:
 
 `Game updated. First sanity-check the report against the current code assumptions, then patch the implementation.`
 
+## Rapid TypeInfo & Offset Extraction Guide
+
+When a game update drops, run this standard reverse workflow to extract updated static offsets within 5–10 minutes:
+
+### 1. Dump Metadata & Symbols via Il2CppDumper
+1. Locate the game directory: `<GameDir>/Megabonk_Data/il2cpp_data/Metadata/global-metadata.dat` and `<GameDir>/GameAssembly.dll`.
+2. Run Il2CppDumper:
+   ```cmd
+   Il2CppDumper.exe GameAssembly.dll global-metadata.dat output_dir/
+   ```
+3. This produces:
+   - `dump.cs`: C# pseudo-code containing class definitions, field offsets (`// 0x10`), and method addresses.
+   - `script.json`: metadata mapping containing `ScriptMetadata` and `AddressRef` tables.
+   - `ida_with_struct.py` / `ghidra_with_struct.py`: symbol loading scripts.
+
+### 2. Finding TypeInfo Offsets (Static Class Roots)
+In Unity IL2CPP 64-bit Windows builds, static class pointers (`Il2CppClass*`) live in the `.data` / `.bss` section of `GameAssembly.dll`.
+To find them:
+- **Option A: Search in `script.json` / `dump.cs`**:
+  Search for the class name in `script.json` under `ScriptMetadata` (e.g. `"PlayerStatsNew"`, `"MapController"`, `"RSGController"`). The `Address` field gives the RVA (Relative Virtual Address) to `GameAssembly.dll`.
+- **Option B: In IDA Pro / Ghidra**:
+  After running the symbol script, search for symbol names matching:
+  - `PlayerStatsNew_c*` or `PlayerStatsNew_TypeInfo`
+  - `MapController_TypeInfo`
+  - `MapGenerationController_TypeInfo`
+  - `MyTime_TypeInfo`
+  - `RunStats_TypeInfo`
+  - `RunUnlockables_TypeInfo`
+  - `MoneyUtility_TypeInfo`
+  - `DataManager_TypeInfo`
+  - `RSGController_TypeInfo`
+  - `GameManager_TypeInfo`
+  - `MusicController_TypeInfo`
+  - `LoadingScreen_TypeInfo`
+  - `PlayerMovement_TypeInfo`
+- **Option C: Static Fields Offset (`0xB8`)**:
+  In standard Unity 2021/2022 IL2CPP x64, `ClassPointer + 0xB8` points to the static fields memory block (`static_fields`).
+
+### 3. Finding Class Field Offsets in `dump.cs`
+Inside `dump.cs`, search for the target class name. Field comments provide direct hex offsets:
+```csharp
+// Namespace:
+public class PlayerInventory // TypeDefIndex: ...
+{
+    // Fields
+    public ItemInventory itemInventory; // 0x20
+    public WeaponInventory weaponInventory; // 0x28
+    public PlayerXp playerXp; // 0x30
+    public PlayerStatusEffects playerStatusEffects; // 0x38
+    public TomeInventory tomeInventory; // 0x48
+    public int gold; // 0x70
+}
+```
+
+---
+
 ## Current Canonical References
 
 At the time of writing, these are the most useful references:
 
-- [MEMORY_PATH_INDEX.md](file:///F:/Python/MegabonkReroll/docs/recovery/MEMORY_PATH_INDEX.md)
-- [01_map_generation_and_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/01_map_generation_and_stats.md)
-- [02_player_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/02_player_stats.md)
-- [03_passive_item_inventory.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/03_passive_item_inventory.md)
-- [04_live_weapons_inventory.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/04_live_weapons_inventory.md)
-- [05_live_tomes_inventory.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/05_live_tomes_inventory.md)
-- [06_run_metadata_and_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/06_run_metadata_and_stats.md)
-- [07_chaos_tome_tracking.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/07_chaos_tome_tracking.md)
-- [08_player_status_effects.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/08_player_status_effects.md)
-- [09_disabled_items_pool.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/09_disabled_items_pool.md)
-- [10_chests_purchased_and_counters.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/10_chests_purchased_and_counters.md)
+- [MEMORY_PATH_INDEX.md](./MEMORY_PATH_INDEX.md)
+- [01_map_generation_and_stats.md](./parts/01_map_generation_and_stats.md)
+- [02_player_stats.md](./parts/02_player_stats.md)
+- [03_passive_item_inventory.md](./parts/03_passive_item_inventory.md)
+- [04_live_weapons_inventory.md](./parts/04_live_weapons_inventory.md)
+- [05_live_tomes_inventory.md](./parts/05_live_tomes_inventory.md)
+- [06_run_metadata_and_stats.md](./parts/06_run_metadata_and_stats.md)
+- [07_chaos_tome_tracking.md](./parts/07_chaos_tome_tracking.md)
+- [08_player_status_effects.md](./parts/08_player_status_effects.md)
+- [09_disabled_items_pool.md](./parts/09_disabled_items_pool.md)
+- [10_chests_purchased_and_counters.md](./parts/10_chests_purchased_and_counters.md)
+- [11_game_lifecycle_and_bosses.md](./parts/11_game_lifecycle_and_bosses.md)
 
 ## Recovery Output Checklist
 

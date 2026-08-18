@@ -137,6 +137,28 @@ Search for these classes in `dump.cs`:
   - Verify that the integer count at `item_value + 0x18` changes as you pick up duplicate items.
   - If the dictionary layout changes, verify the standard `.NET` dictionary offsets for keys and values.
 
+### 5. Timed Passive Items & Cooldown Tracking (Bob's Light)
+
+Timed passive items (such as Bob's Light) store active trigger countdowns inside their item value instances.
+The cooldown calculation requires reading `nextTriggerTime` from the item instance and pairing it synchronously with `MyTime.time` from the same memory pass:
+
+```
+item_value (from Dictionary Entry Value Object Pointer)
+  -> +0x0  (ITEM_CLASS_META_OFFSET)     -> [Class Metadata Pointer] ("ItemBobLantern")
+  -> +0x18 (ITEM_STACK_COUNT_OFFSET)   -> int (stack count)
+  -> +0x3C (cooldown_offset)           -> float (base cooldown duration in seconds)
+  -> +0x40 (next_trigger_offset)       -> float (absolute next trigger timestamp on game clock)
+
+MyTime (paired clock reference)
+GameAssembly.dll + RUN_TIMER_TYPE_INFO_OFFSET (0x02F62398)
+  -> [Class Pointer] -> +0xB8 -> static_fields
+    -> +0x04 (MY_TIME_TIME_OFFSET)     -> float (current game time)
+```
+
+At rendering time, the in-game overlay calculates:
+`remaining_seconds = max(0.0, next_trigger_time - my_time)`
+Freezing game clock (pausing) automatically freezes the displayed countdown.
+
 ---
 
 ## Code Reference
@@ -158,7 +180,10 @@ class PlayerStatsClient:
     ITEM_CLASS_META_OFFSET = 0x0
     ITEM_STACK_COUNT_OFFSET = 0x18
     CLASS_META_NAME_PTR_OFFSET = 0x10
-    # ...
+
+    MY_TIME_TIME_OFFSET = 0x04
+    # ItemCooldownLayout for Bob's Light (ItemBobLantern):
+    # cooldown_offset = 0x3C, next_trigger_offset = 0x40
 ```
 
 ---
@@ -166,6 +191,8 @@ class PlayerStatsClient:
 ## Verification Steps
 1. Run tests:
    ```powershell
-   .\run_tests.bat -k "passive" src.tests.test_player_stats
+   .\run_tests.bat src.tests.test_player_stats
+   .\run_tests.bat src.tests.test_item_cooldowns
+   .\run_tests.bat src.tests.test_item_cooldown_overlay
    ```
-2. Verify in the overlay interface under "Live Stats" that picked up items are shown with correct counts (e.g., `Wrench x2`).
+2. Verify in the overlay interface under "Live Stats" that picked up items are shown with correct counts (e.g., `Wrench x2`) and the Item Cooldowns widget shows the active countdown for Bob's Light.
