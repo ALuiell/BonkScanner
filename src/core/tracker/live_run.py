@@ -61,6 +61,7 @@ from core.tracker.snapshots import (
     FastItemCooldowns,
     FastItems,
     FastLuck,
+    FastSize,
 )
 
 FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES = 2
@@ -92,6 +93,7 @@ FAST_ITEMS_TTL_SECONDS = 3.0
 # in the *same pass*, so a bound that expired one before the other would let a
 # gain be projected against a Luck the pass that observed it did not carry.
 FAST_LUCK_TTL_SECONDS = FAST_ITEMS_TTL_SECONDS
+FAST_SIZE_TTL_SECONDS = 3.0
 
 # Item cooldowns' freshness bound. Same pass as the inventory and Luck, so the
 # same bound, for the same reason.
@@ -152,6 +154,7 @@ class _RunState:
     # beside it rather than inside it because a failed Luck read must not
     # withhold the inventory, nor the reverse.
     fast_luck: FastLuck = field(default_factory=FastLuck)
+    fast_size: FastSize = field(default_factory=FastSize)
     # Published by that same pass. Holds the readings and the game clock they
     # were measured against as one object, because the countdown is their
     # difference and pairing them across passes is the bug this prevents.
@@ -187,7 +190,7 @@ class LiveRunTracker:
             "_pending_fast_stage_index", "_pending_fast_stage_samples",
             "_pending_fast_stage_boundary", "_pending_fast_stage_awaiting_timer_reset",
             "_slow_stage_timer_reset_pending_from", "_fast_run_timer",
-            "_fast_items", "_fast_luck", "_fast_item_cooldowns",
+            "_fast_items", "_fast_luck", "_fast_size", "_fast_item_cooldowns",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_second", "_ui_kps_value",
@@ -337,6 +340,7 @@ class LiveRunTracker:
             self._fast_run_timer = FastRunTimer()
             self._fast_items = FastItems()
             self._fast_luck = FastLuck()
+            self._fast_size = FastSize()
             self._fast_item_cooldowns = FastItemCooldowns()
             self._cached_stage_summary = None
 
@@ -439,6 +443,7 @@ class LiveRunTracker:
             fast_stage_timer=copy.deepcopy(self._fresh_fast_stage_timer_context_unlocked()),
             graveyard_main_map_events_active=self._graveyard_main_map_events_active_unlocked(),
             luck=self._fresh_fast_luck_unlocked(),
+            size=self._fresh_fast_size_unlocked(),
             fast_items=self._fresh_fast_items_unlocked(),
             item_cooldowns=self._fresh_item_cooldowns_unlocked(),
             run_timer_seconds=self._fresh_fast_run_timer_unlocked(),
@@ -748,6 +753,13 @@ class LiveRunTracker:
         return self._fresh_fast_luck_unlocked()
 
     @with_lock
+    def update_fast_size(self, size: float | None) -> None:
+        if size is None:
+            self._fast_size = FastSize()
+            return
+        self._fast_size = FastSize(captured_at=self.clock(), size=float(size))
+
+    @with_lock
     def update_item_cooldowns(self, snapshot: Any | None) -> None:
         """Publish timed-item cooldowns from the fast loot pass.
 
@@ -789,6 +801,14 @@ class LiveRunTracker:
         if self.clock() - fast_luck.captured_at > FAST_LUCK_TTL_SECONDS:
             return None
         return fast_luck.luck
+
+    def _fresh_fast_size_unlocked(self) -> float | None:
+        fast_size = self._fast_size
+        if fast_size.captured_at <= 0 or fast_size.size is None:
+            return None
+        if self.clock() - fast_size.captured_at > FAST_SIZE_TTL_SECONDS:
+            return None
+        return fast_size.size
 
     @with_lock
     def last_item_losses(self) -> tuple[ItemLossEvent, ...]:

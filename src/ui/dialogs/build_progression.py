@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QFileDialog, QLineEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy,
-    QSplitter, QVBoxLayout, QWidget,
+    QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
 from app.build_progression import (
@@ -28,7 +28,7 @@ from app.build_progression import (
 from app import config
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import PLAYER_STAT_SPEC_BY_LABEL
-from core.build_progression import PROGRESS_TARGETS
+from core.build_progression import PROGRESS_TARGETS, CAP_SUPPORTED_ITEMS
 from projections.tracked_items import (
     available_tracked_item_names,
     group_tracked_items_by_rarity,
@@ -667,10 +667,6 @@ class BuildProgressionDialog(QDialog):
 
         self._refresh_picker()
         self._refresh_rules()
-        # Apply the default/loaded radio immediately.  Without this first
-        # synchronization a freshly opened editor selected ``No deadline``
-        # while still showing both Tier and Time, until the user clicked a
-        # different deadline and came back.
         self._deadline_changed()
 
     def _build_left_column(self) -> QWidget:
@@ -752,16 +748,56 @@ class BuildProgressionDialog(QDialog):
         )
         builder_layout.addWidget(self.selected_target, 0, Qt.AlignLeft)
 
+        # --- Required (stats/progress) ---
         self.required = QDoubleSpinBox()
         self.required.setRange(1, 99999)
         self.required.setDecimals(0)
         self.required.setSingleStep(1)
         self.required.setValue(1)
+        self.required.valueChanged.connect(self._refresh_summary)
+        self._required_field = self._field("Required", self.required)
+
+        # --- Min/Max (items) ---
+        self.min_required = QSpinBox()
+        self.min_required.setRange(1, 99999)
+        self.min_required.setSingleStep(1)
+        self.min_required.setValue(1)
+        self.min_required.valueChanged.connect(self._refresh_summary)
+        self._min_field = self._field("Min", self.min_required)
+
+        self.max_required = QSpinBox()
+        self.max_required.setRange(0, 99999)
+        self.max_required.setSingleStep(1)
+        self.max_required.setValue(0)
+        self.max_required.setSpecialValueText(" ")
+        self.max_required.valueChanged.connect(self._refresh_summary)
+        self._max_field = self._field("Max", self.max_required)
+
+        # --- Cap tracking (supported items only) ---
+        self.cap_checkbox = QCheckBox("Track radius cap")
+        self.cap_checkbox.setObjectName("capTracking")
+        self.cap_checkbox.toggled.connect(self._cap_tracking_toggled)
+        self._cap_widget = self.cap_checkbox
+        self._cap_widget.hide()
+
+        # Fixed labels for cap mode
+        self._cap_first_copy_label = QLabel("First copy: 1")
+        self._cap_first_copy_label.setObjectName("dialogHint")
+        self._cap_first_copy_label.hide()
+        self._cap_auto_label = QLabel("Cap: Auto")
+        self._cap_auto_label.setObjectName("dialogHint")
+        self._cap_auto_label.hide()
+
         fields = QHBoxLayout()
         fields.setContentsMargins(0, 0, 0, 0)
         fields.setSpacing(8)
-        fields.addWidget(self._field("Required", self.required), 1)
+        fields.addWidget(self._required_field, 1)
+        fields.addWidget(self._min_field, 1)
+        fields.addWidget(self._max_field, 1)
+        fields.addWidget(self._cap_first_copy_label)
+        fields.addWidget(self._cap_auto_label)
         builder_layout.addLayout(fields)
+        builder_layout.addWidget(self._cap_widget)
 
         grid = QGridLayout()
         self.deadline_group = QButtonGroup(self)
@@ -856,6 +892,19 @@ class BuildProgressionDialog(QDialog):
         self._rule_widgets: dict[str, QWidget] = {}
         return rules_card
 
+    def _cap_tracking_toggled(self, checked: bool) -> None:
+        if checked:
+            self._min_field.hide()
+            self._max_field.hide()
+            self._cap_first_copy_label.show()
+            self._cap_auto_label.show()
+        else:
+            self._min_field.show()
+            self._max_field.show()
+            self._cap_first_copy_label.hide()
+            self._cap_auto_label.hide()
+        self._refresh_summary()
+
     @staticmethod
     def _field(caption: str, control: QWidget) -> QWidget:
         field = QWidget()
@@ -928,6 +977,22 @@ class BuildProgressionDialog(QDialog):
         self._selected_target_name = str(target)
         for name, button in self._picker_buttons.items():
             button.setChecked(name == self._selected_target_name)
+
+        is_item = (self.kind_combo.currentData() or "item") == "item"
+        cap_supported = is_item and target in CAP_SUPPORTED_ITEMS
+        if not cap_supported and self.cap_checkbox.isChecked():
+            self.cap_checkbox.setChecked(False)
+
+        self._required_field.setVisible(not is_item)
+        self._min_field.setVisible(is_item and not self.cap_checkbox.isChecked())
+        self._max_field.setVisible(is_item and not self.cap_checkbox.isChecked())
+        self._cap_widget.setVisible(cap_supported)
+        self._cap_first_copy_label.setVisible(is_item and self.cap_checkbox.isChecked())
+        self._cap_auto_label.setVisible(is_item and self.cap_checkbox.isChecked())
+
+        if not is_item:
+            self.cap_checkbox.setChecked(False)
+
         self._target_changed()
 
     def _deadline_kind(self) -> str:
@@ -1001,8 +1066,19 @@ class BuildProgressionDialog(QDialog):
             )
         else:
             self.selected_target.setStyleSheet("")
+
+        if kind == "item":
+            if self.cap_checkbox.isChecked():
+                req_text = "first copy 1 · cap auto"
+            else:
+                req_text = f"min {self.min_required.value()}"
+                if self.max_required.value() > 0:
+                    req_text += f" max {self.max_required.value()}"
+        else:
+            req_text = f"required {self.required.value():g}"
+
         self.summary.setText(
-            f"{target} · required {self.required.value():g} · "
+            f"{target} · {req_text} · "
             f"{self._deadline_kind().replace('_', ' ')}"
         )
 
@@ -1026,8 +1102,25 @@ class BuildProgressionDialog(QDialog):
         if not target:
             self._show_validation_error("Choose a target first.")
             return
-        kind = str(self.kind_combo.currentData())
-        required = float(self.required.value())
+        kind = str(self.kind_combo.currentData() or "item")
+        if kind == "item":
+            if self.cap_checkbox.isChecked():
+                required = 1.0
+                max_required = None
+                cap_tracking = True
+            else:
+                required = float(self.min_required.value())
+                max_val = self.max_required.value()
+                max_required = max_val if max_val > 0 else None
+                cap_tracking = False
+                if max_required is not None and max_required < required:
+                    self._show_validation_error("Max must be ≥ Min")
+                    return
+        else:
+            required = float(self.required.value())
+            max_required = None
+            cap_tracking = False
+
         if kind in {"item", "progress"} and not required.is_integer():
             self._show_validation_error("This target requires a whole number.")
             return
@@ -1054,6 +1147,11 @@ class BuildProgressionDialog(QDialog):
                 "seconds": seconds,
             },
         }
+        if max_required is not None:
+            payload["max_required"] = int(max_required)
+        if cap_tracking:
+            payload["cap_tracking"] = True
+
         rules = self._draft.setdefault("requirements", [])
         if self._editing_id:
             index = next(i for i, row in enumerate(rules) if row.get("id") == self._editing_id)
@@ -1078,11 +1176,9 @@ class BuildProgressionDialog(QDialog):
         self._rendered_rule_ids = [str(row.get("id") or "") for row in requirements]
         for index, row in enumerate(requirements):
             label = self._deadline_label(row.get("deadline") or {})
-            required = self._required_display(row)
             row_widget = self._build_requirement_row(
                 row,
                 label,
-                required,
                 last=index == len(requirements) - 1,
             )
             rule_id = str(row.get("id") or "")
@@ -1113,10 +1209,6 @@ class BuildProgressionDialog(QDialog):
             ),
             "none": (1, 99, 0),
         }.get(deadline_kind, (1, 99, 0))
-        # The editor is a definition, not a live urgency view. Keep inventory
-        # together above stats, make the simple untimed requirements easiest to
-        # scan, then group items from the rarest tier down. Runtime surfaces keep
-        # their own deadline-based ordering.
         kind_rank = {"item": 0, "stat": 1, "progress": 2}.get(kind, 3)
         untimed_rank = 0 if deadline_kind == "none" else 1
         rarity_rank = (
@@ -1136,7 +1228,6 @@ class BuildProgressionDialog(QDialog):
         self,
         row: dict,
         deadline: str,
-        required_text: str,
         *,
         last: bool,
     ) -> QWidget:
@@ -1156,22 +1247,36 @@ class BuildProgressionDialog(QDialog):
         target_label.setStyleSheet(_chip_stylesheet(target_colour))
         target_label.setToolTip(target)
         target_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        target_label.setMinimumWidth(64)
+        target_label.setWordWrap(False)
+        target_label.setMinimumWidth(max(64, target_label.fontMetrics().horizontalAdvance(target) + 20))
         layout.addWidget(target_label)
 
-        goal = QLabel(f"Required {required_text}")
+        kind = str(row.get("kind") or "item")
+        if kind == "item":
+            required_val = int(row.get("required", 1))
+            max_val = row.get("max_required")
+            cap = bool(row.get("cap_tracking", False))
+            if cap:
+                badge_text = "Cap Auto"
+            elif max_val is not None:
+                badge_text = f"Min {required_val} \u00b7 Max {int(max_val)}"
+            else:
+                badge_text = f"Required {required_val}"
+        else:
+            badge_text = f"Required {self._required_display(row)}"
+
+        goal = QLabel(badge_text)
         goal.setObjectName("condBadgeMuted")
-        goal.setToolTip(f"Required {required_text}")
+        goal.setToolTip(badge_text)
         goal.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        goal.setMinimumWidth(72)
+        goal.setWordWrap(False)
+        goal.setMinimumWidth(goal.fontMetrics().horizontalAdvance(badge_text) + 20)
         layout.addWidget(goal)
         layout.addStretch(1)
 
         deadline_label = QLabel(deadline)
         deadline_label.setObjectName("condBadge")
         layout.addWidget(deadline_label)
-        # Add the badge to the row before changing visibility. A parentless
-        # visible QWidget would briefly become a top-level window.
         deadline_label.setVisible(bool(deadline))
 
         rule_id = str(row.get("id") or "")
@@ -1253,6 +1358,9 @@ class BuildProgressionDialog(QDialog):
         for button in self._picker_buttons.values():
             button.setChecked(False)
         self.required.setValue(1)
+        self.min_required.setValue(1)
+        self.max_required.setValue(0)
+        self.cap_checkbox.setChecked(False)
         for button in self.deadline_group.buttons():
             if button.property("deadlineKind") == "none":
                 button.setChecked(True)
@@ -1289,17 +1397,19 @@ class BuildProgressionDialog(QDialog):
         if row is None:
             return
         self._editing_id = rule_id
-        kind_index = self.kind_combo.findData(str(row.get("kind") or "item"))
+        kind = str(row.get("kind") or "item")
+        kind_index = self.kind_combo.findData(kind)
         self.kind_combo.setCurrentIndex(max(0, kind_index))
         self.search.setText(str(row.get("target") or ""))
         self._refresh_picker()
         self._select_target(str(row.get("target") or ""))
-        entry_scale = (
-            self._stat_entry_scale(str(row.get("target") or ""))
-            if row.get("kind") == "stat"
-            else 1.0
-        )
-        self.required.setValue(float(row.get("required") or 1) * entry_scale)
+        entry_scale = self._stat_entry_scale(str(row.get("target") or "")) if kind == "stat" else 1.0
+        if kind == "item":
+            self.min_required.setValue(int(row.get("required") or 1))
+            self.max_required.setValue(int(row.get("max_required") or 0))
+            self.cap_checkbox.setChecked(bool(row.get("cap_tracking", False)))
+        else:
+            self.required.setValue(float(row.get("required") or 1) * entry_scale)
         deadline = row.get("deadline") or {}
         for button in self.deadline_group.buttons():
             if button.property("deadlineKind") == deadline.get("kind", "none"):
@@ -1339,10 +1449,13 @@ class BuildProgressionDialog(QDialog):
         return payload
 
     def _form_signature(self) -> tuple:
+        kind = str(self.kind_combo.currentData() or "item")
         return (
-            str(self.kind_combo.currentData() or "item"),
+            kind,
             self._selected_target(),
-            float(self.required.value()),
+            float(self.min_required.value()) if kind == "item" else float(self.required.value()),
+            int(self.max_required.value()) if kind == "item" else None,
+            bool(self.cap_checkbox.isChecked()) if kind == "item" else False,
             self._deadline_kind(),
             self.stage.currentData(),
             self.time_entry.text().strip(),

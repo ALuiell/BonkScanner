@@ -90,6 +90,7 @@ from app.read_sources import (
     MOB_KILLS,
     PASSIVE_ITEMS,
     POWERUP_TRACKING_SNAPSHOT,
+    SIZE,
     STAGE_TIMER_CONTEXT,
     OWNER_STATS,
     PLAYER_STATS_CLIENT,
@@ -390,6 +391,7 @@ class RefreshTasks:
         sync_in_game_kps: Callable[[], None],
         refresh_session_tracked_items: Callable[[], None],
         refresh_required: Callable[[], bool],
+        build_progression_service: Callable[[], Any] | None = None,
     ) -> None:
         self._memory = memory
         self._lifecycle = lifecycle
@@ -405,6 +407,7 @@ class RefreshTasks:
         self._sync_in_game_kps = sync_in_game_kps
         self._refresh_session_tracked_items = refresh_session_tracked_items
         self._refresh_required = refresh_required
+        self._build_progression_service = build_progression_service or (lambda: None)
 
         # Owned state. Initialised to the value the ``getattr`` default on the
         # app used to supply, so the read before the first write is unchanged.
@@ -535,6 +538,22 @@ class RefreshTasks:
         if callable(update_fast_luck):
             update_fast_luck(luck)
 
+    def _publish_fast_size(self, context: RefreshTickContext) -> None:
+        service = self._build_progression_service()
+        if not service or not getattr(service, "has_cap_demand", lambda: False)():
+            return
+        try:
+            client = self._fast_task_client(context)
+            owner_stats = self._fast_task_owner_stats(context)
+            size = read_memory_source(
+                context, SIZE, lambda: client.get_size(owner_stats)
+            )
+        except Exception:
+            size = None
+        update_fast_size = getattr(self._tracker(), "update_fast_size", None)
+        if callable(update_fast_size):
+            update_fast_size(size)
+
     def _publish_item_cooldowns(self, context: RefreshTickContext) -> None:
         """Timed-item cooldowns, from the same pass as the inventory.
 
@@ -652,6 +671,7 @@ class RefreshTasks:
         starve them.
         """
         self._publish_fast_luck(context)
+        self._publish_fast_size(context)
         self._publish_fast_map_activity(context)
         self._publish_item_cooldowns(context)
         try:
@@ -1030,7 +1050,15 @@ class RefreshTasks:
         return (
             self._should_refresh_full_player_snapshot()
             or in_game_overlay_widget_enabled("luck_rarity")
+            or self._build_progression_has_cap_demand()
         )
+
+    def _build_progression_has_cap_demand(self) -> bool:
+        try:
+            service = self._build_progression_service()
+            return service is not None and service.has_cap_demand()
+        except Exception:
+            return False
 
     def _should_refresh_chaos_tome(self) -> bool:
         if self._lifecycle().completed_run:
@@ -1146,6 +1174,7 @@ def refresh_tasks(owner) -> RefreshTasks:
         # service does not otherwise hold.
         refresh_session_tracked_items=lambda: owner.refresh_session_tracked_item_stats_ui(),
         refresh_required=lambda: player_stats_refresh_required(owner),
+        build_progression_service=lambda: getattr(owner, "build_progression_service", getattr(getattr(owner, "coordinator", None), "build_progression_service", None)),
     )
     if coordinator is not None:
         coordinator.refresh_tasks = service

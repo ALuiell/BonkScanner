@@ -271,6 +271,11 @@ class _BuildProgressionRow(QFrame):
         # complete and late; if the value regresses, the evaluator restores
         # the current deadline and the badge comes back automatically.
         timing = "" if status == "satisfied" else str(row.get("time") or "")
+        late = bool(row.get("late"))
+        if late:
+            self.symbol.setStyleSheet("color: #F97316;")
+        else:
+            self.symbol.setStyleSheet("")
         self.deadline.setText(timing)
         self.deadline.setVisible(bool(timing))
         self.setVisible(True)
@@ -748,9 +753,16 @@ class LiveStatsTab:
             return
         if payload.get("complete"):
             empty.hide()
-            complete.setText(
-                f"✓  BUILD COMPLETE  ·  {payload.get('completion_time') or '--:--'}"
-            )
+            if payload.get("late_complete"):
+                complete.setText(
+                    f"!  BUILD COMPLETE  ·  {payload.get('completion_time') or '--:--'}"
+                )
+                complete.setStyleSheet("color: #F97316;")
+            else:
+                complete.setText(
+                    f"✓  BUILD COMPLETE  ·  {payload.get('completion_time') or '--:--'}"
+                )
+                complete.setStyleSheet("")
             complete.show()
             footer.hide()
             self._hide_build_progression_rows()

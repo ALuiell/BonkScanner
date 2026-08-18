@@ -40,6 +40,7 @@ PASSIVE_ITEMS = "memory.player_stats.passive_items"
 # section 12.7's "one key per logical fact": "the whole stat block" and "the
 # rarity roll's only input" are not the same fact.
 LUCK = "memory.player_stats.luck"
+SIZE = "memory.player_stats.size"
 STAGE_TIMER_CONTEXT = "memory.player_stats.stage_timer_context"
 PLAYER_LEVEL = "memory.player_stats.player_level"
 LIVE_WEAPONS = "memory.player_stats.live_weapons"

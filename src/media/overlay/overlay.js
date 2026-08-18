@@ -184,7 +184,10 @@ function renderBuildProgression(state) {
     return `<div class="muted">Waiting for live run</div>`;
   }
   if (build.complete) {
-    return `<div class="build-complete">✓ BUILD COMPLETE <span>${escapeHtml(build.completion_time || "--:--")}</span></div>`;
+    if (build.late_complete) {
+      return `<div class="build-complete late">! BUILD COMPLETE <span>${escapeHtml(build.completion_time || "--:--")}</span></div>`;
+    }
+    return `<div class="build-complete">\u2713 BUILD COMPLETE <span>${escapeHtml(build.completion_time || "--:--")}</span></div>`;
   }
   const rows = Array.isArray(build.rows) ? build.rows : [];
   let lastKind = "";
@@ -194,7 +197,8 @@ function renderBuildProgression(state) {
       ? `<div class="build-section">${sectionLabels[row.kind] || "PROGRESS"}</div>`
       : "";
     lastKind = row.kind;
-    return `${heading}<div class="build-row status-${escapeHtml(row.status)}">
+    const lateClass = row.late ? " late" : "";
+    return `${heading}<div class="build-row status-${escapeHtml(row.status)}${lateClass}">
     <span class="build-symbol">${escapeHtml(row.symbol)}</span>
     <span class="build-label" style="color:${buildLabelColor(row.label_color)}">${escapeHtml(row.label)}</span>
     <strong>${escapeHtml(row.value)}</strong>

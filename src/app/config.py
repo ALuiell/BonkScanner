@@ -754,16 +754,49 @@ def normalize_build_definition_config(value, *, regenerate_ids=False, build_id=N
             requirement_id = uuid4().hex
         seen.add((kind, target))
         seen_ids.add(requirement_id)
-        normalized["requirements"].append(
-            {
-                "id": requirement_id,
-                "kind": kind,
-                "target": target,
-                "required": int(required) if kind in {"item", "progress"} else required,
-                "deadline": {"kind": deadline_kind, "stage": stage, "seconds": seconds},
-                "order": order,
-            }
-        )
+
+        # --- max_required (items only) ---
+        max_required_value = None
+        if kind == "item":
+            raw_max = raw.get("max_required")
+            if raw_max is not None:
+                try:
+                    max_required_value = float(raw_max)
+                except (TypeError, ValueError):
+                    max_required_value = None
+                if max_required_value is not None:
+                    if (
+                        not math.isfinite(max_required_value)
+                        or max_required_value <= 0
+                        or not max_required_value.is_integer()
+                        or max_required_value < required
+                    ):
+                        max_required_value = None
+                    else:
+                        max_required_value = int(max_required_value)
+
+        # --- cap_tracking (supported items only) ---
+        cap_tracking = False
+        if kind == "item":
+            from core.build_progression import CAP_SUPPORTED_ITEMS
+            if target in CAP_SUPPORTED_ITEMS:
+                cap_tracking = bool(raw.get("cap_tracking", False))
+            if cap_tracking:
+                required = 1  # force min=1 for cap-tracked items
+
+        requirement_entry = {
+            "id": requirement_id,
+            "kind": kind,
+            "target": target,
+            "required": int(required) if kind in {"item", "progress"} else required,
+            "deadline": {"kind": deadline_kind, "stage": stage, "seconds": seconds},
+            "order": order,
+        }
+        if max_required_value is not None:
+            requirement_entry["max_required"] = max_required_value
+        if cap_tracking:
+            requirement_entry["cap_tracking"] = True
+        normalized["requirements"].append(requirement_entry)
     return normalized
 
 

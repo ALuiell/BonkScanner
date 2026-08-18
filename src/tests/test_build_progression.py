@@ -946,6 +946,579 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertNotIn("Sucky Magnet", values["requirements"])
         self.assertIn("FAILED: × Sucky Magnet", values["failed_requirements"])
 
+    def test_late_flag_clears_when_items_drop_below_min(self):
+        """Losing items below min must clear late — no checkmark on 0/1."""
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, deadline=deadline,
+            ),),
+        )
+        # Satisfy after deadline → late=True
+        _tracker, snapshot1 = runtime(items=("Anvil",), stage=2)
+        result1 = evaluate_build_progression(definition, snapshot1)
+        self.assertTrue(result1.snapshot.rows[0].late)
+        self.assertEqual(result1.snapshot.rows[0].symbol, "✓")
+
+        # Lose the item → late must clear, no checkmark on 0/1
+        _tracker2, snapshot2 = runtime(items=(), stage=2)
+        result2 = evaluate_build_progression(
+            definition, snapshot2,
+            previous_min_satisfied_at=dict(result1.min_satisfied_at),
+            previous_late=dict(result1.late),
+        )
+        row = result2.snapshot.rows[0]
+        self.assertFalse(row.late)
+        self.assertNotEqual(row.symbol, "✓")
+        self.assertEqual(row.current_display, "0")
+
+    def test_cap_formula_basic_calculation(self):
+        """calculate_radius_cap(1.0) should return 5 since (3+5)*1.0=8."""
+        from core.build_progression import calculate_radius_cap
+        self.assertEqual(calculate_radius_cap(1.0), 5)
+
+    def test_cap_formula_small_size(self):
+        """Small Size needs more copies."""
+        from core.build_progression import calculate_radius_cap
+        # (3+n)*0.5 >= 8 => n >= 13
+        self.assertEqual(calculate_radius_cap(0.5), 13)
+
+    def test_cap_formula_large_size(self):
+        """Large Size needs fewer copies."""
+        from core.build_progression import calculate_radius_cap
+        # (3+n)*2.0 >= 8 => n >= 1
+        self.assertEqual(calculate_radius_cap(2.0), 1)
+
+    def test_cap_formula_invalid_size(self):
+        """Invalid size returns None."""
+        from core.build_progression import calculate_radius_cap
+        self.assertIsNone(calculate_radius_cap(0.0))
+        self.assertIsNone(calculate_radius_cap(-1.0))
+        self.assertIsNone(calculate_radius_cap(float('inf')))
+        self.assertIsNone(calculate_radius_cap(float('nan')))
+
+    def test_service_has_cap_demand(self):
+        """has_cap_demand returns True only when build has cap-tracked requirements."""
+        tracker, _ = runtime()
+        svc = BuildProgressionService(tracker, BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil", required=1,
+            ),),
+        ))
+        self.assertFalse(svc.has_cap_demand())
+
+        svc_cap = BuildProgressionService(tracker, BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r2", kind=RequirementKind.ITEM, target="Spicy Meatball", required=1, cap_tracking=True,
+            ),),
+        ))
+        self.assertTrue(svc_cap.has_cap_demand())
+
+    def test_service_resolves_dynamic_radius_cap_on_item_count_change(self):
+        """Service captures size and calculates cap when item count changes from 0 to 1."""
+        tracker = LiveRunTracker(clock=lambda: 10.0)
+        tracker.update(LiveRunSnapshot(captured_at=10.0, stats={}, items=(), stage_index=0))
+        tracker.update_fast_size(1.0)
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Spicy Meatball", required=1, cap_tracking=True,
+            ),),
+        )
+        svc = BuildProgressionService(tracker, definition)
+        snap1 = svc.snapshot()
+        self.assertTrue(snap1.rows[0].cap_unresolved)
+
+        # Player picks up first copy with size 1.0 -> cap becomes 5
+        tracker.update(LiveRunSnapshot(captured_at=11.0, stats={}, items=("Spicy Meatball",), stage_index=0))
+        snap2 = svc.snapshot()
+        self.assertFalse(snap2.rows[0].cap_unresolved)
+        self.assertEqual(snap2.rows[0].required_display, "5")
+
+    def test_service_latches_captured_size_until_item_count_changes(self):
+        """Cap does not fluctuate when size changes while item count stays constant."""
+        tracker = LiveRunTracker(clock=lambda: 10.0)
+        tracker.update(LiveRunSnapshot(captured_at=10.0, stats={}, items=("Spicy Meatball",), stage_index=0))
+        tracker.update_fast_size(1.0)
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Spicy Meatball", required=1, cap_tracking=True,
+            ),),
+        )
+        svc = BuildProgressionService(tracker, definition)
+        snap1 = svc.snapshot()
+        self.assertEqual(snap1.rows[0].required_display, "5")
+
+        # Size increases to 2.0 without item count changing -> cap stays latched at 5
+        tracker.update_fast_size(2.0)
+        snap2 = svc.snapshot()
+        self.assertEqual(snap2.rows[0].required_display, "5")
+
+        # Item count increases to 2 with size 2.0 -> cap recomputed to 1
+        tracker.update(LiveRunSnapshot(captured_at=12.0, stats={}, items=("Spicy Meatball", "Spicy Meatball"), stage_index=0))
+        snap3 = svc.snapshot()
+        self.assertEqual(snap3.rows[0].required_display, "1")
+
+    def test_min_max_evaluation_below_min(self):
+        """When current < min, display target is min and min_met is False."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, max_required=5,
+            ),),
+        )
+        _tracker, snap = runtime(items=())
+        result = evaluate_build_progression(definition, snap)
+        row = result.snapshot.rows[0]
+        self.assertEqual(row.current_display, "0")
+        self.assertEqual(row.required_display, "1")
+        self.assertFalse(row.min_met)
+        self.assertNotEqual(row.status, RequirementStatus.SATISFIED)
+
+    def test_min_max_evaluation_between_min_and_max(self):
+        """When min <= current < max, target switches to max and min_met is True."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, max_required=5,
+            ),),
+        )
+        _tracker, snap = runtime(items=("Anvil",) * 3)
+        result = evaluate_build_progression(definition, snap)
+        row = result.snapshot.rows[0]
+        self.assertEqual(row.current_display, "3")
+        self.assertEqual(row.required_display, "5")
+        self.assertTrue(row.min_met)
+        self.assertNotEqual(row.status, RequirementStatus.SATISFIED)
+        self.assertFalse(result.snapshot.complete)
+
+    def test_min_max_evaluation_at_or_above_max(self):
+        """When current >= max, requirement is SATISFIED."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, max_required=5,
+            ),),
+        )
+        _tracker, snap = runtime(items=("Anvil",) * 5)
+        result = evaluate_build_progression(definition, snap)
+        row = result.snapshot.rows[0]
+        self.assertEqual(row.current_display, "5")
+        self.assertEqual(row.required_display, "5")
+        self.assertEqual(row.status, RequirementStatus.SATISFIED)
+        self.assertTrue(result.snapshot.complete)
+
+    def test_min_max_deadline_neutralized_after_min_satisfied(self):
+        """Deadline applies only to min; after min is met, max phase is not overdue."""
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, max_required=5, deadline=deadline,
+            ),),
+        )
+        _tracker, snap = runtime(items=("Anvil",) * 2, stage=2)
+        result = evaluate_build_progression(definition, snap)
+        row = result.snapshot.rows[0]
+        self.assertTrue(row.min_met)
+        self.assertNotEqual(row.status, RequirementStatus.OVERDUE)
+        self.assertEqual(row.deadline.kind, DeadlineKind.NONE)
+
+    def test_min_max_row_sorting_keeps_pending_max_active(self):
+        """Row working on max copies sorts among active rules, not with completed ones."""
+        definition = BuildProgressionDefinition(
+            requirements=(
+                BuildRequirement(
+                    id="r1", kind=RequirementKind.ITEM, target="Boots",
+                    required=1,
+                ),
+                BuildRequirement(
+                    id="r2", kind=RequirementKind.ITEM, target="Anvil",
+                    required=1, max_required=5,
+                ),
+            ),
+        )
+        _tracker, snap = runtime(items=("Boots", "Anvil", "Anvil"))
+        result = evaluate_build_progression(definition, snap)
+        # Boots is satisfied (group 3), Anvil is in max phase (group 0)
+        self.assertEqual(result.snapshot.rows[0].target, "Anvil")
+        self.assertEqual(result.snapshot.rows[1].target, "Boots")
+
+    def test_cap_unresolved_shows_em_dash(self):
+        """When cap tracking is on but cap is unresolved, display current/\u2014."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Spicy Meatball",
+                required=1, cap_tracking=True,
+            ),),
+        )
+        _tracker, snap = runtime(items=("Spicy Meatball",))
+        result = evaluate_build_progression(
+            definition, snap,
+            effective_caps={"r1": None},
+        )
+        row = result.snapshot.rows[0]
+        self.assertEqual(row.current_display, "1")
+        self.assertEqual(row.required_display, "\u2014")
+        self.assertTrue(row.cap_unresolved)
+        self.assertFalse(result.snapshot.complete)
+
+    def test_cap_resolved_uses_calculated_target(self):
+        """When cap is resolved, it becomes the effective max."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Spicy Meatball",
+                required=1, cap_tracking=True,
+            ),),
+        )
+        _tracker, snap = runtime(items=("Spicy Meatball",) * 2)
+        result = evaluate_build_progression(
+            definition, snap,
+            effective_caps={"r1": 5},
+        )
+        row = result.snapshot.rows[0]
+        self.assertEqual(row.current_display, "2")
+        self.assertEqual(row.required_display, "5")
+        self.assertFalse(row.cap_unresolved)
+        self.assertNotEqual(row.status, RequirementStatus.SATISFIED)
+
+    def test_cap_satisfied_when_reaching_cap(self):
+        """Requirement is satisfied when current >= calculated cap."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Spicy Meatball",
+                required=1, cap_tracking=True,
+            ),),
+        )
+        _tracker, snap = runtime(items=("Spicy Meatball",) * 5)
+        result = evaluate_build_progression(
+            definition, snap,
+            effective_caps={"r1": 5},
+        )
+        row = result.snapshot.rows[0]
+        self.assertEqual(row.status, RequirementStatus.SATISFIED)
+        self.assertEqual(row.current_display, "5")
+        self.assertEqual(row.required_display, "5")
+        self.assertTrue(result.snapshot.complete)
+
+    def test_cap_first_stage_uses_deadline(self):
+        """Cap tracking first stage (0/1) respects deadline."""
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Spicy Meatball",
+                required=1, cap_tracking=True, deadline=deadline,
+            ),),
+        )
+        _tracker, snap = runtime(items=(), stage=2)
+        result = evaluate_build_progression(
+            definition, snap,
+            effective_caps={"r1": None},
+        )
+        row = result.snapshot.rows[0]
+        self.assertEqual(row.status, RequirementStatus.OVERDUE)
+
+    def test_requirement_satisfied_after_deadline_is_late(self):
+        """Obtaining min requirement after deadline marks row late and displays checkmark."""
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, deadline=deadline,
+            ),),
+        )
+        _tracker, snap = runtime(items=("Anvil",), stage=2)
+        result = evaluate_build_progression(definition, snap)
+        row = result.snapshot.rows[0]
+        self.assertTrue(row.late)
+        self.assertEqual(row.symbol, "✓")
+
+    def test_requirement_satisfied_before_deadline_is_not_late(self):
+        """Obtaining min requirement before deadline is not late."""
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, deadline=deadline,
+            ),),
+        )
+        _tracker, snap = runtime(items=("Anvil",), stage=1)
+        result = evaluate_build_progression(definition, snap)
+        row = result.snapshot.rows[0]
+        self.assertFalse(row.late)
+        self.assertEqual(row.symbol, "✓")
+
+    def test_late_flag_persists_through_max_stage(self):
+        """Late flag is remembered on subsequent ticks even while working toward max."""
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, max_required=5, deadline=deadline,
+            ),),
+        )
+        _tracker1, snap1 = runtime(items=("Anvil",), stage=2)
+        result1 = evaluate_build_progression(definition, snap1)
+        self.assertTrue(result1.snapshot.rows[0].late)
+
+        _tracker2, snap2 = runtime(items=("Anvil",) * 3, stage=2)
+        result2 = evaluate_build_progression(
+            definition, snap2,
+            previous_min_satisfied_at=dict(result1.min_satisfied_at),
+            previous_late=dict(result1.late),
+        )
+        row2 = result2.snapshot.rows[0]
+        self.assertTrue(row2.late)
+        self.assertNotEqual(row2.status, RequirementStatus.SATISFIED)
+        self.assertEqual(row2.symbol, "✓")
+
+    def test_late_complete_build_state(self):
+        """All done + some late = snapshot.late_complete is True."""
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(
+                BuildRequirement(
+                    id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                    required=1, deadline=deadline,
+                ),
+                BuildRequirement(
+                    id="r2", kind=RequirementKind.ITEM, target="Boots",
+                    required=1,
+                ),
+            ),
+        )
+        _tracker, snap = runtime(items=("Anvil", "Boots"), stage=2)
+        result = evaluate_build_progression(definition, snap)
+        self.assertTrue(result.snapshot.complete)
+        self.assertTrue(result.snapshot.late_complete)
+
+    def test_run_reset_clears_late_state(self):
+        """New run clears late flags via previous_late={}."""
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, deadline=deadline,
+            ),),
+        )
+        _tracker1, snap1 = runtime(items=("Anvil",), stage=2)
+        result1 = evaluate_build_progression(definition, snap1)
+        self.assertTrue(result1.snapshot.rows[0].late)
+
+        _tracker2, snap2 = runtime(items=("Anvil",), stage=1)
+        result2 = evaluate_build_progression(
+            definition, snap2,
+            previous_min_satisfied_at={},
+            previous_late={},
+        )
+        self.assertFalse(result2.snapshot.rows[0].late)
+
+    def test_config_normalization_validates_max_required(self):
+        """Config normalization validates max_required for items."""
+        # Valid max_required
+        res1 = config.normalize_build_definition_config({
+            "name": "Test",
+            "requirements": [{
+                "id": "r1", "kind": "item", "target": "Anvil",
+                "required": 1, "max_required": 10,
+            }],
+        })
+        self.assertEqual(res1["requirements"][0]["max_required"], 10)
+
+        # Invalid: max < required -> stripped
+        res2 = config.normalize_build_definition_config({
+            "name": "Test",
+            "requirements": [{
+                "id": "r2", "kind": "item", "target": "Boots",
+                "required": 5, "max_required": 3,
+            }],
+        })
+        self.assertNotIn("max_required", res2["requirements"][0])
+
+        # Invalid: max on stat -> stripped
+        res3 = config.normalize_build_definition_config({
+            "name": "Test",
+            "requirements": [{
+                "id": "r3", "kind": "stat", "target": "Damage",
+                "required": 100, "max_required": 200,
+            }],
+        })
+        self.assertNotIn("max_required", res3["requirements"][0])
+
+    def test_config_normalization_cap_tracking_only_supported_items(self):
+        """Only CAP_SUPPORTED_ITEMS allow cap_tracking; unsupported items ignore it."""
+        res_supported = config.normalize_build_definition_config({
+            "name": "Test",
+            "requirements": [{
+                "id": "r1", "kind": "item", "target": "Spicy Meatball",
+                "required": 1, "cap_tracking": True,
+            }],
+        })
+        self.assertTrue(res_supported["requirements"][0]["cap_tracking"])
+
+        res_unsupported = config.normalize_build_definition_config({
+            "name": "Test",
+            "requirements": [{
+                "id": "r2", "kind": "item", "target": "Anvil",
+                "required": 1, "cap_tracking": True,
+            }],
+        })
+        self.assertNotIn("cap_tracking", res_unsupported["requirements"][0])
+
+    def test_config_normalization_cap_tracking_forces_min_one(self):
+        """Enabling cap_tracking forces required min to 1."""
+        res = config.normalize_build_definition_config({
+            "name": "Test",
+            "requirements": [{
+                "id": "r1", "kind": "item", "target": "Spicy Meatball",
+                "required": 5, "cap_tracking": True,
+            }],
+        })
+        self.assertEqual(res["requirements"][0]["required"], 1)
+
+    def test_export_import_preserves_max_required(self):
+        """Export/import round-trip preserves max_required."""
+        build = config.normalize_build_definition_config({
+            "name": "Cap Test",
+            "requirements": [{
+                "id": "r1", "kind": "item", "target": "Anvil",
+                "required": 1, "max_required": 15,
+            }],
+        })
+        payload = build_export_payload(build)
+        self.assertEqual(
+            payload["build"]["requirements"][0]["max_required"], 15,
+        )
+        imported = config.normalize_build_definition_config(payload["build"])
+        self.assertEqual(imported["requirements"][0]["max_required"], 15)
+
+    def test_export_import_preserves_cap_tracking(self):
+        """Export/import round-trip preserves cap_tracking."""
+        build = config.normalize_build_definition_config({
+            "name": "Cap Test",
+            "requirements": [{
+                "id": "r1", "kind": "item", "target": "Spicy Meatball",
+                "required": 1, "cap_tracking": True,
+            }],
+        })
+        payload = build_export_payload(build)
+        self.assertTrue(payload["build"]["requirements"][0]["cap_tracking"])
+        imported = config.normalize_build_definition_config(payload["build"])
+        self.assertTrue(imported["requirements"][0]["cap_tracking"])
+
+    def test_clone_build_config_preserves_max_required_and_cap_tracking(self):
+        """Cloning a build retains max_required and cap_tracking."""
+        build = config.normalize_build_definition_config({
+            "name": "Original",
+            "requirements": [
+                {
+                    "id": "r1", "kind": "item", "target": "Anvil",
+                    "required": 1, "max_required": 10,
+                },
+                {
+                    "id": "r2", "kind": "item", "target": "Spicy Meatball",
+                    "required": 1, "cap_tracking": True,
+                },
+            ],
+        })
+        cloned = clone_build_config(build)
+        self.assertEqual(cloned["requirements"][0]["max_required"], 10)
+        self.assertTrue(cloned["requirements"][1]["cap_tracking"])
+
+    def test_late_row_stays_in_payload_when_completed_rows_are_hidden(self):
+        """Late completed rows are never hidden even when show_completed is False."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1,
+                deadline=RequirementDeadline(kind=DeadlineKind.STAGE_START, stage=2),
+            ),),
+        )
+        _tracker, snap = runtime(items=("Anvil",), stage=2)
+        eval_res = evaluate_build_progression(definition, snap)
+        payload = build_progression_payload(eval_res.snapshot, {"show_completed": False})
+        self.assertEqual(len(payload["rows"]), 1)
+        self.assertTrue(payload["rows"][0]["late"])
+
+    def test_payload_includes_late_complete_flag(self):
+        """Projection payload carries late_complete flag from snapshot."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1,
+                deadline=RequirementDeadline(kind=DeadlineKind.STAGE_START, stage=2),
+            ),),
+        )
+        _tracker, snap = runtime(items=("Anvil",), stage=2)
+        eval_res = evaluate_build_progression(definition, snap)
+        payload = build_progression_payload(eval_res.snapshot)
+        self.assertTrue(payload["late_complete"])
+
+    def test_payload_cap_unresolved_row(self):
+        """Projection payload includes cap_unresolved boolean on rows."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Spicy Meatball",
+                required=1, cap_tracking=True,
+            ),),
+        )
+        _tracker, snap = runtime(items=("Spicy Meatball",))
+        eval_res = evaluate_build_progression(definition, snap, effective_caps={"r1": None})
+        payload = build_progression_payload(eval_res.snapshot)
+        self.assertTrue(payload["rows"][0]["cap_unresolved"])
+        self.assertEqual(payload["rows"][0]["value"], "1/\u2014")
+
+    def test_twitch_late_complete_prefix(self):
+        """When late_complete is True, Twitch title uses '! BUILD COMPLETE' prefix."""
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1,
+                deadline=RequirementDeadline(kind=DeadlineKind.STAGE_START, stage=2),
+            ),),
+        )
+        _tracker, snap = runtime(items=("Anvil",), stage=2)
+        eval_res = evaluate_build_progression(definition, snap)
+        values = format_twitch_build(eval_res.snapshot)
+        self.assertIn("! BUILD COMPLETE", values["progress"])
+
+    def test_twitch_late_requirements_group(self):
+        """Twitch output includes late requirements in separate group."""
+        definition = BuildProgressionDefinition(
+            requirements=(
+                BuildRequirement(
+                    id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                    required=1,
+                    deadline=RequirementDeadline(kind=DeadlineKind.STAGE_START, stage=2),
+                ),
+                BuildRequirement(
+                    id="r2", kind=RequirementKind.ITEM, target="Boots",
+                    required=1,
+                ),
+            ),
+        )
+        _tracker, snap = runtime(items=("Anvil",), stage=2)
+        eval_res = evaluate_build_progression(definition, snap)
+        values = format_twitch_build(eval_res.snapshot)
+        self.assertIn("LATE: ✓ Anvil", values["late_requirements"])
+
+
 
 class BuildProgressionLibraryTests(unittest.TestCase):
     @staticmethod

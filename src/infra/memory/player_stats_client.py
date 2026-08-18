@@ -446,6 +446,25 @@ class PlayerStatsClient:
             self._cached_stats_entries = 0
             return None
 
+    def get_size(self, owner_stats: int | None = None) -> float | None:
+        """Read Size (stat 9) with up to three physical attempts.
+
+        Each failed cached-pointer attempt resets the cache so the next
+        attempt can re-resolve the pointer chain.  The per-pass source
+        cache in the coordinator still exposes one logical SIZE result.
+        """
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        spec = PLAYER_STAT_SPEC_BY_LABEL.get("Size")
+        if spec is None or spec.offset is None:
+            return None
+        for _ in range(3):
+            try:
+                entries = self._resolve_stats_entries_cached(owner_stats)
+                return self.memory.read_float(entries + spec.offset)
+            except MemoryReadError:
+                self._cached_stats_entries = 0
+        return None
+
     def get_current_gold(self, owner_stats: int | None = None) -> int:
         owner_stats = owner_stats or self._resolve_owner_stats()
         try:

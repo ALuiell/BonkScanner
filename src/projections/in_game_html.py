@@ -72,6 +72,11 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
         return "<div style='color:#8c96a8'>Waiting for live run</div>" if edit_mode else ""
     shadow = TEXT_SHADOW
     if payload.get("complete"):
+        if payload.get("late_complete"):
+            return (
+                f"<div style='color:#F97316;font-weight:800;text-shadow:{shadow}'>"
+                f"! BUILD COMPLETE · {escape(str(payload.get('completion_time') or '--:--'))}</div>"
+            )
         return (
             f"<div style='color:#59d890;font-weight:800;text-shadow:{shadow}'>"
             f"✓ BUILD COMPLETE · {escape(str(payload.get('completion_time') or '--:--'))}</div>"
@@ -94,12 +99,16 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
         last_kind = kind
         status = str(row.get("status") or "unknown")
         color = colors.get(status, "#d7dde5")
+        # Late rows use orange for the symbol column
+        symbol_color = "#F97316" if row.get("late") else color
+        timing_color = "#F97316" if row.get("late") else color
         # Unknown already reads as ``--`` in the value column. A leading '?'
         # repeats that fact and looks like corrupt text when every row is still
         # waiting for the first inventory read.
+        is_late = bool(row.get("late"))
         symbol = (
             ""
-            if status in {"unknown", "neutral"}
+            if status in {"unknown", "neutral"} and not is_late
             else str(row.get("symbol") or "")
         )
         timing = escape(str(row.get("time") or ""))
@@ -112,13 +121,13 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
             label_color = "#d7dde5"
         rows.append(
             "<tr>"
-            f"<td width='16' style='color:{color};text-shadow:{shadow};white-space:nowrap;'>"
+            f"<td width='16' style='color:{symbol_color};text-shadow:{shadow};white-space:nowrap;'>"
             f"<b>{escape(symbol)}</b>&nbsp;</td>"
             f"<td style='color:{label_color};text-shadow:{shadow};white-space:nowrap;'>"
             f"{escape(str(row.get('label') or '--'))}&nbsp;&nbsp;</td>"
             f"<td align='right' style='color:#d7dde5;text-shadow:{shadow};white-space:nowrap;'>"
             f"<b>{escape(str(row.get('value') or '--'))}</b>&nbsp;&nbsp;</td>"
-            f"<td align='right' style='color:{color};text-shadow:{shadow};white-space:nowrap;'>"
+            f"<td align='right' style='color:{timing_color};text-shadow:{shadow};white-space:nowrap;'>"
             f"{timing}</td>"
             "</tr>"
         )

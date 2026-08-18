@@ -214,6 +214,7 @@ class RuntimeStateSnapshot:
     # ``None`` means no fresh read -- never "Luck is zero", which is a real
     # reading the rarity model produces a valid distribution from.
     luck: float | None = None
+    size: float | None = None
     # The inventory, from the same 1 s ``PASSIVE_ITEMS`` pass that publishes
     # ``luck``. ``latest_snapshot.items`` is the 10 s snapshot's copy -- the fast
     # lane never appends a snapshot, it publishes here and folds its deltas into
@@ -289,6 +290,12 @@ class FastLuck:
 
     captured_at: float = 0.0
     luck: float | None = None
+
+
+@dataclass
+class FastSize:
+    captured_at: float = 0.0
+    size: float | None = None
 
 
 @dataclass

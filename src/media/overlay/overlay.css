@@ -553,7 +553,10 @@ body {
 .build-row.status-warning .build-symbol, .build-row.status-warning .build-time { color: #f1c861; }
 .build-row.status-overdue .build-symbol, .build-row.status-overdue .build-time { color: #ff6f76; }
 .build-row.status-satisfied .build-symbol, .build-row.status-satisfied .build-time { color: #59d890; }
+.build-row.late .build-symbol { color: #F97316; }
+.build-row.late .build-time { color: #F97316; }
 .build-complete { color: #59d890; font-weight: 800; letter-spacing: .04em; }
+.build-complete.late { color: #F97316; }
 .build-complete span { margin-left: calc(8px * var(--scale)); color: rgba(255,255,255,.75); }
 
 .banishes-widget .panel-title {

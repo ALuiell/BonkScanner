@@ -94,14 +94,72 @@ Proposed layouts:
 
 ### Build Progression
 
-Status: `[Open]`
+Status: `[Partial]`
 
-Remaining open work:
+Implemented behavior:
 
-- Add an optional background panel behind the Build Progression widget in the In-Game Overlay so its text remains readable against the game world. Reuse the visual style of the existing OBS Overlay Build Progression widget and add a checkbox to the `In-Game Overlay` tab for enabling or disabling the background.
 - Keep each entry in the Build Requirements list on one line instead of wrapping its deadline and action controls onto a second line.
 - Apply the base item-rarity colours consistently. Verify that the `Stonks` power-up colour is visually distinct from the legendary-item colour rather than using the same colour one-to-one.
-- Add item-specific progress rules for `Spicy Meatball` and other items whose progress cannot be represented correctly by the generic inventory-copy count.
+
+Planned item-requirement behavior:
+
+- Keep the existing single required-copy target when no maximum is configured.
+- Support a two-stage requirement with `Minimum copies` and an optional `Maximum copies`.
+- Keep both controls in the existing `Required` row: `Min [value]` and `Max [value]`. A blank `Max` means no final target and introduces no additional control.
+- The overlay must keep one compact count column between the item name and deadline, without `max` labels or parenthetical metadata:
+  - before the minimum: `0/1`;
+  - after the minimum is reached: `1/15`;
+  - after the maximum is reached: `15/15` with the normal satisfied state.
+- The count column stays visually separate from the item name; do not press it directly against the item label.
+- The existing deadline control applies to the minimum stage. The maximum stage has no separate deadline in the first release.
+- Evaluate the two stages as follows:
+  - while the current count is below `Min`, the minimum is the active target;
+  - after `Min` is reached and while the current count is below `Max`, the maximum becomes the active target;
+  - when no `Max` is configured, reaching `Min` completes the requirement;
+  - when `Max` is configured, only reaching `Max` completes the requirement and contributes the final completed count in the build header.
+- Validate both inputs as positive integers. A blank `Max` means no second stage; when present, `Max` must be greater than or equal to `Min`. Existing definitions with one `required` value migrate that value to `Min` and leave `Max` blank.
+
+Planned dynamic-cap behavior:
+
+- Initially support `Track radius cap` for [Spicy Meatball](https://www.megabonkinfo.org/item/spicy-meatball) and [Grandma's Secret Tonic](https://www.megabonkinfo.org/item/grandmas-secret-tonic). It is off by default.
+- With cap tracking off, the item uses the normal manual minimum/optional-maximum requirement.
+- Show the cap option as one checkbox below the two count controls. Do not expose it for ordinary items.
+- With cap tracking on, replace the normal controls with `First copy [1]` and `Cap [Auto]`. The first-copy value is fixed and the cap field is not manually editable.
+- Preserve a manually entered maximum while cap tracking is enabled so turning the checkbox off restores the previous normal requirement.
+- With cap tracking on, the first stage is a fixed `0/1` requirement with its own configurable deadline. The player must receive at least one copy before that deadline even when one copy does not reach the cap.
+- Receiving the first copy captures `Size` and starts the second stage by replacing the target with the calculated cap count. The cap stage has no separate deadline in the first release.
+- A later item-count change may recalculate the cap from the new captured runtime inputs, so a row may advance as `1/5`, then `2/3`, then `3/3`.
+- Use the documented radius formula for both initially supported items without requiring a separate live-verification gate: `Radius(n, S) = min(max((3 + n) * S, 1), 8)`. The automatic target is the smallest whole copy count `n` that reaches radius `8`.
+- Treat an active Build Progression cap rule as consumer demand for a narrow named `SIZE` source in the coordinator-owned passive-items task, following the existing fast `LUCK` source pattern. Build Progression must not call the memory client directly.
+- While that demand exists, resolve `SIZE` alongside `PASSIVE_ITEMS` in every due passive-items pass and publish both through the tracker/runtime snapshot. When the item count changes, capture the `Size` value from that same coordinator pass; do not wait for the normal 10-second full player-stats snapshot.
+- The narrow `get_size` reader may make up to three immediate physical attempts inside its one coordinator source resolution. Each failed cached-pointer attempt must allow the next attempt to resolve the pointer again. The per-pass source cache still exposes one logical `SIZE` result to all consumers.
+- If all three attempts in the pickup pass fail, keep the cap target unresolved and render a neutral count such as `1/—`. Do not substitute `1.0`, the previous full snapshot, or another invented numeric value because it could falsely claim that the cap was reached. A later successful `Size` sample must not be retroactively assigned to that pickup; attempt a new capture only on the next observed copy-count change.
+- Keep the overlay compact: show only the item name, current/target count, status symbol, and the first-stage deadline when configured. Do not display Size, radius, formulas, or technical metadata there.
+- If extra copies of an auto-cap item are picked up beyond the calculated cap (e.g. 1 copy is enough for the cap, but a 2nd copy is obtained), do not artificially raise the required count to match current copies — keep the required target as the calculated cap and display `2/1`, not `2/2`.
+
+Colour and status behavior:
+
+- Keep the item name in its rarity colour.
+- Keep the current/target count neutral.
+- Use green only for the normal on-time satisfied state; keep yellow and red exclusively for warning and overdue deadlines.
+- Do not introduce a separate colour for dynamic-cap requirements.
+- Keep the status symbol in its own leading column before the item name on every overlay surface.
+- A requirement obtained after its minimum deadline becomes `late completed` rather than returning to the normal on-time state. Show both the leading status symbol AND the deadline text on the right in orange (`#F97316`) instead of green text, and retain that late state while its optional maximum or dynamic cap is being tracked.
+- Do not hide late-completed requirements when ordinary completed rows are hidden. When all final targets are complete but at least one requirement was late, use the corresponding late build-complete state instead of the normal fully on-time state.
+
+Known issues & planned fixes:
+
+1. **Auto-cap count target on extra pickups**: When a player obtains extra copies beyond what is required to reach the max cap (e.g., cap is satisfied with 1 copy, but a 2nd copy drops), the target count should remain at the calculated cap requirement (displaying `2/1`), rather than inflating the required target to match the current count (`2/2`).
+2. **Late deadline text coloring**: When a requirement is fulfilled after its deadline expires, both the leading checkmark symbol and the deadline text label on the right must be colored orange (`#F97316`), rather than displaying an orange checkmark with green deadline text.
+3. **State retention on mid-run build replacement**: When `replace_definition` is invoked mid-run (e.g., when the user edits and saves build settings during an active game), retain historical timestamps and flags (`_min_satisfied_at`, `_satisfied_at`, `_late`, `_cap_states`) for existing requirements instead of clearing them. This prevents previously on-time completed requirements from falsely converting into late-completed state on the subsequent evaluation tick.
+
+Shared behavior:
+
+- Apply the same min/max stages, cap targets, count formatting, and late-completed state to Live Stats, OBS Overlay, In-Game Overlay, and Twitch `!build`; all four surfaces must consume the same evaluated Build Progression snapshot.
+
+Deferred:
+
+- Defer the optional background panel for the Build Progression widget in the In-Game Overlay. Revisit it only if the brighter rarity colours and existing text treatment stop being sufficiently readable against the game world.
 
 ### In-Game Map Activity Markers
 

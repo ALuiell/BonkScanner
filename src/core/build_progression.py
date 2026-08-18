@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 from math import isfinite
 from typing import Mapping
 
@@ -53,6 +54,22 @@ STATUS_SYMBOLS: Mapping[RequirementStatus, str] = {
 }
 
 
+CAP_SUPPORTED_ITEMS: frozenset[str] = frozenset({
+    "Spicy Meatball",
+    "Grandma's Secret Tonic",
+})
+
+
+def calculate_radius_cap(size: float) -> int | None:
+    """Smallest copy count n where Radius(n, S) = min(max((3+n)*S, 1), 8) reaches 8."""
+    if not math.isfinite(size) or size <= 0:
+        return None
+    n = max(1, math.ceil(8.0 / size - 3))
+    while min(max((3 + n) * size, 1), 8) < 8 and n < 10000:
+        n += 1
+    return n
+
+
 @dataclass(frozen=True)
 class RequirementDeadline:
     kind: DeadlineKind = DeadlineKind.NONE
@@ -68,6 +85,8 @@ class BuildRequirement:
     required: float
     deadline: RequirementDeadline = RequirementDeadline()
     order: int = 0
+    max_required: float | None = None
+    cap_tracking: bool = False
 
 
 @dataclass(frozen=True)
@@ -93,6 +112,11 @@ class BuildProgressionRow:
     symbol: str
     satisfied_at_seconds: float | None
     order: int
+    max_required: float | None = None
+    late: bool = False
+    cap_unresolved: bool = False
+    min_met: bool = False
+    cap_tracking: bool = False
 
 
 @dataclass(frozen=True)
@@ -107,6 +131,7 @@ class BuildProgressionSnapshot:
     complete: bool
     completion_time_seconds: float | None
     rows: tuple[BuildProgressionRow, ...]
+    late_complete: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,6 +139,8 @@ class BuildProgressionEvaluation:
     snapshot: BuildProgressionSnapshot
     satisfied_at: Mapping[str, float]
     completion_time_seconds: float | None
+    late: Mapping[str, bool]
+    min_satisfied_at: Mapping[str, float]
 
 
 def format_clock(seconds: float | None) -> str:
@@ -140,9 +167,15 @@ def evaluate_build_progression(
     *,
     previous_satisfied_at: Mapping[str, float] | None = None,
     previous_completion_time_seconds: float | None = None,
+    previous_min_satisfied_at: Mapping[str, float] | None = None,
+    previous_late: Mapping[str, bool] | None = None,
+    effective_caps: Mapping[str, int | None] | None = None,
 ) -> BuildProgressionEvaluation:
     """Evaluate the configured build without reading or mutating external state."""
     previous_satisfied_at = previous_satisfied_at or {}
+    previous_min_satisfied_at = previous_min_satisfied_at or {}
+    previous_late = previous_late or {}
+    effective_caps = effective_caps or {}
     run_time = runtime.run_timer_seconds
     latest = runtime.latest_snapshot
     items = runtime.fast_items
@@ -156,6 +189,8 @@ def evaluate_build_progression(
 
     rows: list[BuildProgressionRow] = []
     next_satisfied: dict[str, float] = {}
+    next_min_satisfied_at: dict[str, float] = {}
+    next_late: dict[str, bool] = {}
     for requirement in definition.requirements:
         current, stat_value = _current_value(
             requirement,
@@ -163,13 +198,64 @@ def evaluate_build_progression(
             stats,
             latest,
         )
-        satisfied = current is not None and current >= requirement.required
+        # --- Min/Max and Cap logic ---
+        effective_max = requirement.max_required
+        cap_unresolved = False
+        if requirement.cap_tracking:
+            resolved_cap = effective_caps.get(requirement.id)
+            if resolved_cap is not None:
+                effective_max = float(resolved_cap)
+            else:
+                # Cap tracking active but Size unavailable
+                effective_max = None
+                cap_unresolved = True
+
+        min_met = current is not None and current >= requirement.required
+        if effective_max is not None:
+            satisfied = current is not None and current >= effective_max
+        elif cap_unresolved and min_met:
+            # Cap unresolved: min reached but cannot confirm max
+            satisfied = False
+        else:
+            satisfied = min_met
+
+        effective_target = requirement.required
+        if min_met and effective_max is not None:
+            effective_target = effective_max
+
         deadline = (
             requirement.deadline
             if definition.deadlines_enabled
             else RequirementDeadline()
         )
         deadline_status, delta = _deadline_status(deadline, runtime)
+
+        # --- Late detection (before deadline neutralization) ---
+        min_newly_satisfied = min_met and requirement.id not in previous_min_satisfied_at
+        if min_newly_satisfied:
+            late = deadline_status is RequirementStatus.OVERDUE
+        elif min_met:
+            late = previous_late.get(requirement.id, False)
+        else:
+            late = False
+
+        # Disable deadline for max/cap stage (deadline applies only to min)
+        if min_met and (effective_max is not None or cap_unresolved):
+            deadline = RequirementDeadline()
+            deadline_status, delta = RequirementStatus.NEUTRAL, None
+
+        # Track min_satisfied_at
+        if min_met:
+            min_sat = previous_min_satisfied_at.get(requirement.id)
+            if min_sat is None and run_time is not None:
+                min_sat = max(0.0, float(run_time))
+            if min_sat is not None:
+                next_min_satisfied_at[requirement.id] = min_sat
+
+        if late:
+            next_late[requirement.id] = True
+
+        # --- Status assignment ---
         if current is None:
             status = RequirementStatus.UNKNOWN
         elif satisfied:
@@ -196,16 +282,28 @@ def evaluate_build_progression(
                 kind=requirement.kind,
                 target=requirement.target,
                 current=current,
-                required=requirement.required,
+                required=effective_target,
                 current_display=_display_value(requirement, current, stat_value),
-                required_display=_display_value(requirement, requirement.required, stat_value),
+                required_display=(
+                    "\u2014" if cap_unresolved and min_met
+                    else _display_value(requirement, effective_target, stat_value)
+                ),
                 deadline=deadline,
                 deadline_label=format_deadline(deadline),
                 time_delta_seconds=delta,
                 status=status,
-                symbol=STATUS_SYMBOLS[status],
+                # A late minimum is still obtained, even while an optional
+                # maximum/cap remains in progress. Keep the leading checkmark
+                # and let each projection colour it orange instead of showing
+                # the ordinary neutral-dot symbol.
+                symbol="✓" if late else STATUS_SYMBOLS[status],
                 satisfied_at_seconds=satisfied_at,
                 order=requirement.order,
+                max_required=effective_max,
+                late=late,
+                cap_unresolved=cap_unresolved,
+                min_met=min_met,
+                cap_tracking=requirement.cap_tracking,
             )
         )
 
@@ -213,6 +311,7 @@ def evaluate_build_progression(
     total = len(rows)
     completed = sum(row.status is RequirementStatus.SATISFIED for row in rows)
     complete = bool(total) and completed == total
+    late_complete = complete and any(row.late for row in rows)
     completion_time = previous_completion_time_seconds if complete else None
     if complete and completion_time is None and run_time is not None:
         completion_time = max(0.0, float(run_time))
@@ -228,8 +327,11 @@ def evaluate_build_progression(
         complete=complete,
         completion_time_seconds=completion_time,
         rows=tuple(rows),
+        late_complete=late_complete,
     )
-    return BuildProgressionEvaluation(snapshot, next_satisfied, completion_time)
+    return BuildProgressionEvaluation(
+        snapshot, next_satisfied, completion_time, next_late, next_min_satisfied_at
+    )
 
 
 def _current_value(requirement, item_counts, stats, latest):
@@ -365,6 +467,10 @@ def _row_sort_key(row: BuildProgressionRow):
         group = 0
     else:
         group = 1
+    # Late rows that are not fully satisfied (working on max/cap)
+    # sort among active rows, not among completed.
+    if row.late and row.status is not RequirementStatus.SATISFIED:
+        group = 0  # treat as untimed active
     deadline_rank = delta if delta is not None else float("inf")
     return (
         group,
