@@ -1087,8 +1087,8 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertNotIn("Sucky Magnet", values["requirements"])
         self.assertIn("FAILED: × Sucky Magnet", values["failed_requirements"])
 
-    def test_late_flag_clears_when_items_drop_below_min(self):
-        """Losing items below min must clear late — no checkmark on 0/1."""
+    def test_late_flag_persists_when_items_drop_below_min(self):
+        """The first Min result remains late even if current inventory drops."""
         deadline = RequirementDeadline(
             kind=DeadlineKind.STAGE_START, stage=2,
         )
@@ -1104,7 +1104,8 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertTrue(result1.snapshot.rows[0].late)
         self.assertEqual(result1.snapshot.rows[0].symbol, "✓")
 
-        # Lose the item → late must clear, no checkmark on 0/1
+        # Lose the item: current progress reopens, but the first Min result is
+        # still late and must not be reclassified by a later pickup.
         _tracker2, snapshot2 = runtime(items=(), stage=2)
         result2 = evaluate_build_progression(
             definition, snapshot2,
@@ -1112,9 +1113,104 @@ class BuildProgressionTests(unittest.TestCase):
             previous_late=dict(result1.late),
         )
         row = result2.snapshot.rows[0]
-        self.assertFalse(row.late)
-        self.assertNotEqual(row.symbol, "✓")
+        self.assertTrue(row.late)
+        self.assertEqual(row.symbol, "✓")
         self.assertEqual(row.current_display, "0")
+
+    def test_on_time_min_survives_an_unavailable_sample_after_deadline(self):
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, deadline=deadline,
+            ),),
+        )
+        _tracker, on_time = runtime(items=("Anvil",), stage=1, time=100.0)
+        first = evaluate_build_progression(definition, on_time)
+        self.assertFalse(first.snapshot.rows[0].late)
+
+        unavailable = replace(
+            on_time,
+            current_stage_index=2,
+            fast_items=None,
+            latest_snapshot=replace(
+                on_time.latest_snapshot,
+                items=(),
+                items_available=False,
+            ),
+        )
+        missing = evaluate_build_progression(
+            definition,
+            unavailable,
+            previous_min_satisfied_at=first.min_satisfied_at,
+            previous_late=first.late,
+        )
+        _tracker, restored = runtime(items=("Anvil",), stage=2, time=700.0)
+        final = evaluate_build_progression(
+            definition,
+            restored,
+            previous_min_satisfied_at=missing.min_satisfied_at,
+            previous_late=missing.late,
+        )
+
+        self.assertEqual(dict(missing.min_satisfied_at), {"r1": 100.0})
+        self.assertIn("r1", missing.late)
+        self.assertFalse(final.snapshot.rows[0].late)
+
+    def test_on_time_min_does_not_become_overdue_after_value_drops(self):
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, deadline=deadline,
+            ),),
+        )
+        _tracker, on_time = runtime(items=("Anvil",), stage=1, time=100.0)
+        first = evaluate_build_progression(definition, on_time)
+        _tracker, dropped = runtime(items=(), stage=2, time=700.0)
+        reopened = evaluate_build_progression(
+            definition,
+            dropped,
+            previous_min_satisfied_at=first.min_satisfied_at,
+            previous_late=first.late,
+        )
+
+        row = reopened.snapshot.rows[0]
+        self.assertFalse(row.min_met)
+        self.assertFalse(row.late)
+        self.assertIs(row.status, RequirementStatus.NEUTRAL)
+        self.assertEqual(row.deadline.kind, DeadlineKind.NONE)
+
+    def test_on_time_min_without_a_timer_is_still_remembered(self):
+        deadline = RequirementDeadline(
+            kind=DeadlineKind.STAGE_START, stage=2,
+        )
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1", kind=RequirementKind.ITEM, target="Anvil",
+                required=1, deadline=deadline,
+            ),),
+        )
+        _tracker, on_time = runtime(items=("Anvil",), stage=1, time=100.0)
+        first = evaluate_build_progression(
+            definition,
+            replace(on_time, run_timer_seconds=None),
+        )
+        self.assertEqual(dict(first.min_satisfied_at), {})
+        self.assertEqual(dict(first.late), {"r1": False})
+
+        _tracker, overdue = runtime(items=("Anvil",), stage=2, time=700.0)
+        final = evaluate_build_progression(
+            definition,
+            overdue,
+            previous_min_satisfied_at=first.min_satisfied_at,
+            previous_late=first.late,
+        )
+        self.assertFalse(final.snapshot.rows[0].late)
 
     def test_cap_formula_basic_calculation(self):
         """calculate_radius_cap(1.0) should return 5 since (3+5)*1.0=8."""
@@ -1201,6 +1297,33 @@ class BuildProgressionTests(unittest.TestCase):
         tracker.update(LiveRunSnapshot(captured_at=12.0, stats={}, items=("Spicy Meatball", "Spicy Meatball"), stage_index=0))
         snap3 = svc.snapshot()
         self.assertEqual(snap3.rows[0].required_display, "1")
+
+    def test_service_retries_unresolved_cap_when_size_recovers(self):
+        tracker = LiveRunTracker(clock=lambda: 10.0)
+        tracker.update(LiveRunSnapshot(
+            captured_at=10.0,
+            stats={},
+            items=("Spicy Meatball",),
+            stage_index=0,
+        ))
+        definition = BuildProgressionDefinition(
+            requirements=(BuildRequirement(
+                id="r1",
+                kind=RequirementKind.ITEM,
+                target="Spicy Meatball",
+                required=1,
+                cap_tracking=True,
+            ),),
+        )
+        svc = BuildProgressionService(tracker, definition)
+
+        unresolved = svc.snapshot()
+        self.assertTrue(unresolved.rows[0].cap_unresolved)
+
+        tracker.update_fast_size(0.5)
+        recovered = svc.snapshot()
+        self.assertFalse(recovered.rows[0].cap_unresolved)
+        self.assertEqual(recovered.rows[0].required_display, "13")
 
     def test_min_max_evaluation_below_min(self):
         """When current < min, display target is min and min_met is False."""

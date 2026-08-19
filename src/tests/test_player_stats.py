@@ -1893,6 +1893,60 @@ class PlayerStatsTimelineTests(unittest.TestCase):
 
         self.assertEqual(banishes, ("Clover", "Golden Tome"))
 
+    def test_banish_hashset_reads_fail_closed_on_broken_entries(self) -> None:
+        set_address = 0x24000000
+        slots = 0x24000100
+        item_data = 0x24000200
+        slot = slots + PlayerStatsClient.HASHSET_SLOT_START_OFFSET
+        memory = FakeMemory(
+            pointers={
+                set_address + PlayerStatsClient.HASHSET_SLOTS_OFFSET: slots,
+                slot + PlayerStatsClient.HASHSET_SLOT_VALUE_OFFSET: item_data,
+            },
+            ints={
+                set_address + PlayerStatsClient.HASHSET_COUNT_OFFSET: 1,
+                set_address + PlayerStatsClient.HASHSET_LAST_INDEX_OFFSET: 1,
+                slot + PlayerStatsClient.HASHSET_SLOT_HASH_CODE_OFFSET: 1,
+                # The item enum read is intentionally absent. Returning an empty
+                # or partial tuple here would poison the persistent baseline.
+            },
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        with self.assertRaises(MemoryReadError):
+            client._read_banished_items_set(set_address)
+
+    def test_banish_hashset_rejects_an_active_null_value(self) -> None:
+        set_address = 0x25000000
+        slots = 0x25000100
+        slot = slots + PlayerStatsClient.HASHSET_SLOT_START_OFFSET
+        memory = FakeMemory(
+            pointers={
+                set_address + PlayerStatsClient.HASHSET_SLOTS_OFFSET: slots,
+                slot + PlayerStatsClient.HASHSET_SLOT_VALUE_OFFSET: 0,
+            },
+            ints={
+                set_address + PlayerStatsClient.HASHSET_COUNT_OFFSET: 1,
+                set_address + PlayerStatsClient.HASHSET_LAST_INDEX_OFFSET: 1,
+                slot + PlayerStatsClient.HASHSET_SLOT_HASH_CODE_OFFSET: 1,
+            },
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        with self.assertRaises(MemoryReadError):
+            client._read_hashset_object_values(set_address)
+
+    def test_get_live_banishes_rejects_uninitialized_roots(self) -> None:
+        memory = build_player_stats_memory()
+        type_info = (
+            memory.module_base + PlayerStatsClient.RUN_UNLOCKABLES_TYPE_INFO_OFFSET
+        )
+        memory.pointers[type_info] = 0
+        client = PlayerStatsClient(memory=memory)
+
+        with self.assertRaises(MemoryReadError):
+            client.get_live_banishes()
+
     def test_format_chaos_tome_stat_delta_converts_pickup_range_to_meters(self) -> None:
         self.assertEqual(
             format_chaos_tome_stat_delta("Pickup Range", 2.72, PlayerStatFormat.FLAT),

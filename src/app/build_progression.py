@@ -337,7 +337,7 @@ class BuildProgressionService:
             state = self._cap_states.get(req.id, _CapState())
             if current < 1:
                 state = _CapState()
-            elif current != state.last_item_count:
+            elif current != state.last_item_count or state.calculated_cap is None:
                 size = getattr(runtime, "size", None)
                 if size is not None and size > 0:
                     cap = calculate_radius_cap(size)

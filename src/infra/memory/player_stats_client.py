@@ -1469,16 +1469,18 @@ class PlayerStatsClient:
         )
         class_ptr = self.memory.read_ptr(type_info_address)
         if not class_ptr:
-            return ()
+            raise MemoryReadError("Run unlockables type info is not initialized.")
 
         static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
         if not static_fields:
-            return ()
+            raise MemoryReadError("Run unlockables static fields are not initialized.")
 
         item_set = self.memory.read_ptr(static_fields + self.RUN_UNLOCKABLES_BANISHED_ITEMS_OFFSET)
         upgradable_set = self.memory.read_ptr(
             static_fields + self.RUN_UNLOCKABLES_BANISHED_UPGRADABLES_OFFSET
         )
+        if not item_set or not upgradable_set:
+            raise MemoryReadError("Run banish sets are not initialized.")
         item_banishes = self._read_banished_items_set(item_set)
         upgradable_banishes = self._read_banished_upgradables_set(upgradable_set)
         return tuple(item_banishes + upgradable_banishes)
@@ -2592,10 +2594,9 @@ class PlayerStatsClient:
         values = self._read_hashset_object_values(set_address)
         banishes: list[str] = []
         for value in values:
-            try:
-                item_id = self.memory.read_i32(value + self.ITEM_DATA_ENUM_OFFSET)
-            except MemoryReadError:
-                continue
+            # A partial persistent set is not a usable sample: callers cannot
+            # distinguish a recovered old entry from a newly banished item.
+            item_id = self.memory.read_i32(value + self.ITEM_DATA_ENUM_OFFSET)
             raw_name = ITEM_ENUM_NAMES_BY_ID.get(item_id)
             if raw_name is None:
                 banishes.append(f"Item {item_id}")
@@ -2608,18 +2609,18 @@ class PlayerStatsClient:
         values = self._read_hashset_object_values(set_address)
         banishes: list[str] = []
         for value in values:
-            try:
-                klass = self.memory.read_ptr(value + self.OBJECT_KLASS_OFFSET)
-                name_ptr = self.memory.read_ptr(klass + self.KLASS_NAME_PTR_OFFSET) if klass else 0
-                class_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
-            except MemoryReadError:
-                class_name = None
+            klass = self.memory.read_ptr(value + self.OBJECT_KLASS_OFFSET)
+            if not klass:
+                raise MemoryReadError("Banished upgradable class pointer is null.")
+            name_ptr = self.memory.read_ptr(klass + self.KLASS_NAME_PTR_OFFSET)
+            if not name_ptr:
+                raise MemoryReadError("Banished upgradable class name pointer is null.")
+            class_name = self.memory.read_ascii_string(name_ptr)
+            if not class_name:
+                raise MemoryReadError("Banished upgradable class name is unreadable.")
 
             if class_name == "TomeData":
-                try:
-                    tome_id = self.memory.read_i32(value + self.TOME_DATA_ENUM_OFFSET)
-                except MemoryReadError:
-                    continue
+                tome_id = self.memory.read_i32(value + self.TOME_DATA_ENUM_OFFSET)
                 tome_name = TOME_NAMES_BY_ID.get(tome_id, f"Tome {tome_id}")
                 banishes.append(f"{tome_name} Tome")
                 continue
@@ -2657,8 +2658,13 @@ class PlayerStatsClient:
             if hash_code < 0:
                 continue
             value = self.memory.read_ptr(slot + self.HASHSET_SLOT_VALUE_OFFSET)
-            if value:
-                values.append(value)
+            if not value:
+                raise MemoryReadError("Active banish HashSet slot has a null value.")
+            values.append(value)
+        if len(values) != count:
+            raise MemoryReadError(
+                f"Banish HashSet read is partial: expected {count}, got {len(values)}"
+            )
         return values
 
     @staticmethod

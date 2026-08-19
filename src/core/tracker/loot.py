@@ -139,6 +139,7 @@ class _LootState:
     banish_baseline_initialized: bool = False
     seen_banishes: set[str] = field(default_factory=set)
     counter_values: dict[str, int] = field(default_factory=dict)
+    last_counter_read_at: float | None = None
     map_identity: tuple[int, int | None] | None = None
     last_game_time_seconds: float | None = None
     expected_detected_run_reset: bool = False
@@ -159,6 +160,7 @@ def _clear_run_totals(state: _LootState) -> None:
     state.banish_baseline_initialized = False
     state.seen_banishes.clear()
     state.counter_values = {}
+    state.last_counter_read_at = None
     state.map_identity = None
     state.last_game_time_seconds = None
 
@@ -318,6 +320,7 @@ def _clear_map_scoped_state(state: _LootState) -> None:
     state.pending_moai_exclusions = 0
     state.pending_shady_exclusions = []
     state.counter_values = {}
+    state.last_counter_read_at = None
 
 
 def update_interactable_counters(
@@ -334,6 +337,7 @@ def update_interactable_counters(
     reading the whole standing count as a burst of increments.
     """
     map_generation_seen = False
+    previous_counter_read_at = state.last_counter_read_at
     for label, raw_value in counters.items():
         try:
             value = int(raw_value)
@@ -356,7 +360,12 @@ def update_interactable_counters(
             state.map_chest_opens += delta
             continue
         if label == MOAI_COUNTER_LABEL:
-            state.pending_moai_exclusions += delta
+            _open_moai_exclusions(
+                state,
+                delta,
+                opened_at=captured_at,
+                previous_counter_read_at=previous_counter_read_at,
+            )
         elif label == SHADY_GUY_COUNTER_LABEL:
             _open_shady_exclusions(state, delta, opened_at=captured_at)
 
@@ -368,7 +377,36 @@ def update_interactable_counters(
         state.pending_moai_exclusions = 0
         state.pending_shady_exclusions = []
 
+    state.last_counter_read_at = float(captured_at)
     _expire_shady_exclusions(state, captured_at)
+
+
+def _open_moai_exclusions(
+    state: _LootState,
+    count: int,
+    *,
+    opened_at: float,
+    previous_counter_read_at: float | None,
+) -> None:
+    """Reconcile a Moai delta in either observation order.
+
+    Normally the counter is read before the item gain and opens the untimed
+    forward exclusion.  After one or more failed counter reads, however, the
+    gain may already have been confirmed and scored.  In that case undo the
+    most recent scored gain from the unobserved counter interval instead of
+    leaving a stale exclusion for an unrelated future chest item.
+    """
+    for _ in range(max(0, int(count))):
+        if (
+            previous_counter_read_at is not None
+            and _exclude_recorded_gain_since(
+                state,
+                after=previous_counter_read_at,
+                through=opened_at,
+            )
+        ):
+            continue
+        state.pending_moai_exclusions += 1
 
 
 def _open_shady_exclusions(
@@ -396,12 +434,38 @@ def _exclude_recorded_gain(state: _LootState, opened_at: float) -> bool:
             continue
         if opened_at - recorded.captured_at > SHADY_GUY_BACKWARD_WINDOW_SECONDS:
             break
-        state.actual[recorded.tier] = max(0, state.actual[recorded.tier] - 1)
-        for tier, contribution in recorded.expected.items():
-            state.expected[tier] = max(0.0, state.expected[tier] - contribution)
-        del state.recent_gains[index]
+        _remove_recorded_gain(state, index)
         return True
     return False
+
+
+def _exclude_recorded_gain_since(
+    state: _LootState,
+    *,
+    after: float,
+    through: float,
+) -> bool:
+    """Undo the newest scored gain inside a counter-source observation gap."""
+    for index in range(len(state.recent_gains) - 1, -1, -1):
+        recorded = state.recent_gains[index]
+        if recorded.captured_at > through:
+            continue
+        # Counter publication precedes item publication inside one pass, so a
+        # gain with the same timestamp as the previous counter sample belongs
+        # to the interval after that sample and remains eligible.
+        if recorded.captured_at < after:
+            break
+        _remove_recorded_gain(state, index)
+        return True
+    return False
+
+
+def _remove_recorded_gain(state: _LootState, index: int) -> None:
+    recorded = state.recent_gains[index]
+    state.actual[recorded.tier] = max(0, state.actual[recorded.tier] - 1)
+    for tier, contribution in recorded.expected.items():
+        state.expected[tier] = max(0.0, state.expected[tier] - contribution)
+    del state.recent_gains[index]
 
 
 def _expire_shady_exclusions(state: _LootState, now: float) -> None:

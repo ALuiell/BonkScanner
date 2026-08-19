@@ -288,6 +288,27 @@ class LootExclusionTests(unittest.TestCase):
         run.acquire(LEGENDARY_ITEMS[0], counters={**idle, loot.MOAI_COUNTER_LABEL: 1})
         self.assertEqual(run.actual()["LEGENDARY"], 0)
 
+    def test_late_moai_counter_reconciles_the_already_counted_gain(self) -> None:
+        """Counter-source failures must not leave an untimed stale exclusion."""
+        idle = {loot.MOAI_COUNTER_LABEL: 0, loot.SHADY_GUY_COUNTER_LABEL: 0}
+        used = {**idle, loot.MOAI_COUNTER_LABEL: 1}
+        run = LootRun().begin()
+        run.tick(counters=idle)
+
+        # The map-activity source is unavailable while the independent inventory
+        # source observes and confirms the Moai grant.
+        run.tick(run.items + (LEGENDARY_ITEMS[0],))
+        run.tick()
+        self.assertEqual(run.actual()["LEGENDARY"], 1)
+
+        # On recovery, the delayed counter delta removes that already-scored
+        # gain rather than arming an exclusion for the next unrelated item.
+        run.tick(counters=used)
+        self.assertEqual(run.actual()["LEGENDARY"], 0)
+
+        run.acquire(COMMON_ITEM, counters=used)
+        self.assertEqual(run.actual()["COMMON"], 1)
+
     def test_moai_exclusion_clears_on_map_transition(self) -> None:
         idle = {loot.MOAI_COUNTER_LABEL: 0, loot.SHADY_GUY_COUNTER_LABEL: 0}
         run = LootRun().begin()

@@ -189,8 +189,21 @@ def evaluate_build_progression(
 
     rows: list[BuildProgressionRow] = []
     next_satisfied: dict[str, float] = {}
-    next_min_satisfied_at: dict[str, float] = {}
-    next_late: dict[str, bool] = {}
+    # Reaching Min is a historical run event, not a property of only the latest
+    # sample.  Keep it through a temporarily unavailable read or a later value
+    # decrease; the service already clears/filters this state at run and
+    # definition boundaries.
+    requirement_ids = {requirement.id for requirement in definition.requirements}
+    next_min_satisfied_at: dict[str, float] = {
+        requirement_id: timestamp
+        for requirement_id, timestamp in previous_min_satisfied_at.items()
+        if requirement_id in requirement_ids
+    }
+    next_late: dict[str, bool] = {
+        requirement_id: was_late
+        for requirement_id, was_late in previous_late.items()
+        if requirement_id in requirement_ids
+    }
     for requirement in definition.requirements:
         current, stat_value = _current_value(
             requirement,
@@ -231,29 +244,39 @@ def evaluate_build_progression(
         deadline_status, delta = _deadline_status(deadline, runtime)
 
         # --- Late detection (before deadline neutralization) ---
-        min_newly_satisfied = min_met and requirement.id not in previous_min_satisfied_at
+        min_was_satisfied = (
+            requirement.id in previous_min_satisfied_at
+            or requirement.id in previous_late
+        )
+        min_newly_satisfied = min_met and not min_was_satisfied
         if min_newly_satisfied:
             late = deadline_status is RequirementStatus.OVERDUE
-        elif min_met:
+        elif min_was_satisfied:
             late = previous_late.get(requirement.id, False)
         else:
             late = False
 
-        # Disable deadline for max/cap stage (deadline applies only to min)
-        if min_met and (effective_max is not None or cap_unresolved):
+        # The deadline judges the first Min achievement.  Hide it while a
+        # second target is active and also when a previously achieved Min later
+        # drops below its threshold; that reopened progress must not become
+        # overdue after having already met the deadline.
+        if (
+            min_met and (effective_max is not None or cap_unresolved)
+        ) or (min_was_satisfied and not min_met):
             deadline = RequirementDeadline()
             deadline_status, delta = RequirementStatus.NEUTRAL, None
 
         # Track min_satisfied_at
         if min_met:
+            # Store both outcomes.  A False entry is the durable evidence that
+            # Min was first reached on time even when no run timer was available
+            # to populate `min_satisfied_at` on that pass.
+            next_late[requirement.id] = late
             min_sat = previous_min_satisfied_at.get(requirement.id)
             if min_sat is None and run_time is not None:
                 min_sat = max(0.0, float(run_time))
             if min_sat is not None:
                 next_min_satisfied_at[requirement.id] = min_sat
-
-        if late:
-            next_late[requirement.id] = True
 
         # --- Status assignment ---
         if current is None:
