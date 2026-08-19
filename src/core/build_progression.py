@@ -241,6 +241,7 @@ def evaluate_build_progression(
             if definition.deadlines_enabled
             else RequirementDeadline()
         )
+        configured_deadline_label = format_deadline(deadline)
         deadline_status, delta = _deadline_status(deadline, runtime)
 
         # --- Late detection (before deadline neutralization) ---
@@ -312,7 +313,11 @@ def evaluate_build_progression(
                     else _display_value(requirement, effective_target, stat_value)
                 ),
                 deadline=deadline,
-                deadline_label=format_deadline(deadline),
+                deadline_label=(
+                    configured_deadline_label
+                    if satisfied and min_met and effective_max is not None
+                    else format_deadline(deadline)
+                ),
                 time_delta_seconds=delta,
                 status=status,
                 # A late minimum is still obtained, even while an optional

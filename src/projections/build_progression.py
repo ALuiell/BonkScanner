@@ -131,14 +131,17 @@ def _display_sort_key(row) -> tuple[int, float, int]:
     if not satisfied and row.min_met:
         # Min is complete while Max, Ideal, or a dynamic cap remains active.
         return 1, deadline_rank, row.order
+    if satisfied and row.late:
+        # A completed Max/Ideal/Cap neutralizes its Min deadline in the domain
+        # row, so `deadline_label` can be empty here. Late is historical state
+        # and must win over the visual absence of a deadline label.
+        return 4, 0.0, row.order
     if not row.deadline_label:
         # Untimed rows form the last part of the active block. Keep an
         # unfinished untimed target ahead of an already completed one.
         return 2, 0.0 if not satisfied else 1.0, row.order
-    if satisfied and not row.late:
-        return 3, 0.0, row.order
     if satisfied:
-        return 4, 0.0, row.order
+        return 3, 0.0, row.order
     # The deadline has passed and Min was never reached.
     return 5, deadline_rank, row.order
 

@@ -811,7 +811,14 @@ class BuildProgressionTests(unittest.TestCase):
 
     def test_projection_orders_rows_by_user_facing_lifecycle(self):
         _tracker, snap = runtime(
-            items=("Anvil", "Boots", "Joe's Dagger", "Ice Cube"),
+            items=(
+                "Anvil",
+                "Boots",
+                "Joe's Dagger",
+                "Ice Cube",
+                "Dragonfire",
+                "Dragonfire",
+            ),
             stage=1,
             stage_time=631,
             duration=600,
@@ -833,6 +840,14 @@ class BuildProgressionTests(unittest.TestCase):
             ),
             BuildRequirement(
                 "done-late", RequirementKind.ITEM, "Ice Cube", 1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=0,
+                ),
+            ),
+            BuildRequirement(
+                "done-late-max", RequirementKind.ITEM,
+                "Dragonfire", 1,
+                max_required=2,
                 deadline=RequirementDeadline(
                     DeadlineKind.STAGE_OVERTIME, stage=1, seconds=0,
                 ),
@@ -884,9 +899,14 @@ class BuildProgressionTests(unittest.TestCase):
                 "done-untimed",
                 "done-timed",
                 "done-late",
+                "done-late-max",
                 "missing-overdue",
             ],
         )
+        rows_by_id = {row["id"]: row for row in payload["rows"]}
+        self.assertEqual(rows_by_id["active"]["time"], "TO MAX")
+        self.assertEqual(rows_by_id["done-late-max"]["time"], "T1 +00:00")
+        self.assertTrue(rows_by_id["done-late-max"]["late"])
 
     def test_in_game_build_values_start_at_the_left_edge_of_the_value_column(self):
         _tracker, snap = runtime(items=())
