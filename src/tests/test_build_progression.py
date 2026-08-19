@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
 )
 
 from core.build_progression import (
@@ -48,8 +49,10 @@ from projections.in_game_html import build_build_progression_overlay_html
 from twitch_bot import TwitchBotWorker
 from ui.dialogs.build_progression import (
     BuildProgressionDialog,
+    BuildProgressionHelpDialog,
     BuildProgressionManagerDialog,
 )
+from ui.dialogs.shell import DIALOG_TALL, DIALOG_WIDE
 
 
 def runtime(
@@ -87,6 +90,33 @@ def runtime(
 
 
 class BuildProgressionTests(unittest.TestCase):
+    def test_help_guide_uses_shared_chrome_and_covers_the_full_workflow(self):
+        dialog = BuildProgressionHelpDialog()
+        self.addCleanup(dialog.done, QDialog.Rejected)
+        text = " ".join(label.text() for label in dialog.findChildren(QLabel))
+
+        self.assertEqual(dialog.minimumWidth(), DIALOG_WIDE)
+        self.assertEqual(dialog.size().height(), DIALOG_TALL)
+        self.assertEqual(len(dialog.findChildren(QScrollArea)), 1)
+        self.assertIsNotNone(dialog.findChild(QPushButton, "primary"))
+        for phrase in (
+            "Set Active",
+            "duplicate",
+            "Items",
+            "Stats",
+            "Progress",
+            "Max",
+            "Ideal",
+            "Cap",
+            "Before tier",
+            "Show completed",
+            "OBS widget",
+            "in-game overlay",
+            "!build",
+            "reset when a new run begins",
+        ):
+            self.assertIn(phrase, text)
+
     def test_editor_groups_items_before_stats_with_untimed_items_first(self):
         rows = [
             {
@@ -676,13 +706,35 @@ class BuildProgressionTests(unittest.TestCase):
         )
         self.assertEqual(
             [row["id"] for row in with_completed["rows"]],
-            ["done", "one"],
+            ["one", "done"],
         )
         self.assertEqual(with_completed["hidden_completed"], 0)
         self.assertEqual(with_completed["hidden_remaining"], 1)
         twitch = format_twitch_build(result, max_chars=15)
         self.assertIn("more", twitch["requirements"])
         self.assertIn("COMPLETED:", twitch["completed_requirements"])
+
+    def test_row_limit_is_applied_after_lifecycle_sorting(self):
+        _tracker, snap = runtime(items=(), stage=1, stage_time=0, duration=600)
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement(
+                "untimed", RequirementKind.ITEM, "Anvil", 1,
+            ),
+            BuildRequirement(
+                "active-min", RequirementKind.ITEM, "Ice Cube", 1,
+                deadline=RequirementDeadline(
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=300,
+                ),
+            ),
+        ))
+
+        payload = build_progression_payload(
+            evaluate_build_progression(definition, snap).snapshot,
+            {"max_rows": 1},
+        )
+
+        self.assertEqual([row["id"] for row in payload["rows"]], ["active-min"])
+        self.assertEqual(payload["hidden_remaining"], 1)
 
     def test_projection_uses_shared_base_item_rarity_colours(self):
         from core.item_metadata import ITEM_RARITY_COLOR_MAP
@@ -729,12 +781,12 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(
             [row["id"] for row in payload["rows"]],
             [
-                "done-item",
                 "active-item",
-                "done-stat",
+                "done-item",
                 "active-stat",
-                "done-progress",
+                "done-stat",
                 "active-progress",
+                "done-progress",
             ],
         )
         self.assertEqual(html.count(">ITEMS</span>"), 1)
@@ -769,7 +821,7 @@ class BuildProgressionTests(unittest.TestCase):
                 "active", RequirementKind.ITEM, "Anvil", 1,
                 max_required=5,
                 deadline=RequirementDeadline(
-                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=0,
+                    DeadlineKind.STAGE_OVERTIME, stage=1, seconds=120,
                 ),
             ),
             BuildRequirement("done-untimed", RequirementKind.ITEM, "Boots", 1),
@@ -824,15 +876,15 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(
             [row["id"] for row in payload["rows"]],
             [
+                "warning-close",
+                "warning-far",
+                "missing-timed",
                 "active",
+                "missing-untimed",
                 "done-untimed",
                 "done-timed",
                 "done-late",
                 "missing-overdue",
-                "warning-close",
-                "warning-far",
-                "missing-timed",
-                "missing-untimed",
             ],
         )
 

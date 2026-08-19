@@ -53,6 +53,11 @@ def build_progression_payload(
             for row in completed
             if row.kind.value == kind
         ]
+    # The row limit applies after lifecycle ordering. Otherwise the evaluator's
+    # storage order can consume the visible slots before an active Min target
+    # (the first thing the player still needs to work on) reaches the renderer.
+    incomplete.sort(key=_display_sort_key)
+    completed.sort(key=_display_sort_key)
     shown_incomplete = incomplete[:max_rows]
     visible = shown_incomplete + (completed if show_completed else [])
     visible.sort(key=_display_sort_key)
@@ -109,29 +114,33 @@ def build_progression_payload(
     }
 
 
-def _display_sort_key(row) -> tuple[int, float]:
+def _display_sort_key(row) -> tuple[int, float, int]:
     """Order each rendered section by the row's user-facing lifecycle."""
     satisfied = row.status is RequirementStatus.SATISFIED
+    overdue = row.status is RequirementStatus.OVERDUE and not row.late
+    deadline_rank = (
+        float(row.time_delta_seconds)
+        if row.time_delta_seconds is not None
+        else float("inf")
+    )
+
+    if not satisfied and not row.min_met and row.deadline_label and not overdue:
+        # The current Min target is still actionable. Warning rows naturally
+        # rise within this group as their remaining time approaches zero.
+        return 0, deadline_rank, row.order
     if not satisfied and row.min_met:
         # Min is complete while Max, Ideal, or a dynamic cap remains active.
-        return 0, 0.0
-    if satisfied and not row.late and not row.deadline_label:
-        return 1, 0.0
+        return 1, deadline_rank, row.order
+    if not row.deadline_label:
+        # Untimed rows form the last part of the active block. Keep an
+        # unfinished untimed target ahead of an already completed one.
+        return 2, 0.0 if not satisfied else 1.0, row.order
     if satisfied and not row.late:
-        return 2, 0.0
+        return 3, 0.0, row.order
     if satisfied:
-        return 3, 0.0
-
-    delta = row.time_delta_seconds
-    deadline_rank = float(delta) if delta is not None else float("inf")
-    if row.status is RequirementStatus.OVERDUE:
-        # A tier-start deadline has no numeric delta, but it is already missed.
-        return 4, deadline_rank if delta is not None else float("-inf")
-    if row.status is RequirementStatus.WARNING:
-        return 5, deadline_rank
-    if row.deadline_label:
-        return 6, deadline_rank
-    return 7, 0.0
+        return 4, 0.0, row.order
+    # The deadline has passed and Min was never reached.
+    return 5, deadline_rank, row.order
 
 
 def _progress_hint(row) -> str:

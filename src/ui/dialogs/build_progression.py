@@ -12,7 +12,7 @@ from uuid import uuid4
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog,
-    QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QFileDialog, QLineEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy,
     QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
@@ -42,6 +42,7 @@ from ui.dialogs.shell import (
     DIALOG_TALL,
     DIALOG_WIDE,
     dialog_body,
+    dialog_card,
     dialog_danger_card,
     dialog_footer,
     dialog_info_card,
@@ -185,33 +186,119 @@ class BuildProgressionHelpDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("How Build Progression Works")
+        self.setModal(True)
         layout = dialog_body(
             self,
             title="How Build Progression Works",
-            subtitle="One live checklist shared by Live Stats, overlays, and Twitch.",
-            width=DIALOG_REGULAR,
-            height=520,
+            subtitle="A complete guide to building, tracking, and displaying your live checklist.",
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
         )
-        text = QLabel(
-            "<b>Required</b><br>The configured amount controls completion.<br><br>"
-            "<b>Targets</b><br>Items track inventory, Stats track player attributes, "
-            "and Progress tracks run goals such as kills or player level.<br><br>"
-            "<b>Deadlines</b><br>Use no deadline, require the target before a tier begins, "
-            "or set an overtime minute inside a tier. Yellow means two minutes remain; red "
-            "means the requirement is late.<br><br>"
-            "<b>Every run starts clean</b><br>The build definition is saved, but completed, "
-            "late, and completion-time state resets when a new run begins.<br><br>"
-            "<b>Active build</b><br>Your library can contain many builds. The active one is shared "
-            "by Live Stats, OBS, the in-game overlay, and Twitch, while each overlay keeps its own "
-            "size and row-limit settings."
+
+        scroll = QScrollArea()
+        scroll.setObjectName("buildProgressionGuideScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_content = QWidget()
+        scroll_content.setObjectName("cardContent")
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 4, 0)
+        scroll_layout.setSpacing(10)
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, 1)
+
+        scroll_layout.addWidget(
+            dialog_info_card(
+                "<b>1. Create a build and make it active</b><br><br>"
+                "Open <b>Build Progression</b> from the Live Stats tab. Your library can hold "
+                "multiple builds: create, configure, duplicate, delete, import, or export them "
+                "as JSON files.<br><br>"
+                "Only one build is tracked at a time. Select <b>Set Active</b> on its library "
+                "card; editing another build does not activate it."
+            )
         )
-        text.setWordWrap(True)
-        text.setTextFormat(Qt.RichText)
-        text.setAlignment(Qt.AlignTop)
-        layout.addWidget(text, 1)
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>2. Add and arrange requirements</b><br><br>"
+                "Choose a target from the catalog, enter its required value, configure an "
+                "optional deadline, and add it to the checklist. Existing rows can be edited, "
+                "reordered, or removed before you save the build.<br><br>"
+                "&bull; <b>Items</b> track copies in the inventory.<br>"
+                "&bull; <b>Stats</b> track live player attributes; the editor handles percentage "
+                "and multiplier display formats for you.<br>"
+                "&bull; <b>Progress</b> tracks whole-number run goals such as Kills and Player Level."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_info_card(
+                "<b>3. Min, Max, Ideal, and Cap targets</b><br><br>"
+                "The required value is the <b>Min</b>. An item may also have a <b>Max</b>, and a "
+                "stat may have an <b>Ideal</b>. Once Min is reached, the displayed target switches "
+                "to Max or Ideal and stays active until that second target is reached. The live "
+                "checklist shows only the new number, without a Max or Ideal label.<br><br>"
+                "Supported radius items can use <b>Cap</b> instead of a fixed Max. Cap starts with "
+                "the first copy and calculates the remaining copies from the captured Size stat; "
+                "it updates as the run changes. An em dash means the cap cannot be resolved yet.<br><br>"
+                "Progress requirements use one target only."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>4. Deadlines apply to Min</b><br><br>"
+                "Choose <b>No deadline</b>, <b>Before tier</b>, or <b>Tier overtime</b>. Before tier "
+                "must be completed before that tier starts; Tier overtime adds a minute target "
+                "inside the selected tier.<br><br>"
+                "The deadline judges when Min was first reached. Reaching Max, Ideal, or Cap later "
+                "does not make an on-time Min late. If Min was late, that late result remains visible "
+                "while the second target is active and after the full requirement is completed.<br><br>"
+                "A deadline turns yellow in its final two minutes and red when overdue."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>5. Read the live checklist</b><br><br>"
+                "Rows are grouped as <b>Items, Stats, then Progress</b>. Item names use rarity "
+                "colours, Stats are blue, and Progress is teal. Symbols and deadline colours show "
+                "whether a row is active, completed on time, or completed late.<br><br>"
+                "Within each group, active Min targets come first, followed by active Max, Ideal, "
+                "or Cap targets and then rows without deadlines. Completed-on-time rows follow, "
+                "then rows completed late, with overdue unfinished requirements at the end. "
+                "Active Min targets with the nearest deadlines rise within their group."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_info_card(
+                "<b>6. Control what remains visible</b><br><br>"
+                "Turn <b>Show completed</b> off to remove every fully completed row, including "
+                "requirements completed late. A row that has reached Min but is still working "
+                "toward Max, Ideal, or Cap remains visible because it is still active.<br><br>"
+                "The row limit caps how many unfinished requirements are shown. When nothing "
+                "remains, the widget collapses to the build-complete state."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>7. One active build, several live surfaces</b><br><br>"
+                "The same active build and runtime progress are shared by the <b>Live Stats</b> "
+                "tab, <b>OBS widget</b>, <b>in-game overlay</b>, and Twitch <b>!build</b> command. "
+                "Changing the active build updates every surface.<br><br>"
+                "Display controls are independent: OBS and the in-game overlay keep their own "
+                "enabled state, scale, row limit, and Show completed preference where available."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_note(
+                "Build definitions stay saved between runs, but live completion, late status, "
+                "and completion times reset when a new run begins. If a live value falls below "
+                "its current target, that requirement can become active again."
+            )
+        )
+        scroll_layout.addStretch(1)
+
+        close_button = QPushButton("Got It")
+        close_button.clicked.connect(self.accept)
+        dialog_footer(self, primary=close_button)
 
 
 class BuildProgressionManagerDialog(QDialog):
