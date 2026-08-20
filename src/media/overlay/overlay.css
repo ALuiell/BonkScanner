@@ -62,7 +62,11 @@ body {
   align-items: start;
   gap: calc(6px * var(--scale));
   width: fit-content;
-  max-width: min(100vw, 380px);
+  /* Let the enabled widgets define the grid's natural width. A fixed compact
+     cap made wide panels narrower than their contents: the contents remained
+     visible, but the panel background stopped at the cap. The viewport is the
+     only generic limit; widget-specific natural widths live on the panels. */
+  max-width: 100vw;
   padding: calc(6px * var(--scale));
   transform-origin: top left;
 }
@@ -101,7 +105,10 @@ body {
 .panel {
   width: max-content;
   max-width: calc(100vw - (12px * var(--scale)));
-  min-width: 0;
+  /* A widget may publish the smallest width at which its contents are valid.
+     Keeping that contract here means `.panel.wide { width: 100% }` can stretch
+     a panel without silently shrinking its background below its contents. */
+  min-width: var(--widget-natural-width, 0);
   padding: calc(6px * var(--scale)) calc(10px * var(--scale));
   border: none;
   border-radius: calc(7px * var(--scale));
@@ -229,7 +236,8 @@ body {
      two-digit rarity counts. The absolute-layout wrapper otherwise derives
      its auto width from the current text and makes the widget visibly breathe
      as the run fills in. */
-  width: calc(470px * var(--scale));
+  --widget-natural-width: calc(470px * var(--scale));
+  width: var(--widget-natural-width);
   padding: calc(12px * var(--scale)) calc(16px * var(--scale));
   border: calc(1px * var(--scale)) solid rgba(255, 210, 63, 0);
   border-radius: 0;
@@ -929,6 +937,9 @@ body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
 .widget-wrapper.custom-size-active .panel {
   width: 100% !important;
   height: 100% !important;
+  /* An explicit editor size intentionally replaces the natural-size contract;
+     the wrapper clips contents and keeps the background at the chosen size. */
+  min-width: 0 !important;
   flex: 1 1 auto !important;
 }
 

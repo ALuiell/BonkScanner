@@ -13,12 +13,30 @@ CSS_PATH = Path(__file__).resolve().parents[1] / "media" / "overlay" / "overlay.
 class StageSummarySizingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.css = CSS_PATH.read_text(encoding="utf-8")
+        css = CSS_PATH.read_text(encoding="utf-8")
+        cls.css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
     def _rule(self, selector: str) -> str:
-        match = re.search(re.escape(selector) + r"\s*\{(?P<body>.*?)\}", self.css, re.S)
+        match = re.search(
+            r"^[ \t]*" + re.escape(selector) + r"\s*\{(?P<body>.*?)\}",
+            self.css,
+            re.M | re.S,
+        )
         self.assertIsNotNone(match, f"missing CSS rule: {selector}")
         return match.group("body")
+
+    def test_grid_shell_has_no_fixed_pixel_cap(self) -> None:
+        shell = self._rule(".overlay-shell")
+
+        self.assertIn("max-width: 100vw", shell)
+        self.assertNotRegex(shell, r"max-width:\s*min\(100vw,\s*\d+px\)")
+
+    def test_panels_support_a_widget_natural_width_contract(self) -> None:
+        panel = self._rule(".panel")
+        custom_panel = self._rule(".widget-wrapper.custom-size-active .panel")
+
+        self.assertIn("min-width: var(--widget-natural-width, 0)", panel)
+        self.assertIn("min-width: 0 !important", custom_panel)
 
     def test_stage_summary_reserves_the_same_width_in_both_layout_modes(self) -> None:
         panel = self._rule(".stage-summary-widget")
@@ -26,11 +44,14 @@ class StageSummarySizingTests(unittest.TestCase):
             '.widget-wrapper[data-id="stage_summary"]:not(.custom-size-active)'
         )
 
-        panel_width = re.search(r"width:\s*calc\((\d+)px", panel)
+        natural_width = re.search(
+            r"--widget-natural-width:\s*calc\((\d+)px", panel
+        )
         wrapper_width = re.search(r"min-width:\s*calc\((\d+)px", absolute_wrapper)
-        self.assertIsNotNone(panel_width)
+        self.assertIsNotNone(natural_width)
         self.assertIsNotNone(wrapper_width)
-        self.assertEqual(panel_width.group(1), wrapper_width.group(1))
+        self.assertIn("width: var(--widget-natural-width)", panel)
+        self.assertEqual(natural_width.group(1), wrapper_width.group(1))
 
     def test_each_item_slot_reserves_two_digit_width(self) -> None:
         counts = self._rule(".stage-item-counts")

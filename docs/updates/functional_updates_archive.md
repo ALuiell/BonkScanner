@@ -4,6 +4,39 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Recently Handled Items (Archived 2026-08-20)
+
+### OBS Overlay: Stage Summary Background Coverage
+
+Status: `[Archived]`
+
+Goal:
+
+- Keep the semi-transparent Stage Summary background under the entire widget in the default grid, single-widget Browser Source, and absolute layout paths.
+- Preserve explicit custom sizes chosen in Edit Layout while preventing natural-size widgets from drawing content beyond their background.
+
+Problem Analysis:
+
+- The default grid shell was capped at `380px`, while the Stage Summary table requires a `470px * scale` natural width.
+- `.panel.wide { width: 100%; }` was more specific than the Stage Summary's declared width, so the panel shrank to the shell while the fixed table tracks and visible item column continued roughly 90px beyond its background.
+- The existing structural test compared two declared widths but did not account for selector specificity, the parent width cap, or the computed browser layout.
+
+Implemented Behavior:
+
+- The generic grid shell now uses the viewport as its only maximum width and lets enabled widgets determine the natural grid width.
+- Panels support a shared `--widget-natural-width` contract. Stage Summary publishes `470px * scale`, which remains effective even when the wide-panel rule stretches it to the available width.
+- Explicit editor sizes disable the natural minimum and continue to use the wrapper's clipping behavior, so saved custom widths remain authoritative.
+- CSS regression coverage now checks the uncapped shell, the panel natural-width contract, the custom-size override, and equal Stage Summary sizing in grid and absolute layout.
+- The CSS test helper now matches complete selectors after removing comments, preventing a short selector such as `.panel` from accidentally reading a compound rule.
+
+Verification:
+
+- Browser layout checks confirmed that Stage Summary contents remain inside the panel background in default grid, single-widget, and Edit Layout modes.
+- A narrow `400px` single-widget source clips the background and contents together instead of leaving the item column on a transparent surface.
+- A saved `300px` custom width remains `300px` and clips inside its wrapper as intended.
+
+---
+
 ## Recently Handled Items (Archived 2026-08-18)
 
 ### Build Progression
