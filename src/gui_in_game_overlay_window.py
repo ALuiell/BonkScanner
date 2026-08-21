@@ -3,9 +3,10 @@ from __future__ import annotations
 from html import escape
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
+    QIcon,
     QKeyEvent,
     QMouseEvent,
     QMoveEvent,
@@ -18,6 +19,12 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from app import config
+from core.map_markers import (
+    MAP_MARKER_ACTION_BY_ID,
+    MarkerPalette,
+    MapMarkerSnapshot,
+    project_world_to_map,
+)
 from projections.in_game_html import (
     LUCK_EXPECTED_DEFAULT_LAYOUT,
     LUCK_RARITY_ORDER,
@@ -25,9 +32,206 @@ from projections.in_game_html import (
     build_luck_rarity_overlay_html_for_probabilities,
 )
 from core.item_metadata import ITEM_RARITY_COLOR_MAP
+from ui.shared import resource_path
 
 if TYPE_CHECKING:
     from gui_in_game_overlay import InGameOverlay
+
+
+class MapMarkerLayer(QWidget):
+    """Click-through painter aligned to the game's live Full Map RectTransform."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._snapshot = MapMarkerSnapshot()
+        self._palette: MarkerPalette | None = None
+        self._scale = 1.0
+        self._icons = {
+            action.icon_name: QIcon(
+                resource_path(
+                    f"media/map_markers/pictograms/{action.icon_name}.svg"
+                )
+            )
+            for action in MAP_MARKER_ACTION_BY_ID.values()
+        }
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent;")
+        self.hide()
+
+    def set_snapshot(self, snapshot: MapMarkerSnapshot, *, scale: float) -> None:
+        normalized_scale = max(0.5, min(float(scale), 3.0))
+        changed = snapshot != self._snapshot or normalized_scale != self._scale
+        self._snapshot = snapshot
+        self._scale = normalized_scale
+        if not snapshot.map_open:
+            self._palette = None
+        should_show = self._should_show()
+        self.setVisible(should_show)
+        if should_show:
+            self.raise_()
+        if changed:
+            self.update()
+
+    def set_palette(self, palette: MarkerPalette | None) -> None:
+        if palette == self._palette:
+            return
+        self._palette = palette
+        should_show = self._should_show()
+        self.setVisible(should_show)
+        if should_show:
+            self.raise_()
+        self.update()
+
+    def _should_show(self) -> bool:
+        return bool(
+            self._snapshot.map_open
+            and self._snapshot.viewport is not None
+            and (self._snapshot.markers or self._palette is not None)
+        )
+
+    def paintEvent(self, event) -> None:
+        snapshot = self._snapshot
+        viewport = snapshot.viewport
+        if not snapshot.map_open or viewport is None:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        painter.setClipRect(
+            QRectF(viewport.left, viewport.top, viewport.width, viewport.height)
+        )
+        icon_size = max(18, int(round(28 * self._scale)))
+        pictogram_size = max(12, int(round(icon_size * 0.68)))
+        half = icon_size / 2.0
+
+        for marker in snapshot.markers:
+            action = MAP_MARKER_ACTION_BY_ID.get(marker.action_id)
+            if action is None:
+                continue
+            point = project_world_to_map(
+                marker.world_x,
+                marker.world_z,
+                world_size=snapshot.world_size,
+                viewport=viewport,
+            )
+            if point is None:
+                continue
+            center_x, center_y = point
+            # A world position exactly on the map boundary is valid, but an icon
+            # centred there would lose half of its circle to the map clip. Keep
+            # the complete marker inside the current map rectangle.
+            inset = half + max(2.0, icon_size / 11.0)
+            if viewport.width >= inset * 2.0:
+                center_x = min(
+                    max(center_x, viewport.left + inset),
+                    viewport.right - inset,
+                )
+            if viewport.height >= inset * 2.0:
+                center_y = min(
+                    max(center_y, viewport.top + inset),
+                    viewport.bottom - inset,
+                )
+            bounds = QRectF(
+                center_x - half,
+                center_y - half,
+                float(icon_size),
+                float(icon_size),
+            )
+
+            painter.setPen(QPen(QColor(3, 8, 15, 225), max(2, icon_size // 11)))
+            fill = QColor(action.color)
+            fill.setAlpha(232)
+            painter.setBrush(fill)
+            painter.drawEllipse(bounds)
+
+            if marker.source == "manual":
+                manual_pen = QPen(QColor(255, 255, 255, 205), 1.4)
+                manual_pen.setStyle(Qt.DashLine)
+                painter.setBrush(Qt.NoBrush)
+                painter.setPen(manual_pen)
+                painter.drawEllipse(bounds.adjusted(-2, -2, 2, 2))
+
+            icon = self._icons.get(action.icon_name)
+            if icon is not None:
+                pixmap = icon.pixmap(pictogram_size, pictogram_size)
+                painter.drawPixmap(
+                    int(round(center_x - pictogram_size / 2.0)),
+                    int(round(center_y - pictogram_size / 2.0)),
+                    pixmap,
+                )
+
+        self._paint_palette(painter)
+
+        painter.end()
+
+    def _paint_palette(self, painter: QPainter) -> None:
+        palette = self._palette
+        if palette is None or not palette.rows:
+            return
+        first = palette.rows[0]
+        last = palette.rows[-1]
+        margin = max(4.0, first.height * 0.2)
+        panel = QRectF(
+            first.left - margin,
+            first.top - margin,
+            first.width + margin * 2.0,
+            last.top + last.height - first.top + margin * 2.0,
+        )
+        painter.setClipping(False)
+        painter.setPen(QPen(QColor(112, 137, 169, 220), 1.2))
+        painter.setBrush(QColor(10, 17, 27, 242))
+        painter.drawRoundedRect(panel, 7.0, 7.0)
+
+        for index, row in enumerate(palette.rows):
+            action = MAP_MARKER_ACTION_BY_ID[row.action_id]
+            bounds = QRectF(row.left, row.top, row.width, row.height)
+            selected = row.action_id == palette.selected_action_id
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(
+                QColor(48, 78, 112, 235) if selected else QColor(20, 31, 46, 220)
+            )
+            painter.drawRoundedRect(bounds, 4.0, 4.0)
+
+            swatch_size = row.height * 0.58
+            swatch = QRectF(
+                row.left + row.height * 0.20,
+                row.top + (row.height - swatch_size) / 2.0,
+                swatch_size,
+                swatch_size,
+            )
+            painter.setPen(QPen(QColor(2, 6, 12, 220), 1.2))
+            painter.setBrush(QColor(action.color))
+            painter.drawEllipse(swatch)
+
+            icon = self._icons.get(action.icon_name)
+            if icon is not None:
+                pictogram = max(10, int(round(swatch_size * 0.72)))
+                painter.drawPixmap(
+                    int(round(swatch.center().x() - pictogram / 2.0)),
+                    int(round(swatch.center().y() - pictogram / 2.0)),
+                    icon.pixmap(pictogram, pictogram),
+                )
+
+            font = painter.font()
+            font.setFamily("Segoe UI")
+            font.setPixelSize(max(11, int(round(row.height * 0.43))))
+            font.setBold(selected)
+            painter.setFont(font)
+            painter.setPen(QColor(239, 246, 255))
+            text_bounds = bounds.adjusted(row.height * 0.95, 0, -8, 0)
+            painter.drawText(text_bounds, Qt.AlignVCenter | Qt.AlignLeft, action.display_name)
+
+            if index in (3, 7):
+                painter.setPen(QPen(QColor(102, 126, 154, 165), 1.0))
+                divider_y = row.top + row.height + max(1.0, margin * 0.35)
+                painter.drawLine(
+                    int(round(row.left + 5)),
+                    int(round(divider_y)),
+                    int(round(row.left + row.width - 5)),
+                    int(round(divider_y)),
+                )
 
 
 class DraggableOverlayWidget(QWidget):
@@ -416,6 +620,9 @@ class InGameOverlayWindow(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
 
+        self.map_marker_layer = MapMarkerLayer(self)
+        self.map_marker_layer.setGeometry(self.rect())
+
         self.widgets: dict[str, DraggableOverlayWidget] = {}
         for widget_id in ("scanner", "recording", "kps", "powerups", "luck_rarity", "stats", "event_timer", "item_cooldowns", "build_progression"):
             widget = (
@@ -436,6 +643,7 @@ class InGameOverlayWindow(QWidget):
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
+        self.map_marker_layer.setGeometry(self.rect())
         self._keep_widgets_inside_bounds()
         if self.edit_mode:
             self._position_save_btn()

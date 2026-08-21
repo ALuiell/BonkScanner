@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <title>Sus Bush</title>
+  <path d="M8.4 26.5c-3.2-.7-4.9-3.5-3.8-6.1-2.1-2.2-1.1-5.6 1.8-6.7-.5-3.2 2.2-5.7 5.2-5.1C13 5.5 17 5 19 7.6c3-1.1 6.2.8 6.3 3.9 3 .8 4.4 4.2 2.6 6.7 1.5 2.9-.5 6.3-3.7 6.5-1.3 3-5 4-7.4 2-2.5 2.1-6.4 1.2-7.4-1.8Z" fill="#1F8F45" stroke="#102519" stroke-width="2" stroke-linejoin="round"/>
+  <path d="m7.3 12.6 3-1.9m11.5 1.4 2.8-1.2M7.1 22l3.5 1.1m11.3.5 3.2-.6" stroke="#58D869" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M10 17.2c1.5-2.6 3.8-2.7 6-.5 2.2-2.2 4.6-2.1 6 .5-2.8 2.3-9.2 2.3-12 0Z" fill="#0C1713"/>
+  <ellipse cx="13.4" cy="17" rx="2.1" ry="1.8" fill="#F5F7FA"/>
+  <ellipse cx="18.7" cy="17" rx="2.1" ry="1.8" fill="#F5F7FA"/>
+  <circle cx="14.1" cy="17.2" r=".85" fill="#17202A"/>
+  <circle cx="18" cy="17.2" r=".85" fill="#17202A"/>
+</svg>

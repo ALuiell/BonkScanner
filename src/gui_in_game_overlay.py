@@ -28,10 +28,14 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from PySide6.QtCore import QRect, QTimer
+from PySide6.QtCore import QPoint, QRect, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
+from app.map_marker_hotkeys import MapMarkerHotkeyController
+from app.map_marker_tracker import MapMarkerTracker
+from core.map_markers import MapMarkerSnapshot
+from infra.map_marker_input import WindowsMapMarkerInput
 from projections.in_game import project_in_game_overlay
 from projections.in_game_html import (
     build_build_progression_overlay_html,
@@ -85,6 +89,9 @@ class InGameOverlay:
         rebind_hotkeys: Callable[[], None] = lambda: None,
         widget_settings_dialog: Callable[["InGameOverlay", QWidget | None], Any] = InGameWidgetSettingsDialog,
         timer_factory: Callable[[], Any] = QTimer,
+        map_marker_tracker_factory: Callable[[str], Any] = MapMarkerTracker,
+        map_marker_input_factory: Callable[[], Any] = WindowsMapMarkerInput,
+        map_marker_hotkey_controller_factory: Callable[[Any], Any] = MapMarkerHotkeyController,
         build_progression_snapshot: Callable[[], Any] = lambda: None,
         open_build_progression_settings: Callable[[], None] = lambda: None,
     ) -> None:
@@ -104,6 +111,11 @@ class InGameOverlay:
         self._overlay_tab_active = overlay_tab_active
         self._rebind_hotkeys = rebind_hotkeys
         self._widget_settings_dialog = widget_settings_dialog
+        self._map_marker_tracker = map_marker_tracker_factory(config.PROCESS_NAME)
+        self._map_marker_input = map_marker_input_factory()
+        self._map_marker_hotkeys = map_marker_hotkey_controller_factory(
+            self._map_marker_input
+        )
 
         # The tab and its nine checkboxes. `build_in_game_overlay_tab` writes
         # them onto this object; before the split it wrote them onto the app,
@@ -126,16 +138,22 @@ class InGameOverlay:
         self.igo_event_timer_cb = None
         self.igo_item_cooldowns_cb = None
         self.igo_build_progression_cb = None
+        self.igo_map_markers_cb = None
+        self.igo_map_markers_scale_spin = None
+        self.igo_map_markers_summary = None
+        self.igo_map_markers_settings_btn = None
 
         self.in_game_overlay_window: InGameOverlayWindow | None = None
 
-        # One timer. The 10 s companion existed for `luck_rarity` alone, which
-        # was paired with the slow tick because its input arrived on the 10 s
-        # snapshot; with Luck on its own source in the 1 s loot pass there is
-        # nothing left that a slower cadence serves.
+        # The regular overlay no longer needs its old 10 s companion timer.
+        # Map markers use a separate 25 ms timer because a nearby interactable
+        # may only remain current for a fraction of a second.
         self.overlay_fast_timer = timer_factory()
         self.overlay_fast_timer.timeout.connect(self._overlay_fast_tick)
         self.overlay_fast_timer.setInterval(500)
+        self.map_marker_timer = timer_factory()
+        self.map_marker_timer.timeout.connect(self._map_marker_tick)
+        self.map_marker_timer.setInterval(25)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -162,6 +180,7 @@ class InGameOverlay:
         if not self.in_game_overlay_window:
             return
         self.overlay_fast_timer.start()
+        self._sync_map_marker_runtime()
         if initial_refresh:
             self._overlay_fast_tick()
 
@@ -169,6 +188,11 @@ class InGameOverlay:
         if self.in_game_overlay_window:
             self.in_game_overlay_window.hide()
         self.overlay_fast_timer.stop()
+        self.map_marker_timer.stop()
+        self._map_marker_tracker.close()
+        self._map_marker_hotkeys.reset()
+        self._set_map_marker_snapshot(MapMarkerSnapshot())
+        self._set_map_marker_palette(None)
 
     def apply_in_game_overlay_settings(self) -> None:
         cfg = config.IN_GAME_OVERLAY
@@ -210,6 +234,86 @@ class InGameOverlay:
     # -- geometry ----------------------------------------------------------
 
     def _in_game_overlay_target_geometry(self) -> QRect | None:
+        physical_geometry = self._in_game_overlay_physical_client_geometry()
+        if physical_geometry is not None:
+            return self._qt_geometry_from_physical(physical_geometry)
+
+        overlay_window = self.in_game_overlay_window
+        if overlay_window is None or not getattr(overlay_window, "edit_mode", False):
+            return None
+
+        screen = overlay_window.screen() if overlay_window is not None else None
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        return screen.geometry() if screen is not None else None
+
+    def _qt_geometry_from_physical(self, geometry: QRect) -> QRect:
+        """Translate a native Win32 rectangle into Qt device-independent pixels.
+
+        Win32 reports the Unity client in physical pixels.  ``QWidget.setGeometry``
+        consumes Qt logical pixels and scales them once more for the monitor.  At
+        125%, passing a 2560x1440 native rectangle straight through therefore made
+        the transparent overlay 3200x1800 physical pixels while the game remained
+        2560x1440.
+
+        Qt keeps each Windows screen's virtual-desktop origin in native screen
+        coordinates, but scales the screen's size.  Preserve that origin and only
+        scale the offset within the matching screen plus the rectangle's size.
+        """
+
+        screens_reader = getattr(QApplication, "screens", None)
+        screens = list(screens_reader()) if callable(screens_reader) else []
+        center = geometry.center()
+        target_screen = None
+        target_scale = 1.0
+        for screen in screens:
+            screen_geometry = screen.geometry()
+            scale_reader = getattr(screen, "devicePixelRatio", None)
+            scale = float(scale_reader()) if callable(scale_reader) else 1.0
+            scale = max(0.01, scale)
+            physical_screen = QRect(
+                screen_geometry.left(),
+                screen_geometry.top(),
+                int(round(screen_geometry.width() * scale)),
+                int(round(screen_geometry.height() * scale)),
+            )
+            if physical_screen.contains(center):
+                target_screen = screen
+                target_scale = scale
+                break
+
+        if target_screen is None:
+            overlay_window = self.in_game_overlay_window
+            target_screen = (
+                overlay_window.screen() if overlay_window is not None else None
+            )
+            if target_screen is not None:
+                scale_reader = getattr(target_screen, "devicePixelRatio", None)
+                target_scale = (
+                    float(scale_reader()) if callable(scale_reader) else 1.0
+                )
+                target_scale = max(0.01, target_scale)
+
+        if target_screen is None:
+            return geometry
+
+        screen_geometry = target_screen.geometry()
+        left = screen_geometry.left() + int(
+            round((geometry.left() - screen_geometry.left()) / target_scale)
+        )
+        top = screen_geometry.top() + int(
+            round((geometry.top() - screen_geometry.top()) / target_scale)
+        )
+        return QRect(
+            left,
+            top,
+            int(round(geometry.width() / target_scale)),
+            int(round(geometry.height() / target_scale)),
+        )
+
+    def _in_game_overlay_physical_client_geometry(self) -> QRect | None:
+        """Return the Win32 client rectangle in physical desktop pixels."""
+
         if win32gui is not None and self._find_game_window is not None:
             try:
                 game_window = self._find_game_window(config.PROCESS_NAME)
@@ -238,20 +342,122 @@ class InGameOverlay:
                     height = max(0, int(bottom) - int(top))
                     if width > 0 and height > 0:
                         return QRect(int(left), int(top), width, height)
-
-        overlay_window = self.in_game_overlay_window
-        if overlay_window is None or not getattr(overlay_window, "edit_mode", False):
-            return None
-
-        screen = overlay_window.screen() if overlay_window is not None else None
-        if screen is None:
-            screen = QApplication.primaryScreen()
-        return screen.geometry() if screen is not None else None
+        return None
 
     def hotkey_toggle_in_game_overlay_edit(self) -> None:
         self._schedule(self._toggle_igo_edit_mode)
 
     # -- cadence -----------------------------------------------------------
+
+    def _sync_map_marker_runtime(self) -> None:
+        enabled = bool(
+            config.IN_GAME_OVERLAY.get("enabled", False)
+            and (config.IN_GAME_OVERLAY.get("map_markers", {}) or {}).get(
+                "enabled", False
+            )
+        )
+        if enabled:
+            self.map_marker_timer.start()
+            return
+        self.map_marker_timer.stop()
+        self._map_marker_tracker.close()
+        self._map_marker_hotkeys.reset()
+        self._set_map_marker_snapshot(MapMarkerSnapshot())
+        self._set_map_marker_palette(None)
+
+    def _map_marker_tick(self) -> bool:
+        window = self.in_game_overlay_window
+        if window is None:
+            return False
+        marker_cfg = config.IN_GAME_OVERLAY.get("map_markers", {}) or {}
+        if not (
+            config.IN_GAME_OVERLAY.get("enabled", False)
+            and marker_cfg.get("enabled", False)
+        ):
+            self._set_map_marker_snapshot(MapMarkerSnapshot())
+            return False
+
+        scale_reader = getattr(window, "devicePixelRatioF", None)
+        display_scale = float(scale_reader()) if callable(scale_reader) else 1.0
+        display_scale = max(0.01, display_scale)
+        physical_geometry = self._in_game_overlay_physical_client_geometry()
+        if physical_geometry is not None:
+            client_height = physical_geometry.height()
+            client_width = physical_geometry.width()
+        else:
+            height_reader = getattr(window, "height", None)
+            width_reader = getattr(window, "width", None)
+            logical_height = int(height_reader()) if callable(height_reader) else 0
+            logical_width = int(width_reader()) if callable(width_reader) else 0
+            client_height = max(1, int(round(logical_height * display_scale)))
+            client_width = max(1, int(round(logical_width * display_scale)))
+        snapshot = self._map_marker_tracker.tick(
+            client_height=client_height,
+            client_width=client_width,
+            display_scale=display_scale,
+            automatic_discovery=bool(
+                marker_cfg.get("automatic_discovery", False)
+            ),
+        )
+
+        cursor_x, cursor_y = self._map_marker_input.cursor_position()
+        if snapshot.map_open and physical_geometry is not None:
+            cursor_x = (cursor_x - physical_geometry.left()) / display_scale
+            cursor_y = (cursor_y - physical_geometry.top()) / display_scale
+        else:
+            # Fallback for tests/non-Windows platforms. GetCursorPos uses native
+            # pixels on Windows, whereas mapFromGlobal expects Qt logical pixels.
+            map_from_global = getattr(window, "mapFromGlobal", None)
+            if callable(map_from_global):
+                local_cursor = map_from_global(
+                    QPoint(
+                        int(round(cursor_x / display_scale)),
+                        int(round(cursor_y / display_scale)),
+                    )
+                )
+                cursor_x, cursor_y = local_cursor.x(), local_cursor.y()
+
+        gesture = self._map_marker_hotkeys.poll(
+            marker_cfg.get("hotkeys"),
+            snapshot,
+            cursor_x=float(cursor_x),
+            cursor_y=float(cursor_y),
+            scale=float(marker_cfg.get("scale", 1.0)),
+        )
+        if gesture.placement is not None:
+            action_id, placement_x, placement_y = gesture.placement
+            if self._map_marker_tracker.place_manual_marker(
+                action_id,
+                screen_x=placement_x,
+                screen_y=placement_y,
+            ):
+                snapshot = self._map_marker_tracker.snapshot
+        self._set_map_marker_palette(gesture.palette)
+
+        # The normal overlay cadence is 500 ms, longer than many deliberate
+        # quick Tab checks.  The 25 ms marker path makes the click-through window
+        # ready as soon as the game's own mapsOpen flag flips.
+        if snapshot.map_open and self._is_game_window_active(config.PROCESS_NAME):
+            window.sync_geometry_to_target()
+            if not window.isVisible():
+                window.show()
+        self._set_map_marker_snapshot(snapshot)
+        return snapshot.map_open
+
+    def _set_map_marker_snapshot(self, snapshot: MapMarkerSnapshot) -> None:
+        window = self.in_game_overlay_window
+        layer = getattr(window, "map_marker_layer", None) if window is not None else None
+        setter = getattr(layer, "set_snapshot", None)
+        if callable(setter):
+            marker_cfg = config.IN_GAME_OVERLAY.get("map_markers", {}) or {}
+            setter(snapshot, scale=float(marker_cfg.get("scale", 1.0)))
+
+    def _set_map_marker_palette(self, palette) -> None:
+        window = self.in_game_overlay_window
+        layer = getattr(window, "map_marker_layer", None) if window is not None else None
+        setter = getattr(layer, "set_palette", None)
+        if callable(setter):
+            setter(palette)
 
     def _overlay_fast_tick(self) -> bool:
         if not self.in_game_overlay_window:
@@ -628,6 +834,12 @@ class InGameOverlay:
         if getattr(self, "igo_build_max_rows_spin", None) is not None:
             widgets["build_progression"]["max_rows"] = self.igo_build_max_rows_spin.value()
             widgets["build_progression"]["show_completed"] = self.igo_build_completed_cb.isChecked()
+
+        marker_cfg = cfg.setdefault("map_markers", {})
+        if self.igo_map_markers_cb is not None:
+            marker_cfg["enabled"] = self.igo_map_markers_cb.isChecked()
+        if self.igo_map_markers_scale_spin is not None:
+            marker_cfg["scale"] = self.igo_map_markers_scale_spin.value()
 
         self.apply_in_game_overlay_settings()
         config.save_config(config.user_config)

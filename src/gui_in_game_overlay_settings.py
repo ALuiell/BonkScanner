@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from app import config
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
 from ui.run_toggle import IN_GAME_OVERLAY_CAPTIONS
+from ui.dialogs.map_markers import MapMarkerSettingsDialog
 from ui.dialogs.shell import DIALOG_REGULAR, dialog_body, dialog_footer
 from ui.settings_card import SettingsCard, build_workspace
 from ui.shared import LabeledSwitch, _make_scroll_section
@@ -379,8 +380,86 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
             options.setObjectName("tableRowEmpty")
         table.addWidget(options, row, 3)
 
+    # This looks and saves like one of the in-game modules, but it is not added
+    # to ``IN_GAME_WIDGET_ROWS``. Those IDs become movable HUD rectangles in
+    # ``InGameOverlayWindow``; markers instead live in a Full Map anchored layer.
+    marker_row = len(IN_GAME_WIDGET_ROWS) + 1
+    marker_cfg = config.IN_GAME_OVERLAY["map_markers"]
+    marker_name = _IgoRowNameLabel("Map Activity Markers")
+    marker_name.setObjectName("tableRowName")
+    table.addWidget(marker_name, marker_row, 0)
+
+    parent_mixin.igo_map_markers_cb = LabeledSwitch("")
+    parent_mixin.igo_map_markers_cb.setChecked(bool(marker_cfg.get("enabled", False)))
+    parent_mixin.igo_map_markers_cb.stateChanged.connect(
+        parent_mixin._on_igo_settings_changed
+    )
+    marker_name.set_target(parent_mixin.igo_map_markers_cb)
+    table.addWidget(parent_mixin.igo_map_markers_cb, marker_row, 1)
+
+    parent_mixin.igo_map_markers_scale_spin = QDoubleSpinBox()
+    parent_mixin.igo_map_markers_scale_spin.setRange(0.5, 3.0)
+    parent_mixin.igo_map_markers_scale_spin.setSingleStep(0.1)
+    parent_mixin.igo_map_markers_scale_spin.setMaximumWidth(88)
+    parent_mixin.igo_map_markers_scale_spin.setValue(marker_cfg.get("scale", 1.0))
+    parent_mixin.igo_map_markers_scale_spin.valueChanged.connect(
+        parent_mixin._on_igo_settings_changed
+    )
+    table.addWidget(parent_mixin.igo_map_markers_scale_spin, marker_row, 2)
+
+    marker_options, marker_options_row = _options_row()
+    parent_mixin.igo_map_markers_summary = QLabel()
+    parent_mixin.igo_map_markers_summary.setObjectName("tableRowEmpty")
+    marker_options_row.addWidget(parent_mixin.igo_map_markers_summary)
+    marker_settings_btn = QPushButton("Settings")
+    marker_settings_btn.clicked.connect(
+        lambda: _open_map_marker_settings_dialog(parent_mixin)
+    )
+    parent_mixin.igo_map_markers_settings_btn = marker_settings_btn
+    marker_options_row.addWidget(marker_settings_btn)
+    marker_options_row.addStretch(1)
+    table.addWidget(marker_options, marker_row, 3)
+    refresh_map_marker_settings_summary(parent_mixin)
+
     card.body.addLayout(table)
     column.addWidget(card)
+
+
+def refresh_map_marker_settings_summary(parent_mixin: Any) -> None:
+    summary = getattr(parent_mixin, "igo_map_markers_summary", None)
+    if summary is None:
+        return
+    marker_cfg = config.IN_GAME_OVERLAY.get("map_markers", {}) or {}
+    count = len(marker_cfg.get("hotkeys", []))
+    hotkeys = f"{count} hotkey" if count == 1 else f"{count} hotkeys"
+    mode = (
+        "Auto on"
+        if marker_cfg.get("automatic_discovery", False)
+        else "Manual only"
+    )
+    summary.setText(f"{mode} · {hotkeys}")
+
+
+def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
+    marker_cfg = config.IN_GAME_OVERLAY["map_markers"]
+    parent = getattr(parent_mixin, "tab_in_game_overlay", None)
+    dialog = MapMarkerSettingsDialog(
+        marker_cfg.get("hotkeys", []),
+        parent,
+        automatic_discovery=bool(marker_cfg.get("automatic_discovery", False)),
+    )
+    if dialog.exec() != QDialog.Accepted:
+        return
+    marker_cfg["hotkeys"] = dialog.bindings
+    marker_cfg["automatic_discovery"] = dialog.automatic_discovery
+    config.save_config(config.user_config)
+    refresh_map_marker_settings_summary(parent_mixin)
+    # Runtime registration is intentionally reached through the existing port;
+    # once the marker controller lands, a saved mouse/key assignment can become
+    # active without restarting the application.
+    rebind = getattr(parent_mixin, "_rebind_hotkeys", None)
+    if callable(rebind):
+        rebind()
 
 
 class _IgoRowNameLabel(QLabel):

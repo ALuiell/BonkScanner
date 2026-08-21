@@ -9,7 +9,13 @@ from PySide6.QtCore import QPoint, QRect
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
-from gui_in_game_overlay_window import InGameOverlayWindow
+from core.map_markers import (
+    MapMarkerSnapshot,
+    MapViewport,
+    WorldMapMarker,
+    build_marker_palette,
+)
+from gui_in_game_overlay_window import InGameOverlayWindow, MapMarkerLayer
 
 
 def _test_overlay_config() -> dict:
@@ -30,6 +36,52 @@ class InGameOverlayWindowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
+
+    def test_map_marker_layer_only_appears_for_open_map_content(self) -> None:
+        layer = MapMarkerLayer()
+        viewport = MapViewport(20, 30, 600, 600)
+        try:
+            layer.set_snapshot(
+                MapMarkerSnapshot(
+                    map_id=1,
+                    map_open=True,
+                    world_size=600,
+                    viewport=viewport,
+                    markers=(
+                        WorldMapMarker("auto:1", "moai", 10, -20),
+                    ),
+                ),
+                scale=1.0,
+            )
+            self.assertFalse(layer.isHidden())
+
+            layer.set_snapshot(MapMarkerSnapshot(), scale=1.0)
+            self.assertTrue(layer.isHidden())
+        finally:
+            layer.close()
+
+    def test_hold_palette_can_show_without_existing_markers(self) -> None:
+        layer = MapMarkerLayer()
+        viewport = MapViewport(20, 30, 600, 600)
+        snapshot = MapMarkerSnapshot(
+            map_id=1,
+            map_open=True,
+            world_size=600,
+            viewport=viewport,
+        )
+        try:
+            layer.set_snapshot(snapshot, scale=1.0)
+            self.assertTrue(layer.isHidden())
+
+            layer.set_palette(
+                build_marker_palette(300, 300, viewport=viewport)
+            )
+            self.assertFalse(layer.isHidden())
+
+            layer.set_snapshot(MapMarkerSnapshot(), scale=1.0)
+            self.assertTrue(layer.isHidden())
+        finally:
+            layer.close()
 
     def test_sync_geometry_repositions_save_button_in_edit_mode(self) -> None:
         screen_rect = QApplication.primaryScreen().availableGeometry()

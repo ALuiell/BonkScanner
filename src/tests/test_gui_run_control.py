@@ -5740,6 +5740,28 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(rect, QRect(100, 200, 640, 480))
 
+    def test_in_game_overlay_target_geometry_converts_native_pixels_at_125_percent(self) -> None:
+        overlay = build_in_game_overlay_test_component(
+            find_game_window=lambda _process_name: 321,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow()
+        screen = SimpleNamespace(
+            geometry=lambda: QRect(0, 0, 2048, 1152),
+            devicePixelRatio=lambda: 1.25,
+        )
+        overlay.in_game_overlay_window.screen = lambda: screen
+
+        fake_win32gui = SimpleNamespace(
+            GetClientRect=lambda _window: (0, 0, 2560, 1440),
+            ClientToScreen=lambda _window, point: point,
+        )
+        with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui), patch.object(
+            gui_in_game_overlay.QApplication, "screens", return_value=[screen]
+        ):
+            rect = overlay._in_game_overlay_target_geometry()
+
+        self.assertEqual(rect, QRect(0, 0, 2048, 1152))
+
     def test_in_game_overlay_target_geometry_returns_none_without_game_window_outside_edit_mode(self) -> None:
         overlay = build_in_game_overlay_test_component(
             find_game_window=lambda _process_name: None,

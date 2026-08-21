@@ -8,6 +8,7 @@ from uuid import uuid4
 from dataclasses import dataclass
 
 from core.build_progression import PROGRESS_TARGETS
+from core.map_markers import normalize_map_marker_settings
 from infra import paths
 
 colorama.init(autoreset=True)
@@ -118,6 +119,14 @@ DEFAULT_OVERLAY = {
 DEFAULT_IN_GAME_OVERLAY = {
     "enabled": False,
     "auto_start": False,
+    # A Full Map anchored layer, deliberately outside ``widgets``: unlike the
+    # HUD plaques it has no draggable rectangle in Layout Mode.
+    "map_markers": {
+        "enabled": False,
+        "automatic_discovery": False,
+        "scale": 1.0,
+        "hotkeys": [],
+    },
     "widgets": {
         "scanner": {"enabled": True, "x": 10, "y": 10, "scale": 1.0},
         "item_cooldowns": {"enabled": False, "x": 10, "y": 190, "scale": 1.0},
@@ -909,6 +918,7 @@ def normalize_in_game_overlay_config(value):
     overlay = _merge_dict_defaults(value, DEFAULT_IN_GAME_OVERLAY)
     overlay["enabled"] = bool(overlay.get("enabled", False))
     overlay["auto_start"] = bool(overlay.get("auto_start", False))
+    overlay["map_markers"] = normalize_map_marker_settings(overlay.get("map_markers"))
     
     widgets = overlay.get("widgets", {})
     if not isinstance(widgets, dict):
