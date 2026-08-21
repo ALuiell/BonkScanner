@@ -153,7 +153,13 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
             self.assertEqual(len(action_ids), 14)
             self.assertIn("egg", action_ids)
             self.assertIn("sus_bush", action_ids)
-            for action_id in ("moai", "egg", "sus_bush"):
+            for action_id in (
+                "microwave_white",
+                "shady_guy_white",
+                "moai",
+                "egg",
+                "sus_bush",
+            ):
                 index = dialog.action_combo.findData(action_id)
                 self.assertGreaterEqual(index, 0)
                 self.assertFalse(dialog.action_combo.itemIcon(index).isNull())

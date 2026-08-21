@@ -38,7 +38,11 @@ from ui.shared import _make_scroll_section, resource_path
 
 
 def _action_icon(action: MapMarkerAction) -> QIcon:
-    return QIcon(resource_path(f"media/map_markers/pictograms/{action.icon_name}.svg"))
+    return QIcon(
+        resource_path(
+            f"media/map_markers/pictograms/{action.settings_icon_name}.svg"
+        )
+    )
 
 
 class InputBindingRecorder(QPushButton):

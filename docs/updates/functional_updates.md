@@ -59,6 +59,7 @@ Fixed icon assets:
 - Repository assets live under `src/media/map_markers/` as transparent `32 x 32` SVGs.
 - `pictograms/` is the primary recognisable set. `shapes/` retains the accepted geometry-only alternative.
 - Most glyph artwork is neutral `#F5F7FA`; Microwave and Shady Guy rarity is drawn as a separate white, blue, purple, or gold ring so the glyph itself is reusable. Egg keeps its cream shell and green spots, while Sus Bush keeps a green leafy silhouette with visible eyes.
+- Dark pictogram variants are used only inside light-filled map markers. Settings rows and dropdowns use their light standalone counterparts so White Microwave, White Shady Guy, and Moai remain visible against the dark dialog background.
 - The Challenge pictogram uses two crossed swords rather than axes or clubs.
 
 Implemented settings and runtime controls:

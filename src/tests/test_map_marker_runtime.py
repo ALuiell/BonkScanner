@@ -147,6 +147,18 @@ class MapMarkerProjectionTests(unittest.TestCase):
             "shady_guy_dark",
         )
         self.assertEqual(MAP_MARKER_ACTION_BY_ID["moai"].icon_name, "moai_dark")
+        self.assertEqual(
+            MAP_MARKER_ACTION_BY_ID["microwave_white"].settings_icon_name,
+            "microwave",
+        )
+        self.assertEqual(
+            MAP_MARKER_ACTION_BY_ID["shady_guy_white"].settings_icon_name,
+            "shady_guy",
+        )
+        self.assertEqual(
+            MAP_MARKER_ACTION_BY_ID["moai"].settings_icon_name,
+            "moai",
+        )
 
     def test_complete_palette_fits_small_full_map_at_large_scale(self) -> None:
         viewport = MapViewport(20.0, 30.0, 800.0, 800.0)

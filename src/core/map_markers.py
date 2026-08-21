@@ -26,6 +26,17 @@ class MapMarkerAction:
     def display_name(self) -> str:
         return f"{self.label} · {self.variant}" if self.variant else self.label
 
+    @property
+    def settings_icon_name(self) -> str:
+        """Use the light counterpart when an icon stands on the dark dialog."""
+
+        suffix = "_dark"
+        return (
+            self.icon_name[: -len(suffix)]
+            if self.icon_name.endswith(suffix)
+            else self.icon_name
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class MapViewport:
