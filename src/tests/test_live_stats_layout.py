@@ -38,6 +38,8 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
         self.assertEqual(damage_source_share_text(1, 2000), "<0.1%")
         self.assertEqual(damage_source_share_text(0, 2000), "0%")
         self.assertEqual(damage_source_share_text(100, 200), "50.0%")
+        self.assertEqual(damage_source_share_text(None, 200), "--")
+        self.assertEqual(damage_source_share_text(100, None), "--")
 
     def test_build_uses_v4_two_column_page_structure(self) -> None:
         script = textwrap.dedent(

@@ -165,8 +165,14 @@ def format_count(value: int | float) -> str:
     return f"{max(0, int(value)):,}"
 
 
-def format_damage_source_value(value: int | float) -> str:
-    value = max(0.0, float(value))
+def format_damage_source_value(value: int | float | None) -> str:
+    try:
+        value = float(value) if value is not None else None
+    except (TypeError, ValueError):
+        value = None
+    if value is None or not isfinite(value):
+        return "--"
+    value = max(0.0, value)
     suffixes = (
         "",
         "K",

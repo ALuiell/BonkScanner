@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import src
 from infra import vod_storage as vod_storage
 
@@ -302,6 +303,124 @@ class VodStorageTests(unittest.TestCase):
 
             delete_vod(renamed.path)
             self.assertFalse(renamed.path.exists())
+
+    def test_recorder_writes_non_finite_measurements_as_json_null(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(
+                vods_dir=Path(temp_dir), interval_seconds=60, clock=lambda: 1000.0
+            )
+            path = recorder.start(name="Overflow run")
+            recorder.capture(
+                {
+                    "Damage": SimpleNamespace(
+                        value=float("nan"), display_value="--"
+                    )
+                },
+                damage_sources=(
+                    DamageSourceSnapshot(
+                        source_key="Dragonfire",
+                        source_name="Dragonfire",
+                        damage=float("inf"),
+                    ),
+                ),
+                chests_per_minute=float("-inf"),
+                loot_expected={"LEGENDARY": float("inf")},
+            )
+            recorder.stop()
+
+            for line in path.read_text(encoding="utf-8").splitlines():
+                json.loads(
+                    line,
+                    parse_constant=lambda constant: self.fail(
+                        f"writer emitted non-standard JSON constant {constant}"
+                    ),
+                )
+
+            snapshot = load_vod(path).snapshots[0]
+            self.assertIsNone(snapshot.stats["Damage"].value)
+            self.assertIsNone(snapshot.damage_sources[0].damage)
+            self.assertIsNone(snapshot.chests_per_minute)
+            self.assertEqual(snapshot.loot_expected, {})
+
+    def test_legacy_non_finite_measurements_load_as_unknown_and_rename_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "legacy-overflow.jsonl"
+            path.write_text(
+                '\n'.join(
+                    [
+                        '{"type":"metadata","version":7,"name":"Legacy overflow","created_at":"2026-08-21T11:17:10","snapshot_interval_seconds":60}',
+                        '{"type":"snapshot","elapsed_seconds":60,"captured_at":1000.0,"stats":{"Damage":{"value":NaN,"display":"--"}},"damage_sources":[{"source_key":"Dragonfire","source_name":"Dragonfire","damage":Infinity}],"chests_per_minute":-Infinity,"game_time_seconds":1e400}',
+                        '{"type":"summary","duration_seconds":60,"snapshot_count":1}',
+                    ]
+                )
+                + '\n',
+                encoding="utf-8",
+            )
+
+            snapshot = load_vod(path).snapshots[0]
+
+            self.assertIsNone(snapshot.stats["Damage"].value)
+            self.assertIsNone(snapshot.damage_sources[0].damage)
+            self.assertIsNone(snapshot.chests_per_minute)
+            self.assertIsNone(snapshot.game_time_seconds)
+
+            renamed = rename_vod(path, "Clean overflow")
+            cleaned_text = renamed.path.read_text(encoding="utf-8")
+            self.assertNotIn("NaN", cleaned_text)
+            self.assertNotIn("Infinity", cleaned_text)
+            for line in cleaned_text.splitlines():
+                json.loads(
+                    line,
+                    parse_constant=lambda constant: self.fail(
+                        f"rename emitted non-standard JSON constant {constant}"
+                    ),
+                )
+
+    def test_load_vod_recovers_an_incomplete_final_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "interrupted.jsonl"
+            path.write_bytes(
+                b'{"type":"metadata","version":7,"name":"Interrupted","created_at":"2026-08-21T11:17:10","snapshot_interval_seconds":60}\n'
+                b'{"type":"snapshot","elapsed_seconds":60,"captured_at":1000.0,"stats":{}}\n'
+                b'{"type":"summary","duration_seconds"'
+            )
+
+            metadata = load_vod_metadata(path)
+            loaded = load_vod(path)
+
+            self.assertEqual(metadata.name, "Interrupted")
+            self.assertEqual(metadata.snapshot_count, 1)
+            self.assertEqual(metadata.duration_seconds, 60)
+            self.assertEqual(len(loaded.snapshots), 1)
+
+    def test_load_vod_rejects_a_malformed_complete_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "corrupt.jsonl"
+            path.write_bytes(
+                b'{"type":"metadata","version":7,"name":"Corrupt","created_at":"2026-08-21T11:17:10","snapshot_interval_seconds":60}\n'
+                b'{"type":"snapshot","elapsed_seconds"\n'
+                b'{"type":"summary","duration_seconds":60,"snapshot_count":1}\n'
+            )
+
+            with self.assertRaises(json.JSONDecodeError):
+                load_vod(path)
+            # Listing deliberately trusts the first/last-record fast path; the
+            # payload is validated when the user actually opens the run.
+            self.assertEqual(load_vod_metadata(path).name, "Corrupt")
+
+    def test_load_vod_does_not_hide_a_malformed_completed_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "corrupt-tail.jsonl"
+            path.write_bytes(
+                b'{"type":"metadata","version":7,"name":"Corrupt tail","created_at":"2026-08-21T11:17:10","snapshot_interval_seconds":60}\n'
+                b'{"type":"snapshot","elapsed_seconds":60,"captured_at":1000.0,"stats":{}}\n'
+                b'{"type":"summary","duration_seconds"\n'
+            )
+
+            with self.assertRaises(json.JSONDecodeError):
+                load_vod(path)
+            with self.assertRaises(json.JSONDecodeError):
+                load_vod_metadata(path)
 
     def test_rename_vod_sanitizes_filename_and_avoids_collisions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

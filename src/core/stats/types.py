@@ -459,7 +459,9 @@ class WeaponSnapshot:
 class DamageSourceSnapshot:
     source_key: str
     source_name: str
-    damage: float
+    # A game's cumulative float can overflow to Infinity on long runs. That is
+    # an unavailable measurement, not zero damage.
+    damage: float | None
     added_at_time: float | None = None
 
 

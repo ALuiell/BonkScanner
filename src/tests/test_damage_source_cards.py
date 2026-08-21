@@ -26,7 +26,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 from ui.tabs.player_stats.stat_cards import StatCardsView
 
 
-def _source(key: str, damage: float):
+def _source(key: str, damage: float | None):
     return SimpleNamespace(source_key=key, source_name=key.title(), damage=damage)
 
 
@@ -140,6 +140,17 @@ class DamageSourceCardReuseTests(unittest.TestCase):
         self.view.display_damage_sources((_source("katana", 30.0),))
 
         self.assertIn("1 source", [label.text() for label in summary.findChildren(QLabel)])
+
+    def test_an_unknown_damage_is_not_displayed_or_totalled_as_zero(self) -> None:
+        self.view.display_damage_sources(
+            (_source("katana", 30.0), _source("overflow", None))
+        )
+
+        summary_text = self._texts(self.view._damage_sources_summary)
+        overflow_text = self._texts(self.cards[1])
+        self.assertIn("--", summary_text)
+        self.assertIn("Overflow", overflow_text)
+        self.assertGreaterEqual(overflow_text.count("--"), 2)
 
 
 if __name__ == "__main__":

@@ -58,6 +58,7 @@ dropping them, because "this looks unreachable" is exactly the reasoning step
 from __future__ import annotations
 
 from collections.abc import Callable
+from math import isfinite
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
@@ -100,8 +101,18 @@ def damage_source_column_count(
     return 3 if max(0, int(width)) >= three_column_width else 2
 
 
-def damage_source_share_text(damage: float, total_damage: float) -> str:
+def _damage_source_value(source) -> float | None:
+    try:
+        value = float(getattr(source, "damage", None))
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, value) if isfinite(value) else None
+
+
+def damage_source_share_text(damage: float | None, total_damage: float | None) -> str:
     """Format one source's share without rounding a real contribution to zero."""
+    if damage is None or total_damage is None:
+        return "--"
     damage = max(0.0, float(damage))
     total_damage = max(0.0, float(total_damage))
     if total_damage <= 0.0 or damage <= 0.0:
@@ -190,14 +201,18 @@ class _DamageSourceCard(QFrame):
         card_layout.addWidget(self._bar)
         self._text_color: str | None = None
 
-    def update_source(self, source, *, rank: int, total_damage: float) -> None:
-        damage = max(0.0, float(getattr(source, "damage", 0.0) or 0.0))
+    def update_source(self, source, *, rank: int, total_damage: float | None) -> None:
+        damage = _damage_source_value(source)
         source_name = str(
             getattr(source, "source_name", "")
             or getattr(source, "source_key", "")
             or "Unknown source"
         )
-        percentage = damage / total_damage if total_damage > 0.0 else 0.0
+        percentage = (
+            damage / total_damage
+            if damage is not None and total_damage is not None and total_damage > 0.0
+            else 0.0
+        )
         share_text = damage_source_share_text(damage, total_damage)
 
         _set_text(self._rank_label, f"#{rank}")
@@ -208,7 +223,7 @@ class _DamageSourceCard(QFrame):
         self._bar.setValue(round(min(1.0, max(0.0, percentage)) * 1000))
         self._bar.setToolTip(f"{share_text} of total damage")
 
-        text_color = self._ACTIVE_COLOR if damage > 0.0 else self._IDLE_COLOR
+        text_color = self._ACTIVE_COLOR if damage is not None and damage > 0.0 else self._IDLE_COLOR
         if text_color != self._text_color:
             self._text_color = text_color
             self._name_label.setStyleSheet(
@@ -252,7 +267,7 @@ class _DamageSourcesSummaryCard(QFrame):
         )
         summary_layout.addWidget(self._count_label)
 
-    def update_totals(self, *, total_damage: float, source_count: int) -> None:
+    def update_totals(self, *, total_damage: float | None, source_count: int) -> None:
         _set_text(self._value_label, formatting.format_damage_source_value(total_damage))
         _set_text(
             self._count_label,
@@ -830,7 +845,8 @@ class StatCardsView:
             sorted(
                 tuple(damage_sources or ()),
                 key=lambda source: (
-                    -max(0.0, float(getattr(source, "damage", 0.0) or 0.0)),
+                    _damage_source_value(source) is None,
+                    -(_damage_source_value(source) or 0.0),
                     str(
                         getattr(source, "source_name", "")
                         or getattr(source, "source_key", "")
@@ -856,9 +872,11 @@ class StatCardsView:
             self._damage_source_cards = []
             return
 
-        total_damage = sum(
-            max(0.0, float(getattr(source, "damage", 0.0) or 0.0))
-            for source in damage_sources
+        damage_values = tuple(_damage_source_value(source) for source in damage_sources)
+        total_damage = (
+            None
+            if any(value is None for value in damage_values)
+            else sum(value for value in damage_values if value is not None)
         )
 
         # Built on the first render and kept. The tear-down-and-rebuild this
@@ -905,7 +923,9 @@ class StatCardsView:
             (
                 source.source_key,
                 source.source_name,
-                round(float(source.damage), 3),
+                None
+                if _damage_source_value(source) is None
+                else round(_damage_source_value(source), 3),
             )
             for source in damage_sources
         )

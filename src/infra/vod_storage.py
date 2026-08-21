@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import json
+from math import isfinite
 import os
 from pathlib import Path
 import threading
@@ -439,7 +440,7 @@ class VodRecorder:
     def _write_record(self, record: dict[str, Any], *, flush: bool = False) -> None:
         if self._file is None:
             raise RuntimeError("VOD recorder file is not open.")
-        self._file.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
+        self._file.write(_dumps_record(record))
         self._file.write("\n")
         if flush:
             self._file.flush()
@@ -563,7 +564,7 @@ def rename_vod(path: Path, new_name: str) -> VodMetadata:
     temp_path = path.with_suffix(path.suffix + ".tmp")
     with temp_path.open("w", encoding="utf-8") as file:
         for record in records:
-            file.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
+            file.write(_dumps_record(record))
             file.write("\n")
     os.replace(temp_path, target_path)
     if target_path != path:
@@ -614,20 +615,77 @@ def delete_vods_below_snapshot_count(
     )
 
 
+def _normalize_json_value(value: Any) -> Any:
+    """Return JSON-safe primitives without turning an unavailable number into zero."""
+    if isinstance(value, float) and not isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _normalize_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_json_value(item) for item in value]
+    return value
+
+
+def _dumps_record(record: dict[str, Any]) -> str:
+    # `allow_nan=False` is the final guard: JSONL is also consumed outside
+    # Python, where NaN and Infinity are invalid JSON rather than numbers.
+    return json.dumps(
+        _normalize_json_value(record),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _parse_finite_json_float(value: str) -> float | None:
+    converted = float(value)
+    return converted if isfinite(converted) else None
+
+
+def _loads_record(payload: str | bytes) -> dict[str, Any]:
+    # Older Python-written recordings may contain these non-standard tokens.
+    # They are unreadable measurements, not zeroes; new recordings use null.
+    record = json.loads(
+        payload,
+        parse_constant=lambda _constant: None,
+        parse_float=_parse_finite_json_float,
+    )
+    if not isinstance(record, dict):
+        raise ValueError("Every VOD JSONL entry must be an object.")
+    return record
+
+
 def _iter_records(path: Path):
-    with path.open("r", encoding="utf-8") as file:
+    """Yield records, tolerating only an incomplete final write.
+
+    A process can exit between writing a JSON object and its terminating
+    newline. A malformed complete line, or one followed by another record, is
+    real corruption and must still fail loudly.
+    """
+    pending_line: bytes | None = None
+    with path.open("rb") as file:
         for line in file:
-            line = line.strip()
-            if line:
-                yield json.loads(line)
+            if not line.strip():
+                continue
+            if pending_line is not None:
+                yield _loads_record(pending_line)
+            pending_line = line
+
+    if pending_line is None:
+        return
+    try:
+        yield _loads_record(pending_line)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        if pending_line.endswith((b"\n", b"\r")):
+            raise
 
 
 def _read_first_record(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as file:
+    with path.open("rb") as file:
         for line in file:
             line = line.strip()
             if line:
-                return json.loads(line)
+                return _loads_record(line)
     return {}
 
 
@@ -638,20 +696,29 @@ def _read_last_record(path: Path) -> dict[str, Any]:
         if position == 0:
             return {}
 
-        buffer = bytearray()
+        file.seek(position - 1)
+        may_skip_incomplete_tail = file.read(1) not in (b"\n", b"\r")
+
         while position > 0:
-            position -= 1
-            file.seek(position)
-            char = file.read(1)
-            if char == b"\n" and buffer:
-                break
-            if char not in (b"\n", b"\r"):
-                buffer.extend(char)
+            buffer = bytearray()
+            while position > 0:
+                position -= 1
+                file.seek(position)
+                char = file.read(1)
+                if char == b"\n" and buffer:
+                    break
+                if char not in (b"\n", b"\r"):
+                    buffer.extend(char)
+            if not buffer:
+                continue
+            try:
+                return _loads_record(bytes(reversed(buffer)))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                if not may_skip_incomplete_tail:
+                    raise
+                may_skip_incomplete_tail = False
 
-    if not buffer:
-        return {}
-
-    return json.loads(bytes(reversed(buffer)).decode("utf-8"))
+    return {}
 
 
 def _metadata_from_records(
@@ -671,7 +738,9 @@ def _metadata_from_records(
     if snapshots:
         duration_seconds = snapshots[-1].elapsed_seconds
     if summary_record is not None:
-        duration_seconds = int(summary_record.get("duration_seconds", duration_seconds))
+        duration_seconds = _coerce_int(
+            summary_record.get("duration_seconds"), default=duration_seconds
+        )
 
     raw_run_seed = metadata_record.get("run_seed")
     try:
@@ -870,10 +939,9 @@ def _coerce_rarity_float_dict(value: Any) -> dict[str, float] | None:
         return None
     result: dict[str, float] = {}
     for key, item in value.items():
-        try:
-            result[str(key)] = float(item)
-        except (TypeError, ValueError):
-            continue
+        converted = _coerce_optional_float(item)
+        if converted is not None:
+            result[str(key)] = converted
     return result
 
 
@@ -1043,7 +1111,7 @@ def _record_to_damage_source(record: Any, share=None) -> DamageSourceSnapshot:
     return DamageSourceSnapshot(
         source_key=_shared_name(record.get("source_key") or "Unknown", share),
         source_name=_shared_name(record.get("source_name") or record.get("source_key") or "Unknown", share),
-        damage=max(0.0, float(record.get("damage") or 0.0)),
+        damage=_coerce_optional_float(record.get("damage")),
         added_at_time=_coerce_optional_float(record.get("added_at_time")),
     )
 
@@ -1073,9 +1141,10 @@ def _record_to_weapon_stats(raw_stats: Any) -> dict[int, WeaponStatValue]:
 
 def _coerce_optional_float(value: Any) -> float | None:
     try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
+        converted = float(value) if value is not None else None
+    except (OverflowError, TypeError, ValueError):
         return None
+    return converted if converted is not None and isfinite(converted) else None
 
 
 def _coerce_int(value: Any, *, default: int = 0) -> int:
