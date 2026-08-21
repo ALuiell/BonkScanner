@@ -21,6 +21,7 @@ from infra.memory.map_marker_client import (
     MapMarkerMemoryClient,
     MapMemoryFrame,
 )
+from infra.memory.reader import MemoryReadError
 
 
 class FakeMarkerClient:
@@ -28,6 +29,7 @@ class FakeMarkerClient:
         self.frames = list(frames)
         self.active: dict[int, bool] = {}
         self.automatic_discovery_values: list[bool] = []
+        self.automatic_sample_values: list[bool] = []
         self.active_checks: list[int] = []
         self.closed = False
 
@@ -38,9 +40,11 @@ class FakeMarkerClient:
         client_width: int | None = None,
         display_scale: float = 1.0,
         automatic_discovery: bool = False,
+        sample_automatic_discovery: bool = True,
     ) -> MapMemoryFrame:
         _ = client_height, client_width, display_scale
         self.automatic_discovery_values.append(bool(automatic_discovery))
+        self.automatic_sample_values.append(bool(sample_automatic_discovery))
         if len(self.frames) > 1:
             return self.frames.pop(0)
         return self.frames[0]
@@ -204,7 +208,11 @@ class MapMarkerTrackerTests(unittest.TestCase):
         client = FakeMarkerClient(
             [self.frame(activity=activity), self.frame(), self.frame(map_id=2)]
         )
-        tracker = MapMarkerTracker("game", client_factory=lambda _name: client)
+        tracker = MapMarkerTracker(
+            "game",
+            client_factory=lambda _name: client,
+            automatic_scan_interval=0.0,
+        )
 
         first = tracker.tick(client_height=600, automatic_discovery=True)
         self.assertEqual(len(first.markers), 1)
@@ -289,6 +297,49 @@ class MapMarkerTrackerTests(unittest.TestCase):
             [False, True, False],
         )
         self.assertEqual(client.active_checks, [])
+
+    def test_automatic_object_reads_are_throttled_to_100_ms(self) -> None:
+        now = [10.0]
+        activity = DetectedMapActivity(
+            object_ptr=0xABC,
+            class_ptr=0x100,
+            class_name="InteractableShrineMoai",
+            action_id="moai",
+            world_x=20.0,
+            world_z=-30.0,
+        )
+        client = FakeMarkerClient(
+            [self.frame(activity=activity), self.frame()]
+        )
+        tracker = MapMarkerTracker(
+            "game",
+            client_factory=lambda _name: client,
+            clock=lambda: now[0],
+            automatic_scan_interval=0.1,
+        )
+
+        first = tracker.tick(client_height=600, automatic_discovery=True)
+        self.assertEqual(len(first.markers), 1)
+        client.active[activity.object_ptr] = False
+
+        for elapsed in (0.025, 0.050, 0.075):
+            now[0] = 10.0 + elapsed
+            snapshot = tracker.tick(
+                client_height=600,
+                automatic_discovery=True,
+            )
+            self.assertEqual(len(snapshot.markers), 1)
+
+        now[0] = 10.1
+        removed = tracker.tick(client_height=600, automatic_discovery=True)
+        self.assertEqual(removed.markers, ())
+        self.assertEqual(client.active_checks, [activity.object_ptr])
+        self.assertEqual(
+            client.automatic_sample_values,
+            [True, False, False, False, True],
+        )
+        self.assertEqual(client.automatic_discovery_values, [True] * 5)
+        self.assertAlmostEqual(tracker._next_automatic_scan_at, 10.2)
 
     def test_full_map_wait_keeps_client_and_recovers_on_the_next_tick(self) -> None:
         frame = self.frame(open=True)
@@ -478,6 +529,114 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         frame = client.poll(client_height=600)
         self.assertEqual(frame.world_size, 600.0)
         self.assertFalse(frame.map_open)
+
+    def test_skipped_automatic_sample_preserves_cached_detector_state(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        full_map = 0x700000
+        detector = 0x710000
+        object_ptr = 0x720000
+        tracked = (0x730000, "InteractableShrineMoai")
+        client._full_map_ptr = full_map
+        client._detector_ptr = detector
+        client._tracked_classes[object_ptr] = tracked
+        client._resolve_full_map = lambda: full_map
+        client._resolve_player = lambda: 0x400000
+        client._resolve_stage_scope = lambda: (0, -1)
+
+        def unexpected_detector_read(_player: int) -> int:
+            raise AssertionError("automatic detector was read before 100 ms elapsed")
+
+        client._resolve_detector = unexpected_detector_read
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600.0
+
+        frame = client.poll(
+            client_height=600,
+            automatic_discovery=True,
+            sample_automatic_discovery=False,
+        )
+
+        self.assertIsNone(frame.current_activity)
+        self.assertEqual(client._detector_ptr, detector)
+        self.assertEqual(client._tracked_classes[object_ptr], tracked)
+
+    def test_large_full_map_delegate_array_resolves_live_tail(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        type_info = 0x200000
+        static_fields = 0x210000
+        delegate = 0x220000
+        delegates = 0x230000
+        live_entry = 0x240000
+        full_map = 0x700000
+        count = 557
+        type_info_slot = client._module_base + client.FULL_MAP_UI_TYPE_INFO_OFFSET
+        last_entry_slot = delegates + client.ARRAY_DATA_OFFSET + (count - 1) * 8
+
+        memory.ptrs[type_info_slot] = type_info
+        memory.ptrs[type_info + client.CLASS_STATIC_FIELDS_OFFSET] = static_fields
+        memory.ptrs[static_fields] = delegate
+        memory.ptrs[delegate + client.MULTICAST_DELEGATES_OFFSET] = delegates
+        memory.i32s[delegates + client.ARRAY_LENGTH_OFFSET] = count
+        memory.ptrs[last_entry_slot] = live_entry
+        memory.ptrs[live_entry + client.DELEGATE_TARGET_OFFSET] = full_map
+        client._is_live_full_map = lambda candidate: candidate == full_map
+
+        self.assertEqual(client._resolve_full_map(), full_map)
+        self.assertIn(last_entry_slot, memory.ptr_reads)
+        self.assertNotIn(delegates + client.ARRAY_DATA_OFFSET, memory.ptr_reads)
+
+    def test_large_full_map_delegate_array_scans_only_bounded_tail(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        type_info = 0x200000
+        static_fields = 0x210000
+        delegate = 0x220000
+        delegates = 0x230000
+        count = 10_000
+        type_info_slot = client._module_base + client.FULL_MAP_UI_TYPE_INFO_OFFSET
+
+        memory.ptrs[type_info_slot] = type_info
+        memory.ptrs[type_info + client.CLASS_STATIC_FIELDS_OFFSET] = static_fields
+        memory.ptrs[static_fields] = delegate
+        memory.ptrs[delegate + client.MULTICAST_DELEGATES_OFFSET] = delegates
+        memory.i32s[delegates + client.ARRAY_LENGTH_OFFSET] = count
+
+        self.assertEqual(client._resolve_full_map(), 0)
+
+        first_slot = delegates + client.ARRAY_DATA_OFFSET
+        end_slot = first_slot + count * 8
+        array_reads = [
+            address
+            for address in memory.ptr_reads
+            if first_slot <= address < end_slot
+        ]
+        self.assertEqual(len(array_reads), client.MAX_DELEGATES_TO_SCAN)
+        self.assertEqual(
+            min(array_reads),
+            first_slot + (count - client.MAX_DELEGATES_TO_SCAN) * 8,
+        )
+        self.assertEqual(max(array_reads), first_slot + (count - 1) * 8)
+
+    def test_impossible_full_map_delegate_array_length_still_fails_closed(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        type_info = 0x200000
+        static_fields = 0x210000
+        delegate = 0x220000
+        delegates = 0x230000
+        type_info_slot = client._module_base + client.FULL_MAP_UI_TYPE_INFO_OFFSET
+
+        memory.ptrs[type_info_slot] = type_info
+        memory.ptrs[type_info + client.CLASS_STATIC_FIELDS_OFFSET] = static_fields
+        memory.ptrs[static_fields] = delegate
+        memory.ptrs[delegate + client.MULTICAST_DELEGATES_OFFSET] = delegates
+        memory.i32s[delegates + client.ARRAY_LENGTH_OFFSET] = (
+            client.MAX_DELEGATE_ARRAY_LENGTH + 1
+        )
+
+        with self.assertRaisesRegex(MemoryReadError, "delegate count is invalid"):
+            client._resolve_full_map()
 
     def test_full_map_viewport_is_converted_from_native_to_qt_pixels(self) -> None:
         memory = FakeLifecycleMemory()

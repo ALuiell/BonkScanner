@@ -77,7 +77,14 @@ class MapMarkerMemoryClient:
     ARRAY_LENGTH_OFFSET = 0x18
     ARRAY_DATA_OFFSET = 0x20
     DELEGATE_TARGET_OFFSET = 0x20
-    MAX_DELEGATES = 128
+    # The game's static FullMap event retains delegates for destroyed map
+    # instances. Its managed array therefore grows throughout a long session;
+    # hundreds of entries (707 in one live sample) were observed while only the
+    # newest target was active. The high length cap is only a corruption guard:
+    # work stays bounded because current FullMap subscriptions are appended and
+    # only the newest tail is inspected.
+    MAX_DELEGATE_ARRAY_LENGTH = 1_000_000
+    MAX_DELEGATES_TO_SCAN = 128
 
     CLASS_NAME_POINTER_OFFSET = 0x10
     SHADY_RARITY_OFFSET = 0x90
@@ -152,6 +159,7 @@ class MapMarkerMemoryClient:
         client_width: int | None = None,
         display_scale: float = 1.0,
         automatic_discovery: bool = False,
+        sample_automatic_discovery: bool = True,
     ) -> MapMemoryFrame:
         previous_full_map = self._full_map_ptr
         full_map = self._resolve_full_map()
@@ -194,13 +202,13 @@ class MapMarkerMemoryClient:
             self._tracked_classes.clear()
             self._viewport_cache = None
         current_activity = None
-        if automatic_discovery:
+        if automatic_discovery and sample_automatic_discovery:
             detector = self._resolve_detector(player)
             current_ptr = self.memory.read_ptr(
                 detector + self.CURRENT_INTERACTABLE_OFFSET
             )
             current_activity = self._read_current_activity(current_ptr)
-        else:
+        elif not automatic_discovery:
             # Do not retain or walk automatic-discovery state while the opt-in
             # setting is off. Full Map/player/stage reads remain necessary for
             # manual placement and its run-boundary cleanup.
@@ -281,9 +289,10 @@ class MapMarkerMemoryClient:
         delegates = self.memory.read_ptr(delegate + self.MULTICAST_DELEGATES_OFFSET)
         if delegates:
             count = self.memory.read_i32(delegates + self.ARRAY_LENGTH_OFFSET)
-            if not 0 <= count <= self.MAX_DELEGATES:
+            if not 0 <= count <= self.MAX_DELEGATE_ARRAY_LENGTH:
                 raise MemoryReadError(f"FullMap delegate count is invalid: {count}")
-            for index in range(count - 1, -1, -1):
+            first_index = max(0, count - self.MAX_DELEGATES_TO_SCAN)
+            for index in range(count - 1, first_index - 1, -1):
                 entry = self.memory.read_ptr(
                     delegates + self.ARRAY_DATA_OFFSET + index * 8
                 )

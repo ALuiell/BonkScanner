@@ -22,11 +22,14 @@ class MapMarkerTracker:
         client_factory: Callable[[str], MapMarkerMemoryClient] = MapMarkerMemoryClient,
         clock: Callable[[], float] = time.monotonic,
         reconnect_interval: float = 1.0,
+        automatic_scan_interval: float = 0.1,
     ) -> None:
         self.process_name = process_name
         self._client_factory = client_factory
         self._clock = clock
         self._reconnect_interval = max(0.05, float(reconnect_interval))
+        self._automatic_scan_interval = max(0.0, float(automatic_scan_interval))
+        self._next_automatic_scan_at = 0.0
         self._client: MapMarkerMemoryClient | None = None
         self._next_connect_at = 0.0
         self._map_id = 0
@@ -43,6 +46,7 @@ class MapMarkerTracker:
         client, self._client = self._client, None
         if client is not None:
             client.close()
+        self._next_automatic_scan_at = 0.0
         self._snapshot = MapMarkerSnapshot()
 
     def tick(
@@ -53,6 +57,12 @@ class MapMarkerTracker:
         display_scale: float = 1.0,
         automatic_discovery: bool = False,
     ) -> MapMarkerSnapshot:
+        automatic_enabled = bool(automatic_discovery)
+        automatic_now = self._clock() if automatic_enabled else 0.0
+        sample_automatic = bool(
+            automatic_enabled
+            and automatic_now >= self._next_automatic_scan_at
+        )
         client = self._connect_if_due()
         if client is None:
             self._snapshot = MapMarkerSnapshot(
@@ -68,7 +78,8 @@ class MapMarkerTracker:
                     max(1, int(client_width)) if client_width is not None else None
                 ),
                 display_scale=max(0.01, float(display_scale)),
-                automatic_discovery=bool(automatic_discovery),
+                automatic_discovery=automatic_enabled,
+                sample_automatic_discovery=sample_automatic,
             )
         except FullMapNotReadyError:
             # FullMap type info is initialized lazily by the game. Keep this
@@ -93,11 +104,27 @@ class MapMarkerTracker:
             self._markers.clear()
             self._automatic_by_object.clear()
 
-        if not automatic_discovery:
+        if not automatic_enabled:
+            self._next_automatic_scan_at = 0.0
             for marker_id in self._automatic_by_object.values():
                 self._markers.pop(marker_id, None)
             self._automatic_by_object.clear()
-        else:
+        elif sample_automatic:
+            # FullMap projection and manual input stay on the 25 ms UI cadence.
+            # Only automatic object discovery and lifecycle reads are throttled.
+            interval = self._automatic_scan_interval
+            previous_deadline = self._next_automatic_scan_at
+            if interval <= 0.0:
+                self._next_automatic_scan_at = automatic_now
+            elif previous_deadline <= 0.0:
+                self._next_automatic_scan_at = automatic_now + interval
+            else:
+                # Advance from the previous deadline instead of from the actual
+                # tick time. This avoids turning a nominal 100 ms cadence into
+                # 100 ms plus one 25 ms UI-tick scheduling delay every cycle.
+                elapsed = max(0.0, automatic_now - previous_deadline)
+                steps = max(1, int(math.floor(elapsed / interval)) + 1)
+                self._next_automatic_scan_at = previous_deadline + steps * interval
             for object_ptr, marker_id in tuple(self._automatic_by_object.items()):
                 try:
                     active = client.activity_is_active(object_ptr)

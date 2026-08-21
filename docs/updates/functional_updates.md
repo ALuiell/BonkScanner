@@ -27,7 +27,7 @@ Current phase and order of work:
 - The icon assets, dynamic hotkey settings, read-only automatic discovery, exact Transform reads, FullMap projection, click-through renderer, and the first manual-placement interaction are implemented.
 - Egg and Sus Bush are available as manual-only markers. They are intentionally absent from automatic discovery because the game does not expose them through the fixed map-activity allowlist.
 - Automatic discovery is a separate opt-in setting and defaults to off. When enabled, it polls independently of whether `Tab` is held; holding `Tab` only controls whether the finished marker layer and manual palette are visible.
-- The production cadence is `25 ms`: the shortest live useful selection window measured `93 ms`. After adding per-poll stage-boundary detection, 500 complete production polls averaged `0.2166 ms` with `0.5905 ms` p99 on the validation machine.
+- FullMap projection and manual hotkeys retain the `25 ms` UI cadence. Automatic `currentInteractable` discovery and discovered-object lifecycle checks run every `100 ms`. The shortest live useful selection window previously measured `93 ms`, so the new interval is an explicit performance/detection tradeoff and requires a fastest-pass live validation. After adding per-poll stage-boundary detection, 500 complete production polls averaged `0.2166 ms` with `0.5905 ms` p99 on the validation machine.
 - Remaining work is an ordinary in-game acceptance pass: discover several activities, reopen the map, exercise tap/hold hotkeys, finish a run, start another run, and verify appearance, removal, input transparency, and run-boundary cleanup.
 
 Fixed product scope:
@@ -231,7 +231,7 @@ Resolved research gates for the current game build:
 - `[Resolved]` `QueueRevealFog` world projection and the real `mapDisplayTransform` content rectangle.
 - `[Resolved]` Separate held-Tab `FullMap.mapDisplayTransform` and `Escape -> Tab` pause `MapRender` viewport chains, including runtime selection and boundary clipping with the same FullMap instance.
 - `[Accepted]` Marker alignment has been confirmed in game on both the held-`Tab` map and the large `Escape -> Tab` map for the current validation layout.
-- `[Resolved]` One-observation discovery, pointer deduplication, `25 ms` cadence, and competing unsupported interactables.
+- `[Resolved]` One-observation discovery, pointer deduplication, `25 ms` map/manual cadence with `100 ms` automatic reads, and competing unsupported interactables.
 - `[Resolved]` Per-class lifecycle for Microwave, Shady Guy, Magnet, Moai, Challenge, and Boss Curse.
 - `[Resolved]` Scope identity includes FullMap, `MyPlayer.Instance`, `MapController.currentStage`, and stage index; a new run or in-run stage transition clears all markers.
 - `[Resolved]` Automatic discovery is opt-in/default-off; disabling it clears only automatic markers, preserves manual markers, and skips the detector/currentInteractable/lifecycle path.
