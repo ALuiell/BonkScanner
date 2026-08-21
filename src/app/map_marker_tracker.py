@@ -11,7 +11,7 @@ from core.map_markers import (
     WorldMapMarker,
     unproject_map_to_world,
 )
-from infra.memory.map_marker_client import MapMarkerMemoryClient
+from infra.memory.map_marker_client import FullMapNotReadyError, MapMarkerMemoryClient
 
 
 class MapMarkerTracker:
@@ -70,6 +70,16 @@ class MapMarkerTracker:
                 display_scale=max(0.01, float(display_scale)),
                 automatic_discovery=bool(automatic_discovery),
             )
+        except FullMapNotReadyError:
+            # FullMap type info is initialized lazily by the game. Keep this
+            # process handle and retry on the next 25 ms marker tick so the
+            # first map open cannot look like a broken widget for a full
+            # reconnect interval.
+            self._snapshot = MapMarkerSnapshot(
+                map_id=self._map_id,
+                markers=tuple(self._markers.values()),
+            )
+            return self._snapshot
         except Exception:
             self._disconnect_for_retry()
             self._snapshot = MapMarkerSnapshot(

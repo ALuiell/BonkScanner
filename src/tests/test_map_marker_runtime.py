@@ -17,6 +17,7 @@ from core.map_markers import (
 from infra.map_marker_input import WindowsMapMarkerInput, virtual_key_for_token
 from infra.memory.map_marker_client import (
     DetectedMapActivity,
+    FullMapNotReadyError,
     MapMarkerMemoryClient,
     MapMemoryFrame,
 )
@@ -63,12 +64,14 @@ class FakeInput:
 class FakeLifecycleMemory:
     def __init__(self) -> None:
         self.ptrs: dict[int, int] = {}
+        self.ptr_reads: list[int] = []
         self.i32s: dict[int, int] = {}
         self.u8s: dict[int, int] = {}
         self.floats: dict[int, float] = {}
         self.blobs: dict[int, bytes] = {}
 
     def read_ptr(self, address: int) -> int:
+        self.ptr_reads.append(address)
         return self.ptrs.get(address, 0)
 
     def read_i32(self, address: int) -> int:
@@ -287,6 +290,37 @@ class MapMarkerTrackerTests(unittest.TestCase):
         )
         self.assertEqual(client.active_checks, [])
 
+    def test_full_map_wait_keeps_client_and_recovers_on_the_next_tick(self) -> None:
+        frame = self.frame(open=True)
+
+        class WaitingThenReadyClient(FakeMarkerClient):
+            def __init__(self) -> None:
+                super().__init__([frame])
+                self.poll_count = 0
+
+            def poll(self, **kwargs) -> MapMemoryFrame:
+                self.poll_count += 1
+                if self.poll_count == 1:
+                    raise FullMapNotReadyError("FullMap is still lazy")
+                return super().poll(**kwargs)
+
+        client = WaitingThenReadyClient()
+        factory_calls = []
+        tracker = MapMarkerTracker(
+            "game",
+            client_factory=lambda process_name: factory_calls.append(process_name)
+            or client,
+        )
+
+        waiting = tracker.tick(client_height=600)
+        self.assertFalse(waiting.map_open)
+        self.assertFalse(client.closed)
+
+        recovered = tracker.tick(client_height=600)
+        self.assertTrue(recovered.map_open)
+        self.assertEqual(factory_calls, ["game"])
+        self.assertFalse(client.closed)
+
 
 class MapMarkerGestureTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -411,6 +445,39 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         self.assertTrue(input_state.is_pressed("ctrl+g"))
         self.assertTrue(input_state.is_pressed("f8"))
         self.assertFalse(input_state.is_pressed("f9"))
+
+    def test_lazy_full_map_type_info_recovers_without_invalid_dereference(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        type_info_slot = client._module_base + client.FULL_MAP_UI_TYPE_INFO_OFFSET
+        lazy_token = 0x2000A397
+        memory.ptrs[type_info_slot] = lazy_token
+
+        with self.assertRaises(FullMapNotReadyError):
+            client.poll(client_height=600)
+        self.assertNotIn(
+            lazy_token + client.CLASS_STATIC_FIELDS_OFFSET,
+            memory.ptr_reads,
+        )
+
+        type_info = 0x200000
+        static_fields = 0x210000
+        delegate = 0x220000
+        full_map = 0x700000
+        memory.ptrs[type_info_slot] = type_info
+        memory.ptrs[type_info + client.CLASS_STATIC_FIELDS_OFFSET] = static_fields
+        memory.ptrs[static_fields] = delegate
+        memory.ptrs[delegate + client.MULTICAST_DELEGATES_OFFSET] = 0
+        memory.ptrs[delegate + client.DELEGATE_TARGET_OFFSET] = full_map
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600.0
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 0
+        client._is_live_full_map = lambda candidate: candidate == full_map
+        client._resolve_player = lambda: 0x400000
+        client._resolve_stage_scope = lambda: (0x500000, 1)
+
+        frame = client.poll(client_height=600)
+        self.assertEqual(frame.world_size, 600.0)
+        self.assertFalse(frame.map_open)
 
     def test_full_map_viewport_is_converted_from_native_to_qt_pixels(self) -> None:
         memory = FakeLifecycleMemory()

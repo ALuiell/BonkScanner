@@ -15,6 +15,10 @@ from core.map_markers import MapViewport, action_id_for_interactable
 from infra.memory.reader import MemoryReadError, ProcessMemory
 
 
+class FullMapNotReadyError(RuntimeError):
+    """The game has not initialized its FullMap runtime object yet."""
+
+
 @dataclass(frozen=True, slots=True)
 class DetectedMapActivity:
     object_ptr: int
@@ -39,6 +43,14 @@ class MapMarkerMemoryClient:
 
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
     MANAGED_NATIVE_OFFSET = 0x10
+
+    # Before IL2CPP initializes a type-info usage slot, 64-bit builds can keep
+    # a tagged 32-bit metadata token there instead of an Il2CppClass pointer.
+    # FullMap was observed as 0x2000A397 during startup. Dereferencing that token
+    # at +CLASS_STATIC_FIELDS_OFFSET turns a normal waiting state into a Win32
+    # partial-copy error and forces the tracker through its reconnect backoff.
+    IL2CPP_METADATA_USAGE_TAG_MASK = 0xE0000000
+    IL2CPP_TYPE_INFO_USAGE_TAG = 0x20000000
 
     MY_PLAYER_TYPE_INFO_OFFSET = 0x2F620F8
     MY_PLAYER_INSTANCE_OFFSET = 0x08
@@ -144,7 +156,7 @@ class MapMarkerMemoryClient:
         previous_full_map = self._full_map_ptr
         full_map = self._resolve_full_map()
         if not full_map:
-            raise MemoryReadError("Active FullMap instance is not available.")
+            raise FullMapNotReadyError("Active FullMap instance is not available yet.")
         if full_map != previous_full_map:
             self._player_ptr = 0
             self._detector_ptr = 0
@@ -255,9 +267,13 @@ class MapMarkerMemoryClient:
         type_info = self.memory.read_ptr(
             self._module_base + self.FULL_MAP_UI_TYPE_INFO_OFFSET
         )
+        if not type_info or self._is_uninitialized_type_info(type_info):
+            return 0
         static_fields = self.memory.read_ptr(
             type_info + self.CLASS_STATIC_FIELDS_OFFSET
         )
+        if not static_fields:
+            return 0
         delegate = self.memory.read_ptr(static_fields)
         if not delegate:
             return 0
@@ -284,6 +300,15 @@ class MapMarkerMemoryClient:
         if self._is_live_full_map(target):
             self._full_map_ptr = target
         return self._full_map_ptr
+
+    @classmethod
+    def _is_uninitialized_type_info(cls, value: int) -> bool:
+        normalized = int(value)
+        return bool(
+            0 < normalized <= 0xFFFFFFFF
+            and normalized & cls.IL2CPP_METADATA_USAGE_TAG_MASK
+            == cls.IL2CPP_TYPE_INFO_USAGE_TAG
+        )
 
     def _is_live_full_map(self, object_ptr: int) -> bool:
         if not object_ptr:
