@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import json
 import mimetypes
 from pathlib import Path
 import sys
@@ -12,6 +11,7 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from core.settings import NullOverlaySettings, OverlaySettings
+from core.json_safety import dumps_strict_json, loads_strict_json
 from core.overlay_config import widget_config_by_id
 from infra import paths
 
@@ -98,7 +98,7 @@ class OverlayStateStore:
             editor_settings["id"] = str(widget_id)
             normalized.append(editor_settings)
         normalized.sort(key=lambda widget: widget["id"])
-        return json.dumps(
+        return dumps_strict_json(
             normalized,
             ensure_ascii=False,
             sort_keys=True,
@@ -292,7 +292,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             try:
-                data = json.loads(post_data.decode('utf-8'))
+                data = loads_strict_json(post_data)
                 widget_id = data.get("id")
                 
                 def apply_widget_geometry(overlay):
@@ -333,7 +333,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                 self._settings.update(apply_widget_geometry)
                 
                 # Response
-                body = json.dumps({"status": "success"}).encode("utf-8")
+                body = dumps_strict_json({"status": "success"}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -346,7 +346,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             try:
-                data = json.loads(post_data.decode('utf-8'))
+                data = loads_strict_json(post_data)
                 width = int(data.get("width", 1920))
                 height = int(data.get("height", 1080))
                 
@@ -357,7 +357,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                 self._settings.update(apply_canvas_size)
                 
                 # Response
-                body = json.dumps({"status": "success"}).encode("utf-8")
+                body = dumps_strict_json({"status": "success"}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -391,7 +391,9 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                 state["widget_revision"] = self._widget_revision_provider()
         except Exception as exc:
             state = {"status": "error", "error": str(exc)}
-        body = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        body = dumps_strict_json(
+            state, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -415,7 +417,9 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
             self._send_text(400, "Invalid widget revision")
             return
         revision = self._widget_revision_waiter(after_revision, 25.0)
-        body = json.dumps({"revision": revision}, separators=(",", ":")).encode("utf-8")
+        body = dumps_strict_json(
+            {"revision": revision}, separators=(",", ":")
+        ).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from html import escape
-import json
 import os
 from pathlib import Path
 import re
@@ -29,6 +28,7 @@ from app import config
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import PLAYER_STAT_SPEC_BY_LABEL
 from core.build_progression import PROGRESS_TARGETS, CAP_SUPPORTED_ITEMS
+from core.json_safety import dumps_strict_json, loads_strict_json
 from projections.tracked_items import (
     available_tracked_item_names,
     group_tracked_items_by_rarity,
@@ -620,9 +620,9 @@ class BuildProgressionManagerDialog(QDialog):
         if not filename:
             return
         try:
-            payload = json.loads(Path(filename).read_text(encoding="utf-8"))
+            payload = loads_strict_json(Path(filename).read_text(encoding="utf-8"))
             build = build_from_export_payload(payload, self._existing_names())
-        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        except (OSError, UnicodeError, ValueError) as exc:
             _show_notice(self, "Import Failed", str(exc), danger=True)
             return
         became_active = not self._library.get("active_build_id")
@@ -660,7 +660,10 @@ class BuildProgressionManagerDialog(QDialog):
         temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
         try:
             temporary.write_text(
-                json.dumps(build_export_payload(build), indent=2, ensure_ascii=False) + "\n",
+                dumps_strict_json(
+                    build_export_payload(build), indent=2, ensure_ascii=False
+                )
+                + "\n",
                 encoding="utf-8",
             )
             os.replace(temporary, destination)

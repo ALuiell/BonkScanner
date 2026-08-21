@@ -21,6 +21,7 @@ from projections.tracked_items import (
     tracked_item_display_name,
     tracked_rule_display_label,
 )
+from tracked_item_rules import tracked_item_rules_from_config
 
 
 class TrackedItemNamingTests(unittest.TestCase):
@@ -66,6 +67,25 @@ class TrackedItemNamingTests(unittest.TestCase):
             ),
             "Custom Gloves Label",
         )
+
+    def test_non_finite_rule_limits_are_unknown_not_infinite(self) -> None:
+        rules = tracked_item_rules_from_config(
+            {
+                "tracked_items": [
+                    {
+                        "id": "anvil",
+                        "label": "Anvil",
+                        "item_names": ["Anvil"],
+                        "mode": "all_run",
+                        "before_seconds": float("inf"),
+                        "max_copies": float("inf"),
+                    }
+                ]
+            }
+        )
+
+        self.assertIsNone(rules[0].before_seconds)
+        self.assertIsNone(rules[0].max_copies)
 
 
 if __name__ == "__main__":

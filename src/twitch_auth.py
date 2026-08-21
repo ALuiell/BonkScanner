@@ -1,4 +1,3 @@
-import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
@@ -10,6 +9,7 @@ from dataclasses import dataclass
 import webbrowser
 import secrets
 from PySide6.QtCore import QThread, Signal
+from core.json_safety import loads_strict_json
 
 # Replace with the actual Twitch Application Client ID from the Developer Console.
 # The app must have http://localhost:17846/auth/twitch/callback as a registered Redirect URI.
@@ -193,8 +193,12 @@ class OAuthRequestHandler(BaseHTTPRequestHandler):
 
             post_data = self.rfile.read(content_length)
             try:
-                data = json.loads(post_data.decode("utf-8"))
-            except json.JSONDecodeError:
+                data = loads_strict_json(post_data)
+            except ValueError:
+                self.send_response(400)
+                self.end_headers()
+                return
+            if not isinstance(data, dict):
                 self.send_response(400)
                 self.end_headers()
                 return

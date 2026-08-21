@@ -8,6 +8,7 @@ statistics from becoming the accidental owner of the shared rule shape.
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any
 
 from core.tracker.live_run import TrackedItemRule
@@ -44,12 +45,13 @@ def tracked_item_rules_from_config(
 def _coerce_optional_int(value: Any) -> int | None:
     try:
         return int(value) if value is not None else None
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return None
 
 
 def _coerce_optional_float(value: Any) -> float | None:
     try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
+        converted = float(value) if value is not None else None
+    except (OverflowError, TypeError, ValueError):
         return None
+    return converted if converted is not None and isfinite(converted) else None

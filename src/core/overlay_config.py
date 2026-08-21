@@ -36,6 +36,7 @@ now imports them back from here -- a legal projections -> core edge.
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any
 
 DEFAULT_STATS_WIDGET_LABELS = ("Damage", "Attack Speed", "Luck", "XP Gain")
@@ -48,28 +49,32 @@ DEFAULT_LUCK_EXPECTED_LAYOUT = "column"
 def _coerce_optional_int(value: Any) -> int | None:
     try:
         return int(value) if value is not None else None
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return None
 
 
 def _coerce_optional_float(value: Any) -> float | None:
     try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
+        converted = float(value) if value is not None else None
+    except (OverflowError, TypeError, ValueError):
         return None
+    return converted if converted is not None and isfinite(converted) else None
 
 
 def _coerce_bounded_float(value: Any, *, default: float = 0.0) -> float:
     try:
-        return max(0.0, min(float(value), 1.0))
-    except (TypeError, ValueError):
+        converted = float(value)
+    except (OverflowError, TypeError, ValueError):
         return default
+    if not isfinite(converted):
+        return default
+    return max(0.0, min(converted, 1.0))
 
 
 def _coerce_int(value: Any, *, default: int = 0) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return default
 
 

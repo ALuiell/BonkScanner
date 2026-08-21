@@ -87,6 +87,58 @@ class OverlayServerTests(unittest.TestCase):
             finally:
                 server.stop()
 
+    def test_api_overlay_state_replaces_non_finite_values_with_json_null(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asset_dir = Path(temp_dir)
+            (asset_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            store = OverlayStateStore()
+            store.set_state(
+                {
+                    "status": "live",
+                    "overflow": float("inf"),
+                    "nested": {"unreadable": float("nan")},
+                }
+            )
+            server = LocalOverlayServer(
+                port=free_port(), state_store=store, asset_dir=asset_dir
+            )
+            server.start()
+            try:
+                with urlopen(
+                    f"http://127.0.0.1:{server.port}/api/overlay-state", timeout=2
+                ) as response:
+                    text = response.read().decode("utf-8")
+            finally:
+                server.stop()
+
+        payload = json.loads(
+            text,
+            parse_constant=lambda constant: self.fail(
+                f"overlay emitted non-standard JSON constant {constant}"
+            ),
+        )
+        self.assertIsNone(payload["overflow"])
+        self.assertIsNone(payload["nested"]["unreadable"])
+
+    def test_overlay_editor_rejects_non_standard_json_numbers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asset_dir = Path(temp_dir)
+            (asset_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            server = LocalOverlayServer(port=free_port(), asset_dir=asset_dir)
+            server.start()
+            try:
+                request = Request(
+                    f"http://127.0.0.1:{server.port}/api/save-widget-positions",
+                    data=b'{"id":"kps","scale":NaN}',
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(HTTPError) as raised:
+                    urlopen(request, timeout=2)
+                self.assertEqual(400, raised.exception.code)
+            finally:
+                server.stop()
+
     def test_api_overlay_state_overrides_widgets_from_current_settings(self) -> None:
         """The served payload normalizes widget config read at request time.
 

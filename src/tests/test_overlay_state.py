@@ -82,6 +82,40 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual(state["widgets"]["stage_summary"]["enabled"], True)
         self.assertEqual(state["stage_summary"][0]["stage"], "1")
 
+    def test_overlay_state_treats_non_finite_runtime_values_as_unknown(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=1.0,
+                stats={},
+                game_time_seconds=5.0,
+                map_seed=1,
+                stage_ptr=10,
+                chests_per_minute=float("inf"),
+            )
+        )
+
+        state = build_overlay_state(tracker, {"widgets": []})
+
+        self.assertIsNone(state["chests_per_minute"])
+
+    def test_overlay_widget_float_settings_reject_non_finite_values(self) -> None:
+        state = build_overlay_state(
+            LiveRunTracker(clock=lambda: 123.0),
+            {
+                "widgets": [
+                    {
+                        "id": "stats",
+                        "scale": float("nan"),
+                        "background_opacity": float("inf"),
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(state["widgets"]["stats"]["scale"], 1.0)
+        self.assertEqual(state["widgets"]["stats"]["background_opacity"], 0.0)
+
     def test_overlay_state_ships_the_rarity_colours_the_model_owns(self) -> None:
         """The page must not hold a second copy of the tier colours.
 

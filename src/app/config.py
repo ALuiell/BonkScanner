@@ -1,5 +1,4 @@
 import os
-import json
 import math
 import shutil
 import colorama
@@ -8,6 +7,7 @@ from uuid import uuid4
 from dataclasses import dataclass
 
 from core.build_progression import PROGRESS_TARGETS
+from core.json_safety import dumps_strict_json, load_legacy_json
 from core.map_markers import normalize_map_marker_settings
 from infra import paths
 
@@ -403,7 +403,8 @@ def load_game_config() -> dict | None:
         if not game_config_path or not os.path.exists(game_config_path):
             return None
         with open(game_config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            loaded = load_legacy_json(f)
+            return loaded if isinstance(loaded, dict) else None
     except Exception:
         return None
 
@@ -416,8 +417,10 @@ def save_game_config(data: dict) -> bool:
         game_dir = os.path.dirname(game_config_path)
         if not os.path.isdir(game_dir):
             return False
-        with open(game_config_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        _atomic_write_text(
+            game_config_path,
+            dumps_strict_json(data, indent=2),
+        )
         return True
     except Exception:
         return False
@@ -473,7 +476,12 @@ def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
         settings = {}
         data["cfGameSettings"] = settings
 
-    expected_value = round(float(game_val), 2)
+    try:
+        expected_value = round(float(game_val), 2)
+    except (OverflowError, TypeError, ValueError):
+        return GameConfigUpdateResult(False, "Enter a finite quick reset time value.")
+    if not math.isfinite(expected_value):
+        return GameConfigUpdateResult(False, "Enter a finite quick reset time value.")
     settings["quick_reset_time"] = expected_value
     if not save_game_config(data):
         return GameConfigUpdateResult(
@@ -523,15 +531,35 @@ def load_config():
     with config_lock:
         try:
             with open(config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                loaded = load_legacy_json(f)
+                return loaded if isinstance(loaded, dict) else {}
         except Exception:
             return {}
+
+
+def _atomic_write_text(path, payload):
+    temp_path = f"{path}.tmp"
+    try:
+        with open(temp_path, "w", encoding="utf-8") as file:
+            file.write(payload)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temp_path, path)
+    finally:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+
 
 def save_config(cfg_dict):
     with config_lock:
         try:
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(cfg_dict, f, indent=4)
+            _atomic_write_text(
+                config_path,
+                dumps_strict_json(cfg_dict, indent=4),
+            )
         except Exception:
             pass
 
@@ -609,7 +637,7 @@ cleanup_legacy_native_hook_cache(user_config.get("NATIVE_HOOK_DLL_PATH"))
 def coerce_nonnegative_int(value, default=0):
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return default
     return max(parsed, 0)
 

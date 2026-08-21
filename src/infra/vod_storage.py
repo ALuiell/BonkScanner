@@ -13,6 +13,7 @@ from typing import Any
 from infra import paths
 
 from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT, RecordingSettings
+from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
@@ -615,41 +616,18 @@ def delete_vods_below_snapshot_count(
     )
 
 
-def _normalize_json_value(value: Any) -> Any:
-    """Return JSON-safe primitives without turning an unavailable number into zero."""
-    if isinstance(value, float) and not isfinite(value):
-        return None
-    if isinstance(value, dict):
-        return {key: _normalize_json_value(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_normalize_json_value(item) for item in value]
-    return value
-
-
 def _dumps_record(record: dict[str, Any]) -> str:
-    # `allow_nan=False` is the final guard: JSONL is also consumed outside
-    # Python, where NaN and Infinity are invalid JSON rather than numbers.
-    return json.dumps(
-        _normalize_json_value(record),
+    return dumps_strict_json(
+        record,
         ensure_ascii=False,
         separators=(",", ":"),
-        allow_nan=False,
     )
-
-
-def _parse_finite_json_float(value: str) -> float | None:
-    converted = float(value)
-    return converted if isfinite(converted) else None
 
 
 def _loads_record(payload: str | bytes) -> dict[str, Any]:
     # Older Python-written recordings may contain these non-standard tokens.
     # They are unreadable measurements, not zeroes; new recordings use null.
-    record = json.loads(
-        payload,
-        parse_constant=lambda _constant: None,
-        parse_float=_parse_finite_json_float,
-    )
+    record = loads_legacy_json(payload)
     if not isinstance(record, dict):
         raise ValueError("Every VOD JSONL entry must be an object.")
     return record
