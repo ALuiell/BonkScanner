@@ -32,12 +32,12 @@ def build_progression_payload(
     incomplete = [
         row
         for row in snapshot.rows
-        if row.status is not RequirementStatus.SATISFIED
+        if not row.complete
     ]
     completed = [
         row
         for row in snapshot.rows
-        if row.status is RequirementStatus.SATISFIED
+        if row.complete
     ]
     show_headings = bool(options.get("show_section_headings", True))
     if show_headings:
@@ -85,6 +85,7 @@ def build_progression_payload(
                 ),
                 "value": f"{row.current_display}/{row.required_display}",
                 "status": row.status.value,
+                "complete": row.complete,
                 "symbol": row.symbol,
                 "time": (row.deadline_label or progress_hint) if show_time else "",
                 "label_color": (
@@ -93,7 +94,9 @@ def build_progression_payload(
                     else ("#93C5FD" if row.kind.value == "stat" else "#5EEAD4")
                 ),
                 "late": row.late,
+                "min_met": row.min_met,
                 "cap_unresolved": row.cap_unresolved,
+                "banished": row.status is RequirementStatus.BANISHED,
             }
         )
     hidden_completed = 0 if show_completed else len(completed)
@@ -116,7 +119,7 @@ def build_progression_payload(
 
 def _display_sort_key(row) -> tuple[int, float, int]:
     """Order each rendered section by the row's user-facing lifecycle."""
-    satisfied = row.status is RequirementStatus.SATISFIED
+    satisfied = row.complete
     overdue = row.status is RequirementStatus.OVERDUE and not row.late
     deadline_rank = (
         float(row.time_delta_seconds)
@@ -147,6 +150,8 @@ def _display_sort_key(row) -> tuple[int, float, int]:
 
 
 def _progress_hint(row) -> str:
+    if row.status is RequirementStatus.BANISHED:
+        return "BANISHED"
     if row.status is RequirementStatus.SATISFIED:
         if row.cap_tracking or row.max_required is not None:
             return ""
@@ -154,10 +159,10 @@ def _progress_hint(row) -> str:
     if row.min_met and row.cap_tracking:
         return "CAP ACTIVE"
     if row.min_met and row.max_required is not None:
-        # The stat editor calls the second target "Ideal", but overlays only
-        # replace the numeric target after Min is reached; they do not expose
-        # either internal/semantic label.
-        return "TO MAX" if row.kind.value == "item" else ""
+        # Once Min is secured, keep the row active but make the remaining
+        # optional target explicit. "Ideal" is the shared player-facing term
+        # even though the domain keeps the historical max_required name.
+        return "TO IDEAL"
     return "NO DEADLINE" if not row.deadline_label else ""
 
 
@@ -198,7 +203,8 @@ def format_twitch_build(
     incomplete = [
         row
         for row in snapshot.rows
-        if row.status not in {RequirementStatus.SATISFIED, RequirementStatus.OVERDUE}
+        if not row.complete
+        and row.status is not RequirementStatus.OVERDUE
         and not row.late
     ]
     failed = [
@@ -207,14 +213,20 @@ def format_twitch_build(
     ]
     completed = [
         row for row in snapshot.rows
-        if row.status is RequirementStatus.SATISFIED and not row.late
+        if row.complete and not row.late
     ]
 
     def chunk(row) -> str:
         value = f"{row.current_display}/{row.required_display}"
         label = abbreviate_stat_label(row.target) if row.kind.value == "stat" else row.target
+        if row.status is RequirementStatus.BANISHED:
+            completion_hint = "BANISHED"
+        elif row.min_met and not row.complete:
+            completion_hint = _progress_hint(row)
+        else:
+            completion_hint = row.deadline_label
         return " ".join(
-            part for part in (row.symbol, label, value, row.deadline_label) if part
+            part for part in (row.symbol, label, value, completion_hint) if part
         )
 
     def bounded(prefix: str, rows, *, limit: int = max_chars) -> str:

@@ -65,5 +65,32 @@ class StageSummarySizingTests(unittest.TestCase):
         self.assertIn("font-variant-numeric: tabular-nums", count)
 
 
+class BuildProgressionColorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        css = CSS_PATH.read_text(encoding="utf-8")
+        cls.css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    def _rule(self, selector: str) -> str:
+        match = re.search(
+            r"^[ \t]*" + re.escape(selector) + r"\s*\{(?P<body>.*?)\}",
+            self.css,
+            re.M | re.S,
+        )
+        self.assertIsNotNone(match, f"missing CSS rule: {selector}")
+        return match.group("body")
+
+    def test_min_met_uses_green_check_and_stats_cyan_hint(self) -> None:
+        self.assertIn("#59D890", self._rule(".build-row.min-met .build-symbol"))
+        self.assertIn("var(--hud-cyan)", self._rule(".build-row.min-met .build-time"))
+
+    def test_late_rules_follow_min_met_rules_and_keep_priority(self) -> None:
+        self.assertLess(
+            self.css.index(".build-row.min-met .build-time"),
+            self.css.index(".build-row.late .build-time"),
+        )
+        self.assertIn("#F97316", self._rule(".build-row.late .build-time"))
+
+
 if __name__ == "__main__":
     unittest.main()

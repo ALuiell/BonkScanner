@@ -265,16 +265,30 @@ class _BuildProgressionRow(QFrame):
         self.name.setStyleSheet(
             f"color: {row.get('label_color') or '#E4E9F0'}; background: transparent;"
         )
+        name_font = self.name.font()
+        name_font.setStrikeOut(status == "banished")
+        self.name.setFont(name_font)
         self.value.setText(str(row.get("value") or ""))
         # Once Required is met, the deadline has done its job.  Keeping an
         # overdue delta or target clock on a green row made it read as both
         # complete and late; if the value regresses, the evaluator restores
         # the current deadline and the badge comes back automatically.
-        timing = "" if status == "satisfied" else str(row.get("time") or "")
+        timing = (
+            ""
+            if status == "satisfied"
+            else str(row.get("time") or "")
+        )
         late = bool(row.get("late"))
+        min_in_progress = bool(row.get("min_met")) and not bool(row.get("complete"))
         if late:
             self.symbol.setStyleSheet("color: #F97316;")
             self.deadline.setStyleSheet("color: #F97316;")
+        elif status == "banished":
+            self.symbol.setStyleSheet("color: #A78BFA;")
+            self.deadline.setStyleSheet("color: #A78BFA;")
+        elif min_in_progress:
+            self.symbol.setStyleSheet("color: #59D890;")
+            self.deadline.setStyleSheet("color: #16E7FF;")
         else:
             self.symbol.setStyleSheet("")
             self.deadline.setStyleSheet("")
@@ -778,7 +792,9 @@ class LiveStatsTab:
                 row_widget.update_row(rows[index])
             else:
                 row_widget.hide()
-        completed_count = sum(row.get("status") == "satisfied" for row in rows)
+        completed_count = sum(
+            bool(row.get("complete")) for row in rows
+        )
         remaining_count = max(0, len(rows) - completed_count)
         footer.setText(f"{remaining_count} remaining  ·  {completed_count} completed")
         footer.show()

@@ -65,6 +65,7 @@ def runtime(
     duration=600.0,
     kills=None,
     player_level=None,
+    banishes=(),
 ):
     tracker = LiveRunTracker(clock=lambda: 10.0)
     tracker.update(
@@ -72,6 +73,7 @@ def runtime(
             captured_at=10.0,
             stats={"Damage": PlayerStatValue(PLAYER_STAT_SPEC_BY_LABEL["Damage"], damage)},
             items=tuple(items),
+            banishes=tuple(banishes),
             game_time_seconds=time,
             stage_ptr=1,
             stage_index=max(0, stage - 1),
@@ -236,7 +238,80 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(rows["a"].current_display, "2")
         self.assertEqual(rows["d"].required_display, "3x")
 
-    def test_stat_min_ideal_switches_the_numeric_target_without_overlay_label(self):
+    def test_banished_unfinished_item_has_its_own_completed_status(self):
+        _tracker, snap = runtime(
+            items=("Dragonfire x5",),
+            banishes=("Dragonfire",),
+        )
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement(
+                "dragonfire",
+                RequirementKind.ITEM,
+                "Dragonfire",
+                5,
+                max_required=15,
+            ),
+        ))
+
+        result = evaluate_build_progression(definition, snap).snapshot
+        row = result.rows[0]
+
+        self.assertIs(row.status, RequirementStatus.BANISHED)
+        self.assertTrue(row.complete)
+        self.assertEqual(row.symbol, "⊘")
+        self.assertEqual(row.current_display, "5")
+        self.assertEqual(row.required_display, "15")
+        self.assertTrue(row.min_met)
+        self.assertEqual(result.completed, 1)
+        self.assertTrue(result.complete)
+        self.assertEqual(result.completion_time_seconds, 100)
+
+    def test_reached_item_stays_satisfied_when_it_is_also_banished(self):
+        _tracker, snap = runtime(
+            items=("Dragonfire x15",),
+            banishes=("Dragonfire",),
+        )
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement(
+                "dragonfire",
+                RequirementKind.ITEM,
+                "Dragonfire",
+                5,
+                max_required=15,
+            ),
+        ))
+
+        row = evaluate_build_progression(definition, snap).snapshot.rows[0]
+
+        self.assertIs(row.status, RequirementStatus.SATISFIED)
+        self.assertEqual(row.symbol, "✓")
+
+    def test_banished_item_keeps_deadline_lateness_as_separate_history(self):
+        _tracker, snap = runtime(
+            items=(),
+            banishes=("Dragonfire",),
+            stage=2,
+        )
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement(
+                "dragonfire",
+                RequirementKind.ITEM,
+                "Dragonfire",
+                15,
+                deadline=RequirementDeadline(DeadlineKind.STAGE_START, stage=2),
+            ),
+        ))
+
+        result = evaluate_build_progression(definition, snap).snapshot
+        row = result.rows[0]
+
+        self.assertIs(row.status, RequirementStatus.BANISHED)
+        self.assertTrue(row.late)
+        self.assertEqual(row.symbol, "⊘")
+        self.assertTrue(result.complete)
+        self.assertTrue(result.late_complete)
+
+    def test_stat_min_ideal_marks_min_and_shows_remaining_ideal_target(self):
         _tracker, snap = runtime(items=(), damage=3.5)
         definition = BuildProgressionDefinition(
             requirements=(
@@ -255,10 +330,26 @@ class BuildProgressionTests(unittest.TestCase):
         payload_row = build_progression_payload(result)["rows"][0]
 
         self.assertTrue(row.min_met)
+        self.assertFalse(row.complete)
+        self.assertEqual(row.symbol, "✓")
         self.assertEqual(row.required_display, "4x")
         self.assertIsNot(row.status, RequirementStatus.SATISFIED)
         self.assertEqual(payload_row["value"], "3.5x/4x")
-        self.assertEqual(payload_row["time"], "")
+        self.assertTrue(payload_row["min_met"])
+        self.assertFalse(payload_row["complete"])
+        self.assertEqual(payload_row["time"], "TO IDEAL")
+
+        html = build_build_progression_overlay_html(
+            build_progression_payload(result)
+        )
+        self.assertIn("color:#59D890", html)
+        self.assertIn("color:#16E7FF", html)
+        self.assertIn("<b>✓</b>", html)
+        self.assertIn("TO IDEAL", html)
+        self.assertIn(
+            "✓ DMG 3.5x/4x TO IDEAL",
+            format_twitch_build(result)["requirements"],
+        )
 
     def test_progress_requirements_use_live_kills_and_player_level(self):
         _tracker, snap = runtime(items=(), kills=250, player_level=42)
@@ -714,6 +805,44 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertIn("more", twitch["requirements"])
         self.assertIn("COMPLETED:", twitch["completed_requirements"])
 
+    def test_banished_completion_is_distinct_in_payload_html_and_twitch(self):
+        _tracker, snap = runtime(
+            items=("Dragonfire x5",),
+            banishes=("Dragonfire",),
+        )
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement(
+                "banished",
+                RequirementKind.ITEM,
+                "Dragonfire",
+                5,
+                max_required=15,
+            ),
+            BuildRequirement("remaining", RequirementKind.ITEM, "Ice Cube", 1),
+        ))
+        result = evaluate_build_progression(definition, snap).snapshot
+
+        hidden = build_progression_payload(result, {"max_rows": 20})
+        shown = build_progression_payload(
+            result,
+            {"max_rows": 20, "show_completed": True},
+        )
+        banished = next(row for row in shown["rows"] if row["id"] == "banished")
+
+        self.assertEqual(hidden["hidden_completed"], 1)
+        self.assertNotIn("banished", {row["id"] for row in hidden["rows"]})
+        self.assertEqual(banished["status"], "banished")
+        self.assertTrue(banished["complete"])
+        self.assertTrue(banished["banished"])
+        self.assertEqual(banished["symbol"], "⊘")
+        self.assertEqual(banished["value"], "5/15")
+        self.assertEqual(banished["time"], "BANISHED")
+
+        html = build_build_progression_overlay_html(shown)
+        self.assertIn("<s>Dragonfire</s>", html)
+        twitch = format_twitch_build(result)
+        self.assertIn("⊘ Dragonfire 5/15 BANISHED", twitch["completed_requirements"])
+
     def test_row_limit_is_applied_after_lifecycle_sorting(self):
         _tracker, snap = runtime(items=(), stage=1, stage_time=0, duration=600)
         definition = BuildProgressionDefinition(requirements=(
@@ -904,7 +1033,7 @@ class BuildProgressionTests(unittest.TestCase):
             ],
         )
         rows_by_id = {row["id"]: row for row in payload["rows"]}
-        self.assertEqual(rows_by_id["active"]["time"], "TO MAX")
+        self.assertEqual(rows_by_id["active"]["time"], "TO IDEAL")
         self.assertEqual(rows_by_id["done-late-max"]["time"], "T1 +00:00")
         self.assertTrue(rows_by_id["done-late-max"]["late"])
 
@@ -1619,6 +1748,12 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertTrue(row2.late)
         self.assertNotEqual(row2.status, RequirementStatus.SATISFIED)
         self.assertEqual(row2.symbol, "✓")
+
+        html = build_build_progression_overlay_html(
+            build_progression_payload(result2.snapshot)
+        )
+        self.assertGreaterEqual(html.count("color:#F97316"), 2)
+        self.assertNotIn("color:#16E7FF", html)
 
     def test_late_complete_build_state(self):
         """All done + some late = snapshot.late_complete is True."""

@@ -12,6 +12,7 @@ import math
 from math import isfinite
 from typing import Mapping
 
+from core.item_metadata import normalize_item_name_for_rarity
 from core.tracker.snapshots import RunLifecycle, RuntimeStateSnapshot
 from core.stats.formatters import format_player_stat_value
 from core.run_summary import item_counts as count_items
@@ -43,6 +44,18 @@ class RequirementStatus(str, Enum):
     WARNING = "warning"
     OVERDUE = "overdue"
     SATISFIED = "satisfied"
+    BANISHED = "banished"
+
+
+COMPLETED_REQUIREMENT_STATUSES: frozenset[RequirementStatus] = frozenset({
+    RequirementStatus.SATISFIED,
+    RequirementStatus.BANISHED,
+})
+
+
+def requirement_status_is_complete(status: RequirementStatus) -> bool:
+    """Whether a requirement no longer needs any action from the player."""
+    return status in COMPLETED_REQUIREMENT_STATUSES
 
 
 STATUS_SYMBOLS: Mapping[RequirementStatus, str] = {
@@ -51,6 +64,7 @@ STATUS_SYMBOLS: Mapping[RequirementStatus, str] = {
     RequirementStatus.WARNING: "!",
     RequirementStatus.OVERDUE: "×",
     RequirementStatus.SATISFIED: "✓",
+    RequirementStatus.BANISHED: "⊘",
 }
 
 
@@ -117,6 +131,10 @@ class BuildProgressionRow:
     cap_unresolved: bool = False
     min_met: bool = False
     cap_tracking: bool = False
+
+    @property
+    def complete(self) -> bool:
+        return requirement_status_is_complete(self.status)
 
 
 @dataclass(frozen=True)
@@ -186,6 +204,10 @@ def evaluate_build_progression(
     # else instead of counting those strings as one differently named item.
     item_counts = count_items(items) if items is not None else None
     stats = latest.stats if latest is not None else {}
+    banished_items = {
+        normalize_item_name_for_rarity(str(name))
+        for name in (getattr(latest, "banishes", ()) if latest is not None else ())
+    }
 
     rows: list[BuildProgressionRow] = []
     next_satisfied: dict[str, float] = {}
@@ -231,6 +253,12 @@ def evaluate_build_progression(
             satisfied = False
         else:
             satisfied = min_met
+        banished = (
+            requirement.kind is RequirementKind.ITEM
+            and normalize_item_name_for_rarity(requirement.target) in banished_items
+            and not satisfied
+        )
+        requirement_complete = satisfied or banished
 
         effective_target = requirement.required
         if min_met and effective_max is not None:
@@ -249,8 +277,14 @@ def evaluate_build_progression(
             requirement.id in previous_min_satisfied_at
             or requirement.id in previous_late
         )
-        min_newly_satisfied = min_met and not min_was_satisfied
-        if min_newly_satisfied:
+        # Banish is an alternative way to finish the requirement, so the same
+        # deadline judges when it happened. It does not pretend that Min was
+        # numerically reached: `min_met` and the displayed count stay factual.
+        completion_threshold_met = min_met or banished
+        completion_threshold_newly_met = (
+            completion_threshold_met and not min_was_satisfied
+        )
+        if completion_threshold_newly_met:
             late = deadline_status is RequirementStatus.OVERDUE
         elif min_was_satisfied:
             late = previous_late.get(requirement.id, False)
@@ -263,16 +297,17 @@ def evaluate_build_progression(
         # overdue after having already met the deadline.
         if (
             min_met and (effective_max is not None or cap_unresolved)
-        ) or (min_was_satisfied and not min_met):
+        ) or (min_was_satisfied and not min_met) or banished:
             deadline = RequirementDeadline()
             deadline_status, delta = RequirementStatus.NEUTRAL, None
 
-        # Track min_satisfied_at
-        if min_met:
-            # Store both outcomes.  A False entry is the durable evidence that
-            # Min was first reached on time even when no run timer was available
-            # to populate `min_satisfied_at` on that pass.
+        # `next_late` also serves as durable completion-deadline history when
+        # banish completed the row without numerically reaching Min.
+        if completion_threshold_met:
+            # Store both outcomes. A False entry is durable evidence that the
+            # requirement's completion threshold was first met on time.
             next_late[requirement.id] = late
+        if min_met:
             min_sat = previous_min_satisfied_at.get(requirement.id)
             if min_sat is None and run_time is not None:
                 min_sat = max(0.0, float(run_time))
@@ -280,7 +315,9 @@ def evaluate_build_progression(
                 next_min_satisfied_at[requirement.id] = min_sat
 
         # --- Status assignment ---
-        if current is None:
+        if banished:
+            status = RequirementStatus.BANISHED
+        elif current is None:
             status = RequirementStatus.UNKNOWN
         elif satisfied:
             status = RequirementStatus.SATISFIED
@@ -293,7 +330,7 @@ def evaluate_build_progression(
             status = deadline_status
 
         satisfied_at = None
-        if satisfied:
+        if requirement_complete:
             satisfied_at = previous_satisfied_at.get(requirement.id)
             if satisfied_at is None and run_time is not None:
                 satisfied_at = max(0.0, float(run_time))
@@ -314,17 +351,29 @@ def evaluate_build_progression(
                 ),
                 deadline=deadline,
                 deadline_label=(
-                    configured_deadline_label
-                    if satisfied and min_met and effective_max is not None
-                    else format_deadline(deadline)
+                    ""
+                    if banished
+                    else (
+                        configured_deadline_label
+                        if satisfied and min_met and effective_max is not None
+                        else format_deadline(deadline)
+                    )
                 ),
                 time_delta_seconds=delta,
                 status=status,
-                # A late minimum is still obtained, even while an optional
-                # maximum/cap remains in progress. Keep the leading checkmark
-                # and let each projection colour it orange instead of showing
-                # the ordinary neutral-dot symbol.
-                symbol="✓" if late else STATUS_SYMBOLS[status],
+                # Reaching Min is a visible milestone even while an optional
+                # Ideal/Max/Cap remains in progress. Keep the leading checkmark
+                # and let each projection distinguish on-time green from late
+                # orange instead of showing the ordinary neutral-dot symbol.
+                symbol=(
+                    STATUS_SYMBOLS[RequirementStatus.BANISHED]
+                    if banished
+                    else (
+                        "✓"
+                        if late or (min_met and not requirement_complete)
+                        else STATUS_SYMBOLS[status]
+                    )
+                ),
                 satisfied_at_seconds=satisfied_at,
                 order=requirement.order,
                 max_required=effective_max,
@@ -337,7 +386,7 @@ def evaluate_build_progression(
 
     rows.sort(key=_row_sort_key)
     total = len(rows)
-    completed = sum(row.status is RequirementStatus.SATISFIED for row in rows)
+    completed = sum(row.complete for row in rows)
     complete = bool(total) and completed == total
     late_complete = complete and any(row.late for row in rows)
     completion_time = previous_completion_time_seconds if complete else None
@@ -487,7 +536,7 @@ def _target_stage(deadline: RequirementDeadline) -> int | None:
 def _row_sort_key(row: BuildProgressionRow):
     untimed = row.deadline.kind is DeadlineKind.NONE
     delta = row.time_delta_seconds
-    if row.status is RequirementStatus.SATISFIED:
+    if row.complete:
         group = 3
     elif row.status is RequirementStatus.OVERDUE:
         group = 2
@@ -497,7 +546,7 @@ def _row_sort_key(row: BuildProgressionRow):
         group = 1
     # Late rows that are not fully satisfied (working on max/cap)
     # sort among active rows, not among completed.
-    if row.late and row.status is not RequirementStatus.SATISFIED:
+    if row.late and not row.complete:
         group = 0  # treat as untimed active
     deadline_rank = delta if delta is not None else float("inf")
     return (

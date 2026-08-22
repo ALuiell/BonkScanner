@@ -83,7 +83,7 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
         )
     colors = {
         "unknown": "#8c96a8", "neutral": "#d7dde5", "warning": "#f1c861",
-        "overdue": "#ff6f76", "satisfied": "#59d890",
+        "overdue": "#ff6f76", "satisfied": "#59d890", "banished": "#A78BFA",
     }
     rows = []
     section_labels = {"item": "ITEMS", "stat": "STATS", "progress": "PROGRESS"}
@@ -99,16 +99,23 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
         last_kind = kind
         status = str(row.get("status") or "unknown")
         color = colors.get(status, "#d7dde5")
-        # Late rows use orange for the symbol column
-        symbol_color = "#F97316" if row.get("late") else color
-        timing_color = "#F97316" if row.get("late") else color
+        is_late = bool(row.get("late"))
+        min_in_progress = bool(row.get("min_met")) and not bool(row.get("complete"))
+        if is_late:
+            symbol_color = "#F97316"
+            timing_color = "#F97316"
+        elif min_in_progress:
+            symbol_color = "#59D890"
+            timing_color = "#16E7FF"
+        else:
+            symbol_color = color
+            timing_color = color
         # Unknown already reads as ``--`` in the value column. A leading '?'
         # repeats that fact and looks like corrupt text when every row is still
         # waiting for the first inventory read.
-        is_late = bool(row.get("late"))
         symbol = (
             ""
-            if status in {"unknown", "neutral"} and not is_late
+            if status in {"unknown", "neutral"} and not is_late and not min_in_progress
             else str(row.get("symbol") or "")
         )
         timing = escape(str(row.get("time") or ""))
@@ -119,12 +126,15 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
             and all(char in "0123456789abcdefABCDEF" for char in label_color[1:])
         ):
             label_color = "#d7dde5"
+        label = escape(str(row.get("label") or "--"))
+        if row.get("banished"):
+            label = f"<s>{label}</s>"
         rows.append(
             "<tr>"
             f"<td width='16' style='color:{symbol_color};text-shadow:{shadow};white-space:nowrap;'>"
             f"<b>{escape(symbol)}</b>&nbsp;</td>"
             f"<td style='color:{label_color};text-shadow:{shadow};white-space:nowrap;'>"
-            f"{escape(str(row.get('label') or '--'))}&nbsp;&nbsp;</td>"
+            f"{label}&nbsp;&nbsp;</td>"
             f"<td align='left' style='color:#d7dde5;text-shadow:{shadow};white-space:nowrap;'>"
             f"<b>{escape(str(row.get('value') or '--'))}</b>&nbsp;&nbsp;</td>"
             f"<td align='right' style='color:{timing_color};text-shadow:{shadow};white-space:nowrap;'>"

@@ -198,7 +198,9 @@ function renderBuildProgression(state) {
       : "";
     lastKind = row.kind;
     const lateClass = row.late ? " late" : "";
-    return `${heading}<div class="build-row status-${escapeHtml(row.status)}${lateClass}">
+    const banishedClass = row.banished ? " banished" : "";
+    const minMetClass = row.min_met && !row.complete ? " min-met" : "";
+    return `${heading}<div class="build-row status-${escapeHtml(row.status)}${minMetClass}${lateClass}${banishedClass}">
     <span class="build-symbol">${escapeHtml(row.symbol)}</span>
     <span class="build-label" style="color:${buildLabelColor(row.label_color)}">${escapeHtml(row.label)}</span>
     <strong>${escapeHtml(row.value)}</strong>

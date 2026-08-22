@@ -131,6 +131,41 @@ const liveState = {
   console.log("ok: status card gating");
 }
 
+// --- Build Progression marks Min without completing the Ideal row -----------
+{
+  const { t, rootEl } = makeContext();
+  t.render({
+    status: "live",
+    style: {},
+    widgets: {
+      build_progression: { id: "build_progression", enabled: true, order: 1 },
+    },
+    build_progression: {
+      configured: true,
+      available: true,
+      complete: false,
+      name: "Test Build",
+      progress: "0/1",
+      rows: [{
+        kind: "stat",
+        label: "DMG",
+        label_color: "#93C5FD",
+        value: "3.5x/4x",
+        status: "neutral",
+        complete: false,
+        min_met: true,
+        late: false,
+        banished: false,
+        symbol: "✓",
+        time: "TO IDEAL",
+      }],
+    },
+  });
+  assert.ok(rootEl.innerHTML.includes("status-neutral min-met"), "Min row gets its visual class");
+  assert.ok(rootEl.innerHTML.includes("TO IDEAL"), "remaining Ideal target stays visible");
+  console.log("ok: build Min milestone");
+}
+
 // --- 2. first-ever frame with no data still explains itself ------------------
 {
   const { t, rootEl } = makeContext();
