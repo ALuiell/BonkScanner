@@ -23,7 +23,7 @@ from core.map_markers import (
     MAP_MARKER_ACTION_BY_ID,
     MarkerPalette,
     MapMarkerSnapshot,
-    project_world_to_map,
+    map_marker_screen_geometry,
 )
 from projections.in_game_html import (
     LUCK_EXPECTED_DEFAULT_LAYOUT,
@@ -102,37 +102,23 @@ class MapMarkerLayer(QWidget):
         painter.setClipRect(
             QRectF(viewport.left, viewport.top, viewport.width, viewport.height)
         )
-        icon_size = max(18, int(round(28 * self._scale)))
-        pictogram_size = max(12, int(round(icon_size * 0.68)))
-        half = icon_size / 2.0
-
         for marker in snapshot.markers:
             action = MAP_MARKER_ACTION_BY_ID.get(marker.action_id)
             if action is None:
                 continue
-            point = project_world_to_map(
+            geometry = map_marker_screen_geometry(
                 marker.world_x,
                 marker.world_z,
                 world_size=snapshot.world_size,
                 viewport=viewport,
+                scale=self._scale,
             )
-            if point is None:
+            if geometry is None:
                 continue
-            center_x, center_y = point
-            # A world position exactly on the map boundary is valid, but an icon
-            # centred there would lose half of its circle to the map clip. Keep
-            # the complete marker inside the current map rectangle.
-            inset = half + max(2.0, icon_size / 11.0)
-            if viewport.width >= inset * 2.0:
-                center_x = min(
-                    max(center_x, viewport.left + inset),
-                    viewport.right - inset,
-                )
-            if viewport.height >= inset * 2.0:
-                center_y = min(
-                    max(center_y, viewport.top + inset),
-                    viewport.bottom - inset,
-                )
+            center_x, center_y, icon_size_value = geometry
+            icon_size = int(icon_size_value)
+            pictogram_size = max(12, int(round(icon_size * 0.68)))
+            half = icon_size / 2.0
             bounds = QRectF(
                 center_x - half,
                 center_y - half,

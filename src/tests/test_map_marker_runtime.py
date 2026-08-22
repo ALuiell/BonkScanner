@@ -243,7 +243,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
         self.assertEqual(len(tracker.snapshot.markers), 1)
         self.assertTrue(
             tracker.place_manual_marker(
-                "microwave_white", screen_x=306, screen_y=300
+                "microwave_white", screen_x=319, screen_y=300
             )
         )
         self.assertEqual(tracker.snapshot.markers, ())
@@ -264,6 +264,24 @@ class MapMarkerTrackerTests(unittest.TestCase):
         snapshot = tracker.tick(client_height=600, automatic_discovery=True)
         self.assertEqual(len(snapshot.markers), 1)
         self.assertEqual(snapshot.markers[0].source, "automatic")
+
+    def test_manual_marker_hit_area_uses_scaled_clamped_visual_icon(self) -> None:
+        client = FakeMarkerClient([self.frame()])
+        tracker = MapMarkerTracker("game", client_factory=lambda _name: client)
+        tracker.tick(client_height=600)
+
+        tracker.place_manual_marker("moai", screen_x=0, screen_y=300)
+        self.assertEqual(len(tracker.snapshot.markers), 1)
+
+        # A marker on the boundary is painted inward. Clicking that visible
+        # centre must remove it even though it is not the raw projected point.
+        tracker.place_manual_marker(
+            "moai",
+            screen_x=50,
+            screen_y=300,
+            scale=3.0,
+        )
+        self.assertEqual(tracker.snapshot.markers, ())
 
     def test_disabled_automatic_discovery_ignores_and_clears_auto_markers(self) -> None:
         activity = DetectedMapActivity(

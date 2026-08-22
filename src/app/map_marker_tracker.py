@@ -9,6 +9,7 @@ from core.map_markers import (
     MAP_MARKER_ACTION_BY_ID,
     MapMarkerSnapshot,
     WorldMapMarker,
+    map_marker_screen_geometry,
     unproject_map_to_world,
 )
 from infra.memory.map_marker_client import FullMapNotReadyError, MapMarkerMemoryClient
@@ -168,12 +169,35 @@ class MapMarkerTracker:
         *,
         screen_x: float,
         screen_y: float,
+        scale: float = 1.0,
     ) -> bool:
         if action_id not in MAP_MARKER_ACTION_BY_ID:
             return False
         snapshot = self._snapshot
         if not snapshot.map_open or snapshot.viewport is None:
             return False
+        # Tapping the same action on or just around an existing manual icon
+        # toggles it off. Test against the clamped visual centre, not the raw
+        # world point: markers near a map edge are shifted inward when painted.
+        for marker_id, marker in tuple(self._markers.items()):
+            if marker.source != "manual" or marker.action_id != action_id:
+                continue
+            geometry = map_marker_screen_geometry(
+                marker.world_x,
+                marker.world_z,
+                world_size=snapshot.world_size,
+                viewport=snapshot.viewport,
+                scale=scale,
+            )
+            if geometry is None:
+                continue
+            center_x, center_y, icon_size = geometry
+            hit_radius = icon_size / 2.0 + max(8.0, icon_size * 0.15)
+            if math.hypot(center_x - screen_x, center_y - screen_y) <= hit_radius:
+                self._markers.pop(marker_id, None)
+                self._refresh_snapshot_markers()
+                return True
+
         world = unproject_map_to_world(
             screen_x,
             screen_y,
@@ -183,24 +207,6 @@ class MapMarkerTracker:
         if world is None:
             return False
         world_x, world_z = world
-
-        # Tapping the same action directly on an existing manual icon toggles it
-        # off.  This gives the one retained manual mode an undo path without
-        # adding a second delete mode or making the click-through overlay active.
-        pixel_radius = 12.0
-        world_radius = (
-            pixel_radius / snapshot.viewport.width * snapshot.world_size
-        )
-        for marker_id, marker in tuple(self._markers.items()):
-            if (
-                marker.source == "manual"
-                and marker.action_id == action_id
-                and math.hypot(marker.world_x - world_x, marker.world_z - world_z)
-                <= world_radius
-            ):
-                self._markers.pop(marker_id, None)
-                self._refresh_snapshot_markers()
-                return True
 
         self._manual_counter += 1
         marker_id = f"manual:{self._manual_counter}"

@@ -383,6 +383,42 @@ def project_world_to_map(
     )
 
 
+def map_marker_screen_geometry(
+    world_x: float,
+    world_z: float,
+    *,
+    world_size: float,
+    viewport: MapViewport,
+    scale: float = 1.0,
+) -> tuple[float, float, float] | None:
+    """Return the clamped visual centre and diameter of a map marker."""
+
+    point = project_world_to_map(
+        world_x,
+        world_z,
+        world_size=world_size,
+        viewport=viewport,
+    )
+    if point is None:
+        return None
+    normalized_scale = max(0.5, min(float(scale), 3.0))
+    icon_size = float(max(18, int(round(28 * normalized_scale))))
+    half = icon_size / 2.0
+    center_x, center_y = point
+    inset = half + max(2.0, icon_size / 11.0)
+    if viewport.width >= inset * 2.0:
+        center_x = min(
+            max(center_x, viewport.left + inset),
+            viewport.right - inset,
+        )
+    if viewport.height >= inset * 2.0:
+        center_y = min(
+            max(center_y, viewport.top + inset),
+            viewport.bottom - inset,
+        )
+    return center_x, center_y, icon_size
+
+
 def unproject_map_to_world(
     screen_x: float,
     screen_y: float,

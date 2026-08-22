@@ -430,6 +430,7 @@ class InGameOverlay:
                 action_id,
                 screen_x=placement_x,
                 screen_y=placement_y,
+                scale=float(marker_cfg.get("scale", 1.0)),
             ):
                 snapshot = self._map_marker_tracker.snapshot
         self._set_map_marker_palette(gesture.palette)
