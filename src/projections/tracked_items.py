@@ -28,6 +28,7 @@ from core.item_metadata import (
     normalize_item_name_for_rarity,
     preferred_item_display_name,
 )
+from core.luck_rarity import game_rarity_name
 from projections.item_sort import ITEM_RARITY_SORT_ORDER
 
 
@@ -53,11 +54,10 @@ def available_tracked_item_names() -> tuple[str, ...]:
 #: produces. The list has been sorted by rarity since it was written; nothing
 #: said so, so 87 items read as one arbitrary run.
 RARITY_GROUP_LABELS = (
-    ("LEGENDARY", "Legendary"),
-    ("EPIC", "Epic"),
-    ("RARE", "Rare"),
-    ("UNCOMMON", "Uncommon"),
-    ("COMMON", "Common"),
+    ("LEGENDARY", game_rarity_name("LEGENDARY")),
+    ("RARE", game_rarity_name("RARE")),
+    ("UNCOMMON", game_rarity_name("UNCOMMON")),
+    ("COMMON", game_rarity_name("COMMON")),
     (None, "Other"),
 )
 

@@ -538,7 +538,7 @@ class CompareRunsLuckLootView(_Card):
         for index, rung in enumerate(self._rungs):
             visible = index < len(rungs)
             if visible:
-                rarity = str(rungs[index].rarity).upper()
+                rarity = str(rungs[index].rarity_key).upper()
                 rung.set_rung(
                     rungs[index], ITEM_RARITY_COLOR_MAP.get(rarity, TEXT)
                 )

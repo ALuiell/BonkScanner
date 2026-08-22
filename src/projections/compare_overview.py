@@ -33,7 +33,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from core.luck_rarity import LUCK_RARITY_ORDER, format_expected_count
+from core.luck_rarity import (
+    LUCK_RARITY_ORDER,
+    format_expected_count,
+    game_rarity_name,
+)
 from projections import formatting
 
 
@@ -72,8 +76,13 @@ class AxisTable:
 
 @dataclass(frozen=True)
 class LootRung:
-    """One rarity tier. `ratio_*` is actual/expected, `None` when unmeasured."""
+    """One rarity tier. `ratio_*` is actual/expected, `None` when unmeasured.
 
+    ``rarity_key`` stays in the memory-facing vocabulary for colour and data
+    lookup; ``rarity`` is the player-facing game name drawn by the view.
+    """
+
+    rarity_key: str
     rarity: str
     actual_a: str
     expected_a: str
@@ -382,7 +391,8 @@ def _build_rungs(snapshot_a, snapshot_b, available_a: bool, available_b: bool):
         count_b, predicted_b, ratio_b = cell(available_b, actual_b, expected_b, rarity)
         rungs.append(
             LootRung(
-                rarity=rarity.title(),
+                rarity_key=rarity,
+                rarity=game_rarity_name(rarity),
                 actual_a=count_a,
                 expected_a=predicted_a,
                 ratio_a=ratio_a,

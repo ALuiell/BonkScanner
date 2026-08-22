@@ -263,6 +263,7 @@ function renderKps(state, widget) {
 
 function renderStageSummary(state) {
   const rows = Array.isArray(state.stage_summary) ? state.stage_summary : [];
+  const rarityLabels = state.rarity_labels || {};
   const stageRows = Array.from({ length: 4 }, (_unused, index) => {
     return rows[index] || { stage: String(index + 1), time: "--", kills: "--", items: [] };
   });
@@ -279,20 +280,20 @@ function renderStageSummary(state) {
       <div class="stage-cell">${escapeHtml(row.stage || String(index + 1))}</div>
       <div class="stage-cell">${escapeHtml(row.time || "--")}</div>
       <div class="stage-cell">${escapeHtml(row.kills || "--")}</div>
-      <div class="stage-cell stage-items">${renderStageItems(items)}</div>
+      <div class="stage-cell stage-items">${renderStageItems(items, rarityLabels)}</div>
     </div>`;
   }).join("");
   return `<div class="stage-table">${headers}${body}</div>`;
 }
 
-function renderStageItems(items) {
+function renderStageItems(items, rarityLabels = {}) {
   const rows = Array.isArray(items) ? items : [];
   const rowsByRarity = new Map(rows.map((item) => [String(item.rarity || "").toUpperCase(), item]));
   const raritySlots = ["LEGENDARY", "RARE", "UNCOMMON", "COMMON"];
   return `<span class="stage-item-counts">${raritySlots.map((rarity) => {
     const item = rowsByRarity.get(rarity);
     const count = Number(item?.count || 0);
-    const label = escapeHtml(rarity);
+    const label = escapeHtml(String(item?.label || rarityLabels[rarity] || rarity));
     const value = count > 0 ? formatNumber(count) : "--";
     const rarityClass = rarity.toLowerCase();
     return `<span class="stage-item-count ${rarityClass} ${count > 0 ? "active" : "empty"}" title="${label}">${value}</span>`;

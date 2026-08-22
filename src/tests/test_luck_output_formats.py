@@ -2,8 +2,8 @@
 
 Item 5's Deliverables settled these against a real game frame rather than
 against a mockup, so they are fixed shapes rather than defaults: the game's
-rarity vocabulary in chat, the tenths rule below 10, and the unavailable state
-dropping half a line instead of filling it with dashes.
+rarity vocabulary on worded surfaces, the tenths rule below 10, and the
+unavailable state dropping half a line instead of filling it with dashes.
 
 Kept in one module rather than split per surface because the point of most of
 them is that the surfaces agree.
@@ -117,9 +117,8 @@ class TwitchLuckLineTests(unittest.TestCase):
         """Our keys are offset by one tier in the middle.
 
         A viewer reading "Rare" pictures the blue tier; our `RARE` is the purple
-        one. Colour carries the meaning everywhere else, so chat is the only
-        surface where the mismatch is visible -- and the only one where it is
-        wrong.
+        one. Worded surfaces therefore translate through the shared game-name
+        table instead of exposing internal memory keys.
         """
         line = format_luck(_runtime(), _template)
         names = [group.split()[0] for group in line[len("Luck: "):].split(" | ")]
@@ -321,6 +320,10 @@ class ObsLuckPayloadTests(unittest.TestCase):
         for tier in payload["tiers"]:
             self.assertEqual(ITEM_RARITY_COLOR_MAP[tier["rarity"]], tier["color"])
             self.assertTrue(tier["chance_text"].endswith("%"))
+        self.assertEqual(
+            ["Legendary", "Epic", "Rare", "Common"],
+            [tier["label"] for tier in payload["tiers"]],
+        )
 
     def test_the_figures_are_formatted_by_the_same_rules_as_everywhere_else(self) -> None:
         payload = self._payload(

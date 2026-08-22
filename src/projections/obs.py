@@ -25,6 +25,7 @@ from core.luck_rarity import (
     calculate_luck_rarity_probabilities,
     format_expected_count,
     format_luck_rarity_percent,
+    game_rarity_name,
     resolve_luck_expected_status_text,
 )
 
@@ -105,6 +106,7 @@ def build_overlay_state_from_snapshot(
     data["banishes"] = _snapshot_banishes(snapshot, widgets)
     data["luck_rarity"] = _snapshot_luck_rarity(runtime, widgets)
     data["rarity_colors"] = _rarity_colors()
+    data["rarity_labels"] = _rarity_labels()
     data["build_progression"] = build_progression_payload(
         build_progression, widgets.get("build_progression") or {}
     )
@@ -129,6 +131,11 @@ def _rarity_colors() -> dict[str, str]:
         rarity: ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
         for rarity in LUCK_RARITY_ORDER
     }
+
+
+def _rarity_labels() -> dict[str, str]:
+    """Player-facing names keyed by the unchanged renderer/data contract."""
+    return {rarity: game_rarity_name(rarity) for rarity in LUCK_RARITY_ORDER}
 
 
 def _snapshot_luck_rarity(
@@ -179,6 +186,7 @@ def _snapshot_luck_rarity(
         "tiers": [
             {
                 "rarity": rarity,
+                "label": game_rarity_name(rarity),
                 "color": ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"]),
                 "chance": probabilities.get(rarity),
                 "chance_text": format_luck_rarity_percent(probabilities.get(rarity)),
@@ -232,6 +240,7 @@ def _overlay_item_rarity_counts(item_rarities: dict[str, Any]) -> list[dict[str,
         counts.append(
             {
                 "rarity": rarity,
+                "label": game_rarity_name(rarity),
                 "count": count,
                 "color": ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"]),
             }

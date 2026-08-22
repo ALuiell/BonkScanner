@@ -136,6 +136,15 @@ class OverlayStateTests(unittest.TestCase):
             state["rarity_colors"],
             {rarity: ITEM_RARITY_COLOR_MAP[rarity] for rarity in LUCK_RARITY_ORDER},
         )
+        self.assertEqual(
+            state["rarity_labels"],
+            {
+                "LEGENDARY": "Legendary",
+                "RARE": "Epic",
+                "UNCOMMON": "Rare",
+                "COMMON": "Common",
+            },
+        )
 
     def test_overlay_state_includes_tracker_counters_and_live_fields(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 123.0)
@@ -199,6 +208,7 @@ class OverlayStateTests(unittest.TestCase):
         state = build_overlay_state(tracker, {"widgets": []})
 
         self.assertEqual(state["stage_summary"][0]["items"][0]["rarity"], "LEGENDARY")
+        self.assertEqual(state["stage_summary"][0]["items"][0]["label"], "Legendary")
         self.assertEqual(state["stage_summary"][0]["items"][0]["count"], 1)
 
     def test_overlay_state_includes_selected_stats_widget_rows(self) -> None:

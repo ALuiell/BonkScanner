@@ -39,17 +39,30 @@ _LUCK_RARITY_EXPONENTS: dict[str, int] = {
 # ``UNCOMMON`` is the game's ``Rare`` and our ``RARE`` is its ``Epic``.
 #
 # Invisible on every surface that carries colour instead of words, and actively
-# wrong on the one that does not: a viewer reading "Rare" in chat pictures the
-# blue tier while we mean the purple one. Chat is the only surface with words,
-# so this table has exactly one consumer -- and it lives here, beside the order
-# it is keyed by, rather than in the bot, so a second worded surface cannot
-# invent its own.
+# wrong on one that does not: a reader seeing "Rare" pictures the blue tier
+# while our internal ``RARE`` means the purple one. Every worded surface uses
+# this table; internal keys remain unchanged for memory matching, calculations,
+# persisted recordings and renderer contracts.
 GAME_RARITY_NAMES: dict[str, str] = {
     "LEGENDARY": "Legendary",
     "RARE": "Epic",
     "UNCOMMON": "Rare",
     "COMMON": "Common",
 }
+
+
+def game_rarity_name(rarity: object) -> str:
+    """A user-facing game tier name for an internal rarity key.
+
+    Unknown future keys stay readable instead of disappearing. They are not
+    added to ``GAME_RARITY_NAMES`` automatically: mapping a new tier onto an
+    existing game name requires evidence, while title-casing its own key is a
+    safe fallback.
+    """
+    key = "" if rarity is None else str(rarity).strip().upper()
+    if not key:
+        return "Unknown"
+    return GAME_RARITY_NAMES.get(key, key.replace("_", " ").title())
 
 
 # Shown wherever the expected figures are configured or displayed. The numbers

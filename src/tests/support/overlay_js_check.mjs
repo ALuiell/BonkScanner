@@ -328,8 +328,14 @@ const liveState = {
       UNCOMMON: "#60A5FA",
       COMMON: "#22C55E",
     },
+    rarity_labels: {
+      LEGENDARY: "Legendary",
+      RARE: "Epic",
+      UNCOMMON: "Rare",
+      COMMON: "Common",
+    },
     stage_summary: [
-      { stage: "1", time: "05:12", kills: "420", items: [{ rarity: "RARE", count: 2 }] },
+      { stage: "1", time: "05:12", kills: "420", items: [{ rarity: "RARE", label: "Epic", count: 2 }] },
     ],
   };
 
@@ -349,6 +355,8 @@ const liveState = {
   // The markup must stay colourless: a hex inlined here would be a third copy.
   const html = rootEl.innerHTML;
   assert.ok(html.includes("stage-item-count rare active"), "the count wears its tier class");
+  assert.ok(html.includes('title="Epic"'), "the tooltip uses the player-facing game name");
+  assert.ok(!html.includes('title="RARE"'), "the internal key stays out of visible text");
   assert.ok(!/#[0-9a-fA-F]{6}/.test(html), "no rarity hex may be inlined into the markup");
 
   // A payload without the field must not blank the tiers -- the :root fallback

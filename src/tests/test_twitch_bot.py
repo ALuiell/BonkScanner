@@ -549,6 +549,27 @@ class TestTwitchBotWorker(unittest.TestCase):
             "DMG: 150% | PDC: +20%",
         )
 
+    def test_collapsed_items_use_player_facing_game_rarity_names(self):
+        from app import config
+
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.latest_snapshot.return_value = SimpleNamespace(
+            items=tuple(
+                ["Anvil"] * 50
+                + ["Kevin"] * 50
+                + ["Beer"] * 50
+                + ["Key"] * 50
+            )
+        )
+        with patch.dict(config.TWITCH_BOT["templates"], {"items": "{items}"}):
+            self.bot._handle_items("channel")
+
+        message = self.bot._send_chat.call_args.args[1]
+        self.assertIn("+50 Epic", message)
+        self.assertIn("+50 Rare", message)
+        self.assertIn("+50 Common", message)
+        self.assertNotIn("Uncommon", message)
+
     def test_powerups_command_routes_through_chat_handler(self):
         from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")

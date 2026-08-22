@@ -10,6 +10,7 @@ from math import isfinite
 from PySide6.QtCore import QThread, Signal
 from app import config
 from core import run_summary
+from core.luck_rarity import game_rarity_name
 from core.stat_labels import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from core.template_conditions import format_template_conditions
 from core.tracker.items import fold_item_match_name
@@ -558,7 +559,7 @@ class TwitchBotWorker(QThread):
         # Collapse commons & unknowns
         collapsed_count = len(common_items) + len(unknown_items)
         if collapsed_count > 0:
-            collapse_str = f"+{collapsed_count} Common"
+            collapse_str = f"+{collapsed_count} {game_rarity_name('COMMON')}"
             parts = [x["full_str"] for x in legendary_items + rare_items + uncommon_items] + [collapse_str]
             text = get_formatted_text(", ".join(parts))
             if len(text) <= 450:
@@ -569,9 +570,9 @@ class TwitchBotWorker(QThread):
         parts = [x["full_str"] for x in legendary_items + rare_items]
         uncommon_count = len(uncommon_items)
         if uncommon_count > 0:
-            parts.append(f"+{uncommon_count} Uncommon")
+            parts.append(f"+{uncommon_count} {game_rarity_name('UNCOMMON')}")
         if collapsed_count > 0:
-            parts.append(f"+{collapsed_count} Common")
+            parts.append(f"+{collapsed_count} {game_rarity_name('COMMON')}")
         text = get_formatted_text(", ".join(parts))
         if len(text) <= 450:
             self._send_chat(channel, text)
@@ -581,11 +582,11 @@ class TwitchBotWorker(QThread):
         parts = [x["full_str"] for x in legendary_items]
         rare_count = len(rare_items)
         if rare_count > 0:
-            parts.append(f"+{rare_count} Rare")
+            parts.append(f"+{rare_count} {game_rarity_name('RARE')}")
         if uncommon_count > 0:
-            parts.append(f"+{uncommon_count} Uncommon")
+            parts.append(f"+{uncommon_count} {game_rarity_name('UNCOMMON')}")
         if collapsed_count > 0:
-            parts.append(f"+{collapsed_count} Common")
+            parts.append(f"+{collapsed_count} {game_rarity_name('COMMON')}")
         text = get_formatted_text(", ".join(parts))
         if len(text) > 450:
             text = text[:447] + "..."

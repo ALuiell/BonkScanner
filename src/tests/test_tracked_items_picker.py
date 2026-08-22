@@ -91,8 +91,10 @@ class RarityGroupingTests(unittest.TestCase):
     def test_groups_keep_the_order_they_were_given(self) -> None:
         groups = group_tracked_items_by_rarity(available_tracked_item_names())
         captions = [caption for caption, _names in groups]
-        self.assertEqual(captions[0], "Legendary")
-        self.assertNotIn("Epic", captions)  # no Epic item exists today
+        self.assertEqual(
+            captions, ["Legendary", "Epic", "Rare", "Common", "Other"]
+        )
+        self.assertNotIn("Uncommon", captions)
         for _caption, names in groups:
             self.assertEqual(list(names), sorted(names, key=names.index))
 

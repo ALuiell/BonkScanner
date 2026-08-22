@@ -401,7 +401,13 @@ def test_luck_loot_rarity_rungs_use_the_canonical_item_palette() -> None:
         LuckLoot(
             rungs=tuple(
                 LootRung(
-                    rarity=rarity.title(),
+                    rarity_key=rarity,
+                    rarity={
+                        "LEGENDARY": "Legendary",
+                        "RARE": "Epic",
+                        "UNCOMMON": "Rare",
+                        "COMMON": "Common",
+                    }[rarity],
                     actual_a="1",
                     expected_a="1",
                     ratio_a=1.0,
@@ -417,6 +423,12 @@ def test_luck_loot_rarity_rungs_use_the_canonical_item_palette() -> None:
 
     assert [rung._rarity_color for rung in view._rungs] == [
         ITEM_RARITY_COLOR_MAP[rarity] for rarity in rarities
+    ]
+    assert [rung._rarity.text() for rung in view._rungs] == [
+        "Legendary",
+        "Epic",
+        "Rare",
+        "Common",
     ]
     view.close()
 

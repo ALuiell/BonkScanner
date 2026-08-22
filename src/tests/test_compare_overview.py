@@ -141,6 +141,18 @@ class LuckLootTests(unittest.TestCase):
         self.assertIsNone(legendary.ratio_b)
         self.assertAlmostEqual(2.5, legendary.ratio_a)
 
+    def test_rungs_keep_internal_keys_but_expose_the_games_names(self) -> None:
+        payload = overview.build_compare_runs_luck_loot(*self._measured())
+
+        self.assertEqual(
+            ["LEGENDARY", "RARE", "UNCOMMON", "COMMON"],
+            [rung.rarity_key for rung in payload.rungs],
+        )
+        self.assertEqual(
+            ["Legendary", "Epic", "Rare", "Common"],
+            [rung.rarity for rung in payload.rungs],
+        )
+
     def test_neither_side_measured_says_why_and_shows_no_ladder(self) -> None:
         bare = snapshot()
 
