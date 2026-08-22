@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.item_metadata import ITEM_RARITY_COLOR_MAP
 from projections.compare_overview import (
     EMPTY_AXIS_TABLE,
     EMPTY_LUCK_LOOT,
@@ -449,16 +450,6 @@ class _ChestCell(QFrame):
         painter.end()
 
 
-#: The rarity colours the Items card already uses, so a tier reads the same on
-#: both pages.
-_RARITY_COLORS = {
-    "Legendary": "#FACC15",
-    "Rare": "#60A5FA",
-    "Uncommon": "#4ADE80",
-    "Common": "#8A94A3",
-}
-
-
 class CompareRunsLuckLootView(_Card):
     """Did the run build better, or draw better?"""
 
@@ -485,7 +476,10 @@ class CompareRunsLuckLootView(_Card):
         ladder_layout = QVBoxLayout(self._ladder_host)
         ladder_layout.setContentsMargins(0, 0, 0, 0)
         ladder_layout.setSpacing(5)
-        self._rungs = [_RungView(self._ladder_host) for _ in range(len(_RARITY_COLORS))]
+        self._rungs = [
+            _RungView(self._ladder_host)
+            for _ in range(len(ITEM_RARITY_COLOR_MAP))
+        ]
         for rung in self._rungs:
             rung.setVisible(False)
             ladder_layout.addWidget(rung)
@@ -544,7 +538,10 @@ class CompareRunsLuckLootView(_Card):
         for index, rung in enumerate(self._rungs):
             visible = index < len(rungs)
             if visible:
-                rung.set_rung(rungs[index], _RARITY_COLORS.get(rungs[index].rarity, TEXT))
+                rarity = str(rungs[index].rarity).upper()
+                rung.set_rung(
+                    rungs[index], ITEM_RARITY_COLOR_MAP.get(rarity, TEXT)
+                )
             rung.setVisible(visible)
         self._ladder_host.setVisible(bool(rungs))
 

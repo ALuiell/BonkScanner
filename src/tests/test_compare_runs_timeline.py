@@ -15,7 +15,9 @@ from PySide6.QtWidgets import (
     QTabWidget,
 )
 
+from core.item_metadata import ITEM_RARITY_COLOR_MAP
 from projections import scrubber
+from projections.compare_overview import LootRung, LuckLoot
 from projections.recording_sort import RECORDING_SORT_NEWEST, RECORDING_SORT_SNAPSHOTS
 from projections import formatting
 from projections.metric_table import MetricRow, MetricSection, MetricTable
@@ -389,6 +391,34 @@ def test_compact_timeline_reduces_height_and_can_be_restored() -> None:
     assert timeline.compact is False
     assert timeline.height() == normal_height
     timeline.close()
+
+
+def test_luck_loot_rarity_rungs_use_the_canonical_item_palette() -> None:
+    app = QApplication.instance() or QApplication([])
+    view = CompareRunsLuckLootView()
+    rarities = ("LEGENDARY", "RARE", "UNCOMMON", "COMMON")
+    view.set_payload(
+        LuckLoot(
+            rungs=tuple(
+                LootRung(
+                    rarity=rarity.title(),
+                    actual_a="1",
+                    expected_a="1",
+                    ratio_a=1.0,
+                    actual_b="1",
+                    expected_b="1",
+                    ratio_b=1.0,
+                )
+                for rarity in rarities
+            )
+        )
+    )
+    app.processEvents()
+
+    assert [rung._rarity_color for rung in view._rungs] == [
+        ITEM_RARITY_COLOR_MAP[rarity] for rarity in rarities
+    ]
+    view.close()
 
 
 def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
