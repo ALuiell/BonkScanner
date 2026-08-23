@@ -140,16 +140,38 @@ Reconstructing Chaos rolls after BonkScanner starts in the middle of a run is be
 
 ---
 
-## 5. Noise Reduction: Dice Head and Other Sources
+## 5. Noise Reduction: Dice and Other Sources
 
-A major challenge of tracking the Chaos Tome is that other game mechanics can also modify permanent stats. The main source of noise is the character **Dice Head** (Gamba), whose passive ability acts as a scaled-down version of the Chaos Tome.
+A major challenge of tracking the Chaos Tome is that other game mechanics can also modify permanent stats. The main source of noise is the character **Dice** (internally `Dicehead`, passive `Gamba`), whose passive ability acts as a scaled-down version of the Chaos Tome.
 
-### 5.1. Why Dice Head Does Not Cause False Positives
-The Dice Head passive computes stat bonuses using a continuous randomized range:
+### 5.1. Why Dice Requires Shared Source Attribution
+Dice does **not** use a continuous random multiplier. For zero-based passive
+roll index $n$, it chooses one of five discrete rarity multipliers and applies a
+level-dependent decay:
 
-$$\text{Value}_{\text{Gamba}} = \text{base} \times \text{upgradeMultiplier} \times \text{random}(\text{minMultiplier}, \text{maxMultiplier})$$
+$$
+\begin{aligned}
+\text{inner}(n) &= \operatorname{round3}(\text{base} \times \text{rarity}) \\
+\text{decay}(n) &= \operatorname{clamp}\left(
+\frac{0.75}{1 + (n / 50)^{1.5}}, 0.06, 1.0
+\right) \\
+\text{Value}_{\text{Gamba}}(n) &= \operatorname{float32}(
+\operatorname{round3}(\text{inner}(n) \times 1.0) \times \text{decay}(n)
+)
+\end{aligned}
+$$
 
-Since this formula uses a random continuous range, the probability of Dice Head randomly producing a value that matches one of the 15 discrete Chaos Tome fingerprints (within the `0.002` epsilon) is near zero.
+The lower clamp begins at $n=255$, so later Dice rolls use a fixed discrete
+fingerprint set. Early Dice values can also collide with, or fall inside the
+old tolerance around, valid Chaos values. Numeric matching alone is therefore
+not a safe separator.
+
+Production tracking keeps the `StatModifier` object pointer and modification
+type. Charge Shrine pointers are reserved exactly from `ShrineLogs.shownLog`;
+Dice and Chaos budgets are then considered against the remaining shared
+candidate set. A pointer claimed by Dice is hidden from Chaos, and a candidate
+valid for both sources during the same budget window remains ambiguous rather
+than being assigned by polling order.
 
 ### 5.2. Roll Budgeting (`_chaos_available_rolls`)
 To ensure absolute reliability, the tracker implements a **roll budget** system:
@@ -159,7 +181,10 @@ To ensure absolute reliability, the tracker implements a **roll budget** system:
   
   $$\text{rolls\_to\_process} = \min(\text{\_chaos\_available\_rolls}, N)$$
   
-* If the roll budget is `0`, no stat updates are recorded under the Chaos Tome. This completely ignores any outside changes from Dice Head passives, алтарей (shrines), or items.
+* If the roll budget is `0`, no stat updates are recorded under the Chaos Tome.
+* A positive budget is necessary but not sufficient for ownership. Exact
+  Shrine reservations, Dice claims, and cross-source collisions are excluded
+  before a Chaos candidate may consume the budget.
 
 ---
 
