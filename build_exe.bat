@@ -32,8 +32,8 @@ REM In-Game Overlay tabs of a built exe -- TabHero draws that when its icon
 REM fails to load. A forgotten file cannot happen with a directory rule.
 REM
 REM src\media is therefore the ship set, including the application QSS theme,
-REM and nothing that must not ship may sit in it -- that is why the two unused
-REM button PNGs moved to assets\unused.
+REM and nothing that must not ship may sit in it. Local/reference assets that
+REM may be useful later belong under the ignored ui_assets directory instead.
 REM
 REM BonkScanner.spec is this script's OUTPUT, not its input. Every run
 REM regenerates it from these flags, which is why it is gitignored and why
