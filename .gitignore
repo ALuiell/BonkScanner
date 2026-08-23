@@ -16,6 +16,7 @@ gitlog.txt
 # === TOOL OUTPUT ===
 map_monitor_log.jsonl
 game_probs/
+logs/
 
 # === LEGACY & TEST FILES ===
 old/
