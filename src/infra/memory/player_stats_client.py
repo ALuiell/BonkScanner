@@ -35,6 +35,8 @@ from core.stats.timeline import (
     PlayerStatsTimeline,
 )
 from core.stats.types import (
+    ChargeShrineLogEntry,
+    ChargeShrineReading,
     ChaosTomeSnapshot,
     ChaosTomeStatSnapshot,
     DamageSourceSnapshot,
@@ -309,6 +311,12 @@ class PlayerStatsClient:
     RUN_UNLOCKABLES_BANISHED_UPGRADABLES_OFFSET = 0x8
     MAX_BANISHED_UNLOCKABLES = 128
     CHAOS_TOME_ID = 24
+    ACHIEVEMENT_TRACKER_TYPE_INFO_OFFSET = 0x02F69FE8
+    SHRINE_LOGS_TYPE_INFO_OFFSET = 0x02F81B18
+    ACHIEVEMENT_CHARGED_SHRINES_OFFSET = 0x58
+    SHRINE_LOGS_SHOWN_LOG_OFFSET = 0x08
+    MAX_CHARGE_SHRINE_COUNTER = 4096
+    MAX_SHRINE_LOG_ENTRIES = 4096
 
     def __init__(
         self,
@@ -1209,6 +1217,109 @@ class PlayerStatsClient:
             player_inventory,
             force_rescan=force_modifier_rescan,
         )
+
+    def get_charge_shrine_tracking_state(self) -> ChargeShrineReading:
+        """Read the shared shrine log followed by the Charge Shrine budget.
+
+        ``shownLog`` also contains Gritch/Greed effects. This boundary preserves
+        the raw entries; attribution belongs to ``core.tracker.shrines``, where
+        the charged counter and the reward fingerprints can be considered
+        together. Log-first ordering is deliberate: if a charge lands between
+        the two reads, the newer counter opens a pending reward for the next
+        tick. Counter-first could pair an old budget with a new modifier and
+        permanently skip that reward.
+        """
+        shrine_log_fields = self._resolve_type_static_fields(
+            self.SHRINE_LOGS_TYPE_INFO_OFFSET,
+            "ShrineLogs",
+        )
+        shown_log = self.memory.read_ptr(
+            shrine_log_fields + self.SHRINE_LOGS_SHOWN_LOG_OFFSET
+        )
+        entries = self._read_shrine_log(shown_log) if shown_log else ()
+
+        achievement_fields = self._resolve_type_static_fields(
+            self.ACHIEVEMENT_TRACKER_TYPE_INFO_OFFSET,
+            "AchievementTracker",
+        )
+        charged_total = self.memory.read_i32(
+            achievement_fields + self.ACHIEVEMENT_CHARGED_SHRINES_OFFSET
+        )
+        if not 0 <= charged_total <= self.MAX_CHARGE_SHRINE_COUNTER:
+            raise MemoryReadError(
+                f"Charge Shrine charged counter is invalid: {charged_total}"
+            )
+        return ChargeShrineReading(
+            charged_total=charged_total,
+            shown_log=entries,
+            captured_at=time.monotonic(),
+        )
+
+    def _resolve_type_static_fields(self, type_info_offset: int, label: str) -> int:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            int(type_info_offset),
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError(f"{label} type info is not initialized.")
+        static_fields = self.memory.read_ptr(
+            class_ptr + self.CLASS_STATIC_FIELDS_OFFSET
+        )
+        if not static_fields:
+            raise MemoryReadError(f"{label} static fields are not initialized.")
+        return static_fields
+
+    def _read_shrine_log(
+        self,
+        list_address: int,
+    ) -> tuple[ChargeShrineLogEntry, ...]:
+        size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
+        if not 0 <= size <= self.MAX_SHRINE_LOG_ENTRIES:
+            raise MemoryReadError(f"Shrine log size is invalid: {size}")
+        if size == 0:
+            return ()
+        items_array = self.memory.read_ptr(list_address + self.LIST_ITEMS_OFFSET)
+        if not items_array:
+            raise MemoryReadError("Shrine log has entries but no items array.")
+
+        entries: list[ChargeShrineLogEntry] = []
+        for index in range(size):
+            modifier_ptr = self.memory.read_ptr(
+                items_array
+                + self.ARRAY_DATA_OFFSET
+                + (index * self.OBJECT_POINTER_SIZE)
+            )
+            if not modifier_ptr:
+                raise MemoryReadError(
+                    f"Shrine log entry {index} has a null modifier pointer."
+                )
+            stat_id = self.memory.read_i32(
+                modifier_ptr + self.STAT_MODIFIER_STAT_OFFSET
+            )
+            modify_type = self.memory.read_i32(
+                modifier_ptr + self.STAT_MODIFIER_TYPE_OFFSET
+            )
+            value = self.memory.read_float(
+                modifier_ptr + self.STAT_MODIFIER_VALUE_OFFSET
+            )
+            if modify_type not in (0, 1, 2) or not isfinite(value):
+                raise MemoryReadError(
+                    "Shrine log modifier is invalid: "
+                    f"stat={stat_id}, type={modify_type}, value={value}"
+                )
+            label, value_format = self._resolve_stat_display(stat_id)
+            entries.append(
+                ChargeShrineLogEntry(
+                    object_ptr=modifier_ptr,
+                    stat_id=stat_id,
+                    label=label,
+                    value=value,
+                    value_format=value_format,
+                    modify_type=modify_type,
+                )
+            )
+        return tuple(entries)
 
     def _get_cached_chaos_tome_level(self, player_inventory: int) -> int | None:
         tome_inventory = self.memory.read_ptr(

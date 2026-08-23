@@ -15,7 +15,7 @@ from core.stat_labels import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from core.template_conditions import format_template_conditions
 from core.tracker.items import fold_item_match_name
 from infra.twitch_credentials import get_twitch_oauth_token
-from core.stats.formatters import format_chaos_tome_stat_delta
+from core.stats.formatters import format_chaos_tome_stat_delta, format_shrine_stat_delta
 from projections.twitch import (
     format_kps,
     format_luck,
@@ -287,6 +287,9 @@ class TwitchBotWorker(QThread):
             handled = True
         elif cmd in ("!chaos", "!chaostome") and commands_cfg.get("chaos", True):
             self._handle_chaos(channel)
+            handled = True
+        elif cmd == "!shrines" and commands_cfg.get("shrines", True):
+            self._handle_shrines(channel)
             handled = True
         elif cmd == "!stages" and commands_cfg.get("stages", True):
             self._handle_stages(channel)
@@ -665,6 +668,75 @@ class TwitchBotWorker(QThread):
             text = text[:447] + "..."
         self._send_chat(channel, text)
 
+    def _handle_shrines(self, channel: str):
+        shrines = getattr(self._runtime_snapshot(), "shrines", None)
+        if shrines is None:
+            self._send_chat(channel, "No Charge Shrine data detected yet.")
+            return
+
+        charged = max(0, int(getattr(shrines, "charged", 0) or 0))
+        selected = max(0, int(getattr(shrines, "selected", 0) or 0))
+        pending = max(0, int(getattr(shrines, "pending", 0) or 0))
+        parts = []
+        for stat in getattr(shrines, "stats", ()) or ():
+            label = abbreviate_stat_label(str(getattr(stat, "label", "")))
+            delta = format_shrine_stat_delta(
+                str(getattr(stat, "label", "")),
+                getattr(stat, "value", None),
+                getattr(stat, "value_format", None),
+            )
+            parts.append(f"{label} {delta}")
+
+        template_values = {
+            # Legacy placeholders remain available for user-defined templates.
+            "stage": "--",
+            "charged": charged,
+            "total": "--",
+            "selected": selected,
+            "rewards": selected,
+            "pending": pending,
+        }
+        if not parts:
+            empty = "no bonuses tracked yet"
+            if pending:
+                empty += f" ({pending} reward{'s' if pending != 1 else ''} pending)"
+            self._send_chat(
+                channel,
+                self._format_template(
+                    "shrines",
+                    "Shrines: {shrines}",
+                    shrines=empty,
+                    **template_values,
+                ),
+            )
+            return
+
+        chunks: list[list[str]] = []
+        current: list[str] = []
+        for part in parts:
+            candidate = current + [part]
+            rendered = self._format_template(
+                "shrines",
+                "Shrines: {shrines}",
+                shrines=" | ".join(candidate),
+                **template_values,
+            )
+            if current and len(rendered) > 450:
+                chunks.append(current)
+                current = [part]
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        for chunk in chunks:
+            text = self._format_template(
+                "shrines",
+                "Shrines: {shrines}",
+                shrines=" | ".join(chunk),
+                **template_values,
+            )
+            self._send_chat(channel, truncate_chat_message(text))
+
     def _handle_stages(self, channel: str):
         rows = self._runtime_snapshot().stage_summary
         if not rows:
@@ -901,6 +973,7 @@ class TwitchBotWorker(QThread):
             ("weapons", "!weapons"),
             ("tomes", "!tomes"),
             ("chaos", "!chaos"),
+            ("shrines", "!shrines"),
             ("stages", "!stages"),
             ("powerups", "!powerups"),
             ("scanner", "!scanner"),

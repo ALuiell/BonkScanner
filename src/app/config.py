@@ -205,6 +205,7 @@ DEFAULT_TWITCH_BOT = {
         "weapons": True,
         "tomes": True,
         "chaos": True,
+        "shrines": True,
         "stages": True,
         "powerups": True,
         "kps": True,
@@ -235,6 +236,7 @@ DEFAULT_TWITCH_BOT = {
         "weapons": "Weapons: {weapons}",
         "tomes": "Tomes: {tomes}",
         "chaos": "Chaos Tome Lv{level}: {chaos}",
+        "shrines": "Shrines: {shrines}",
         "stages": "{stages}",
         "powerups": "Powerups: {powerups} (PM {pm})",
         "kps": "KPS: {kps} | 60s Avg: {minute_avg} | 5m Avg: {five_minute_avg} | Run Avg: {run_avg}",
@@ -358,6 +360,11 @@ LEGACY_TWITCH_POWERUPS_TEMPLATES = {
     "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
     "Powerups: none active | Durations: standard {standard_duration}s, clock {clock_duration}s (PM {pm})",
     "Powerups: {powerups} | Durations: standard {standard_duration}s, clock {clock_duration}s (PM {pm})",
+}
+
+LEGACY_TWITCH_SHRINES_TEMPLATES = {
+    "Shrines Map {stage}: {charged}/{total} charged | {shrines}",
+    "Shrines: {rewards} rewards | {shrines}",
 }
 
 
@@ -1181,6 +1188,8 @@ def normalize_twitch_bot_config(value):
         bot_cfg["templates"]["chests"] = DEFAULT_TWITCH_BOT["templates"]["chests"]
     if bot_cfg["templates"].get("powerups") in LEGACY_TWITCH_POWERUPS_TEMPLATES:
         bot_cfg["templates"]["powerups"] = DEFAULT_TWITCH_BOT["templates"]["powerups"]
+    if bot_cfg["templates"].get("shrines") in LEGACY_TWITCH_SHRINES_TEMPLATES:
+        bot_cfg["templates"]["shrines"] = DEFAULT_TWITCH_BOT["templates"]["shrines"]
     if bot_cfg["templates"].get("one_ring_announcement") in LEGACY_ONE_RING_TEMPLATES:
         bot_cfg["templates"]["one_ring_announcement"] = (
             DEFAULT_TWITCH_BOT["templates"]["one_ring_announcement"]

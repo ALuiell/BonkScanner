@@ -1,5 +1,13 @@
 # Reverse Engineering Report: Charge Shrine Mechanics and Fingerprints
 
+> Historical report, superseded on 2026-08-23. Re-disassembly of the current
+> `GameAssembly.dll` confirmed the authoritative 28-entry table and Wrench
+> formula in `docs/mechanics/charge_shrines_mechanics.md`. In particular,
+> Attack Speed is base `0.06` Addition, Difficulty is base `0.08` Flat, and RVA
+> `0x462D90` belongs to `ItemWrench.GetChargeRewardMultiplier`, not Beacon.
+> The older interpretations below are retained only as recovery history and
+> must not be used as current fingerprints.
+
 This report documents the confirmed Charge Shrine reward pipeline, rarity behavior, permanent-modifier fingerprints, and a candidate tracking source for a future `!shrines` command.
 
 ## 1. Shrine and Beacon Mechanics

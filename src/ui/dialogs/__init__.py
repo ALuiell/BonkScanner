@@ -1774,6 +1774,7 @@ class TwitchCommandSettingsDialog(QDialog):
             ("weapons", "!weapons:", "Weapons: {weapons}", "Tags: {weapons}"),
             ("tomes", "!tomes:", "Tomes: {tomes}", "Tags: {tomes}"),
             ("chaos", "!chaos / !chaostome:", "Chaos Tome Lv{level}: {chaos}", "Tags: {level}, {chaos}"),
+            ("shrines", "!shrines:", default_templates.get("shrines", "Shrines: {shrines}"), "Tags: {rewards}, {selected}, {pending}, {charged}, {shrines}"),
             ("powerups", "!powerups:", default_templates.get("powerups", "Powerups: {powerups} (PM {pm})"), "Tags: {powerups}, {standard_duration}, {clock_duration}, {pm}"),
             ("kps", "!kps:", default_templates.get("kps", "KPS: {kps} | 60s Avg: {minute_avg} | 5m Avg: {five_minute_avg} | Run Avg: {run_avg}"), "Tags: {kps}, {minute_avg}, {five_minute_avg}, {run_avg}"),
             ("build", "!build:", default_templates.get("build", "{name} · {progress}{requirements}{remaining_suffix}"), "Tags: {name}, {progress}, {requirements}, {remaining_suffix}, {completion_time}"),

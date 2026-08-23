@@ -81,6 +81,7 @@ class TestTwitchBotWorker(unittest.TestCase):
                     "run_avg": self.run_tracker.current_run_avg_kps(),
                 },
                 chaos_tome=chaos,
+                shrines=None,
                 powerups=self.run_tracker.powerups_snapshot(),
                 powerups_recent=self.run_tracker.recent_powerups_snapshot(),
                 legacy_disabled=disabled,
@@ -523,6 +524,42 @@ class TestTwitchBotWorker(unittest.TestCase):
             "Chaos Tome Lv99: Pickup +24.5",
         )
 
+    def test_handle_shrines_reports_only_accumulated_stat_bonuses(self):
+        from core.stats.formats import PlayerStatFormat
+
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.runtime_snapshot.side_effect = None
+        self.run_tracker.runtime_snapshot.return_value = SimpleNamespace(
+            shrines=SimpleNamespace(
+                charged=1,
+                selected=1,
+                pending=0,
+                stats=(
+                    SimpleNamespace(
+                        label="Damage",
+                        value=0.24,
+                        value_format=PlayerStatFormat.MULTIPLIER,
+                        rolls=2,
+                        rarity_counts=(("Common", 1), ("Rare", 1)),
+                    ),
+                    SimpleNamespace(
+                        label="Luck",
+                        value=0.05,
+                        value_format=PlayerStatFormat.PERCENT,
+                        rolls=1,
+                        rarity_counts=(("Common", 1),),
+                    ),
+                ),
+            )
+        )
+
+        self.bot._handle_shrines("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "Shrines: DMG +24% | Luck +5%",
+        )
+
     def test_handle_stats_uses_shared_stat_abbreviations(self):
         from app.config import TWITCH_BOT
 
@@ -810,7 +847,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_commands("channel")
             self.bot._send_chat.assert_called_once_with(
                 "channel",
-                "Available commands: !stats, !session, !items, !tomes, !stages, !scanner, !presets, !build, !bonkhelp"
+                "Available commands: !stats, !session, !items, !tomes, !shrines, !stages, !scanner, !presets, !build, !bonkhelp"
             )
 
     def test_handle_commands_uses_configured_template(self):

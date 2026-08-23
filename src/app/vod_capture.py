@@ -309,8 +309,17 @@ class VodCapture:
         log_message: str | None = None,
         log_tag: str | None = None,
         refresh_live_stats: bool = True,
+        finalize_snapshot: bool = True,
     ) -> None:
-        self._recorder().stop()
+        recorder = self._recorder()
+        if finalize_snapshot and recorder.is_recording:
+            try:
+                self._refresh_now(finalize_recording_capture=True)
+            except Exception:
+                # Stopping must remain reliable even if the process disappears
+                # before the last best-effort memory snapshot can be built.
+                pass
+        recorder.stop()
         self._reset_snapshot_buffer()
         self.player_stats_recording_seed = None
         self.player_stats_recording_stage_ptr = 0
@@ -469,7 +478,12 @@ class VodCapture:
             self.player_stats_recording_run_time_seconds = current_run_time_seconds
             return None
 
-        self.stop_recording(refresh_live_stats=False)
+        # The state already belongs to the new run. Capturing it before the
+        # split would append the new run's first sample to the old JSONL.
+        self.stop_recording(
+            refresh_live_stats=False,
+            finalize_snapshot=False,
+        )
         vod_path = self.start_recording(
             seed=current_seed,
             stage_ptr=current_stage_ptr,

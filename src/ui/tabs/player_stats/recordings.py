@@ -828,6 +828,9 @@ class RecordingsTab:
             self._stat_cards.display_chaos_tome(
                 None, status_text="No Chaos Tome data in this recording"
             )
+            self._stat_cards.display_charge_shrines(
+                None, status_text="No Charge Shrine data in this recording"
+            )
             self._stat_cards.display_damage_sources(
                 (), status_text="No damage source data in this recording"
             )
@@ -890,6 +893,14 @@ class RecordingsTab:
         self._stat_cards.display_chaos_tome(
             getattr(snapshot, "chaos_tome", None),
             status_text=None if getattr(snapshot, "chaos_tome", None) is not None else "No Chaos Tome data in this snapshot",
+        )
+        self._stat_cards.display_charge_shrines(
+            getattr(snapshot, "shrines", None),
+            status_text=(
+                None
+                if getattr(snapshot, "shrines", None) is not None
+                else "No Charge Shrine data in this snapshot"
+            ),
         )
         self._stat_cards.display_damage_sources(getattr(snapshot, "damage_sources", ()))
     def on_scrub_index_changed(self, value):
@@ -1206,6 +1217,7 @@ class RecordingsTab:
         self._stat_cards.display_weapons((), status_text="Select a recording")
         self._stat_cards.display_tomes((), status_text="Select a recording")
         self._stat_cards.display_chaos_tome(None, status_text="Select a recording")
+        self._stat_cards.display_charge_shrines(None, status_text="Select a recording")
         self._stat_cards.display_damage_sources((), status_text="Select a recording")
         # Same state the router opens the library for, reached from a different
         # direction: deleting the selected run, cleaning up, or a load that
@@ -2097,6 +2109,14 @@ class RecordingsTab:
         vod_chaos_scroll, _vod_chaos_scroll_content, vod_chaos_scroll_layout = _make_scroll_section()
         vod_chaos_scroll_layout.setContentsMargins(0, 0, 0, 0)
         vod_chaos_tab_layout.addWidget(vod_chaos_scroll)
+        vod_shrine_tab = QWidget()
+        vod_shrine_tab_layout = QVBoxLayout(vod_shrine_tab)
+        vods_shrine_status_label = QLabel("Select a recording")
+        vods_shrine_status_label.setWordWrap(True)
+        vod_shrine_tab_layout.addWidget(vods_shrine_status_label)
+        vod_shrine_scroll, _vod_shrine_content, vod_shrine_scroll_layout = _make_scroll_section()
+        vod_shrine_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        vod_shrine_tab_layout.addWidget(vod_shrine_scroll)
         vod_damage_sources_tab = QWidget()
         vod_damage_sources_tab_layout = QVBoxLayout(vod_damage_sources_tab)
         vods_damage_sources_status_label = QLabel("Select a recording")
@@ -2116,6 +2136,8 @@ class RecordingsTab:
             tomes_status_label=vods_tomes_status_label,
             chaos_layout=vod_chaos_scroll_layout,
             chaos_status_label=vods_chaos_status_label,
+            shrine_layout=vod_shrine_scroll_layout,
+            shrine_status_label=vods_shrine_status_label,
             damage_sources_layout=vod_damage_sources_scroll_layout,
             damage_sources_status_label=vods_damage_sources_status_label,
             section_visible=section_visibility_over(lambda: self._detail_tabs),
@@ -2128,6 +2150,7 @@ class RecordingsTab:
         self._detail_tabs.addTab(vod_weapons_tab, "Weapons")
         self._detail_tabs.addTab(vod_tomes_tab, "Tomes")
         self._detail_tabs.addTab(vod_chaos_tab, "Chaos")
+        self._detail_tabs.addTab(vod_shrine_tab, "Shrines")
         self._detail_tabs.addTab(vod_damage_sources_tab, "Damage Sources")
         self._detail_tabs.setMinimumHeight(self._detail_tabs.sizeHint().height())
         recordings_main_layout.addWidget(self._detail_tabs)
@@ -2136,6 +2159,7 @@ class RecordingsTab:
         vod_weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
+        vod_shrine_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
 
         # The middle column scrolls, the scrubber and the Items panel do not.

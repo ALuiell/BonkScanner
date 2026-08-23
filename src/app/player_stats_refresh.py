@@ -192,6 +192,7 @@ class PlayerStatsRefresh:
         waiting_status_text: str = "Waiting for game/player stats...",
         unavailable_status_prefix: str = "Player stats unavailable",
         context=None,
+        finalize_recording_capture: bool = False,
     ) -> bool:
         """``context`` is the current ``RefreshTickContext`` when this runs from
         the ``full_player_snapshot`` task, and ``None`` for every manual and
@@ -204,6 +205,31 @@ class PlayerStatsRefresh:
         off-tick behaviour exactly; no second pass is invented for it, which
         stop condition 4 forbids.
         """
+        if finalize_recording_capture:
+            # Stopping a recording must not depend on another complete memory
+            # sample succeeding after GAME_OVER. The fast tasks have already
+            # folded their latest values (including shrines) into this immutable
+            # runtime boundary, so append it directly while the file is open.
+            recorder = self._recorder_handle()
+            if not recorder.is_recording:
+                return False
+            runtime_snapshot = self._live_tracker().runtime_snapshot()
+            chaos_snapshot_reader = getattr(
+                self._live_tracker(), "chaos_tome_snapshot", None
+            )
+            chaos_tome_snapshot = (
+                chaos_snapshot_reader()
+                if callable(chaos_snapshot_reader)
+                else runtime_snapshot.chaos_tome
+            )
+            capture_kwargs = build_vod_capture_kwargs(
+                runtime_snapshot,
+                chaos_tome=chaos_tome_snapshot,
+            )
+            if not capture_kwargs:
+                return False
+            recorder.capture(**capture_kwargs)
+            return True
         try:
             (
                 stats,
@@ -431,6 +457,8 @@ class PlayerStatsRefresh:
             overlay.refresh_session_tracked_item_stats_ui()
         chaos_snapshot_reader = getattr(self._live_tracker(), "chaos_tome_snapshot", None)
         chaos_tome_snapshot = chaos_snapshot_reader() if callable(chaos_snapshot_reader) else None
+        shrine_snapshot_reader = getattr(self._live_tracker(), "charge_shrine_snapshot", None)
+        shrine_snapshot = shrine_snapshot_reader() if callable(shrine_snapshot_reader) else None
         overlay.update_overlay_state_from_tracker()
         live_stage_summary_rows = self._live_tracker().stage_summary_rows()
         runtime_state = self._lifecycle_service().state_for_refresh(context)
@@ -492,6 +520,7 @@ class PlayerStatsRefresh:
                 weapons=effective_weapons,
                 tomes=effective_tomes,
                 chaos_tome=chaos_tome_snapshot,
+                shrines=shrine_snapshot,
                 banishes=banishes,
                 damage_sources=effective_damage_sources,
                 weapons_available=effective_weapons_available,

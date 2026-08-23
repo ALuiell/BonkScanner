@@ -615,6 +615,7 @@ def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTab
 WEAPONS_COMPARE_EMPTY_TEXT = "No weapon data"
 TOMES_COMPARE_EMPTY_TEXT = "No tome data"
 CHAOS_COMPARE_EMPTY_TEXT = "No Chaos Tome data"
+SHRINES_COMPARE_EMPTY_TEXT = "No Charge Shrine data"
 
 
 def format_compare_runs_weapons_diff(snapshot_a, snapshot_b) -> str:
@@ -691,6 +692,126 @@ def build_compare_runs_chaos_table(snapshot_a, snapshot_b) -> MetricTable:
             )
         )
     return MetricTable(sections=tuple(sections), empty_text=CHAOS_COMPARE_EMPTY_TEXT)
+
+
+def build_compare_runs_shrines_table(snapshot_a, snapshot_b) -> MetricTable:
+    """Compare cumulative Charge Shrine rewards at the selected playheads."""
+    shrines_a = getattr(snapshot_a, "shrines", None)
+    shrines_b = getattr(snapshot_b, "shrines", None)
+    if shrines_a is None and shrines_b is None:
+        return MetricTable(empty_text=SHRINES_COMPARE_EMPTY_TEXT)
+
+    def count_row(label: str, attr: str) -> MetricRow:
+        value_a = getattr(shrines_a, attr, None) if shrines_a is not None else None
+        value_b = getattr(shrines_b, attr, None) if shrines_b is not None else None
+        return MetricRow(
+            label,
+            "--" if value_a is None else format_count(value_a),
+            "--" if value_b is None else format_count(value_b),
+            (
+                _format_signed_count(int(value_a) - int(value_b))
+                if value_a is not None and value_b is not None
+                else "--"
+            ),
+        )
+
+    overview_rows = (
+        count_row("Rewards", "selected"),
+        count_row("Pending", "pending"),
+    )
+
+    stats_a = _index_shrine_stats(shrines_a)
+    stats_b = _index_shrine_stats(shrines_b)
+    bonus_rows = []
+    detail_rows = []
+    for stat_id in sorted(
+        set(stats_a) | set(stats_b),
+        key=lambda value: (
+            str(
+                getattr(stats_a.get(value) or stats_b.get(value), "label", value)
+            ).casefold(),
+            value,
+        ),
+    ):
+        stat_a = stats_a.get(stat_id)
+        stat_b = stats_b.get(stat_id)
+        stat = stat_a or stat_b
+        label = str(getattr(stat, "label", f"Stat {stat_id}"))
+        bonus_rows.append(
+            MetricRow(
+                *_format_compare_metric_row(
+                    label,
+                    _shrine_compare_metric_value(stat_a),
+                    _shrine_compare_metric_value(stat_b),
+                )
+            )
+        )
+        detail_rows.append(
+            MetricRow(
+                label,
+                _shrine_roll_detail(stat_a),
+                _shrine_roll_detail(stat_b),
+                (
+                    _format_signed_count(
+                        int(getattr(stat_a, "rolls", 0) or 0)
+                        - int(getattr(stat_b, "rolls", 0) or 0)
+                    )
+                    if stat_a is not None and stat_b is not None
+                    else "--"
+                ),
+            )
+        )
+
+    sections = [
+        MetricSection(headers=("Metric", "A", "B", "Diff"), rows=overview_rows)
+    ]
+    if bonus_rows:
+        sections.append(
+            MetricSection(
+                headers=("Bonus", "A", "B", "Diff"), rows=tuple(bonus_rows)
+            )
+        )
+        sections.append(
+            MetricSection(
+                headers=("Rolls / rarity", "A", "B", "Roll diff"),
+                rows=tuple(detail_rows),
+            )
+        )
+    return MetricTable(
+        sections=tuple(sections), empty_text=SHRINES_COMPARE_EMPTY_TEXT
+    )
+
+
+def _index_shrine_stats(shrines) -> dict[int, object]:
+    if shrines is None:
+        return {}
+    indexed = {}
+    for stat in getattr(shrines, "stats", ()) or ():
+        try:
+            indexed[int(getattr(stat, "stat_id"))] = stat
+        except (TypeError, ValueError):
+            continue
+    return indexed
+
+
+def _shrine_compare_metric_value(stat):
+    if stat is None:
+        return None
+    return _metric_value(
+        getattr(stat, "value", None), getattr(stat, "display_delta", None)
+    )
+
+
+def _shrine_roll_detail(stat) -> str:
+    if stat is None:
+        return "--"
+    rolls = max(0, int(getattr(stat, "rolls", 0) or 0))
+    rarities = "/".join(
+        f"{str(rarity)[:1].upper()}{int(count)}"
+        for rarity, count in getattr(stat, "rarity_counts", ()) or ()
+        if int(count) > 0
+    )
+    return f"{rolls}" + (f" ({rarities})" if rarities else "")
 
 
 def _entity_metric_section(name: str, value_a, value_b, rows) -> MetricSection:

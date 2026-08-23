@@ -96,12 +96,14 @@ from app.read_sources import (
     OWNER_STATS,
     PLAYER_STATS_CLIENT,
     RUN_TIMER,
+    SHRINE_TRACKING_STATE,
     read_memory_source,
     source_health_recorded,
 )
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from app.run_lifecycle import run_lifecycle
 from core.tracker.snapshots import PowerupMapContext
+from core import run_summary
 from app.player_stats_view import player_stats_view
 from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.vod_capture import vod_capture
@@ -251,6 +253,14 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
             interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
             required=service._should_refresh_chaos_tome,
             run=service._refresh_chaos_tome_task,
+        )
+    )
+    coordinator.register(
+        RefreshTask(
+            task_id="charge_shrines",
+            interval_ms=PASSIVE_ITEMS_REFRESH_MS,
+            required=service._should_refresh_charge_shrines,
+            run=service._refresh_charge_shrines_task,
         )
     )
     if app_coordinator is not None:
@@ -435,6 +445,18 @@ class RefreshTasks:
         stay a pure refactor; step 8b then moved it to 1 s on its own merits,
         which is what having a task made possible.
         """
+        recorder = self._vod_recorder()
+        if (
+            self._lifecycle().completed_run
+            and recorder is not None
+            and recorder.is_recording
+        ):
+            # The lifecycle task runs before the normal shrine task. Once the
+            # run is complete that task is no longer demanded, so fold the
+            # terminal counters into the tracker now, while the recorder is
+            # still open. The task owns its failure handling; a stale final
+            # sample must never prevent the recording from closing.
+            self._refresh_charge_shrines_task(context)
         recording_state_action = self._capture().sync_run_state(context)
         self._player_stats_refresh_status_text = (
             "Live player stats"
@@ -973,6 +995,38 @@ class RefreshTasks:
             self._mark_fast_feature_failed("chaos_tome", exc)
             return False
 
+    def _refresh_charge_shrines_task(self, context: RefreshTickContext) -> bool:
+        try:
+            client = self._fast_task_client(context)
+            reading = read_memory_source(
+                context,
+                SHRINE_TRACKING_STATE,
+                client.get_charge_shrine_tracking_state,
+            )
+            owner_stats = self._fast_task_owner_stats(context)
+            held_items = read_memory_source(
+                context,
+                PASSIVE_ITEMS,
+                lambda: client.get_passive_items(owner_stats),
+            )
+            wrench_stacks = run_summary.item_counts(held_items).get("Wrench", 0)
+            self._memory().record_memory_success()
+            self._tracker().update_charge_shrines(
+                reading,
+                wrench_stacks=wrench_stacks,
+            )
+            self._mark_fast_feature_available("shrines")
+            if self._tab_active() and not self._pinned():
+                self._view().set_charge_shrine_card(
+                    self._tracker().charge_shrine_snapshot()
+                )
+            return True
+        except Exception as exc:
+            if not source_health_recorded(context, exc):
+                self._memory().record_memory_failure(exc)
+            self._mark_fast_feature_failed("shrines", exc)
+            return False
+
     def _should_refresh_powerup_tracker(self) -> bool:
         if self._lifecycle().completed_run:
             return False
@@ -1088,6 +1142,13 @@ class RefreshTasks:
         if self._tab_active() or self._is_vod_recording():
             return True
         return self._twitch_command_refresh_active("chaos")
+
+    def _should_refresh_charge_shrines(self) -> bool:
+        if self._lifecycle().completed_run:
+            return False
+        if self._tab_active() or self._is_vod_recording():
+            return True
+        return self._twitch_command_refresh_active("shrines")
 
     def _twitch_command_refresh_active(self, command: str) -> bool:
         try:

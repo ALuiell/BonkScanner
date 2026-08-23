@@ -654,6 +654,7 @@ class TwitchTabTests(unittest.TestCase):
                     "bonkhelp",
                     "build",
                     "chaos",
+                    "shrines",
                     "chests",
                     "disabled",
                     "items",

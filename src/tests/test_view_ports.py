@@ -296,9 +296,9 @@ class ViewPortRoutingTests(unittest.TestCase):
             union |= group
         self.assertEqual(
             len(union),
-            17,
+            18,
             "expected the original nine, the two step-19 additions, the four "
-            "fast panel writes, the OBS reminder refresh and Build Progression, got "
+            "fast panel writes, Charge Shrines, the OBS reminder refresh and Build Progression, got "
             f"{sorted(union)}",
         )
 

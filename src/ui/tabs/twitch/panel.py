@@ -67,7 +67,7 @@ from ui.tab_hero import STATE_DANGER, STATE_OFF, STATE_OK, STATE_WARN, TabHero
 # here. `Waiting for authorization...` was the reason the merge was worth doing
 # -- it never had a chance of fitting the suffix the mock offered it.
 
-# The eleven command checkboxes, in grid order. `bonkhelp` is listed under the
+# The command checkboxes, in grid order. `bonkhelp` is listed under the
 # key it is stored as; the checkbox was named `commands` for years and the
 # config still carries a legacy `commands` fallback, which `build` honours.
 _COMMAND_KEYS = (
@@ -78,6 +78,7 @@ _COMMAND_KEYS = (
     "weapons",
     "tomes",
     "chaos",
+    "shrines",
     "stages",
     "powerups",
     "kps",
@@ -98,9 +99,8 @@ _COMMAND_DEFAULTS = {
     "disabled": False,
 }
 
-#: Tiles per row. Sixteen commands over four columns is four full rows with no
-#: ragged tail -- and four is what keeps a tile the width it was before the
-#: cards went full-bleed.
+#: Tiles per row. Four keeps a tile near the width it had before the cards went
+#: full-bleed; a fifth row holds the newly added command.
 _COMMAND_COLUMNS = 4
 
 #: How wide an account field is allowed to get. Every value typed into this card
@@ -140,7 +140,14 @@ _SAMPLE_TAGS = {
     "weapons": "Bonk Hammer Lv7, Crossbow Lv5",
     "tomes": "Chaos Lv4, Growth Lv3",
     "level": "4",
+    "stage": "2",
     "chaos": "+18% damage, +12% area",
+    "charged": "3",
+    "total": "15",
+    "selected": "9",
+    "rewards": "9",
+    "pending": "0",
+    "shrines": "DMG +24% | Luck +5%",
     "powerups": "Rage 21s, Clock 17s",
     "pm": "2",
     "tiers": "Common 41%, Rare 28%, Epic 19%",
@@ -419,10 +426,8 @@ class TwitchTab:
         grid = QGridLayout()
         grid.setSpacing(8)
         grid.setContentsMargins(0, 0, 0, 0)
-        # Four columns, not three, now that the card is full width: sixteen
-        # commands divide into exactly four rows, and a fourth column keeps a
-        # tile near the ~390px it had under the old cap instead of letting each
-        # one stretch to ~510 and push its switch that far from its name.
+        # Four columns, not three, keep a tile near the ~390px it had under the
+        # old cap instead of stretching each one and pushing its switch away.
         for index, key in enumerate(_COMMAND_KEYS):
             tile = ModuleTile(f"!{key}")
             tile.setChecked(command_checked(commands, key))

@@ -146,7 +146,7 @@ class LazyTabsTests(unittest.TestCase):
             assert [
                 recordings._detail_tabs.tabText(index)
                 for index in range(recordings._detail_tabs.count())
-            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Damage Sources"]
+            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Shrines", "Damage Sources"]
 
             tabs.setCurrentIndex(compare_index)
             qt.processEvents()
@@ -160,7 +160,7 @@ class LazyTabsTests(unittest.TestCase):
             assert [
                 view._detail_tabs.tabText(index)
                 for index in range(view._detail_tabs.count())
-            ] == ["Overview", "Stats", "Stages", "Items", "Weapons", "Tomes", "Chaos"]
+            ] == ["Overview", "Stats", "Stages", "Items", "Weapons", "Tomes", "Chaos", "Shrines"]
             assert view._run_a_list_frame is not None
             assert view._run_b_list_frame is not None
             assert view._swap_btn is not None

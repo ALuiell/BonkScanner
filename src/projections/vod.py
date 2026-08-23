@@ -27,6 +27,7 @@ def build_vod_capture_kwargs(
         "banishes": snapshot.banishes,
         "damage_sources": snapshot.damage_sources,
         "chaos_tome": chaos_tome,
+        "shrines": runtime.shrines,
         "chests_per_minute": snapshot.chests_per_minute,
         "game_time_seconds": snapshot.game_time_seconds,
         "mob_kills": snapshot.mob_kills,

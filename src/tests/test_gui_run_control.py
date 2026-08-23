@@ -73,6 +73,8 @@ from infra.memory.reader import MemoryReadError, ProcessNotFoundError
 from app.player_stats_view import player_stats_view
 from core.game_state import RuntimeGameMode, RuntimeGameState
 from core.tracker.live_run import LiveRunTracker
+from core.tracker.snapshots import LiveRunSnapshot
+from core.stats.types import ChargeShrineReading
 from app.coordinator import AppCoordinator, RefreshLoop
 from app.refresh_coordinator import RefreshTickContext
 from PySide6.QtCore import QRect
@@ -468,6 +470,7 @@ class FakeRecordingRecorder:
         damage_sources=(),
         *,
         chaos_tome=None,
+        shrines=None,
         chests_per_minute=None,
         game_time_seconds=None,
         mob_kills=None,
@@ -499,6 +502,7 @@ class FakeRecordingRecorder:
             weapons=tuple(weapons),
             tomes=tuple(tomes),
             chaos_tome=chaos_tome,
+            shrines=shrines,
             banishes=tuple(banishes),
             damage_sources=tuple(damage_sources),
             chests_per_minute=chests_per_minute,
@@ -534,6 +538,7 @@ class FakeRecordingRecorder:
                 "weapons": tuple(weapons),
                 "tomes": tuple(tomes),
                 "chaos_tome": chaos_tome,
+                "shrines": shrines,
                 "banishes": tuple(banishes),
                 "damage_sources": tuple(damage_sources),
                 "chests_per_minute": chests_per_minute,
@@ -1820,6 +1825,66 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(started)
         self.assertEqual(service.player_stats_auto_start_detection_streak, 0)
         self.assertEqual(world.recorder.start_calls, [])
+
+    def test_stop_recording_forces_final_snapshot_before_closing_recorder(self) -> None:
+        recording_state = []
+        service, world = build_vod_capture(
+            refresh_now=lambda **_kwargs: recording_state.append(
+                world.recorder.is_recording
+            )
+        )
+        world.recorder.is_recording = True
+
+        service.stop_recording(refresh_live_stats=False)
+
+        self.assertEqual(recording_state, [True])
+        self.assertEqual(
+            world.refresh_calls,
+            [{"finalize_recording_capture": True}],
+        )
+        self.assertEqual(world.recorder.stop_calls, 1)
+        self.assertFalse(world.recorder.is_recording)
+
+    def test_stop_recording_can_skip_final_snapshot_for_run_split(self) -> None:
+        service, world = build_vod_capture()
+        world.recorder.is_recording = True
+
+        service.stop_recording(
+            refresh_live_stats=False,
+            finalize_snapshot=False,
+        )
+
+        self.assertEqual(world.refresh_calls, [])
+        self.assertEqual(world.recorder.stop_calls, 1)
+
+    def test_final_recording_snapshot_bypasses_interval_and_keeps_latest_shrines(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(
+            is_recording=True,
+            should_capture=False,
+        )
+        app.live_run_tracker.update(
+            LiveRunSnapshot(
+                captured_at=1.0,
+                stats={},
+                game_time_seconds=10.0,
+                map_seed=777,
+                stage_ptr=0x1234,
+                stage_index=1,
+            )
+        )
+        app.live_run_tracker.update_charge_shrines(
+            ChargeShrineReading(charged_total=1, shown_log=()),
+            wrench_stacks=0,
+        )
+
+        vod_capture(app).stop_recording(refresh_live_stats=False)
+
+        self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
+        final_shrines = app.player_stats_vod_recorder.capture_calls[0]["shrines"]
+        self.assertEqual(final_shrines.charged, 1)
+        self.assertEqual(final_shrines.pending, 1)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
 
     def test_build_stage_summary_tracks_stage_transitions_and_item_stack_gains(self) -> None:
         snapshots = [
@@ -4317,6 +4382,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._weapons_enabled = False
         app._tomes_enabled = False
         app._chaos_enabled = False
+        app._shrines_enabled = False
         app._item_details_expanded = False
         app._compare_run_selected_stat_labels = MagicMock(return_value=("Damage",))
         app._set_compare_runs_diff_cards = MagicMock()
@@ -4335,6 +4401,7 @@ class GuiRunControlTests(unittest.TestCase):
             build_compare_runs_weapons_table=MagicMock(return_value="weapons"),
             build_compare_runs_tomes_table=MagicMock(return_value="tomes"),
             build_compare_runs_chaos_table=MagicMock(return_value="chaos"),
+            build_compare_runs_shrines_table=MagicMock(return_value="shrines"),
         ):
             app._refresh_compare_runs_diff()
 
@@ -4344,6 +4411,7 @@ class GuiRunControlTests(unittest.TestCase):
             formatting.build_compare_runs_weapons_table.assert_not_called()
             formatting.build_compare_runs_tomes_table.assert_not_called()
             formatting.build_compare_runs_chaos_table.assert_not_called()
+            formatting.build_compare_runs_shrines_table.assert_not_called()
 
         app._set_compare_runs_diff_cards.assert_called_once_with(
             "overview",
@@ -4354,11 +4422,13 @@ class GuiRunControlTests(unittest.TestCase):
             weapons_table=EMPTY_METRIC_TABLE,
             tomes_table=EMPTY_METRIC_TABLE,
             chaos_table=EMPTY_METRIC_TABLE,
+            shrines_table=EMPTY_METRIC_TABLE,
             show_items=False,
             show_stage_summary=False,
             show_weapons=False,
             show_tomes=False,
             show_chaos=False,
+            show_shrines=False,
         )
 
     def test_format_compare_runs_diff_shows_core_deltas(self) -> None:
@@ -4630,6 +4700,7 @@ class GuiRunControlTests(unittest.TestCase):
                     "weapons": False,
                     "tomes": True,
                     "chaos": False,
+                    "shrines": False,
                 },
             )
         finally:

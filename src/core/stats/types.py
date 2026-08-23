@@ -22,6 +22,7 @@ from core.stats.formatters import (
     format_chaos_tome_stat_delta,
     format_player_stat_delta,
     format_player_stat_value,
+    format_shrine_stat_delta,
     format_weapon_stat_value,
 )
 
@@ -118,6 +119,52 @@ class ChaosTomeSnapshot:
     @property
     def tracked_stat_count(self) -> int:
         return len(self.stats)
+
+
+@dataclass(frozen=True)
+class ChargeShrineLogEntry:
+    """One immutable ``ShrineLogs.shownLog`` entry read from the game."""
+
+    object_ptr: int
+    stat_id: int
+    label: str
+    value: float
+    value_format: PlayerStatFormat
+    modify_type: int
+
+
+@dataclass(frozen=True)
+class ChargeShrineReading:
+    """The reward budget and shared shrine log read in one pass."""
+
+    charged_total: int
+    shown_log: tuple[ChargeShrineLogEntry, ...] = ()
+    captured_at: float = 0.0
+
+
+@dataclass(frozen=True)
+class ChargeShrineStatSnapshot:
+    stat_id: int
+    label: str
+    value: float | None
+    value_format: PlayerStatFormat
+    rolls: int = 0
+    rarity_counts: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def display_delta(self) -> str:
+        return format_shrine_stat_delta(self.label, self.value, self.value_format)
+
+
+@dataclass(frozen=True)
+class ChargeShrineSnapshot:
+    """Charge Shrine rewards accumulated during the current run."""
+
+    charged: int = 0
+    selected: int = 0
+    pending: int = 0
+    stats: tuple[ChargeShrineStatSnapshot, ...] = ()
+    ambiguous_matches: int = 0
 
 
 @dataclass(frozen=True)

@@ -80,6 +80,24 @@ class PlayerMovementGuardConfigTests(unittest.TestCase):
         self.assertFalse(config.resolve_stop_scanning_on_player_movement("true"))
 
 
+class TwitchShrineTemplateMigrationTests(unittest.TestCase):
+    def test_old_map_scoped_default_is_migrated_to_run_bonus_template(self) -> None:
+        normalized = config.normalize_twitch_bot_config(
+            {
+                "templates": {
+                    "shrines": (
+                        "Shrines Map {stage}: {charged}/{total} charged | {shrines}"
+                    )
+                }
+            }
+        )
+
+        self.assertEqual(
+            normalized["templates"]["shrines"],
+            config.DEFAULT_TWITCH_BOT["templates"]["shrines"],
+        )
+
+
 class ResetHoldDurationFloorTests(unittest.TestCase):
     """The game threshold is a floor: too-short is raised, longer is kept."""
 

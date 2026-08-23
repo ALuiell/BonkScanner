@@ -15,15 +15,12 @@ from infra import paths
 from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT, RecordingSettings
 from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
-from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
+from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, ChargeShrineSnapshot, ChargeShrineStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
-# 7 adds `loot_actual` / `loot_expected`. Bumped rather than slipped in under 6
-# because the absence of those keys has to stay readable as "not recorded":
-# older files and unmeasurable runs both omit them, and both mean the same
-# thing. Reading absence as zero would say "no items of this tier", which is a
-# different and false claim -- so nothing downstream may default them.
-VOD_FORMAT_VERSION = 7
+# 8 adds the Charge Shrine run/map aggregate. Older recordings omit it and
+# remain readable as "not recorded", represented by ``None``.
+VOD_FORMAT_VERSION = 8
 RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
 LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -67,6 +64,7 @@ class VodSnapshot:
     weapons: tuple[WeaponSnapshot, ...] = ()
     tomes: tuple[TomeSnapshot, ...] = ()
     chaos_tome: ChaosTomeSnapshot | None = None
+    shrines: ChargeShrineSnapshot | None = None
     banishes: tuple[str, ...] = ()
     damage_sources: tuple[DamageSourceSnapshot, ...] = ()
     chests_per_minute: float | None = None
@@ -359,6 +357,7 @@ class VodRecorder:
         damage_sources: tuple[DamageSourceSnapshot, ...] = (),
         *,
         chaos_tome: ChaosTomeSnapshot | None = None,
+        shrines: ChargeShrineSnapshot | None = None,
         chests_per_minute: float | None = None,
         game_time_seconds: float | None = None,
         mob_kills: int | None = None,
@@ -399,6 +398,7 @@ class VodRecorder:
             weapons=tuple(weapons),
             tomes=tuple(tomes),
             chaos_tome=chaos_tome,
+            shrines=shrines,
             banishes=tuple(banishes),
             damage_sources=tuple(damage_sources),
             chests_per_minute=chests_per_minute,
@@ -753,6 +753,7 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         "weapons": [_weapon_to_record(weapon) for weapon in snapshot.weapons],
         "tomes": [_tome_to_record(tome) for tome in snapshot.tomes],
         "chaos_tome": _chaos_tome_to_record(snapshot.chaos_tome),
+        "shrines": _charge_shrines_to_record(snapshot.shrines),
         "banishes": list(snapshot.banishes),
         "damage_sources": [_damage_source_to_record(source) for source in snapshot.damage_sources],
         "chests_per_minute": snapshot.chests_per_minute,
@@ -857,6 +858,7 @@ def _record_to_snapshot(record: dict[str, Any], pool: dict[str, str] | None = No
         weapons=tuple(_record_to_weapon(weapon, share) for weapon in record.get("weapons") or ()),
         tomes=tuple(_record_to_tome(tome, share) for tome in record.get("tomes") or ()),
         chaos_tome=_record_to_chaos_tome(record.get("chaos_tome")),
+        shrines=_record_to_charge_shrines(record.get("shrines"), share),
         banishes=tuple(_shared_name(item, share) for item in record.get("banishes") or ()),
         damage_sources=tuple(_record_to_damage_source(item, share) for item in record.get("damage_sources") or ()),
         chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
@@ -985,6 +987,29 @@ def _chaos_tome_to_record(chaos_tome: ChaosTomeSnapshot | None) -> dict[str, Any
     }
 
 
+def _charge_shrines_to_record(shrines: ChargeShrineSnapshot | None) -> dict[str, Any] | None:
+    if shrines is None:
+        return None
+
+    def stat_record(stat: ChargeShrineStatSnapshot) -> dict[str, Any]:
+        return {
+            "stat_id": stat.stat_id,
+            "label": stat.label,
+            "value": stat.value,
+            "value_format": stat.value_format.value,
+            "rolls": stat.rolls,
+            "rarity_counts": [[rarity, count] for rarity, count in stat.rarity_counts],
+        }
+
+    return {
+        "charged": shrines.charged,
+        "selected": shrines.selected,
+        "pending": shrines.pending,
+        "stats": [stat_record(stat) for stat in shrines.stats],
+        "ambiguous_matches": shrines.ambiguous_matches,
+    }
+
+
 def _damage_source_to_record(source: DamageSourceSnapshot) -> dict[str, Any]:
     return {
         "source_key": source.source_key,
@@ -1079,6 +1104,74 @@ def _record_to_chaos_tome(record: Any) -> ChaosTomeSnapshot | None:
         level=max(_coerce_int(record.get("level"), default=0), 0),
         stats=tuple(stats),
         ambiguous_rolls=max(_coerce_int(record.get("ambiguous_rolls"), default=0), 0),
+    )
+
+
+def _record_to_charge_shrines(record: Any, share=None) -> ChargeShrineSnapshot | None:
+    if not isinstance(record, dict):
+        return None
+    share = share or (lambda value, _default: value)
+
+    def read_stats(raw_stats: Any) -> tuple[ChargeShrineStatSnapshot, ...]:
+        decoded = []
+        for raw_stat in raw_stats or ():
+            if not isinstance(raw_stat, dict):
+                continue
+            value_format_name = str(
+                raw_stat.get("value_format") or PlayerStatFormat.FLAT.value
+            )
+            try:
+                value_format = PlayerStatFormat(value_format_name)
+            except ValueError:
+                value_format = PlayerStatFormat.FLAT
+            rarities = []
+            for pair in raw_stat.get("rarity_counts") or ():
+                if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                    continue
+                count = max(0, _coerce_int(pair[1], default=0))
+                if count:
+                    rarities.append((_shared_name(pair[0], share), count))
+            stat_id = _coerce_int(raw_stat.get("stat_id"), default=-1)
+            decoded.append(
+                ChargeShrineStatSnapshot(
+                    stat_id=stat_id,
+                    label=_shared_name(
+                        raw_stat.get("label") or f"Stat {stat_id}", share
+                    ),
+                    value=_coerce_optional_float(raw_stat.get("value")),
+                    value_format=value_format,
+                    rolls=max(0, _coerce_int(raw_stat.get("rolls"), default=0)),
+                    rarity_counts=tuple(rarities),
+                )
+            )
+        return tuple(decoded)
+
+    raw_stats = record.get("stats")
+    if raw_stats is None:
+        raw_stats = record.get("run_stats")
+    return ChargeShrineSnapshot(
+        charged=max(
+            0,
+            _coerce_int(
+                record.get("charged", record.get("run_charged")), default=0
+            ),
+        ),
+        selected=max(
+            0,
+            _coerce_int(
+                record.get("selected", record.get("run_selected")), default=0
+            ),
+        ),
+        pending=max(
+            0,
+            _coerce_int(
+                record.get("pending", record.get("run_pending")), default=0
+            ),
+        ),
+        stats=read_stats(raw_stats),
+        ambiguous_matches=max(
+            0, _coerce_int(record.get("ambiguous_matches"), default=0)
+        ),
     )
 
 

@@ -75,6 +75,7 @@ from PySide6.QtWidgets import (
 
 from core.stats.types import TomeSnapshot, WeaponSnapshot
 from core.tracker.chaos import CHAOS_FINGERPRINTS, CHAOS_TOME_GAME_STAT_ORDER
+from core.tracker.shrines import SHRINE_RARITY_MULTIPLIERS
 from projections import formatting
 from ui.shared import _clear_layout, _set_text
 
@@ -285,6 +286,7 @@ DEFERRABLE_SECTION_TAB_TITLES = {
     "weapons": "Weapons",
     "tomes": "Tomes",
     "chaos": "Chaos",
+    "shrines": "Shrines",
     "damage_sources": "Damage Sources",
 }
 
@@ -406,7 +408,7 @@ class _ResponsiveStatCardGrid(QWidget):
 
 
 class StatCardsView:
-    """The Weapons, Tomes, Chaos and Damage Sources panels of one tab."""
+    """The Weapons, Tomes, Chaos, Shrines and Damage Sources panels."""
 
     def __init__(
         self,
@@ -419,6 +421,8 @@ class StatCardsView:
         chaos_status_label,
         damage_sources_layout,
         damage_sources_status_label,
+        shrine_layout=None,
+        shrine_status_label=None,
         section_visible: Callable[[str], bool] | None = None,
     ) -> None:
         # Rebuilding a panel nobody is looking at is the whole cost of a scrub
@@ -438,12 +442,15 @@ class StatCardsView:
         self._tomes_status_label = tomes_status_label
         self._chaos_layout = chaos_layout
         self._chaos_status_label = chaos_status_label
+        self._shrine_layout = shrine_layout
+        self._shrine_status_label = shrine_status_label
         self._damage_sources_layout = damage_sources_layout
         self._damage_sources_status_label = damage_sources_status_label
 
         self._weapon_signature = None
         self._tome_signature = None
         self._chaos_signature = None
+        self._shrine_signature = None
         self._damage_source_signature = None
         self._weapon_cards: list = []
         self._tome_cards: list = []
@@ -494,6 +501,7 @@ class StatCardsView:
         self._weapon_signature = None
         self._tome_signature = None
         self._chaos_signature = None
+        self._shrine_signature = None
         self._damage_source_signature = None
 
     # -- weapons --------------------------------------------------------------
@@ -791,13 +799,28 @@ class StatCardsView:
         return card
 
     def _build_chaos_stat_card(self, stat) -> QFrame:
+        return self._build_roll_stat_card(
+            stat,
+            name=chaos_stat_label(stat),
+            quality=chaos_average_roll_quality(stat),
+            quality_tooltip="Average roll quality",
+        )
+
+    @staticmethod
+    def _build_roll_stat_card(
+        stat,
+        *,
+        name: str,
+        quality: float | None,
+        quality_tooltip: str,
+    ) -> QFrame:
         card = QFrame()
         card.setObjectName("StatCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(3)
 
-        name_label = QLabel(chaos_stat_label(stat))
+        name_label = QLabel(name)
         name_label.setStyleSheet(
             "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
         )
@@ -814,7 +837,6 @@ class StatCardsView:
         layout.addLayout(row)
 
         rolls = max(0, int(getattr(stat, "rolls", 0) or 0))
-        quality = chaos_average_roll_quality(stat)
         quality_color = chaos_roll_quality_color(quality)
         rolls_word = "roll" if rolls == 1 else "rolls"
         rolls_label = QLabel(f"● {rolls} {rolls_word}")
@@ -824,10 +846,120 @@ class StatCardsView:
         )
         if quality is not None:
             rolls_label.setToolTip(
-                f"Average roll quality: {round(quality * 100)}% of this stat's range"
+                f"{quality_tooltip}: {round(quality * 100)}% of this stat's range"
             )
         layout.addWidget(rolls_label)
         return card
+
+    # -- charge shrines --------------------------------------------------------
+
+    def display_charge_shrines(
+        self,
+        shrines,
+        *,
+        status_text: str | None = None,
+        scope: str | None = None,
+    ) -> None:
+        del scope  # Compatibility with existing view adapters; Shrine totals are run-wide.
+        layout = self._shrine_layout
+        status_label = self._shrine_status_label
+        if layout is None or status_label is None:
+            return
+        if self._defer(
+            "shrines",
+            (shrines,),
+            {"status_text": status_text},
+        ):
+            return
+
+        signature = self._charge_shrine_signature_for(shrines)
+        if self._shrine_signature == signature and status_text is None:
+            return
+        self._shrine_signature = signature
+        _clear_layout(layout)
+
+        if status_text is not None:
+            _set_text(status_label, status_text)
+        elif shrines is None:
+            _set_text(status_label, "No Charge Shrine data yet")
+        else:
+            _set_text(status_label, "")
+        if shrines is None:
+            return
+
+        stats = tuple(getattr(shrines, "stats", ()) or ())
+        layout.addWidget(self._build_charge_shrine_summary_card(shrines))
+        if not stats:
+            layout.addStretch(1)
+            return
+        grid = _ResponsiveStatCardGrid(
+            object_name="ShrineCardGrid",
+            column_count=chaos_card_column_count,
+            minimum_card_width=160,
+            spacing=6,
+            maximum_columns=5,
+        )
+        for stat in sorted(
+            stats,
+            key=lambda value: (
+                -max(0, int(getattr(value, "rolls", 0) or 0)),
+                int(getattr(value, "stat_id", -1)),
+            ),
+        ):
+            grid.add_card(self._build_charge_shrine_stat_card(stat))
+        layout.addWidget(grid)
+        layout.addStretch(1)
+
+    @staticmethod
+    def _charge_shrine_signature_for(shrines) -> tuple:
+        if shrines is None:
+            return ()
+        return (
+            int(getattr(shrines, "charged", 0) or 0),
+            int(getattr(shrines, "selected", 0) or 0),
+            int(getattr(shrines, "pending", 0) or 0),
+            int(getattr(shrines, "ambiguous_matches", 0) or 0),
+            tuple(
+                (
+                    int(getattr(stat, "stat_id", -1)),
+                    str(getattr(stat, "display_delta", "--")),
+                    int(getattr(stat, "rolls", 0) or 0),
+                    tuple(getattr(stat, "rarity_counts", ()) or ()),
+                )
+                for stat in getattr(shrines, "stats", ()) or ()
+            ),
+        )
+
+    @staticmethod
+    def _build_charge_shrine_summary_card(shrines) -> QFrame:
+        stats = tuple(getattr(shrines, "stats", ()) or ())
+        card = QFrame()
+        card.setObjectName("StatCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+        title_label = QLabel("Charge Shrines")
+        title_label.setStyleSheet(
+            "font-size: 14px; font-weight: 700; background: transparent;"
+        )
+        layout.addWidget(title_label)
+
+        rolls = max(0, int(getattr(shrines, "selected", 0) or 0))
+        summary = QLabel(f"Tracked rolls: {rolls} | Stats: {len(stats)}")
+        summary.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; background: transparent;"
+        )
+        layout.addWidget(summary)
+        return card
+
+    @staticmethod
+    def _build_charge_shrine_stat_card(stat) -> QFrame:
+        return StatCardsView._build_roll_stat_card(
+            stat,
+            name=str(getattr(stat, "label", "Shrine bonus")),
+            quality=shrine_average_roll_quality(stat),
+            quality_tooltip="Average shrine roll quality",
+        )
 
     # -- damage sources -------------------------------------------------------
 
@@ -998,6 +1130,27 @@ def chaos_roll_quality_color(quality: float | None) -> str:
     return "#FACC15"
 
 
+def shrine_average_roll_quality(stat) -> float | None:
+    """Normalize inferred Shrine rarities to the same 0..1 card scale."""
+    rolls = max(0, int(getattr(stat, "rolls", 0) or 0))
+    rarity_counts = tuple(getattr(stat, "rarity_counts", ()) or ())
+    multipliers = dict(SHRINE_RARITY_MULTIPLIERS)
+    counted = 0
+    weighted_total = 0.0
+    for rarity, raw_count in rarity_counts:
+        if rarity not in multipliers:
+            return None
+        count = max(0, int(raw_count or 0))
+        counted += count
+        weighted_total += multipliers[rarity] * count
+    if rolls <= 0 or counted != rolls:
+        return None
+    minimum = min(multipliers.values())
+    maximum = max(multipliers.values())
+    average = weighted_total / rolls
+    return max(0.0, min(1.0, (average - minimum) / (maximum - minimum)))
+
+
 def chaos_stat_label(stat) -> str:
     label = str(getattr(stat, "label", ""))
     return label or f"Stat {getattr(stat, 'stat_id', '?')}"
@@ -1010,5 +1163,6 @@ _SECTION_RENDERERS = {
     "weapons": StatCardsView.display_weapons,
     "tomes": StatCardsView.display_tomes,
     "chaos": StatCardsView.display_chaos_tome,
+    "shrines": StatCardsView.display_charge_shrines,
     "damage_sources": StatCardsView.display_damage_sources,
 }

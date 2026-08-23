@@ -37,13 +37,14 @@ from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
 )
-from core.tracker import chaos, chests, combat, items, loot, powerups
+from core.tracker import chaos, chests, combat, items, loot, powerups, shrines
 from core.tracker.chaos import _ChaosTomeState
 from core.tracker.chests import _ChestState
 from core.tracker.combat import _CombatState
 from core.tracker.items import _TrackedItemState
 from core.tracker.loot import _LootState
 from core.tracker.powerups import _PowerupState
+from core.tracker.shrines import _ShrineState
 from core.tracker.snapshots import (
     ItemLossEvent,
     LiveRunSnapshot,
@@ -255,6 +256,7 @@ class LiveRunTracker:
         self._combat_state = _CombatState()
         self._chest_state = _ChestState()
         self._chaos_state = _ChaosTomeState()
+        self._shrine_state = _ShrineState()
         self._powerup_state = _PowerupState()
         self._tracked_item_state = _TrackedItemState()
         self._loot_state = _LootState()
@@ -268,6 +270,7 @@ class LiveRunTracker:
                 "world",
                 "powerups",
                 "chaos_tome",
+                "shrines",
                 "expected_chests",
                 "stage_timer",
             )
@@ -414,6 +417,25 @@ class LiveRunTracker:
         return self._chaos_ambiguous_rolls
 
     @with_lock
+    def update_charge_shrines(
+        self,
+        reading,
+        *,
+        wrench_stacks: int | None,
+    ) -> None:
+        now = self.clock()
+        self._mark_feature_success_unlocked("shrines", now)
+        shrines.update(
+            self._shrine_state,
+            reading,
+            wrench_stacks=wrench_stacks,
+        )
+
+    @with_lock
+    def charge_shrine_snapshot(self):
+        return shrines.snapshot(self._shrine_state)
+
+    @with_lock
     def runtime_snapshot(self) -> RuntimeStateSnapshot:
         """Return one immutable boundary object for consumer projections."""
         now = self.clock()
@@ -437,6 +459,7 @@ class LiveRunTracker:
             },
             feature_status=self._feature_status_snapshot_unlocked(now),
             chaos_tome=self.chaos_tome_snapshot(),
+            shrines=shrines.snapshot(self._shrine_state),
             powerups=self._fresh_powerups_snapshot_unlocked(),
             powerups_recent=self._recent_powerups_snapshot_unlocked(),
             powerup_map_context=copy.deepcopy(map_context),
@@ -1251,6 +1274,7 @@ class LiveRunTracker:
         loot.reset(self._loot_state)
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()
+        shrines.reset(self._shrine_state)
         # Drops the per-effect observation history along with the snapshot:
         # continuity across a run reset is exactly the thing it must not claim.
         powerups.clear(self._powerup_state)

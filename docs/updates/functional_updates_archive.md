@@ -4,6 +4,99 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Recently Handled Items (Archived 2026-08-23)
+
+### Twitch Commands
+
+#### 1. Twitch Commons
+
+Status: `[Archived / Charge Shrine Scope Live Validated]`
+
+Goal:
+
+- Expand the built-in Twitch bot with common stream commands and automatic chat announcements powered by `LiveRunTracker`.
+- Keep the feature focused on local live-run data that is already needed by Twitch commands and the OBS overlay.
+- Prefer configurable command names/messages where streamers may want different wording.
+
+Implemented in the current branch:
+
+- `!shrines` reports every accumulated Charge Shrine stat bonus in the current
+  run, matching the compact `!chaos` output. Roll counts and inferred rarity
+  details stay in the app.
+- The tracker uses `AchievementTracker.chargedShrines` as a one-selected-reward budget
+  per charged shrine and accepts only dump-derived Charge Shrine fingerprints
+  from the shared `ShrineLogs.shownLog` list.
+- Gritch Shrine's `+5% Difficulty` does not match Charge Shrine's `+8%`
+  Difficulty base and therefore cannot consume the reward budget.
+- Live Stats has a Shrines tab showing the accumulated bonuses. The same
+  immutable run snapshot is saved in VOD format 8 and rendered in Recordings
+  and Compare Runs. Spawn counts, stage baselines and coverage classification
+  are intentionally outside this feature's contract.
+- Shrine cards mirror the Chaos Tome layout: tracked rolls are completed
+  Charge Shrine rewards, each stat card shows how many matching rewards were
+  selected and their accumulated bonus.
+
+#### 2. Charge Shrine Documentation and `!shrines` Groundwork
+
+Status: `[Archived / Tracker Live Validated; Luck Relationship Unconfirmed]`
+
+Goal:
+
+- Keep the Charge Shrine mechanics document synchronized with the current dump
+  and finish a controlled live 15-shrine validation pass.
+
+Confirmed runtime findings:
+
+- Shrine rewards are written to `StatInventory.permanentChanges`.
+- Each charged shrine presents three stat offers and creates one selected stat
+  modifier, so a normal map of 15 charged shrines produces 15 reward modifiers.
+- `EncounterUtility.GetRandomStatValue` exposes 28 rewardable stats with five
+  rarity multipliers: Common 1.0, Uncommon 1.2, Rare 1.4, Epic 1.6 and
+  Legendary 2.0.
+- Wrench, not Beacon, multiplies reward magnitude by `1 + 0.075 * stacks` after
+  the rarity value is rounded to three decimals.
+- Beacon adds two Charge Shrines to the next map; it is not part of the reward
+  magnitude fingerprint.
+- The claim that Luck changes rarity distribution remains unconfirmed and is
+  intentionally not used by tracking.
+- `AchievementTracker` TypeInfo RVA `0x02F69FE8` resolves the run counters;
+  `ShrineLogs` TypeInfo RVA `0x02F81B18` resolves the shared shown-log list.
+
+Required reverse-engineering work:
+
+- Confirm the Luck-to-rarity relationship from both the rarity-selection assembly
+  and controlled low/high-Luck batches.
+- Capture controlled rewards with Wrench stack changes and retain exact raw
+  float values as regression fixtures.
+
+Validation requirements:
+
+- Run controlled reward batches with low and high Luck and with Wrench
+  absent/present.
+- Snapshot permanent modifiers immediately before and after each batch.
+- Require every observed modifier to match a dump-derived fingerprint within float32 tolerance.
+- Keep screenshots and exact memory values as fixtures for future automated tests.
+- Confirm that every observed `chargedShrines` increment attributes one selected
+  reward and that intervening Gritch/Greed log entries do not consume the budget.
+
+Documentation anchor:
+
+- `docs/mechanics/charge_shrines_mechanics.md`
+- `docs/recovery/reports/2026-06-15-shrines-mechanics-and-fingerprints.md`
+
+Live acceptance evidence (2026-08-23):
+
+- A controlled live sequence produced 15 accepted rewards for 15 charged
+  shrines: eight without Wrench and seven with Wrench x10.
+- All seven Wrench rewards matched the exact `1.75` multiplier, including flat
+  and percentage stats.
+- A delayed selected-modifier write correctly closed one pending reward on the
+  following sample without loss or duplication.
+- Intervening Gritch `Difficulty +5%` entries and unrelated `Stat 49` entries
+  were ignored and did not consume the Charge Shrine reward budget.
+
+---
+
 ## Recently Handled Items (Archived 2026-08-22)
 
 ### In-Game Map Activity Markers

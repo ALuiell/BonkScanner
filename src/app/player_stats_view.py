@@ -113,6 +113,9 @@ class PlayerStatsView(Protocol):
         was seeing rolls before the app's own card did.
         """
 
+    def set_charge_shrine_card(self, shrines) -> None:
+        """Render the Charge Shrine card from the fast tracker snapshot."""
+
     def set_in_game_time_text(self, text: str) -> None:
         """Set the Live Stats in-game time line.
 

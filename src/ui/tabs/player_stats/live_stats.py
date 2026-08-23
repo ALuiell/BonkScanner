@@ -53,6 +53,7 @@ from typing import Callable, Sequence
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -517,6 +518,9 @@ class LiveStatsTab:
         self._stat_cards.display_weapons((), status_text="Waiting for weapon data...")
         self._stat_cards.display_tomes((), status_text="Waiting for tome data...")
         self._stat_cards.display_chaos_tome(None, status_text="Waiting for Chaos Tome data...")
+        self._stat_cards.display_charge_shrines(
+            None, status_text="Waiting for Charge Shrine data..."
+        )
         self._stat_cards.display_damage_sources(
             (), status_text="Waiting for damage source data..."
         )
@@ -529,6 +533,7 @@ class LiveStatsTab:
         weapons=(),
         tomes=(),
         chaos_tome=None,
+        shrines=None,
         banishes=(),
         damage_sources=(),
         weapons_available: bool = True,
@@ -608,6 +613,10 @@ class LiveStatsTab:
             chaos_tome,
             status_text=None if chaos_tome is not None else "No Chaos Tome data yet",
         )
+        self._stat_cards.display_charge_shrines(
+            shrines,
+            status_text=None if shrines is not None else "No Charge Shrine data yet",
+        )
         self._stat_cards.display_damage_sources(
             damage_sources if damage_sources_available else (),
             status_text=None if damage_sources_available else "Damage sources unavailable",
@@ -624,6 +633,7 @@ class LiveStatsTab:
             weapons=getattr(snapshot, "weapons", ()),
             tomes=getattr(snapshot, "tomes", ()),
             chaos_tome=getattr(snapshot, "chaos_tome", None),
+            shrines=getattr(snapshot, "shrines", None),
             banishes=getattr(snapshot, "banishes", ()),
             damage_sources=getattr(snapshot, "damage_sources", ()),
             status_text=(
@@ -710,6 +720,13 @@ class LiveStatsTab:
         self._stat_cards.display_chaos_tome(
             chaos_tome,
             status_text=None if chaos_tome is not None else "No Chaos Tome data yet",
+        )
+
+    def set_charge_shrine_card(self, shrines) -> None:
+        """Repaint the Charge Shrine card from the fast memory lane."""
+        self._stat_cards.display_charge_shrines(
+            shrines,
+            status_text=None if shrines is not None else "No Charge Shrine data yet",
         )
 
     def set_in_game_time_text(self, text: str) -> None:
@@ -1273,6 +1290,14 @@ class LiveStatsTab:
         player_chaos_scroll, _player_chaos_scroll_content, player_chaos_scroll_layout = _make_scroll_section()
         player_chaos_scroll_layout.setContentsMargins(0, 0, 0, 0)
         chaos_tab_layout.addWidget(player_chaos_scroll)
+        shrine_tab = QWidget()
+        shrine_tab_layout = QVBoxLayout(shrine_tab)
+        shrine_status_label = QLabel("Waiting for Charge Shrine data...")
+        shrine_status_label.setWordWrap(True)
+        shrine_tab_layout.addWidget(shrine_status_label)
+        player_shrine_scroll, _player_shrine_content, player_shrine_scroll_layout = _make_scroll_section()
+        player_shrine_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        shrine_tab_layout.addWidget(player_shrine_scroll)
         damage_sources_tab = QWidget()
         damage_sources_tab_layout = QVBoxLayout(damage_sources_tab)
         damage_sources_status_label = QLabel("Waiting for damage source data...")
@@ -1374,6 +1399,8 @@ class LiveStatsTab:
             tomes_status_label=tomes_status_label,
             chaos_layout=player_chaos_scroll_layout,
             chaos_status_label=chaos_status_label,
+            shrine_layout=player_shrine_scroll_layout,
+            shrine_status_label=shrine_status_label,
             damage_sources_layout=player_damage_sources_scroll_layout,
             damage_sources_status_label=damage_sources_status_label,
             # Same waste as the Recordings tab, on a one-second refresh instead
@@ -1394,6 +1421,7 @@ class LiveStatsTab:
         self._detail_tabs.addTab(weapons_tab, "Weapons")
         self._detail_tabs.addTab(tomes_tab, "Tomes")
         self._detail_tabs.addTab(chaos_tab, "Chaos")
+        self._detail_tabs.addTab(shrine_tab, "Shrines")
         self._detail_tabs.addTab(damage_sources_tab, "Damage Sources")
         self._detail_tabs.addTab(build_progression_tab, "Build Progression")
         self.refresh_build_progression()
@@ -1408,6 +1436,7 @@ class LiveStatsTab:
         weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
         tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
         chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
+        shrine_tab_layout.setContentsMargins(0, 0, 0, 0)
         damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
         loot_tab_layout.setContentsMargins(0, 0, 0, 0)
 

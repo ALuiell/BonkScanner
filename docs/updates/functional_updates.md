@@ -14,66 +14,6 @@ Status legend:
 
 ### Twitch Commands
 
-#### 1. Twitch Commons
-
-Status: `[Partial]`
-
-Goal:
-
-- Expand the built-in Twitch bot with common stream commands and automatic chat announcements powered by `LiveRunTracker`.
-- Keep the feature focused on local live-run data that is already needed by Twitch commands and the OBS overlay.
-- Prefer configurable command names/messages where streamers may want different wording.
-
-Remaining open work:
-
-- `!shrines`
-  - Track the player stat bonuses gained from activating shrines on the current map.
-  - Build a fingerprint catalog for every stat value that each shrine type can grant, similar to the existing Chaos Tome fingerprint detection.
-  - Detect shrine activations by matching newly added permanent stat modifiers against those fingerprints.
-  - Associate every detected shrine-stat event with the current map seed and maintain a per-seed activation counter so the same modifier is not counted more than once.
-  - Reset the current-map shrine statistics when the seed changes, while keeping enough event data to produce a compact map summary.
-  - The Twitch command should report the accumulated stat gains from shrines on the current map, for example: `Shrines: DMG +20% | Luck +10% | XP +15%`.
-  - Fingerprint discovery and live validation are required before implementation to distinguish shrine modifiers reliably from items, tomes, and other permanent stat sources.
-
-#### 2. Charge Shrine Documentation and `!shrines` Groundwork
-
-Status: `[Open]`
-
-Goal:
-
-- Rebuild the Charge Shrine mechanics documentation from the current game dump and verified runtime captures before implementing shrine tracking or a Twitch `!shrines` command.
-- Replace speculative or incorrect fingerprint data with values derived directly from `GameAssembly.dll` and confirmed through controlled 15-shrine batches.
-
-Confirmed runtime findings:
-
-- Shrine rewards are written to `StatInventory.permanentChanges`.
-- Charging all 15 map shrines produces exactly 15 reward modifiers after the rewards are applied.
-- Luck changes the observed rarity distribution.
-- Clean batches with `Beacon x0` and `Beacon x1` both produced nominal rarity values; Beacon did not increase reward magnitude in the controlled test.
-- Earlier `1.075`-scaled modifiers came from an unidentified source and must not be attributed to Beacon without new evidence.
-- Several values in the current reverse document were corrected by runtime tests, including Armor, Evasion, Damage, Crit Chance, Luck, Pickup Range, Projectiles, Extra Jumps, Gold Gain, and XP Gain.
-
-Required reverse-engineering work:
-
-- Revisit `EncounterUtility.GetRandomStatValue` and reconstruct every shrine stat case, base value, and modify type from the current assembly.
-- Revisit `EncounterUtility.GetRandomStatOffers`, its rounding path, and rarity selection order.
-- Revisit `EncounterData.GetOffers` and `ItemBeacon.GetRewardMultiplier`; explain why static-analysis claims about Beacon scaling conflict with the clean runtime batch.
-- Confirm the exact source of the historical `1.075` multiplier.
-- Verify the current address and pointer chain for `AchievementTracker.chargedShrines`; the documented TypeInfo RVA did not resolve as a valid IL2CPP class pointer in the tested build.
-- Confirm whether the completion counter increments before or after offer selection and whether it is suitable as a delayed-write reward budget.
-
-Validation requirements:
-
-- Run controlled 15-shrine batches with low and high Luck and with Beacon absent/present.
-- Snapshot permanent modifiers immediately before and after each batch.
-- Require every observed modifier to match a dump-derived fingerprint within float32 tolerance.
-- Keep screenshots and exact memory values as fixtures for future automated tests.
-- Do not implement `!shrines` until all 28 shrine stat fingerprints and the reward-budget source are confirmed.
-
-Documentation anchor:
-
-- `docs/recovery/reports/2026-06-15-shrines-mechanics-and-fingerprints.md`
-
 #### 4. `!chaos` / `!chaostome` Roll Frequency Statistics
 
 Status: `[Open]`

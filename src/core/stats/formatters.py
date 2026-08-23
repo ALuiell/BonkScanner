@@ -53,6 +53,21 @@ def format_chaos_tome_stat_delta(
     return format_player_stat_delta(value, value_format)
 
 
+def format_shrine_stat_delta(
+    label: str,
+    value: float | None,
+    value_format: PlayerStatFormat,
+) -> str:
+    """Format a Charge Shrine bonus with the same stat-specific scales.
+
+    Shrine and Chaos modifiers are stored in the same raw stat units. Pickup
+    Range and Crit Damage therefore need the same display conversions; keeping
+    this named wrapper lets shrine consumers describe their own domain without
+    duplicating those two easily missed rules.
+    """
+    return format_chaos_tome_stat_delta(label, value, value_format)
+
+
 def format_weapon_stat_value(value: float | None, value_format: WeaponStatFormat) -> str:
     if value is None or not isfinite(value):
         return "--"

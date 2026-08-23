@@ -28,8 +28,11 @@ class ReadCensusRatchetTests(unittest.TestCase):
     def test_boundary_populations_are_derived_from_the_tree(self) -> None:
         census = _load_census()
 
-        # 29 since the `passive_items` task became the whole loot sample. Three
-        # of the twenty-nine arrived through that expansion and mean different
+        # 30 with the Charge Shrine tracking source. It reuses the shared
+        # passive-item sample for Wrench and does not need a stage-context read.
+        # The previous 29 followed
+        # the `passive_items` task becoming the whole loot sample. Three
+        # of those twenty-nine arrived through that expansion and mean different
         # things:
         #
         # `get_map_activity_values` is a *second* call site for an already
@@ -43,7 +46,7 @@ class ReadCensusRatchetTests(unittest.TestCase):
         # proves it went in through the pass rather than around it.
         self.assertEqual(
             census.boundary_site_count([census.SRC / rel for rel in census.ON_TICK_FILES]),
-            29,
+            30,
         )
         # 4 since `reroll_map` stopped reading the map state and stats itself:
         # `wait_for_map_ready` hands the scan loop the stats it waited for, so
