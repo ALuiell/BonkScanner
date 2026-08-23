@@ -390,6 +390,18 @@ class PlayerStatsClient:
             int,
             tuple[int, int, int, int, tuple[int, ...]],
         ] = {}
+        # Immutable values for the layout above. Dictionary/list headers are
+        # still validated on every permanent-source tick, but settled ticks
+        # can return this snapshot without re-reading value/type from every
+        # StatModifier object. Chaos level changes refresh all values twice
+        # (the triggering sample and one settling sample) so a read that lands
+        # inside the game's level/modifier writer window cannot stay stale.
+        self._cached_permanent_modifier_snapshots: dict[
+            int, tuple[PlayerStatModifierSnapshot, ...]
+        ] = {}
+        self._cached_permanent_modifier_snapshot_stat_ids: frozenset[int] = frozenset()
+        self._cached_permanent_modifier_dirty_stat_ids: set[int] = set()
+        self._cached_permanent_modifier_settle_refresh_pending = False
         self._cached_stats_entries_owner_stats = 0
         self._cached_stats_entries = 0
         self._cached_powerup_multiplier_owner_stats = 0
@@ -1227,9 +1239,10 @@ class PlayerStatsClient:
         if chaos_level is None:
             self._cached_chaos_tracking_level = None
             return None, self._get_cached_permanent_stat_modifiers(player_inventory)
+        previous_chaos_level = self._cached_chaos_tracking_level
         force_modifier_rescan = (
-            self._cached_chaos_tracking_level is not None
-            and chaos_level > self._cached_chaos_tracking_level
+            bool(self._cached_permanent_modifier_snapshots)
+            and chaos_level != previous_chaos_level
         )
         self._cached_chaos_tracking_level = chaos_level
         return chaos_level, self._get_cached_permanent_stat_modifiers(
@@ -1591,22 +1604,30 @@ class PlayerStatsClient:
         if count > self.MAX_PERMANENT_STAT_ENTRIES:
             raise MemoryReadError(f"Permanent stat dictionary count is invalid: {count}")
         version = self.memory.read_i32(dictionary_address + self.DICT_VERSION_OFFSET)
-        if (
+        dictionary_changed = (
             force_rescan
             or dictionary_address != self._cached_permanent_modifiers_dict
             or entries != self._cached_permanent_modifiers_entries
             or count != self._cached_permanent_modifiers_count
             or version != self._cached_permanent_modifiers_version
-        ):
+        )
+        changed_stat_ids = set(self._cached_permanent_modifier_dirty_stat_ids)
+        if dictionary_changed:
+            previous_lists = self._cached_permanent_modifier_lists
             self._cached_permanent_modifiers_dict = dictionary_address
             self._cached_permanent_modifiers_entries = entries
             self._cached_permanent_modifiers_count = count
             self._cached_permanent_modifiers_version = version
-            self._cached_permanent_modifier_lists = (
-                self._find_permanent_modifier_lists(dictionary_address, count=count)
+            current_lists = self._find_permanent_modifier_lists(
+                dictionary_address, count=count
+            )
+            self._cached_permanent_modifier_lists = current_lists
+            changed_stat_ids.update(
+                stat_id
+                for stat_id, cached_list in current_lists.items()
+                if previous_lists.get(stat_id) != cached_list
             )
 
-        result: dict[int, tuple[PlayerStatModifierSnapshot, ...]] = {}
         for stat_id, cached_list in tuple(
             self._cached_permanent_modifier_lists.items()
         ):
@@ -1633,14 +1654,66 @@ class PlayerStatsClient:
                     list_version,
                     modifier_ptrs,
                 )
+                changed_stat_ids.add(stat_id)
 
+        active_stat_ids = set(self._cached_permanent_modifier_lists)
+        self._cached_permanent_modifier_dirty_stat_ids.intersection_update(
+            active_stat_ids
+        )
+        self._cached_permanent_modifier_dirty_stat_ids.update(changed_stat_ids)
+        if force_rescan:
+            # Set before value reads. If one of those reads fails, the next
+            # tick remains a full settling retry rather than accepting the old
+            # snapshot against the newly cached layout.
+            self._cached_permanent_modifier_settle_refresh_pending = True
+        refresh_all = bool(
+            force_rescan
+            or self._cached_permanent_modifier_settle_refresh_pending
+        )
+        cached_stat_ids = self._cached_permanent_modifier_snapshot_stat_ids
+        if (
+            not refresh_all
+            and not self._cached_permanent_modifier_dirty_stat_ids
+            and cached_stat_ids == active_stat_ids
+        ):
+            return self._cached_permanent_modifier_snapshots
+        next_snapshots = {
+            stat_id: modifiers
+            for stat_id, modifiers in self._cached_permanent_modifier_snapshots.items()
+            if stat_id in active_stat_ids
+        }
+        refresh_stat_ids = (
+            active_stat_ids
+            if refresh_all
+            else self._cached_permanent_modifier_dirty_stat_ids
+            | (active_stat_ids - set(cached_stat_ids))
+        )
+        for stat_id in refresh_stat_ids:
+            modifier_ptrs = self._cached_permanent_modifier_lists[stat_id][4]
             modifiers = tuple(
                 self._read_cached_stat_modifier(stat_id, modifier_ptr)
                 for modifier_ptr in modifier_ptrs
             )
             if modifiers:
-                result[stat_id] = modifiers
-        return result
+                next_snapshots[stat_id] = modifiers
+            else:
+                next_snapshots.pop(stat_id, None)
+
+        if refresh_stat_ids or cached_stat_ids != active_stat_ids:
+            self._cached_permanent_modifier_snapshots = next_snapshots
+        self._cached_permanent_modifier_snapshot_stat_ids = frozenset(
+            active_stat_ids
+        )
+        self._cached_permanent_modifier_dirty_stat_ids.difference_update(
+            refresh_stat_ids
+        )
+        # A Chaos level transition is the invalidation signal for in-place
+        # stacked values. Refresh once now and once on the following sample:
+        # whichever side of the native writer the first read observed, the
+        # settled sample becomes authoritative. Consecutive transitions keep
+        # this armed until one unchanged sample completes successfully.
+        self._cached_permanent_modifier_settle_refresh_pending = bool(force_rescan)
+        return self._cached_permanent_modifier_snapshots
 
     def _find_permanent_modifier_lists(
         self,
@@ -1738,6 +1811,10 @@ class PlayerStatsClient:
         self._cached_permanent_modifiers_count = 0
         self._cached_permanent_modifiers_version = None
         self._cached_permanent_modifier_lists = {}
+        self._cached_permanent_modifier_snapshots = {}
+        self._cached_permanent_modifier_snapshot_stat_ids = frozenset()
+        self._cached_permanent_modifier_dirty_stat_ids = set()
+        self._cached_permanent_modifier_settle_refresh_pending = False
 
     def _clear_chaos_tracking_cache(self) -> None:
         self._clear_cached_chaos_level()

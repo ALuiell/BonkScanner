@@ -119,9 +119,28 @@ Because identical modifiers are stacked together in IL2CPP list collections rath
 If the same stat is rolled multiple times (e.g., two Max Health rolls of the same or different rarities), the game adds the new roll value directly to the existing `StatModifier.value`.
 
 To reconstruct the roll history:
-1. The tracker client caches a snapshot of all permanent modifiers on every tick.
-2. When a value change is detected, it calculates the difference: $\Delta = \text{value}_{\text{new}} - \text{value}_{\text{old}}$.
-3. $\Delta$ is matched against individual fingerprints and, when several rolls were already stacked, combinations of valid fingerprints for the corresponding `StatID`.
+1. The tracker client maintains an immutable snapshot of all permanent
+   modifiers. Every one-second tick still validates the permanent dictionary
+   and each list's pointer, size, and version, but a settled tick reuses the
+   ready snapshot without re-reading `value` and `modifyType` from every
+   `StatModifier` object.
+2. A dictionary/list structural change refreshes the affected snapshot. A
+   Chaos Tome level transition invalidates every cached modifier value and also
+   arms one settling refresh on the following tick, so a sample taken inside
+   the game's level/modifier writer window cannot remain stale.
+3. When a value change is detected, the tracker calculates the difference:
+   $\Delta = \text{value}_{\text{new}} - \text{value}_{\text{old}}$.
+4. $\Delta$ is matched against individual fingerprints and, when several rolls
+   were already stacked, combinations of valid fingerprints for the
+   corresponding `StatID`.
+
+Live stress validation on 2026-08-23 advanced Dice from level `81` to `4108`
+and Chaos Tome from level `0` to `531`, growing the shared dictionary to `4657`
+modifier objects. Cached samples were compared with independent full reads on
+every stress tick and had zero persistent mismatches. At the settled endpoint,
+the hot cached read averaged `0.740 ms` versus `114.098 ms` for a full read;
+cached and uncached recovery produced identical complete Dice `4108/4108` and
+Chaos `531/531` snapshots with zero ambiguous rolls.
 
 ### 4.2. Determining the Number of Rolls (N)
 When leveling up a tome multiple levels at once, several rolls can stack simultaneously. For repeated identical fingerprints, the tracker can divide the delta by the fingerprint value and round to the nearest integer:

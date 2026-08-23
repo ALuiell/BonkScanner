@@ -1551,7 +1551,7 @@ class PlayerStatsTimelineTests(unittest.TestCase):
 
         self.assertEqual(tomes, ())
 
-    def test_chaos_tracking_state_reuses_cached_level_and_modifier_addresses(self) -> None:
+    def test_chaos_tracking_state_reuses_ready_snapshots_and_settles_level_writes(self) -> None:
         memory = build_player_stats_memory()
         owner_stats = 0x20000300
         player_inventory = 0x20001600
@@ -1606,23 +1606,46 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         self.assertEqual(modifiers[12][0].object_ptr, modifier)
         self.assertEqual(modifiers[12][0].modify_type, 0)
 
+        with patch.object(
+            client,
+            "_read_cached_stat_modifier",
+            wraps=client._read_cached_stat_modifier,
+        ) as snapshot_reader:
+            stable_level, stable_modifiers = client.get_chaos_tracking_state(
+                owner_stats
+            )
+        self.assertEqual(stable_level, 3)
+        self.assertIs(stable_modifiers, modifiers)
+        snapshot_reader.assert_not_called()
+
         del memory.ints[level_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET]
         del memory.ints[level_entry + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET]
         memory.ints[level_entry + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET] = 4
         memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET] = 0.336
 
-        level, modifiers = client.get_chaos_tracking_state(owner_stats)
+        level, refreshed_modifiers = client.get_chaos_tracking_state(owner_stats)
         self.assertEqual(level, 4)
-        self.assertAlmostEqual(modifiers[12][0].value, 0.336)
+        self.assertAlmostEqual(refreshed_modifiers[12][0].value, 0.336)
+        self.assertIsNot(refreshed_modifiers, modifiers)
 
         del memory.ints[modifier_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET]
         del memory.ints[modifier_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET]
         del memory.ints[modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET]
         memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET] = 0.504
 
-        level, modifiers = client.get_chaos_tracking_state(owner_stats)
+        # The level-triggered refresh arms one settling pass. It catches a
+        # value written after the first level-4 sample even though neither the
+        # dictionary nor the list version changed.
+        level, settled_modifiers = client.get_chaos_tracking_state(owner_stats)
         self.assertEqual(level, 4)
-        self.assertAlmostEqual(modifiers[12][0].value, 0.504)
+        self.assertAlmostEqual(settled_modifiers[12][0].value, 0.504)
+        self.assertIsNot(settled_modifiers, refreshed_modifiers)
+
+        del memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET]
+        del memory.ints[modifier + PlayerStatsClient.STAT_MODIFIER_TYPE_OFFSET]
+        level, cached_modifiers = client.get_chaos_tracking_state(owner_stats)
+        self.assertEqual(level, 4)
+        self.assertIs(cached_modifiers, settled_modifiers)
 
     def test_chaos_tracking_state_retries_unresolved_level_entry_without_version_change(self) -> None:
         memory = build_player_stats_memory()
@@ -1670,6 +1693,9 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         memory = build_player_stats_memory()
         owner_stats = 0x20000300
         player_inventory = 0x20001600
+        tome_inventory = 0x23200000
+        levels_dict = 0x23200100
+        level_entries = 0x23200200
         stat_inventory = 0x23200300
         modifiers_dict = 0x23200400
         modifier_entries = 0x23200500
@@ -1702,13 +1728,40 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         )
         memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET] = 0.168
 
-        level, modifiers = PlayerStatsClient(memory=memory).get_chaos_tracking_state(
-            owner_stats
-        )
+        client = PlayerStatsClient(memory=memory)
+        level, modifiers = client.get_chaos_tracking_state(owner_stats)
 
         self.assertIsNone(level)
         self.assertEqual(modifiers[12][0].object_ptr, modifier)
         self.assertEqual(modifiers[12][0].modify_type, 0)
+
+        # Acquiring the tome is itself an invalidation signal. The first roll
+        # can stack into an object that was already in permanentChanges, so no
+        # dictionary/list version is required to move here.
+        level_entry = level_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+        memory.pointers.update(
+            {
+                player_inventory + PlayerStatsClient.TOME_INVENTORY_OFFSET: tome_inventory,
+                tome_inventory + PlayerStatsClient.TOME_LEVELS_DICT_OFFSET: levels_dict,
+                levels_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: level_entries,
+            }
+        )
+        memory.ints.update(
+            {
+                levels_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                levels_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                level_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                level_entry + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET: PlayerStatsClient.CHAOS_TOME_ID,
+                level_entry + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 1,
+            }
+        )
+        memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET] = 0.336
+
+        level, refreshed_modifiers = client.get_chaos_tracking_state(owner_stats)
+
+        self.assertEqual(level, 1)
+        self.assertAlmostEqual(refreshed_modifiers[12][0].value, 0.336)
+        self.assertIsNot(refreshed_modifiers, modifiers)
 
     def test_chaos_tracking_state_rescans_changed_modifier_list(self) -> None:
         memory = build_player_stats_memory()
@@ -1773,6 +1826,17 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         memory.ints[modifier_list + PlayerStatsClient.LIST_SIZE_OFFSET] = 2
         memory.ints[modifier_list + PlayerStatsClient.LIST_VERSION_OFFSET] = 2
 
+        second_value_address = (
+            second_modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET
+        )
+        second_value = memory.floats.pop(second_value_address)
+        with self.assertRaises(MemoryReadError):
+            client.get_chaos_tracking_state(owner_stats)
+
+        # The failed value read happened after the new list layout was cached.
+        # Restoring memory must retry that dirty stat instead of returning the
+        # one-modifier snapshot as if it matched the two-modifier layout.
+        memory.floats[second_value_address] = second_value
         _, modifiers = client.get_chaos_tracking_state(owner_stats)
         self.assertEqual(len(modifiers[12]), 2)
 
