@@ -248,6 +248,8 @@ def build_diffable_compare_tab():
     tab._weapons_enabled = False
     tab._tomes_enabled = False
     tab._chaos_enabled = False
+    tab._shrines_enabled = False
+    tab._passives_enabled = False
     tab._compare_run_selected_stat_labels = MagicMock(return_value=("Damage",))
     tab._refresh_compare_runs_item_details_button = MagicMock()
     return tab
@@ -264,6 +266,8 @@ def patched_formatters():
         build_compare_runs_weapons_table=MagicMock(return_value="weapons"),
         build_compare_runs_tomes_table=MagicMock(return_value="tomes"),
         build_compare_runs_chaos_table=MagicMock(return_value="chaos"),
+        build_compare_runs_shrines_table=MagicMock(return_value="shrines"),
+        build_compare_runs_passives_table=MagicMock(return_value="passives"),
     )
 
 

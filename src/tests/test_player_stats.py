@@ -1594,6 +1594,7 @@ class PlayerStatsTimelineTests(unittest.TestCase):
                 modifier_list + PlayerStatsClient.LIST_SIZE_OFFSET: 1,
                 modifier_list + PlayerStatsClient.LIST_VERSION_OFFSET: 1,
                 modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+                modifier + PlayerStatsClient.STAT_MODIFIER_TYPE_OFFSET: 0,
             }
         )
         memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET] = 0.168
@@ -1602,6 +1603,8 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         level, modifiers = client.get_chaos_tracking_state(owner_stats)
         self.assertEqual(level, 3)
         self.assertAlmostEqual(modifiers[12][0].value, 0.168)
+        self.assertEqual(modifiers[12][0].object_ptr, modifier)
+        self.assertEqual(modifiers[12][0].modify_type, 0)
 
         del memory.ints[level_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET]
         del memory.ints[level_entry + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET]
@@ -1663,6 +1666,50 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         self.assertEqual(level, 3)
         self.assertEqual(modifiers, {})
 
+    def test_permanent_tracking_state_is_available_without_chaos_tome(self) -> None:
+        memory = build_player_stats_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x20001600
+        stat_inventory = 0x23200300
+        modifiers_dict = 0x23200400
+        modifier_entries = 0x23200500
+        modifier_list = 0x23200600
+        modifier_array = 0x23200700
+        modifier = 0x23200800
+        modifier_entry = modifier_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+        memory.pointers.update(
+            {
+                player_inventory + PlayerStatsClient.TOME_INVENTORY_OFFSET: 0,
+                player_inventory + PlayerStatsClient.STAT_INVENTORY_OFFSET: stat_inventory,
+                stat_inventory + PlayerStatsClient.STAT_INVENTORY_PERMANENT_CHANGES_OFFSET: modifiers_dict,
+                modifiers_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: modifier_entries,
+                modifier_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_VALUE_OFFSET: modifier_list,
+                modifier_list + PlayerStatsClient.LIST_ITEMS_OFFSET: modifier_array,
+                modifier_array + PlayerStatsClient.ARRAY_DATA_OFFSET: modifier,
+            }
+        )
+        memory.ints.update(
+            {
+                modifiers_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                modifiers_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                modifier_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                modifier_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET: 12,
+                modifier_list + PlayerStatsClient.LIST_SIZE_OFFSET: 1,
+                modifier_list + PlayerStatsClient.LIST_VERSION_OFFSET: 1,
+                modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+                modifier + PlayerStatsClient.STAT_MODIFIER_TYPE_OFFSET: 0,
+            }
+        )
+        memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET] = 0.168
+
+        level, modifiers = PlayerStatsClient(memory=memory).get_chaos_tracking_state(
+            owner_stats
+        )
+
+        self.assertIsNone(level)
+        self.assertEqual(modifiers[12][0].object_ptr, modifier)
+        self.assertEqual(modifiers[12][0].modify_type, 0)
+
     def test_chaos_tracking_state_rescans_changed_modifier_list(self) -> None:
         memory = build_player_stats_memory()
         owner_stats = 0x20000300
@@ -1706,7 +1753,9 @@ class PlayerStatsTimelineTests(unittest.TestCase):
                 modifier_list + PlayerStatsClient.LIST_SIZE_OFFSET: 1,
                 modifier_list + PlayerStatsClient.LIST_VERSION_OFFSET: 1,
                 first_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+                first_modifier + PlayerStatsClient.STAT_MODIFIER_TYPE_OFFSET: 0,
                 second_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+                second_modifier + PlayerStatsClient.STAT_MODIFIER_TYPE_OFFSET: 0,
             }
         )
         memory.floats.update(
@@ -1776,11 +1825,13 @@ class PlayerStatsTimelineTests(unittest.TestCase):
                 damage_list + PlayerStatsClient.LIST_SIZE_OFFSET: 1,
                 damage_list + PlayerStatsClient.LIST_VERSION_OFFSET: 1,
                 damage_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+                damage_modifier + PlayerStatsClient.STAT_MODIFIER_TYPE_OFFSET: 0,
                 luck_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
                 luck_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET: 30,
                 luck_list + PlayerStatsClient.LIST_SIZE_OFFSET: 1,
                 luck_list + PlayerStatsClient.LIST_VERSION_OFFSET: 1,
                 luck_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 30,
+                luck_modifier + PlayerStatsClient.STAT_MODIFIER_TYPE_OFFSET: 2,
             }
         )
         memory.floats.update(

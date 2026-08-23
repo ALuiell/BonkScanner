@@ -129,7 +129,7 @@ class LazyTabsTests(unittest.TestCase):
     def test_opening_the_tab_builds_it_in_full(self) -> None:
         """Deferred, not dropped -- the whole workspace has to arrive.
 
-        The seven detail pages are the check rather than a widget count: a count
+        The detail pages are the check rather than a widget count: a count
         would fail on any honest change to the tab's contents, where a missing
         page is the actual failure this guards.
         """
@@ -160,7 +160,7 @@ class LazyTabsTests(unittest.TestCase):
             assert [
                 view._detail_tabs.tabText(index)
                 for index in range(view._detail_tabs.count())
-            ] == ["Overview", "Stats", "Stages", "Items", "Weapons", "Tomes", "Chaos", "Shrines"]
+            ] == ["Overview", "Stats", "Stages", "Items", "Weapons", "Tomes", "Chaos", "Shrines", "Passives"]
             assert view._run_a_list_frame is not None
             assert view._run_b_list_frame is not None
             assert view._swap_btn is not None

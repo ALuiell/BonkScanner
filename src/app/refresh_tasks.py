@@ -1173,7 +1173,10 @@ class RefreshTasks:
             return False
         if self._tab_active() or self._is_vod_recording():
             return True
-        return self._twitch_command_refresh_active("chaos")
+        return (
+            self._twitch_command_refresh_active("chaos")
+            or self._twitch_command_refresh_active("dice")
+        )
 
     def _should_refresh_charge_shrines(self) -> bool:
         if self._lifecycle().completed_run:

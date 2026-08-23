@@ -452,7 +452,7 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
     tabs.resize(1400, 900)
     tabs.show()
     app.processEvents()
-    assert [compare._detail_tabs.tabText(index) for index in range(7)] == [
+    assert [compare._detail_tabs.tabText(index) for index in range(9)] == [
         "Overview",
         "Stats",
         "Stages",
@@ -460,6 +460,8 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
         "Weapons",
         "Tomes",
         "Chaos",
+        "Shrines",
+        "Passives",
     ]
     assert compare._timeline.objectName() == "CompareRunsTimeline"
     assert all(

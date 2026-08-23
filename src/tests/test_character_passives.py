@@ -10,7 +10,12 @@ from core.character_passives import (
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import PlayerStatModifierSnapshot
 from core.tracker import passives
-from core.tracker.passives import _CharacterPassiveState, gamba_decay, gamba_roll_value
+from core.tracker.passives import (
+    _CharacterPassiveState,
+    _solve_gamba_batch,
+    gamba_decay,
+    gamba_roll_value,
+)
 from core.tracker.live_run import LiveRunTracker
 from core.tracker.shrines import SHRINE_STAT_RULES
 from infra.memory.player_stats_client import PlayerStatsClient
@@ -122,6 +127,34 @@ class GambaAdapterTests(unittest.TestCase):
         self.assertAlmostEqual(gamba_decay(254), 0.06024222820997238)
         self.assertEqual(gamba_decay(255), gamba_decay(1000))
         self.assertAlmostEqual(gamba_roll_value(5, 1.4, 0), 0.05250000208616257)
+
+    def test_ambiguous_early_pointer_is_not_committed(self) -> None:
+        collision = _modifier(0x7000, 5, gamba_roll_value(5, 1.0, 0))
+        self.assertEqual(collision.value, gamba_roll_value(5, 2.0, 50))
+
+        assignments, unresolved, ambiguous = _solve_gamba_batch(
+            (0, 50),
+            (collision,),
+        )
+
+        self.assertEqual(assignments, [])
+        self.assertEqual(unresolved, 2)
+        self.assertEqual(ambiguous, 1)
+
+    def test_clamped_candidates_over_budget_are_not_committed(self) -> None:
+        candidates = (
+            _modifier(0x7100, 5, gamba_roll_value(5, 1.0, 255)),
+            _modifier(0x7200, 12, gamba_roll_value(12, 1.0, 255)),
+        )
+
+        assignments, unresolved, ambiguous = _solve_gamba_batch(
+            (255,),
+            candidates,
+        )
+
+        self.assertEqual(assignments, [])
+        self.assertEqual(unresolved, 1)
+        self.assertEqual(ambiguous, 1)
 
     def test_delayed_counter_consumes_retained_candidate_once(self) -> None:
         state = _CharacterPassiveState()

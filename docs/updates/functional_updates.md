@@ -80,7 +80,7 @@ Why this helps:
 
 ### Character Passive Bonus Tracking (Dice First Adapter)
 
-Status: `[Implemented / 1,815-Test Regression Passed; Fox Production Reader Spot-Checked; Dice UI In-Game Acceptance Pending]`
+Status: `[Implemented / 1,826-Test Regression Passed; Fox and Dice Live Acceptance Passed]`
 
 Goal:
 
@@ -623,14 +623,16 @@ Planned Live Stats and output contract:
   Live Stats state; dynamic adapters declare the faster cadence they require.
   Only `Gamba` joins the shared permanent-modifier attribution lane. Do not
   force every passive through `permanentChanges` merely to share a scheduler.
-- Persist the same generic snapshot in the next VOD format and render it in
-  Recordings. Compare Runs is explicitly deferred from this update; a later
-  version may compare permanent numeric effects but must omit transient effects
-  unless storage gains a meaningful aggregate such as peak or uptime.
-- Prefer a generic compact Twitch command such as `!passive`. Keep `!dice` as
-  an optional alias when Dice is active. All commands,
-  OBS widgets, and overlays must consume the same snapshot rather than running
-  another detector.
+- Persist the same generic snapshot in VOD format 9 and render it in Recordings
+  and the universal Compare Runs `Passives` tab. The comparison includes the
+  recorded identity, level, tracking coverage, proven roll count, and permanent
+  numeric effects. Future transient effects remain excluded unless storage
+  gains a meaningful aggregate such as peak or uptime.
+- Expose Dice through the compact Twitch command `!dice` when Dice is active.
+  It uses the same abbreviated, pipe-separated accumulated stat format as
+  `!chaos` and `!shrines`; another character produces an explicit inactive
+  response rather than being formatted as Dice. The command consumes the
+  shared snapshot rather than running another detector.
 - Dice rarity counts remain diagnostic metadata. They are not required in the
   first compact card/command and must remain unknown when assignment is
   ambiguous.
@@ -694,9 +696,9 @@ Recommended delivery order:
    This gives useful coverage quickly without claiming all characters work.
 3. Hybrid/dynamic adapters, each enabled only after its own live transition
    test passes.
-4. VOD/Recordings after the Live Stats snapshot contract is stable. Compare
-   Runs, Twitch, OBS, and in-game overlay consumers are out of scope for this
-   update and can be added later without another memory detector.
+4. VOD/Recordings, the Compare Runs `Passives` tab, and Twitch `!dice` after
+   the Live Stats snapshot contract is stable. OBS and in-game overlay
+   consumers remain optional follow-up work and need no second memory detector.
 
 Implemented boundary (2026-08-23):
 
@@ -717,11 +719,23 @@ Implemented boundary (2026-08-23):
   per frame. Format 8 and older recordings load with both absent. Generated
   names use `{Character} YYYY-MM-DD HH:MM:SS`; explicit names win unchanged and
   the fallback remains `Run ...` when validated identity is unavailable.
-- Automated regression completed with `1,815` tests passing. A post-
-  implementation read against the running game resolved
-  `Fox · RNG Blessing · level 0` as `supported/complete` and rendered the empty
-  baseline as canonical `Luck +0%`. A final visual/increment acceptance pass on
-  Dice remains before release.
+- Compare Runs exposes a universal `Passives` detail tab backed only by the
+  recorded `character_passive` snapshot. It compares identity, passive level,
+  tracking coverage, proven Dice roll counts, and accumulated numeric effects;
+  format 8 and older snapshots use an explicit `No character passive data`
+  state rather than fabricated zeroes.
+- Twitch `!dice` is configurable in the command grid and template editor,
+  appears in `!bonkhelp`, and keeps the permanent-source refresh lane active
+  while the bot and command are enabled. Its default response is
+  `Dice Lv{level}: {dice}`, with abbreviated stat totals separated by ` | `.
+- Automated regression completed with `1,826` tests passing. Post-
+  implementation live reads resolved Fox as `supported/complete`; continuous
+  Dice/Chaos stress tracking reached Dice `2032/2032` and Chaos `99/99`.
+  A late-attach reconstruction correctly remained `partial` at `2031/2032`
+  because one exact cross-source collision was not uniquely attributable.
+  Final UI smoke testing loaded real Dice and Megachad recordings into Compare
+  Runs, rendered their saved coverage states, and exposed the enabled `!dice`
+  tile in Twitch Bot without sending an external chat message.
 
 Required tests and in-game acceptance:
 

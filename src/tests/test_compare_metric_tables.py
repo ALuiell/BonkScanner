@@ -71,9 +71,35 @@ def chaos_stat(stat_id: int, label: str, value, display: str, rolls: int = 0):
 
 
 def snapshot(**fields):
-    defaults = {"weapons": (), "tomes": (), "chaos_tome": None}
+    defaults = {
+        "weapons": (),
+        "tomes": (),
+        "chaos_tome": None,
+        "character_passive": None,
+    }
     defaults.update(fields)
     return SimpleNamespace(**defaults)
+
+
+def passive(character: str, level: int, effects, *, status: str = "supported"):
+    return SimpleNamespace(
+        character_name=character,
+        passive_name="Gamba" if character == "Dice" else "RNG Blessing",
+        level=level,
+        status=SimpleNamespace(value=status),
+        effects=tuple(effects),
+    )
+
+
+def passive_effect(stat_id: int, label: str, value, display: str, *, count=None):
+    return SimpleNamespace(
+        key=f"stat:{stat_id}",
+        stat_id=stat_id,
+        label=label,
+        value=value,
+        display_delta=display,
+        count=count,
+    )
 
 
 class DeltaDirectionTests(unittest.TestCase):
@@ -446,6 +472,90 @@ class ChaosTableTests(unittest.TestCase):
         table = formatting.build_compare_runs_chaos_table(snapshot_a, snapshot_b)
 
         self.assertEqual(1, len(table.sections))
+
+
+class CharacterPassiveTableTests(unittest.TestCase):
+    def _snapshots(self):
+        snapshot_a = snapshot(
+            character_passive=passive(
+                "Dice",
+                30,
+                [passive_effect(12, "Damage", 0.24, "+24%", count=4)],
+            )
+        )
+        snapshot_b = snapshot(
+            character_passive=passive(
+                "Dice",
+                37,
+                [
+                    passive_effect(12, "Damage", 0.40, "+40%", count=6),
+                    passive_effect(30, "Luck", 0.07, "+7%", count=3),
+                ],
+                status="partial",
+            )
+        )
+        return snapshot_a, snapshot_b
+
+    def test_compares_identity_tracking_rolls_and_stat_totals(self) -> None:
+        table = formatting.build_compare_runs_passives_table(*self._snapshots())
+
+        self.assertEqual(2, len(table.sections))
+        overview = {row.label: row for row in table.sections[0].rows}
+        self.assertEqual(("Dice", "Dice", "--"), (
+            overview["Character"].value_a,
+            overview["Character"].value_b,
+            overview["Character"].delta,
+        ))
+        self.assertEqual(("30", "37", "-7"), (
+            overview["Level"].value_a,
+            overview["Level"].value_b,
+            overview["Level"].delta,
+        ))
+        self.assertEqual(("4", "9", "-5"), (
+            overview["Tracked Rolls"].value_a,
+            overview["Tracked Rolls"].value_b,
+            overview["Tracked Rolls"].delta,
+        ))
+        self.assertEqual(("Complete", "Partial"), (
+            overview["Tracking"].value_a,
+            overview["Tracking"].value_b,
+        ))
+
+        stats = {row.label: row for row in table.sections[1].rows}
+        self.assertEqual(("+24%", "+40%", "-16%"), (
+            stats["Damage"].value_a,
+            stats["Damage"].value_b,
+            stats["Damage"].delta,
+        ))
+        self.assertEqual(("--", "+7%", "--"), (
+            stats["Luck"].value_a,
+            stats["Luck"].value_b,
+            stats["Luck"].delta,
+        ))
+
+    def test_linear_passives_do_not_invent_a_roll_count(self) -> None:
+        fox = passive(
+            "Fox",
+            10,
+            [passive_effect(30, "Luck", 0.15, "+15%")],
+        )
+
+        table = formatting.build_compare_runs_passives_table(
+            snapshot(character_passive=fox), snapshot(character_passive=fox)
+        )
+        rolls = next(
+            row for row in table.sections[0].rows if row.label == "Tracked Rolls"
+        )
+
+        self.assertEqual(("--", "--", "--"), (
+            rolls.value_a, rolls.value_b, rolls.delta
+        ))
+
+    def test_old_recordings_without_passive_data_use_the_empty_state(self) -> None:
+        table = formatting.build_compare_runs_passives_table(snapshot(), snapshot())
+
+        self.assertEqual((), table.sections)
+        self.assertEqual(formatting.PASSIVES_COMPARE_EMPTY_TEXT, table.empty_text)
 
 
 if __name__ == "__main__":  # pragma: no cover

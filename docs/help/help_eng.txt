@@ -91,7 +91,7 @@ Recording behavior:
 - normal stage transitions should not split a recording into a new file;
 - when the app detects a truly new run, recording can automatically continue into a new file;
 - if the current run seed disappears and stays unavailable, recording can stop automatically;
-- older files remain compatible even if they do not contain newer fields such as `weapons`, `tomes`, or `banishes`.
+- older files remain compatible even if they do not contain newer fields such as `weapons`, `tomes`, `banishes`, or `character_passive`.
 
 Compare Runs
 ------------
@@ -99,7 +99,8 @@ Compare Runs
 - If no runs are selected yet, the recordings chooser opens automatically the first time you enter this tab.
 - During that guided first selection, the chooser closes automatically after both runs are selected.
 - Snapshots can be compared by matched `In-Game Time`, so both runs stay aligned to the closest moment.
-- The center `Difference` panel shows overview deltas and optional sections for stats, stage summary, items, weapons, and tomes.
+- The center workspace shows overview deltas and detail tabs for stats, stages, items, weapons, tomes, Chaos Tome, Shrines, and character Passives.
+- `Passives` compares the character, passive, level, tracking coverage, proven Dice roll count, and accumulated bonuses saved at each playhead. Older recordings show an explicit no-data state.
 - `Compare Settings` lets you choose which stats appear in the difference view and which compare sections stay visible.
 
 OBS Overlay
@@ -169,6 +170,8 @@ Available chat commands:
 - `!weapons` — your weapons and only their active/upgraded stats.
 - `!tomes` — your tomes with their stat values (Chaos Tome shows level only).
 - `!chaos` / `!chaostome` — displays tracked Chaos Tome level and stat roll totals.
+- `!dice` — while playing Dice, displays accumulated Gamba bonuses in the same compact stat format as Chaos Tome and Shrines.
+- `!shrines` — displays accumulated Charge Shrine stat bonuses.
 - `!kps` — displays current kills per second (KPS) and short/long averages (60s, 5m, run averages).
 - `!stages` — detailed stage summary of kills and elapsed time for stages 1-4.
 - `!powerups` — displays active powerups (Rage, Shield, Stonks, Clock) with their pickup and expiration timestamps.

@@ -288,6 +288,9 @@ class TwitchBotWorker(QThread):
         elif cmd in ("!chaos", "!chaostome") and commands_cfg.get("chaos", True):
             self._handle_chaos(channel)
             handled = True
+        elif cmd == "!dice" and commands_cfg.get("dice", True):
+            self._handle_dice(channel)
+            handled = True
         elif cmd == "!shrines" and commands_cfg.get("shrines", True):
             self._handle_shrines(channel)
             handled = True
@@ -737,6 +740,81 @@ class TwitchBotWorker(QThread):
             )
             self._send_chat(channel, truncate_chat_message(text))
 
+    def _handle_dice(self, channel: str):
+        passive = getattr(self._runtime_snapshot(), "character_passive", None)
+        if passive is None:
+            self._send_chat(channel, "No Dice passive data detected yet.")
+            return
+
+        character_name = str(getattr(passive, "character_name", "") or "")
+        if character_name.casefold() != "dice":
+            suffix = f" (current character: {character_name})" if character_name else ""
+            self._send_chat(channel, f"Dice passive is not active for this run{suffix}.")
+            return
+
+        effects = tuple(getattr(passive, "effects", ()) or ())
+        level = max(0, int(getattr(passive, "level", 0) or 0))
+        rolls = sum(max(0, int(getattr(effect, "count", 0) or 0)) for effect in effects)
+        ambiguous = max(0, int(getattr(passive, "ambiguous", 0) or 0))
+        parts = []
+        for effect in effects:
+            label = str(getattr(effect, "label", "") or "")
+            display_delta = getattr(effect, "display_delta", None)
+            if display_delta is None:
+                display_delta = format_chaos_tome_stat_delta(
+                    label,
+                    getattr(effect, "value", None),
+                    getattr(effect, "value_format", None),
+                )
+            parts.append(
+                _round_chaos_summary_part(
+                    f"{abbreviate_stat_label(label)} {display_delta}"
+                )
+            )
+
+        template_values = {
+            "level": level,
+            "rolls": rolls,
+            "ambiguous": ambiguous,
+        }
+        if not parts:
+            self._send_chat(
+                channel,
+                self._format_template(
+                    "dice",
+                    "Dice Lv{level}: {dice}",
+                    dice="no bonuses tracked yet",
+                    **template_values,
+                ),
+            )
+            return
+
+        chunks: list[list[str]] = []
+        current: list[str] = []
+        for part in parts:
+            candidate = current + [part]
+            rendered = self._format_template(
+                "dice",
+                "Dice Lv{level}: {dice}",
+                dice=" | ".join(candidate),
+                **template_values,
+            )
+            if current and len(rendered) > 450:
+                chunks.append(current)
+                current = [part]
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        for chunk in chunks:
+            text = self._format_template(
+                "dice",
+                "Dice Lv{level}: {dice}",
+                dice=" | ".join(chunk),
+                **template_values,
+            )
+            self._send_chat(channel, truncate_chat_message(text))
+
     def _handle_stages(self, channel: str):
         rows = self._runtime_snapshot().stage_summary
         if not rows:
@@ -973,6 +1051,7 @@ class TwitchBotWorker(QThread):
             ("weapons", "!weapons"),
             ("tomes", "!tomes"),
             ("chaos", "!chaos"),
+            ("dice", "!dice"),
             ("shrines", "!shrines"),
             ("stages", "!stages"),
             ("powerups", "!powerups"),

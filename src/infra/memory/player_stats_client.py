@@ -1210,7 +1210,11 @@ class PlayerStatsClient:
         self,
         owner_stats: int | None = None,
     ) -> tuple[int | None, dict[int, tuple[PlayerStatModifierSnapshot, ...]]]:
-        """Read Chaos Tome state through validated cached container addresses."""
+        """Read the shared permanent-source state through validated caches.
+
+        Dice uses the same permanent-modifier container as Chaos Tome, so the
+        modifier snapshot remains useful even when the tome is not held.
+        """
         owner_stats = owner_stats or self._resolve_owner_stats()
         player_inventory = self.memory.read_ptr(
             owner_stats + self.PLAYER_INVENTORY_OFFSET
@@ -1221,9 +1225,8 @@ class PlayerStatsClient:
 
         chaos_level = self._get_cached_chaos_tome_level(player_inventory)
         if chaos_level is None:
-            self._clear_cached_permanent_modifiers()
             self._cached_chaos_tracking_level = None
-            return None, {}
+            return None, self._get_cached_permanent_stat_modifiers(player_inventory)
         force_modifier_rescan = (
             self._cached_chaos_tracking_level is not None
             and chaos_level > self._cached_chaos_tracking_level
@@ -1694,6 +1697,10 @@ class PlayerStatsClient:
             label=label,
             value=value,
             value_format=value_format,
+            object_ptr=modifier_ptr,
+            modify_type=self.memory.read_i32(
+                modifier_ptr + self.STAT_MODIFIER_TYPE_OFFSET
+            ),
         )
 
     def _clear_cached_chaos_level(self) -> None:

@@ -81,6 +81,7 @@ class TestTwitchBotWorker(unittest.TestCase):
                     "run_avg": self.run_tracker.current_run_avg_kps(),
                 },
                 chaos_tome=chaos,
+                character_passive=None,
                 shrines=None,
                 powerups=self.run_tracker.powerups_snapshot(),
                 powerups_recent=self.run_tracker.recent_powerups_snapshot(),
@@ -560,6 +561,70 @@ class TestTwitchBotWorker(unittest.TestCase):
             "Shrines: DMG +24% | Luck +5%",
         )
 
+    def test_handle_dice_reports_abbreviated_accumulated_bonuses(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.runtime_snapshot.side_effect = None
+        self.run_tracker.runtime_snapshot.return_value = SimpleNamespace(
+            character_passive=SimpleNamespace(
+                character_name="Dice",
+                level=145,
+                ambiguous=0,
+                effects=(
+                    SimpleNamespace(
+                        label="Damage",
+                        display_delta="+16.8%",
+                        count=8,
+                    ),
+                    SimpleNamespace(
+                        label="Luck",
+                        display_delta="+14%",
+                        count=4,
+                    ),
+                ),
+            )
+        )
+
+        self.bot._handle_dice("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel", "Dice Lv145: DMG +17% | Luck +14%"
+        )
+
+    def test_handle_dice_rejects_another_characters_passive(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.runtime_snapshot.side_effect = None
+        self.run_tracker.runtime_snapshot.return_value = SimpleNamespace(
+            character_passive=SimpleNamespace(
+                character_name="Fox", level=90, effects=()
+            )
+        )
+
+        self.bot._handle_dice("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel", "Dice passive is not active for this run (current character: Fox)."
+        )
+
+    def test_dice_command_routes_through_chat_handler(self):
+        from app import config
+
+        self.bot._handle_dice = MagicMock()
+        with patch.dict(
+            config.TWITCH_BOT,
+            {
+                "access_tier": "Everyone",
+                "global_cooldown_seconds": 0,
+                "cooldown_seconds": 0,
+                "commands": {"dice": True},
+            },
+        ):
+            line = ":user!user@host PRIVMSG #channel :!dice"
+            with patch("time.time", return_value=100.0):
+                self.bot._handle_line(line, "channel")
+
+        self.bot._handle_dice.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!dice"], 100.0)
+
     def test_handle_stats_uses_shared_stat_abbreviations(self):
         from app.config import TWITCH_BOT
 
@@ -847,7 +912,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_commands("channel")
             self.bot._send_chat.assert_called_once_with(
                 "channel",
-                "Available commands: !stats, !session, !items, !tomes, !shrines, !stages, !scanner, !presets, !build, !bonkhelp"
+                "Available commands: !stats, !session, !items, !tomes, !dice, !shrines, !stages, !scanner, !presets, !build, !bonkhelp"
             )
 
     def test_handle_commands_uses_configured_template(self):
@@ -875,6 +940,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.assertIn("bonkhelp", bot_cfg["templates"])
         self.assertIn("session", bot_cfg["templates"])
+        self.assertIn("dice", bot_cfg["templates"])
 
     def test_legacy_commands_key_migrates_to_bonkhelp(self):
         from app import config

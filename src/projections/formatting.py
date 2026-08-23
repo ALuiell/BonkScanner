@@ -616,6 +616,7 @@ WEAPONS_COMPARE_EMPTY_TEXT = "No weapon data"
 TOMES_COMPARE_EMPTY_TEXT = "No tome data"
 CHAOS_COMPARE_EMPTY_TEXT = "No Chaos Tome data"
 SHRINES_COMPARE_EMPTY_TEXT = "No Charge Shrine data"
+PASSIVES_COMPARE_EMPTY_TEXT = "No character passive data"
 
 
 def format_compare_runs_weapons_diff(snapshot_a, snapshot_b) -> str:
@@ -741,6 +742,178 @@ def build_compare_runs_shrines_table(snapshot_a, snapshot_b) -> MetricTable:
             ),
         ),
         empty_text=SHRINES_COMPARE_EMPTY_TEXT,
+    )
+
+
+def build_compare_runs_passives_table(snapshot_a, snapshot_b) -> MetricTable:
+    """Compare the character-passive state persisted at both playheads.
+
+    The card is character-agnostic: Dice contributes accumulated random rolls,
+    while supported linear characters contribute their calculated per-level
+    bonus.  Older recordings simply have no ``character_passive`` field and
+    therefore render the normal empty state.
+    """
+    passive_a = getattr(snapshot_a, "character_passive", None)
+    passive_b = getattr(snapshot_b, "character_passive", None)
+    if passive_a is None and passive_b is None:
+        return MetricTable(empty_text=PASSIVES_COMPARE_EMPTY_TEXT)
+
+    overview_rows = (
+        MetricRow(
+            "Character",
+            _passive_text(passive_a, "character_name"),
+            _passive_text(passive_b, "character_name"),
+            "--",
+        ),
+        MetricRow(
+            "Passive",
+            _passive_text(passive_a, "passive_name"),
+            _passive_text(passive_b, "passive_name"),
+            "--",
+        ),
+        MetricRow(
+            *_format_compare_metric_row(
+                "Level",
+                _passive_numeric_metric(passive_a, "level"),
+                _passive_numeric_metric(passive_b, "level"),
+            )
+        ),
+        MetricRow(
+            "Tracking",
+            _passive_status_text(passive_a),
+            _passive_status_text(passive_b),
+            "--",
+        ),
+        MetricRow(*_format_passive_roll_count_row(passive_a, passive_b)),
+        MetricRow(
+            *_format_compare_metric_row(
+                "Stats",
+                _passive_effect_count_metric(passive_a),
+                _passive_effect_count_metric(passive_b),
+            )
+        ),
+    )
+
+    sections = [
+        MetricSection(headers=("Metric", "A", "B", "Diff"), rows=overview_rows)
+    ]
+    effect_rows = _format_compare_run_passive_effect_rows(passive_a, passive_b)
+    if effect_rows:
+        sections.append(
+            MetricSection(
+                headers=("Stat", "A", "B", "Diff"),
+                rows=tuple(MetricRow(*row) for row in effect_rows),
+            )
+        )
+    return MetricTable(
+        sections=tuple(sections), empty_text=PASSIVES_COMPARE_EMPTY_TEXT
+    )
+
+
+def _passive_text(passive, attr_name: str) -> str:
+    if passive is None:
+        return "--"
+    return str(getattr(passive, attr_name, "") or "--")
+
+
+def _passive_numeric_metric(passive, attr_name: str):
+    if passive is None:
+        return None
+    value = getattr(passive, attr_name, None)
+    return _metric_value(value, value)
+
+
+def _passive_status_text(passive) -> str:
+    if passive is None:
+        return "--"
+    status = getattr(passive, "status", None)
+    value = getattr(status, "value", status)
+    labels = {
+        "supported": "Complete",
+        "updating": "Updating",
+        "partial": "Partial",
+        "unsupported": "Unsupported",
+        "unavailable": "Unavailable",
+        "unknown": "Unknown",
+    }
+    return labels.get(str(value).casefold(), str(value or "--"))
+
+
+def _passive_roll_count(passive) -> int | None:
+    if passive is None:
+        return None
+    counts = [
+        int(count)
+        for effect in getattr(passive, "effects", ()) or ()
+        if (count := getattr(effect, "count", None)) is not None
+    ]
+    return sum(counts) if counts else None
+
+
+def _format_passive_roll_count_row(passive_a, passive_b):
+    count_a = _passive_roll_count(passive_a)
+    count_b = _passive_roll_count(passive_b)
+    delta = "--"
+    if count_a is not None and count_b is not None:
+        delta = _format_signed_count(count_a - count_b)
+    return (
+        "Tracked Rolls",
+        "--" if count_a is None else format_count(count_a),
+        "--" if count_b is None else format_count(count_b),
+        delta,
+    )
+
+
+def _passive_effect_count_metric(passive):
+    if passive is None:
+        return None
+    count = len(tuple(getattr(passive, "effects", ()) or ()))
+    return _metric_value(count, count)
+
+
+def _index_passive_effects(passive) -> dict[object, object]:
+    indexed = {}
+    if passive is None:
+        return indexed
+    for position, effect in enumerate(getattr(passive, "effects", ()) or ()):
+        stat_id = getattr(effect, "stat_id", None)
+        key = (
+            ("stat", int(stat_id))
+            if stat_id is not None
+            else ("effect", str(getattr(effect, "key", "") or position))
+        )
+        indexed[key] = effect
+    return indexed
+
+
+def _format_compare_run_passive_effect_rows(passive_a, passive_b):
+    effects_a = _index_passive_effects(passive_a)
+    effects_b = _index_passive_effects(passive_b)
+    rows = []
+    for key in sorted(
+        set(effects_a) | set(effects_b),
+        key=lambda value: str(
+            getattr(effects_a.get(value) or effects_b.get(value), "label", value)
+        ).casefold(),
+    ):
+        effect_a = effects_a.get(key)
+        effect_b = effects_b.get(key)
+        effect = effect_a or effect_b
+        rows.append(
+            _format_compare_metric_row(
+                str(getattr(effect, "label", "Unknown")),
+                _passive_effect_metric_value(effect_a),
+                _passive_effect_metric_value(effect_b),
+            )
+        )
+    return rows
+
+
+def _passive_effect_metric_value(effect):
+    if effect is None:
+        return None
+    return _metric_value(
+        getattr(effect, "value", None), getattr(effect, "display_delta", None)
     )
 
 

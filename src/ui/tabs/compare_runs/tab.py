@@ -132,6 +132,7 @@ COMPARE_RUN_SECTION_DEFAULTS = {
     "tomes": False,
     "chaos": False,
     "shrines": False,
+    "passives": False,
 }
 
 
@@ -457,6 +458,7 @@ class CompareRunsTab:
         self._tomes_enabled = True
         self._chaos_enabled = True
         self._shrines_enabled = True
+        self._passives_enabled = True
 
         # Every widget `build()` creates. `MegabonkApp.__init__` declared these
         # as 34 `= None` lines; they are declared here for the same reason
@@ -478,6 +480,7 @@ class CompareRunsTab:
         self._tomes_checkbox = None
         self._chaos_checkbox = None
         self._shrines_checkbox = None
+        self._passives_checkbox = None
         self._item_details_btn = None
         self._diff_overview_group = None
         self._diff_overview_label = None
@@ -497,6 +500,8 @@ class CompareRunsTab:
         self._diff_chaos_table = None
         self._diff_shrines_group = None
         self._diff_shrines_table = None
+        self._diff_passives_group = None
+        self._diff_passives_table = None
         # Never built, in either tree. `_refresh_compare_runs_selected_labels`
         # writes these through `_set_text`, which no-ops on `None`; `gui_layout`
         # built no such label and `gui_app` only ever set it to `None`. Kept, not
@@ -744,6 +749,7 @@ class CompareRunsTab:
         self._tomes_enabled = sections["tomes"]
         self._chaos_enabled = sections["chaos"]
         self._shrines_enabled = sections["shrines"]
+        self._passives_enabled = sections["passives"]
         if not self._items_enabled:
             self._item_details_expanded = False
         self._save_compare_run_sections()
@@ -1132,6 +1138,7 @@ class CompareRunsTab:
         show_tomes = bool(self._tomes_enabled)
         show_chaos = bool(self._chaos_enabled)
         show_shrines = bool(self._shrines_enabled)
+        show_passives = bool(self._passives_enabled)
         item_details_expanded = bool(self._item_details_expanded)
         stat_labels = tuple(self._compare_run_selected_stat_labels())
 
@@ -1153,6 +1160,7 @@ class CompareRunsTab:
             show_tomes,
             show_chaos,
             show_shrines,
+            show_passives,
         )
         cached = self._diff_cache.get(cache_key)
         if cached is None:
@@ -1231,6 +1239,11 @@ class CompareRunsTab:
                     if show_shrines
                     else EMPTY_METRIC_TABLE
                 ),
+                (
+                    formatting.build_compare_runs_passives_table(snapshot_a, snapshot_b)
+                    if show_passives
+                    else EMPTY_METRIC_TABLE
+                ),
                 compare_overview.build_compare_runs_axis(
                     snapshot_a,
                     snapshot_b,
@@ -1271,6 +1284,7 @@ class CompareRunsTab:
             tomes_table,
             chaos_table,
             shrines_table,
+            passives_table,
             axis_table,
             luck_loot,
             hub_facts,
@@ -1284,12 +1298,14 @@ class CompareRunsTab:
             tomes_table=tomes_table,
             chaos_table=chaos_table,
             shrines_table=shrines_table,
+            passives_table=passives_table,
             show_items=show_items,
             show_stage_summary=show_stage_summary,
             show_weapons=show_weapons,
             show_tomes=show_tomes,
             show_chaos=show_chaos,
             show_shrines=show_shrines,
+            show_passives=show_passives,
         )
         if self._detail_tabs is not None:
             card_kwargs["stats_table"] = stats_table
@@ -1353,6 +1369,7 @@ class CompareRunsTab:
         tomes_table: MetricTable = EMPTY_METRIC_TABLE,
         chaos_table: MetricTable = EMPTY_METRIC_TABLE,
         shrines_table: MetricTable = EMPTY_METRIC_TABLE,
+        passives_table: MetricTable = EMPTY_METRIC_TABLE,
         axis_table=EMPTY_AXIS_TABLE,
         luck_loot=EMPTY_LUCK_LOOT,
         hub_facts: dict[str, str] | None = None,
@@ -1362,6 +1379,7 @@ class CompareRunsTab:
         show_tomes: bool = False,
         show_chaos: bool = False,
         show_shrines: bool = False,
+        show_passives: bool = False,
     ) -> None:
         # Dirty check. Consecutive snapshots of the same run very often produce
         # an identical diff -- nothing changed in that game second -- and
@@ -1381,6 +1399,7 @@ class CompareRunsTab:
             tomes_table,
             chaos_table,
             shrines_table,
+            passives_table,
             axis_table,
             luck_loot,
             tuple(sorted((hub_facts or {}).items())),
@@ -1390,6 +1409,7 @@ class CompareRunsTab:
             show_tomes,
             show_chaos,
             show_shrines,
+            show_passives,
         )
         self._pending_diff_payload = payload
         self._render_active_diff_page()
@@ -1414,6 +1434,7 @@ class CompareRunsTab:
                 tomes_table,
                 chaos_table,
                 shrines_table,
+                passives_table,
                 _axis_table,
                 _luck_loot,
                 _hub_facts,
@@ -1423,6 +1444,7 @@ class CompareRunsTab:
                 show_tomes,
                 show_chaos,
                 show_shrines,
+                show_passives,
             ) = payload
             eager_payload = payload
             if self._rendered_diff_cards == eager_payload:
@@ -1436,6 +1458,7 @@ class CompareRunsTab:
             _set_metric_table(self._diff_tomes_table, tomes_table)
             _set_metric_table(self._diff_chaos_table, chaos_table)
             _set_metric_table(self._diff_shrines_table, shrines_table)
+            _set_metric_table(self._diff_passives_table, passives_table)
             _set_visible(self._diff_overview_group, True)
             _set_visible(self._diff_stats_group, bool(stats_text and stats_text != "--"))
             _set_visible(self._diff_items_group, show_items)
@@ -1444,6 +1467,7 @@ class CompareRunsTab:
             _set_visible(self._diff_tomes_group, show_tomes)
             _set_visible(self._diff_chaos_group, show_chaos)
             _set_visible(self._diff_shrines_group, show_shrines)
+            _set_visible(self._diff_passives_group, show_passives)
             self._rendered_diff_cards = eager_payload
             return
         page = self._detail_tabs.currentIndex() if self._detail_tabs is not None else 0
@@ -1462,6 +1486,7 @@ class CompareRunsTab:
             tomes_table,
             chaos_table,
             shrines_table,
+            passives_table,
             axis_table,
             luck_loot,
             hub_facts,
@@ -1471,6 +1496,7 @@ class CompareRunsTab:
             _show_tomes,
             _show_chaos,
             _show_shrines,
+            _show_passives,
         ) = payload
         if page == 0:
             # A test double can hand this class `_detail_tabs` without ever
@@ -1503,6 +1529,8 @@ class CompareRunsTab:
             _set_metric_table(self._diff_chaos_table, chaos_table)
         elif page == 7:
             _set_metric_table(self._diff_shrines_table, shrines_table)
+        elif page == 8:
+            _set_metric_table(self._diff_passives_table, passives_table)
         self._rendered_diff_cards = (page, payload)
 
     def _render_filtered_stats(self) -> None:
@@ -1595,6 +1623,7 @@ class CompareRunsTab:
             "tomes": bool(_checkbox_checked(self._tomes_checkbox)),
             "chaos": bool(_checkbox_checked(self._chaos_checkbox)),
             "shrines": bool(_checkbox_checked(self._shrines_checkbox)),
+            "passives": bool(_checkbox_checked(self._passives_checkbox)),
         }
 
     def _compare_run_checked_stat_labels(self) -> tuple[str, ...]:
@@ -1734,6 +1763,11 @@ class CompareRunsTab:
         self._shrines_checkbox.stateChanged.connect(
             lambda _state: self.on_compare_run_section_selection_changed()
         )
+        self._passives_checkbox = QCheckBox("Passives")
+        self._passives_checkbox.setChecked(configured_sections["passives"])
+        self._passives_checkbox.stateChanged.connect(
+            lambda _state: self.on_compare_run_section_selection_changed()
+        )
         section_layout.addWidget(QLabel("Show in Difference:"))
         section_layout.addWidget(self._stage_summary_checkbox)
         section_layout.addWidget(self._items_checkbox)
@@ -1741,6 +1775,7 @@ class CompareRunsTab:
         section_layout.addWidget(self._tomes_checkbox)
         section_layout.addWidget(self._chaos_checkbox)
         section_layout.addWidget(self._shrines_checkbox)
+        section_layout.addWidget(self._passives_checkbox)
         section_layout.addStretch(1)
         settings_layout.addLayout(section_layout)
 
@@ -1814,6 +1849,7 @@ class CompareRunsTab:
         self._diff_tomes_group, self._diff_tomes_table = self._build_diff_table_card("Tomes")
         self._diff_chaos_group, self._diff_chaos_table = self._build_diff_table_card("Chaos")
         self._diff_shrines_group, self._diff_shrines_table = self._build_diff_table_card("Shrines")
+        self._diff_passives_group, self._diff_passives_table = self._build_diff_table_card("Passives")
         diff_scroll_layout.addWidget(self._diff_overview_group)
         diff_scroll_layout.addWidget(self._diff_stats_group)
         diff_scroll_layout.addWidget(self._diff_stage_summary_group)
@@ -1822,6 +1858,7 @@ class CompareRunsTab:
         diff_scroll_layout.addWidget(self._diff_tomes_group)
         diff_scroll_layout.addWidget(self._diff_chaos_group)
         diff_scroll_layout.addWidget(self._diff_shrines_group)
+        diff_scroll_layout.addWidget(self._diff_passives_group)
         diff_scroll_layout.addStretch(1)
         diff_layout.addWidget(diff_scroll, 1)
         run_b_group, self._run_b_status_label, self._run_b_slider, self._run_b_timeline_label, self._run_b_summary_label = self._build_side_panel(
@@ -2083,6 +2120,7 @@ class CompareRunsTab:
         self._build_table_page("Tomes", "_diff_tomes_group", "_diff_tomes_table")
         self._build_table_page("Chaos", "_diff_chaos_group", "_diff_chaos_table")
         self._build_table_page("Shrines", "_diff_shrines_group", "_diff_shrines_table")
+        self._build_table_page("Passives", "_diff_passives_group", "_diff_passives_table")
         self._detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
         workspace_layout.addWidget(self._detail_tabs, 1)
 

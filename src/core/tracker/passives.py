@@ -311,7 +311,7 @@ def _update_gamba(
             state.unresolved_indices.discard(roll_index)
             state.pending_candidates.pop(ptr, None)
             _add_gamba_total(state, modifier)
-        state.ambiguous = unresolved + ambiguous
+        state.ambiguous = ambiguous
 
     state.current_level = current_level
     missing = max(len(state.unresolved_indices), current_level - state.attributed_rolls)
@@ -346,7 +346,7 @@ def _solve_gamba_batch(
     indices: tuple[int, ...],
     candidates: tuple[Any, ...],
 ) -> tuple[list[tuple[int, Any]], int, int]:
-    """Return a one-pointer/one-index maximum assignment.
+    """Return only assignments invariant across maximum matchings.
 
     The first 255 indices retain their level-specific decay. At the clamp all
     later indices share the same five fingerprints, so only the aggregate
@@ -357,7 +357,11 @@ def _solve_gamba_batch(
 
     early = tuple(index for index in indices if index < GAMBA_LEVEL_SPECIFIC_ROLLS)
     floor = tuple(index for index in indices if index >= GAMBA_LEVEL_SPECIFIC_ROLLS)
-    by_ptr = {int(getattr(candidate, "object_ptr", 0)): candidate for candidate in candidates}
+    by_ptr = {
+        ptr: candidate
+        for candidate in candidates
+        if (ptr := int(getattr(candidate, "object_ptr", 0) or 0))
+    }
     adjacency: dict[int, tuple[int, ...]] = {
         index: tuple(
             ptr
@@ -367,37 +371,91 @@ def _solve_gamba_batch(
         for index in early
     }
 
-    matched_ptr_to_index: dict[int, int] = {}
+    reverse_adjacency: dict[int, set[int]] = {}
+    for index, pointers in adjacency.items():
+        for ptr in pointers:
+            reverse_adjacency.setdefault(ptr, set()).add(index)
 
-    def assign(index: int, visited: set[int]) -> bool:
-        for ptr in adjacency.get(index, ()):
-            if ptr in visited:
+    def maximum_matching(
+        component_indices: set[int],
+        *,
+        forbidden_edge: tuple[int, int] | None = None,
+    ) -> dict[int, int]:
+        matched_ptr_to_index: dict[int, int] = {}
+
+        def assign(index: int, visited: set[int]) -> bool:
+            for ptr in adjacency.get(index, ()):
+                if forbidden_edge == (index, ptr) or ptr in visited:
+                    continue
+                visited.add(ptr)
+                previous = matched_ptr_to_index.get(ptr)
+                if previous is None or assign(previous, visited):
+                    matched_ptr_to_index[ptr] = index
+                    return True
+            return False
+
+        for index in sorted(
+            component_indices,
+            key=lambda value: (len(adjacency.get(value, ())), value),
+        ):
+            assign(index, set())
+        return matched_ptr_to_index
+
+    assignments: list[tuple[int, Any]] = []
+    ambiguous = 0
+    remaining_indices = set(early)
+    while remaining_indices:
+        seed = min(remaining_indices)
+        component_indices: set[int] = set()
+        component_ptrs: set[int] = set()
+        index_stack = [seed]
+        while index_stack:
+            index = index_stack.pop()
+            if index in component_indices:
                 continue
-            visited.add(ptr)
-            previous = matched_ptr_to_index.get(ptr)
-            if previous is None or assign(previous, visited):
-                matched_ptr_to_index[ptr] = index
-                return True
-        return False
+            component_indices.add(index)
+            for ptr in adjacency.get(index, ()):
+                if ptr in component_ptrs:
+                    continue
+                component_ptrs.add(ptr)
+                index_stack.extend(reverse_adjacency.get(ptr, ()))
+        remaining_indices.difference_update(component_indices)
+        if not component_ptrs:
+            continue
 
-    for index in sorted(early, key=lambda value: len(adjacency.get(value, ()))):
-        assign(index, set())
+        matching = maximum_matching(component_indices)
+        maximum_size = len(matching)
+        safe_pairs: list[tuple[int, int]] = []
+        for ptr, index in matching.items():
+            without_edge = maximum_matching(
+                component_indices,
+                forbidden_edge=(index, ptr),
+            )
+            if len(without_edge) < maximum_size:
+                safe_pairs.append((index, ptr))
+        assignments.extend((index, by_ptr[ptr]) for index, ptr in safe_pairs)
+        ambiguous += maximum_size - len(safe_pairs)
 
-    assignments = [
-        (index, by_ptr[ptr]) for ptr, index in matched_ptr_to_index.items()
-    ]
-    used_ptrs = set(matched_ptr_to_index)
+    used_ptrs = {
+        int(getattr(candidate, "object_ptr", 0)) for _, candidate in assignments
+    }
+    unresolved_early_ptrs = {
+        ptr for pointers in adjacency.values() for ptr in pointers
+    } - used_ptrs
     floor_candidates = [
         candidate
         for ptr, candidate in by_ptr.items()
-        if ptr not in used_ptrs and _matches_gamba_roll(candidate, 255)
+        if ptr not in used_ptrs
+        and ptr not in unresolved_early_ptrs
+        and _matches_gamba_roll(candidate, 255)
     ]
-    floor_count = min(len(floor), len(floor_candidates))
-    assignments.extend(zip(floor[:floor_count], floor_candidates[:floor_count]))
-    ambiguous = sum(
-        1 for index in early if len(adjacency.get(index, ())) > 1
-    )
-    ambiguous += max(0, len(floor_candidates) - len(floor))
+    if len(floor_candidates) <= len(floor):
+        assignments.extend(zip(floor, floor_candidates))
+    elif floor:
+        # Every clamped index accepts every floor candidate. When candidates
+        # outnumber the remaining roll budget, no individual pointer is an
+        # invariant member of the solution.
+        ambiguous += len(floor)
     return assignments, len(indices) - len(assignments), ambiguous
 
 

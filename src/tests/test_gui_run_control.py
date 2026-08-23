@@ -732,6 +732,21 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(refresh_tasks(app)._should_refresh_full_player_snapshot())
         self.assertTrue(refresh_tasks(app)._should_refresh_expected_chest_inputs())
 
+    def test_enabled_dice_command_demands_permanent_source_refresh(self) -> None:
+        service, _world = build_refresh_tasks(twitch_active=True)
+
+        with patch.dict(
+            config.TWITCH_BOT,
+            {"commands": {"chaos": False, "dice": True}},
+        ):
+            self.assertTrue(service._should_refresh_chaos_tome())
+
+        with patch.dict(
+            config.TWITCH_BOT,
+            {"commands": {"chaos": False, "dice": False}},
+        ):
+            self.assertFalse(service._should_refresh_chaos_tome())
+
     def test_core_lifecycle_probe_is_cached_and_marks_game_over_once(self) -> None:
         app = SimpleNamespace(
             live_run_tracker=SimpleNamespace(mark_run_completed=MagicMock()),
@@ -3432,6 +3447,42 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(owner_reads, ["owner"])
 
+    def test_dice_receives_permanent_modifiers_without_chaos_tome(self) -> None:
+        modifier = SimpleNamespace(object_ptr=0xCAFE, modify_type=0)
+        permanent_modifiers = {12: (modifier,)}
+        passive_reading = SimpleNamespace(character_name="Dice")
+        passive_reads: list[tuple[int, object]] = []
+        updates: list[tuple[object, dict[str, object]]] = []
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_chaos_tracking_state=lambda _owner: (None, permanent_modifiers),
+            get_character_passive_reading=lambda owner, **kwargs: (
+                passive_reads.append((owner, kwargs["permanent_modifiers"]))
+                or passive_reading
+            ),
+        )
+        service, world = build_refresh_tasks(stats_client=client)
+        world.tracker.update_permanent_sources = (
+            lambda reading, **kwargs: updates.append((reading, kwargs))
+        )
+
+        self.assertTrue(
+            service._refresh_chaos_tome_task(
+                RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+            )
+        )
+
+        self.assertEqual(passive_reads, [(0x1234, permanent_modifiers)])
+        self.assertEqual(
+            updates,
+            [
+                (
+                    passive_reading,
+                    {"chaos_level": None, "permanent_modifiers": {}},
+                )
+            ],
+        )
+
     def test_powerup_failure_does_not_block_other_owner_tasks(self) -> None:
         expected_updates: list[tuple[int, int]] = []
         chaos_updates: list[dict[str, object]] = []
@@ -4425,6 +4476,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._tomes_enabled = False
         app._chaos_enabled = False
         app._shrines_enabled = False
+        app._passives_enabled = False
         app._item_details_expanded = False
         app._compare_run_selected_stat_labels = MagicMock(return_value=("Damage",))
         app._set_compare_runs_diff_cards = MagicMock()
@@ -4444,6 +4496,7 @@ class GuiRunControlTests(unittest.TestCase):
             build_compare_runs_tomes_table=MagicMock(return_value="tomes"),
             build_compare_runs_chaos_table=MagicMock(return_value="chaos"),
             build_compare_runs_shrines_table=MagicMock(return_value="shrines"),
+            build_compare_runs_passives_table=MagicMock(return_value="passives"),
         ):
             app._refresh_compare_runs_diff()
 
@@ -4454,6 +4507,7 @@ class GuiRunControlTests(unittest.TestCase):
             formatting.build_compare_runs_tomes_table.assert_not_called()
             formatting.build_compare_runs_chaos_table.assert_not_called()
             formatting.build_compare_runs_shrines_table.assert_not_called()
+            formatting.build_compare_runs_passives_table.assert_not_called()
 
         app._set_compare_runs_diff_cards.assert_called_once_with(
             "overview",
@@ -4465,12 +4519,14 @@ class GuiRunControlTests(unittest.TestCase):
             tomes_table=EMPTY_METRIC_TABLE,
             chaos_table=EMPTY_METRIC_TABLE,
             shrines_table=EMPTY_METRIC_TABLE,
+            passives_table=EMPTY_METRIC_TABLE,
             show_items=False,
             show_stage_summary=False,
             show_weapons=False,
             show_tomes=False,
             show_chaos=False,
             show_shrines=False,
+            show_passives=False,
         )
 
     def test_format_compare_runs_diff_shows_core_deltas(self) -> None:
@@ -4743,6 +4799,7 @@ class GuiRunControlTests(unittest.TestCase):
                     "tomes": True,
                     "chaos": False,
                     "shrines": False,
+                    "passives": False,
                 },
             )
         finally:
