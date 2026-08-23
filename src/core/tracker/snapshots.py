@@ -201,6 +201,7 @@ class RuntimeStateSnapshot:
     feature_status: dict[str, FeatureStatus]
     chaos_tome: Any | None
     shrines: Any | None
+    character_passive: Any | None
     powerups: PowerupsSnapshot
     powerup_map_context: PowerupMapContext | None
     fast_stage_timer: FastStageTimerContext | None

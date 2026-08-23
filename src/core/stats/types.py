@@ -91,6 +91,11 @@ class PlayerStatModifierSnapshot:
     label: str
     value: float | None
     value_format: PlayerStatFormat
+    # Stable runtime identity and modification type are required to attribute
+    # persistent modifiers shared by Dice, Chaos Tome and Charge Shrines.
+    # Defaults preserve the older lightweight construction boundary.
+    object_ptr: int = 0
+    modify_type: int | None = None
 
     @property
     def display_delta(self) -> str:

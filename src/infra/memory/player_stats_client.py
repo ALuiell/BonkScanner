@@ -16,6 +16,10 @@ from math import isfinite
 import time
 from typing import Iterable
 
+from core.character_passives import (
+    CHARACTER_PASSIVE_SPEC_BY_CHARACTER_ID,
+    CharacterPassiveReading,
+)
 from core.item_metadata import ITEM_DISPLAY_NAME_BY_RAW_VALUE, ITEM_ENUM_NAMES_BY_ID
 from infra.memory.reader import MemoryReadError, ProcessMemory
 
@@ -205,6 +209,18 @@ class PlayerStatsClient:
     FINAL_SWARM_TIMER_OFFSET = 0x24
     CRYPT_TIMER_OFFSET = 0x2C
     PLAYER_INVENTORY_OFFSET = 0x28
+    CHARACTER_DATA_OFFSET = 0x18
+    CHARACTER_DATA_CHARACTER_ID_OFFSET = 0x50
+    CHARACTER_DATA_PASSIVE_DATA_OFFSET = 0x88
+    PASSIVE_DATA_PASSIVE_ID_OFFSET = 0x28
+    PASSIVE_ABILITY_OFFSET = 0x58
+    PASSIVE_ABILITY_STAT_MODIFIERS_OFFSET = 0x10
+    PASSIVE_STAT_MODIFIERS_CONTAINER_DICT_OFFSET = 0x10
+    PASSIVE_LINEAR_PER_LEVEL_OFFSET = 0x18
+    GAMBA_UPGRADE_MULTIPLIER_OFFSET = 0x18
+    GAMBA_MIN_MULTIPLIER_OFFSET = 0x1C
+    GAMBA_MAX_MULTIPLIER_OFFSET = 0x20
+    GAMBA_CURRENT_LEVEL_OFFSET = 0x24
     PLAYER_STATUS_EFFECTS_OFFSET = 0x38
     PLAYER_STATUS_EFFECTS_DICT_OFFSET = 0x10
     WEAPON_INVENTORY_OFFSET = 0x28
@@ -1216,6 +1232,143 @@ class PlayerStatsClient:
         return chaos_level, self._get_cached_permanent_stat_modifiers(
             player_inventory,
             force_rescan=force_modifier_rescan,
+        )
+
+    def get_character_passive_reading(
+        self,
+        owner_stats: int | None = None,
+    ) -> CharacterPassiveReading:
+        """Read and validate the selected character's passive runtime object.
+
+        Identity is always returned for an unknown future enum so core can
+        publish an explicit ``unknown`` state. A known character paired with a
+        different passive enum or runtime class is treated as a build mismatch
+        and fails closed.
+        """
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        player_inventory = self.memory.read_ptr(
+            owner_stats + self.PLAYER_INVENTORY_OFFSET
+        )
+        if not player_inventory:
+            raise MemoryReadError("Player inventory is not initialized.")
+
+        character_data = self.memory.read_ptr(
+            player_inventory + self.CHARACTER_DATA_OFFSET
+        )
+        if not character_data:
+            raise MemoryReadError("Character data is not initialized.")
+        character_id = self.memory.read_i32(
+            character_data + self.CHARACTER_DATA_CHARACTER_ID_OFFSET
+        )
+
+        passive_data = self.memory.read_ptr(
+            character_data + self.CHARACTER_DATA_PASSIVE_DATA_OFFSET
+        )
+        if not passive_data:
+            raise MemoryReadError("Character passive data is not initialized.")
+        passive_id = self.memory.read_i32(
+            passive_data + self.PASSIVE_DATA_PASSIVE_ID_OFFSET
+        )
+
+        passive_object = self.memory.read_ptr(
+            player_inventory + self.PASSIVE_ABILITY_OFFSET
+        )
+        if not passive_object:
+            raise MemoryReadError("Character passive runtime is not initialized.")
+        runtime_class = self._read_object_class_name(passive_object)
+        if not runtime_class:
+            raise MemoryReadError("Character passive runtime class is unavailable.")
+
+        spec = CHARACTER_PASSIVE_SPEC_BY_CHARACTER_ID.get(character_id)
+        if spec is not None:
+            if passive_id != spec.passive_id:
+                raise MemoryReadError(
+                    "Character/passive enum mismatch: "
+                    f"{character_id}/{passive_id}, expected {spec.passive_id}."
+                )
+            if runtime_class != spec.runtime_class:
+                raise MemoryReadError(
+                    "Character passive class mismatch: "
+                    f"{runtime_class}, expected {spec.runtime_class}."
+                )
+
+        player_xp = self.memory.read_ptr(player_inventory + self.PLAYER_XP_OFFSET)
+        if not player_xp:
+            raise MemoryReadError("Player XP is not initialized.")
+        level = self.memory.read_i32(player_xp + self.PLAYER_XP_LEVEL_OFFSET)
+        if not 0 <= level <= self.MAX_PASSIVE_ITEM_STACK_COUNT:
+            raise MemoryReadError(f"Character level is invalid: {level}")
+
+        character_name = spec.character_name if spec else f"Character {character_id}"
+        passive_name = spec.passive_name if spec else f"Passive {passive_id}"
+        common = dict(
+            character_id=character_id,
+            character_name=character_name,
+            passive_id=passive_id,
+            passive_name=passive_name,
+            runtime_class=runtime_class,
+            passive_object_ptr=passive_object,
+            level=level,
+        )
+
+        if spec is None or not spec.supported:
+            return CharacterPassiveReading(**common)
+
+        if spec.linear is not None:
+            per_level = self.memory.read_float(
+                passive_object + self.PASSIVE_LINEAR_PER_LEVEL_OFFSET
+            )
+            modifiers = tuple(
+                modifier
+                for modifier in self._read_passive_stat_modifiers(passive_object)
+                if int(modifier.stat_id) == spec.linear.stat_id
+                and int(modifier.modify_type if modifier.modify_type is not None else -1) == 2
+            )
+            return CharacterPassiveReading(
+                **common,
+                per_level=per_level,
+                passive_modifiers=modifiers,
+            )
+
+        # Gamba writes a permanent modifier before advancing currentLevel.
+        # Snapshot the shared objects first and read the budget last so a
+        # candidate observed inside that writer window remains pending.
+        stat_inventory = self.memory.read_ptr(
+            player_inventory + self.STAT_INVENTORY_OFFSET
+        )
+        permanent_dictionary = (
+            self.memory.read_ptr(
+                stat_inventory + self.STAT_INVENTORY_PERMANENT_CHANGES_OFFSET
+            )
+            if stat_inventory
+            else 0
+        )
+        permanent_by_stat = self._read_permanent_stat_modifiers_dict(
+            permanent_dictionary
+        )
+        permanent_modifiers = tuple(
+            modifier
+            for stat_id in sorted(permanent_by_stat)
+            for modifier in permanent_by_stat[stat_id]
+        )
+        current_level = self.memory.read_i32(
+            passive_object + self.GAMBA_CURRENT_LEVEL_OFFSET
+        )
+        if not 0 <= current_level <= self.MAX_PASSIVE_ITEM_STACK_COUNT:
+            raise MemoryReadError(f"Gamba current level is invalid: {current_level}")
+        return CharacterPassiveReading(
+            **common,
+            permanent_modifiers=permanent_modifiers,
+            gamba_current_level=current_level,
+            gamba_upgrade_multiplier=self.memory.read_float(
+                passive_object + self.GAMBA_UPGRADE_MULTIPLIER_OFFSET
+            ),
+            gamba_min_multiplier=self.memory.read_float(
+                passive_object + self.GAMBA_MIN_MULTIPLIER_OFFSET
+            ),
+            gamba_max_multiplier=self.memory.read_float(
+                passive_object + self.GAMBA_MAX_MULTIPLIER_OFFSET
+            ),
         )
 
     def get_charge_shrine_tracking_state(self) -> ChargeShrineReading:
@@ -2671,9 +2824,100 @@ class PlayerStatsClient:
                     label=label,
                     value=value,
                     value_format=value_format,
+                    object_ptr=modifier_ptr,
+                    modify_type=self.memory.read_i32(
+                        modifier_ptr + self.STAT_MODIFIER_TYPE_OFFSET
+                    ),
                 )
             )
         return tuple(modifiers)
+
+    def _read_passive_stat_modifiers(
+        self,
+        passive_object: int,
+    ) -> tuple[PlayerStatModifierSnapshot, ...]:
+        outer = self.memory.read_ptr(
+            passive_object + self.PASSIVE_ABILITY_STAT_MODIFIERS_OFFSET
+        )
+        if not outer:
+            return ()
+        entries = self.memory.read_ptr(outer + self.DICT_ENTRIES_OFFSET)
+        count = self.memory.read_i32(outer + self.DICT_COUNT_OFFSET)
+        if count <= 0 or not entries:
+            return ()
+        if count > self.MAX_PERMANENT_STAT_ENTRIES:
+            raise MemoryReadError(
+                f"Passive stat dictionary count is invalid: {count}"
+            )
+
+        modifiers: list[PlayerStatModifierSnapshot] = []
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + index * self.DICT_ENTRY_SIZE
+            if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                continue
+            outer_stat_id = self.memory.read_i32(entry + self.DICT_ENTRY_KEY_OFFSET)
+            container = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+            inner = (
+                self.memory.read_ptr(
+                    container + self.PASSIVE_STAT_MODIFIERS_CONTAINER_DICT_OFFSET
+                )
+                if container
+                else 0
+            )
+            if not inner:
+                continue
+            inner_entries = self.memory.read_ptr(inner + self.DICT_ENTRIES_OFFSET)
+            inner_count = self.memory.read_i32(inner + self.DICT_COUNT_OFFSET)
+            if inner_count <= 0 or not inner_entries:
+                continue
+            if inner_count > 16:
+                raise MemoryReadError(
+                    f"Passive modifier dictionary count is invalid: {inner_count}"
+                )
+            for inner_index in range(inner_count):
+                inner_entry = (
+                    inner_entries
+                    + self.DICT_ENTRY_START_OFFSET
+                    + inner_index * self.DICT_ENTRY_SIZE
+                )
+                if self.memory.read_i32(
+                    inner_entry + self.DICT_ENTRY_HASH_CODE_OFFSET
+                ) < 0:
+                    continue
+                modify_type = self.memory.read_i32(
+                    inner_entry + self.DICT_ENTRY_KEY_OFFSET
+                )
+                modifier_ptr = self.memory.read_ptr(
+                    inner_entry + self.DICT_ENTRY_VALUE_OFFSET
+                )
+                if not modifier_ptr:
+                    continue
+                stat_id = self.memory.read_i32(
+                    modifier_ptr + self.STAT_MODIFIER_STAT_OFFSET
+                )
+                if stat_id != outer_stat_id:
+                    continue
+                label, value_format = self._resolve_stat_display(stat_id)
+                modifiers.append(
+                    PlayerStatModifierSnapshot(
+                        stat_id=stat_id,
+                        label=label,
+                        value=self.memory.read_float(
+                            modifier_ptr + self.STAT_MODIFIER_VALUE_OFFSET
+                        ),
+                        value_format=value_format,
+                        object_ptr=modifier_ptr,
+                        modify_type=modify_type,
+                    )
+                )
+        return tuple(modifiers)
+
+    def _read_object_class_name(self, object_ptr: int) -> str | None:
+        class_ptr = self.memory.read_ptr(object_ptr + self.OBJECT_KLASS_OFFSET)
+        if not class_ptr:
+            return None
+        name_ptr = self.memory.read_ptr(class_ptr + self.KLASS_NAME_PTR_OFFSET)
+        return self.memory.read_ascii_string(name_ptr) if name_ptr else None
 
     def _read_upgrade_stat_ids(self, list_address: int) -> tuple[int, ...]:
         if not list_address:

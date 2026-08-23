@@ -37,7 +37,7 @@ from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
 )
-from core.tracker import chaos, chests, combat, items, loot, powerups, shrines
+from core.tracker import chaos, chests, combat, items, loot, passives, powerups, shrines
 from core.tracker.chaos import _ChaosTomeState
 from core.tracker.chests import _ChestState
 from core.tracker.combat import _CombatState
@@ -45,6 +45,7 @@ from core.tracker.items import _TrackedItemState
 from core.tracker.loot import _LootState
 from core.tracker.powerups import _PowerupState
 from core.tracker.shrines import _ShrineState
+from core.tracker.passives import _CharacterPassiveState
 from core.tracker.snapshots import (
     ItemLossEvent,
     LiveRunSnapshot,
@@ -257,6 +258,7 @@ class LiveRunTracker:
         self._chest_state = _ChestState()
         self._chaos_state = _ChaosTomeState()
         self._shrine_state = _ShrineState()
+        self._character_passive_state = _CharacterPassiveState()
         self._powerup_state = _PowerupState()
         self._tracked_item_state = _TrackedItemState()
         self._loot_state = _LootState()
@@ -271,6 +273,7 @@ class LiveRunTracker:
                 "powerups",
                 "chaos_tome",
                 "shrines",
+                "character_passive",
                 "expected_chests",
                 "stage_timer",
             )
@@ -436,6 +439,19 @@ class LiveRunTracker:
         return shrines.snapshot(self._shrine_state)
 
     @with_lock
+    def update_character_passive(self, reading) -> None:
+        self._mark_feature_success_unlocked("character_passive", self.clock())
+        passives.update(
+            self._character_passive_state,
+            reading,
+            reserved_modifier_ptrs=frozenset(self._shrine_state.seen_log_ptrs),
+        )
+
+    @with_lock
+    def character_passive_snapshot(self):
+        return passives.snapshot(self._character_passive_state)
+
+    @with_lock
     def runtime_snapshot(self) -> RuntimeStateSnapshot:
         """Return one immutable boundary object for consumer projections."""
         now = self.clock()
@@ -460,6 +476,7 @@ class LiveRunTracker:
             feature_status=self._feature_status_snapshot_unlocked(now),
             chaos_tome=self.chaos_tome_snapshot(),
             shrines=shrines.snapshot(self._shrine_state),
+            character_passive=passives.snapshot(self._character_passive_state),
             powerups=self._fresh_powerups_snapshot_unlocked(),
             powerups_recent=self._recent_powerups_snapshot_unlocked(),
             powerup_map_context=copy.deepcopy(map_context),
@@ -1275,6 +1292,7 @@ class LiveRunTracker:
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()
         shrines.reset(self._shrine_state)
+        passives.reset(self._character_passive_state)
         # Drops the per-effect observation history along with the snapshot:
         # continuity across a run reset is exactly the thing it must not claim.
         powerups.clear(self._powerup_state)
