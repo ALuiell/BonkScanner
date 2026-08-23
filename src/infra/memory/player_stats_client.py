@@ -1237,6 +1237,8 @@ class PlayerStatsClient:
     def get_character_passive_reading(
         self,
         owner_stats: int | None = None,
+        *,
+        permanent_modifiers: dict[int, tuple[PlayerStatModifierSnapshot, ...]] | None = None,
     ) -> CharacterPassiveReading:
         """Read and validate the selected character's passive runtime object.
 
@@ -1343,8 +1345,10 @@ class PlayerStatsClient:
             if stat_inventory
             else 0
         )
-        permanent_by_stat = self._read_permanent_stat_modifiers_dict(
-            permanent_dictionary
+        permanent_by_stat = (
+            permanent_modifiers
+            if permanent_modifiers is not None
+            else self._read_permanent_stat_modifiers_dict(permanent_dictionary)
         )
         permanent_modifiers = tuple(
             modifier

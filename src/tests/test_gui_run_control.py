@@ -448,9 +448,29 @@ class FakeRecordingRecorder:
         self.stop_calls = 0
         self.capture_calls: list[dict[str, object]] = []
 
-    def start(self, *, name: str | None = None, seed: int | None = None) -> Path:
+    def start(
+        self,
+        *,
+        name: str | None = None,
+        seed: int | None = None,
+        character_id: int | None = None,
+        character_name: str | None = None,
+    ) -> Path:
         self.is_recording = True
-        self.start_calls.append({"name": name, "seed": seed})
+        self.start_calls.append(
+            {
+                "name": name,
+                "seed": seed,
+                **(
+                    {
+                        "character_id": character_id,
+                        "character_name": character_name,
+                    }
+                    if character_id is not None or character_name is not None
+                    else {}
+                ),
+            }
+        )
         return Path(f"recording-{len(self.start_calls)}.jsonl")
 
     def stop(self) -> None:
@@ -471,6 +491,7 @@ class FakeRecordingRecorder:
         *,
         chaos_tome=None,
         shrines=None,
+        character_passive=None,
         chests_per_minute=None,
         game_time_seconds=None,
         mob_kills=None,
@@ -503,6 +524,7 @@ class FakeRecordingRecorder:
             tomes=tuple(tomes),
             chaos_tome=chaos_tome,
             shrines=shrines,
+            character_passive=character_passive,
             banishes=tuple(banishes),
             damage_sources=tuple(damage_sources),
             chests_per_minute=chests_per_minute,
@@ -538,6 +560,7 @@ class FakeRecordingRecorder:
                 "weapons": tuple(weapons),
                 "tomes": tuple(tomes),
                 "chaos_tome": chaos_tome,
+                "character_passive": character_passive,
                 "shrines": shrines,
                 "banishes": tuple(banishes),
                 "damage_sources": tuple(damage_sources),
@@ -1825,6 +1848,25 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(started)
         self.assertEqual(service.player_stats_auto_start_detection_streak, 0)
         self.assertEqual(world.recorder.start_calls, [])
+
+    def test_every_start_path_uses_the_identity_supplied_by_the_central_service(self) -> None:
+        service, world = build_vod_capture(
+            read_character_identity=lambda: (18, "Dice")
+        )
+
+        service.start_recording(seed=777)
+
+        self.assertEqual(
+            world.recorder.start_calls,
+            [
+                {
+                    "seed": 777,
+                    "name": None,
+                    "character_id": 18,
+                    "character_name": "Dice",
+                }
+            ],
+        )
 
     def test_stop_recording_forces_final_snapshot_before_closing_recorder(self) -> None:
         recording_state = []

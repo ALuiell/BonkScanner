@@ -178,6 +178,7 @@ class VodCapture:
         is_live_stats_tab_active: Callable[[], bool],
         log: Callable[..., None],
         reset_snapshot_buffer: Callable[[], None],
+        read_character_identity: Callable[[], tuple[int, str] | None] | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
         self._recorder = recorder
@@ -191,6 +192,7 @@ class VodCapture:
         self._is_live_stats_tab_active = is_live_stats_tab_active
         self._log = log
         self._reset_snapshot_buffer = reset_snapshot_buffer
+        self._read_character_identity = read_character_identity or (lambda: None)
         # Not `clock=time.monotonic` in the signature: a default argument binds
         # the function at import, where the code this replaces looked `time` up
         # on the module every call. Step 20 shipped that bug once already.
@@ -291,7 +293,20 @@ class VodCapture:
         stage_index: int | None = None,
         run_time_seconds: float | None = None,
     ):
-        vod_path = self._recorder().start(seed=seed)
+        identity = None
+        try:
+            identity = self._read_character_identity()
+        except Exception:
+            identity = None
+        if identity is None:
+            vod_path = self._recorder().start(seed=seed)
+        else:
+            character_id, character_name = identity
+            vod_path = self._recorder().start(
+                seed=seed,
+                character_id=character_id,
+                character_name=character_name,
+            )
         self._reset_snapshot_buffer()
         self.player_stats_recording_seed = seed
         self.player_stats_recording_stage_ptr = stage_ptr
@@ -576,6 +591,25 @@ def _reset_owner_snapshot_buffer(owner) -> None:
     owner.player_stats_snapshot_pinned = False
 
 
+def _read_owner_character_identity(owner) -> tuple[int, str] | None:
+    tracker = getattr(owner, "live_run_tracker", None)
+    snapshot_reader = getattr(tracker, "character_passive_snapshot", None)
+    if callable(snapshot_reader):
+        snapshot = snapshot_reader()
+        if snapshot is not None and int(getattr(snapshot, "character_id", -1)) >= 0:
+            name = str(getattr(snapshot, "character_name", "") or "").strip()
+            if name:
+                return int(snapshot.character_id), name
+
+    memory = player_stats_memory(owner)
+    client = memory._get_player_stats_client()
+    owner_stats = client.resolve_owner_stats()
+    reading = client.get_character_passive_reading(owner_stats)
+    if int(reading.character_id) < 0 or not str(reading.character_name).strip():
+        return None
+    return int(reading.character_id), str(reading.character_name).strip()
+
+
 def vod_capture(owner) -> VodCapture:
     """Resolve the owner's ``VodCapture``, building it on first use.
 
@@ -618,6 +652,7 @@ def vod_capture(owner) -> VodCapture:
         is_live_stats_tab_active=lambda: owner._is_live_stats_tab_active(),
         log=lambda message, tag=None: owner.log(message, tag=tag),
         reset_snapshot_buffer=lambda: _reset_owner_snapshot_buffer(owner),
+        read_character_identity=lambda: _read_owner_character_identity(owner),
     )
     if coordinator is not None:
         coordinator.vod_capture = service

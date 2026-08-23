@@ -287,6 +287,7 @@ DEFERRABLE_SECTION_TAB_TITLES = {
     "tomes": "Tomes",
     "chaos": "Chaos",
     "shrines": "Shrines",
+    "character_passive": "Passives",
     "damage_sources": "Damage Sources",
 }
 
@@ -423,6 +424,8 @@ class StatCardsView:
         damage_sources_status_label,
         shrine_layout=None,
         shrine_status_label=None,
+        character_passive_layout=None,
+        character_passive_status_label=None,
         section_visible: Callable[[str], bool] | None = None,
     ) -> None:
         # Rebuilding a panel nobody is looking at is the whole cost of a scrub
@@ -444,6 +447,8 @@ class StatCardsView:
         self._chaos_status_label = chaos_status_label
         self._shrine_layout = shrine_layout
         self._shrine_status_label = shrine_status_label
+        self._character_passive_layout = character_passive_layout
+        self._character_passive_status_label = character_passive_status_label
         self._damage_sources_layout = damage_sources_layout
         self._damage_sources_status_label = damage_sources_status_label
 
@@ -451,6 +456,7 @@ class StatCardsView:
         self._tome_signature = None
         self._chaos_signature = None
         self._shrine_signature = None
+        self._character_passive_signature = None
         self._damage_source_signature = None
         self._weapon_cards: list = []
         self._tome_cards: list = []
@@ -502,6 +508,7 @@ class StatCardsView:
         self._tome_signature = None
         self._chaos_signature = None
         self._shrine_signature = None
+        self._character_passive_signature = None
         self._damage_source_signature = None
 
     # -- weapons --------------------------------------------------------------
@@ -961,6 +968,143 @@ class StatCardsView:
             quality_tooltip="Average shrine roll quality",
         )
 
+    # -- character passive ---------------------------------------------------
+
+    def display_character_passive(
+        self,
+        character_passive,
+        *,
+        status_text: str | None = None,
+    ) -> None:
+        layout = self._character_passive_layout
+        status_label = self._character_passive_status_label
+        if layout is None or status_label is None:
+            return
+        if self._defer(
+            "character_passive",
+            (character_passive,),
+            {"status_text": status_text},
+        ):
+            return
+
+        signature = self._character_passive_signature_for(character_passive)
+        if self._character_passive_signature == signature and status_text is None:
+            return
+        self._character_passive_signature = signature
+        _clear_layout(layout)
+
+        if status_text is not None:
+            _set_text(status_label, status_text)
+        elif character_passive is None:
+            _set_text(status_label, "No character passive data yet")
+        else:
+            status = getattr(getattr(character_passive, "status", None), "value", "")
+            messages = {
+                "unsupported": "Tracking not supported for this passive",
+                "unavailable": "Character passive data unavailable",
+                "unknown": "Unknown character passive in this game build",
+                "updating": "Passive bonus is updating...",
+                "partial": "Passive tracking is partial; ambiguous rolls were not guessed",
+            }
+            _set_text(status_label, messages.get(status, ""))
+        if character_passive is None:
+            return
+
+        layout.addWidget(self._build_character_passive_summary_card(character_passive))
+        effects = tuple(getattr(character_passive, "effects", ()) or ())
+        if not effects:
+            layout.addStretch(1)
+            return
+        grid = _ResponsiveStatCardGrid(
+            object_name="CharacterPassiveCardGrid",
+            column_count=chaos_card_column_count,
+            minimum_card_width=160,
+            spacing=6,
+            maximum_columns=5,
+        )
+        for effect in effects:
+            grid.add_card(self._build_character_passive_effect_card(effect))
+        layout.addWidget(grid)
+        layout.addStretch(1)
+
+    @staticmethod
+    def _character_passive_signature_for(character_passive) -> tuple:
+        if character_passive is None:
+            return ()
+        return (
+            int(getattr(character_passive, "character_id", -1)),
+            int(getattr(character_passive, "passive_id", -1)),
+            int(getattr(character_passive, "level", 0)),
+            str(getattr(getattr(character_passive, "status", None), "value", "")),
+            str(getattr(character_passive, "coverage", "")),
+            int(getattr(character_passive, "ambiguous", 0) or 0),
+            int(getattr(character_passive, "pending", 0) or 0),
+            tuple(
+                (
+                    str(getattr(effect, "key", "")),
+                    str(getattr(effect, "display_delta", "--")),
+                    getattr(effect, "count", None),
+                    str(getattr(getattr(effect, "kind", None), "value", "")),
+                )
+                for effect in getattr(character_passive, "effects", ()) or ()
+            ),
+        )
+
+    @staticmethod
+    def _build_character_passive_summary_card(character_passive) -> QFrame:
+        card = QFrame()
+        card.setObjectName("StatCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+        title = QLabel(
+            f"{getattr(character_passive, 'character_name', 'Unknown')} · "
+            f"{getattr(character_passive, 'passive_name', 'Passive')}"
+        )
+        title.setStyleSheet(
+            "font-size: 14px; font-weight: 700; background: transparent;"
+        )
+        level = QLabel(f"Level {int(getattr(character_passive, 'level', 0) or 0)}")
+        level.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; background: transparent;"
+        )
+        layout.addWidget(title)
+        layout.addWidget(level)
+        return card
+
+    @staticmethod
+    def _build_character_passive_effect_card(effect) -> QFrame:
+        card = QFrame()
+        card.setObjectName("StatCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(3)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        name = QLabel(str(getattr(effect, "label", "Passive bonus")))
+        name.setStyleSheet(
+            "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
+        )
+        value = QLabel(str(getattr(effect, "display_delta", "--")))
+        value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        value.setStyleSheet(
+            "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
+        )
+        row.addWidget(name, 1)
+        row.addWidget(value)
+        layout.addLayout(row)
+        count = getattr(effect, "count", None)
+        if count is not None:
+            count = max(0, int(count))
+            word = "roll" if count == 1 else "rolls"
+            meta = QLabel(f"● {count} {word}")
+            meta.setStyleSheet(
+                "font-size: 12px; font-weight: 700; color: #98A7BA; background: transparent;"
+            )
+            layout.addWidget(meta)
+        return card
+
     # -- damage sources -------------------------------------------------------
 
     def display_damage_sources(self, damage_sources, *, status_text: str | None = None) -> None:
@@ -1164,5 +1308,6 @@ _SECTION_RENDERERS = {
     "tomes": StatCardsView.display_tomes,
     "chaos": StatCardsView.display_chaos_tome,
     "shrines": StatCardsView.display_charge_shrines,
+    "character_passive": StatCardsView.display_character_passive,
     "damage_sources": StatCardsView.display_damage_sources,
 }

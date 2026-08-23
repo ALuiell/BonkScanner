@@ -65,7 +65,7 @@ class RecordingsLayoutTests(unittest.TestCase):
             assert [
                 view._detail_tabs.tabText(index)
                 for index in range(view._detail_tabs.count())
-            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Shrines", "Damage Sources"]
+            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Shrines", "Passives", "Damage Sources"]
             assert view._banishes_label.parent().objectName() == "LiveStatsBanishes"
             assert view._banishes_chips_container.objectName() == "BanishesChips"
             # Inside a bounded viewport now, not straight in the section: the

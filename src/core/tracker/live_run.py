@@ -448,6 +448,57 @@ class LiveRunTracker:
         )
 
     @with_lock
+    def update_permanent_sources(
+        self,
+        reading,
+        *,
+        chaos_level: int | None,
+        permanent_modifiers: dict[int, tuple[Any, ...]],
+    ) -> None:
+        """Attribute Dice first, then hide its stable pointers from Chaos.
+
+        Exact shrine pointers are always reserved. When both source budgets
+        rise together, values valid for one Chaos roll remain unresolved on
+        the Dice side instead of being awarded by task ordering.
+        """
+        previous_chaos_level = self._chaos_state.chaos_tome_level
+        chaos_budget_rising = bool(
+            chaos_level is not None
+            and (
+                previous_chaos_level is None
+                and int(chaos_level) > 0
+                or previous_chaos_level is not None
+                and int(chaos_level) > int(previous_chaos_level)
+            )
+        )
+        self._mark_feature_success_unlocked("character_passive", self.clock())
+        passives.update(
+            self._character_passive_state,
+            reading,
+            reserved_modifier_ptrs=frozenset(self._shrine_state.seen_log_ptrs),
+            avoid_chaos_collisions=chaos_budget_rising,
+        )
+        claimed = (
+            passives.claimed_modifier_ptrs(self._character_passive_state)
+            | passives.contested_modifier_ptrs(self._character_passive_state)
+            | frozenset(self._shrine_state.seen_log_ptrs)
+        )
+        filtered = {
+            int(stat_id): tuple(
+                modifier
+                for modifier in modifiers
+                if int(getattr(modifier, "object_ptr", 0) or 0) not in claimed
+            )
+            for stat_id, modifiers in (permanent_modifiers or {}).items()
+        }
+        self._mark_feature_success_unlocked("chaos_tome", self.clock())
+        chaos.update(
+            self._chaos_state,
+            chaos_level=chaos_level,
+            permanent_modifiers=filtered,
+        )
+
+    @with_lock
     def character_passive_snapshot(self):
         return passives.snapshot(self._character_passive_state)
 

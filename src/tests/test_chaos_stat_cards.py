@@ -82,6 +82,36 @@ class ChaosStatCardsTests(unittest.TestCase):
             ["Damage", "+24%", "● 2 rolls"],
         )
 
+    def test_passive_cards_show_identity_and_only_real_roll_counts(self) -> None:
+        passive = SimpleNamespace(
+            character_name="Dice",
+            passive_name="Gamba",
+            level=145,
+        )
+        dice_effect = SimpleNamespace(
+            label="Evasion", display_delta="+10.6%", count=4
+        )
+        fox_effect = SimpleNamespace(
+            label="Luck", display_delta="+259.5%", count=None
+        )
+
+        summary = StatCardsView._build_character_passive_summary_card(passive)
+        dice_card = StatCardsView._build_character_passive_effect_card(dice_effect)
+        fox_card = StatCardsView._build_character_passive_effect_card(fox_effect)
+
+        self.assertEqual(
+            [label.text() for label in summary.findChildren(QLabel)],
+            ["Dice · Gamba", "Level 145"],
+        )
+        self.assertEqual(
+            [label.text() for label in dice_card.findChildren(QLabel)],
+            ["Evasion", "+10.6%", "● 4 rolls"],
+        )
+        self.assertEqual(
+            [label.text() for label in fox_card.findChildren(QLabel)],
+            ["Luck", "+259.5%"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

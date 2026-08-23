@@ -514,6 +514,9 @@ class PlayerStatsRefresh:
                 # the newest snapshot, or the recording stopping.
                 return True
             self._select_snapshot(None)
+            character_passive_reader = getattr(
+                self._live_tracker(), "character_passive_snapshot", None
+            )
             view.display_player_stats(
                 stats,
                 effective_items,
@@ -521,6 +524,11 @@ class PlayerStatsRefresh:
                 tomes=effective_tomes,
                 chaos_tome=chaos_tome_snapshot,
                 shrines=shrine_snapshot,
+                character_passive=(
+                    character_passive_reader()
+                    if callable(character_passive_reader)
+                    else None
+                ),
                 banishes=banishes,
                 damage_sources=effective_damage_sources,
                 weapons_available=effective_weapons_available,

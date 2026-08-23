@@ -146,7 +146,7 @@ class LazyTabsTests(unittest.TestCase):
             assert [
                 recordings._detail_tabs.tabText(index)
                 for index in range(recordings._detail_tabs.count())
-            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Shrines", "Damage Sources"]
+            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Shrines", "Passives", "Damage Sources"]
 
             tabs.setCurrentIndex(compare_index)
             qt.processEvents()

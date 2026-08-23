@@ -11,6 +11,7 @@ from core.stats.formats import PlayerStatFormat
 from core.stats.types import PlayerStatModifierSnapshot
 from core.tracker import passives
 from core.tracker.passives import _CharacterPassiveState, gamba_decay, gamba_roll_value
+from core.tracker.live_run import LiveRunTracker
 from core.tracker.shrines import SHRINE_STAT_RULES
 from infra.memory.player_stats_client import PlayerStatsClient
 from infra.memory.reader import MemoryReadError
@@ -188,6 +189,76 @@ class GambaAdapterTests(unittest.TestCase):
         self.assertEqual(result.status, CharacterPassiveStatus.PARTIAL)
         self.assertEqual(result.effects, ())
         self.assertEqual(result.ambiguous, 1)
+
+    def test_shared_lane_never_gives_one_pointer_to_dice_and_chaos(self) -> None:
+        tracker = LiveRunTracker()
+        dice_roll = _modifier(0xB000, 5, gamba_roll_value(5, 1.4, 0))
+        chaos_roll = _modifier(0xB100, 5, 0.07)
+        reading = _reading(
+            18,
+            level=1,
+            gamba_current_level=1,
+            gamba_upgrade_multiplier=0.75,
+            gamba_min_multiplier=0.06,
+            gamba_max_multiplier=1.0,
+            permanent_modifiers=(dice_roll, chaos_roll),
+        )
+
+        tracker.update_permanent_sources(
+            reading,
+            chaos_level=1,
+            permanent_modifiers={5: (dice_roll, chaos_roll)},
+        )
+
+        dice = tracker.character_passive_snapshot()
+        chaos = tracker.chaos_tome_snapshot()
+        self.assertEqual(dice.effects[0].count, 1)
+        self.assertEqual(chaos.stats[0].rolls, 1)
+        self.assertNotEqual(dice.effects[0].value, chaos.stats[0].value)
+
+    def test_simultaneous_numeric_collision_remains_partial(self) -> None:
+        tracker = LiveRunTracker()
+        first_seven = tuple(
+            _modifier(0xC000 + index, 5, gamba_roll_value(5, 1.0, index))
+            for index in range(7)
+        )
+        common = dict(
+            gamba_upgrade_multiplier=0.75,
+            gamba_min_multiplier=0.06,
+            gamba_max_multiplier=1.0,
+        )
+        tracker.update_permanent_sources(
+            _reading(
+                18,
+                level=7,
+                gamba_current_level=7,
+                permanent_modifiers=first_seven,
+                **common,
+            ),
+            chaos_level=0,
+            permanent_modifiers={5: first_seven},
+        )
+        collision = _modifier(0xC100, 5, gamba_roll_value(5, 2.0, 7))
+        chaos_only = _modifier(0xC200, 5, 0.07)
+        all_modifiers = first_seven + (collision, chaos_only)
+
+        tracker.update_permanent_sources(
+            _reading(
+                18,
+                level=8,
+                gamba_current_level=8,
+                permanent_modifiers=all_modifiers,
+                **common,
+            ),
+            chaos_level=1,
+            permanent_modifiers={5: all_modifiers},
+        )
+
+        dice = tracker.character_passive_snapshot()
+        chaos = tracker.chaos_tome_snapshot()
+        self.assertEqual(dice.status, CharacterPassiveStatus.PARTIAL)
+        self.assertEqual(sum(effect.count for effect in dice.effects), 7)
+        self.assertEqual(chaos.stats[0].value, chaos_only.value)
 
 
 class CharacterPassiveMemoryReaderTests(unittest.TestCase):

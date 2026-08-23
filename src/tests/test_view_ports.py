@@ -271,13 +271,14 @@ class ViewPortRoutingTests(unittest.TestCase):
     def test_the_three_protocols_partition_the_declared_surface(self) -> None:
         """No operation is dropped, duplicated, or invented by the split.
 
-        Seventeen now: the original nine, plus `set_stage_summary_rows` and
+        Nineteen now: the original nine, plus `set_stage_summary_rows` and
         `refresh_powerups_card` from step 19 -- both added to replace an
         app-layer call that reached the UI through the shared namespace instead
         of through this port -- four panel-level writes that let a fast task
         keep one widget fresh instead of waiting for the 10 s
         `display_player_stats` payload (`set_items`, `set_in_game_time_text`,
-        `set_kps_averages_text`, `set_chaos_tome_card`), and
+        `set_kps_averages_text`, `set_chaos_tome_card`), Charge Shrines and
+        the character-passive fast card,
         `refresh_scanner_reminder_ui`, and the Build Progression panel refresh.
 
         That last one is here because the OBS reminder flag gained a second
@@ -296,9 +297,9 @@ class ViewPortRoutingTests(unittest.TestCase):
             union |= group
         self.assertEqual(
             len(union),
-            18,
+            19,
             "expected the original nine, the two step-19 additions, the four "
-            "fast panel writes, Charge Shrines, the OBS reminder refresh and Build Progression, got "
+            "fast panel writes, Charge Shrines, Character Passives, the OBS reminder refresh and Build Progression, got "
             f"{sorted(union)}",
         )
 

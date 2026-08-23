@@ -43,7 +43,10 @@ class _GambaState:
     initialized: bool = False
     observed_ptrs: set[int] = field(default_factory=set)
     attributed_ptrs: set[int] = field(default_factory=set)
+    assignments: dict[int, tuple[int, Any]] = field(default_factory=dict)
+    unresolved_indices: set[int] = field(default_factory=set)
     pending_candidates: dict[int, Any] = field(default_factory=dict)
+    contested_ptrs: set[int] = field(default_factory=set)
     totals: dict[int, _GambaTotal] = field(default_factory=dict)
     attributed_rolls: int = 0
     ambiguous: int = 0
@@ -67,6 +70,7 @@ def update(
     reading: CharacterPassiveReading,
     *,
     reserved_modifier_ptrs: frozenset[int] = frozenset(),
+    avoid_chaos_collisions: bool = False,
 ) -> None:
     identity_key = (
         int(reading.character_id),
@@ -92,6 +96,7 @@ def update(
             state.gamba,
             reading,
             reserved_modifier_ptrs=reserved_modifier_ptrs,
+            avoid_chaos_collisions=avoid_chaos_collisions,
         )
         return
     state.latest = _identity_snapshot(
@@ -105,6 +110,10 @@ def snapshot(state: _CharacterPassiveState) -> CharacterPassiveSnapshot | None:
 
 def claimed_modifier_ptrs(state: _CharacterPassiveState) -> frozenset[int]:
     return frozenset(state.gamba.attributed_ptrs)
+
+
+def contested_modifier_ptrs(state: _CharacterPassiveState) -> frozenset[int]:
+    return frozenset(state.gamba.contested_ptrs)
 
 
 def _identity_snapshot(
@@ -167,8 +176,19 @@ def _linear_snapshot(spec, reading, *, previous) -> CharacterPassiveSnapshot:
             else CharacterPassiveStatus.UPDATING
         )
     modifier = modifiers[-1] if modifiers else None
-    label = str(getattr(modifier, "label", f"Stat {spec.linear.stat_id}"))
-    value_format = getattr(modifier, "value_format", PlayerStatFormat.FLAT)
+    stat_rule = SHRINE_STAT_RULES.get(spec.linear.stat_id)
+    label = str(
+        getattr(
+            modifier,
+            "label",
+            stat_rule.label if stat_rule is not None else f"Stat {spec.linear.stat_id}",
+        )
+    )
+    value_format = getattr(
+        modifier,
+        "value_format",
+        stat_rule.value_format if stat_rule is not None else PlayerStatFormat.FLAT,
+    )
     effect = CharacterPassiveEffectSnapshot(
         key=f"stat:{spec.linear.stat_id}",
         label=label,
@@ -191,6 +211,7 @@ def _update_gamba(
     reading: CharacterPassiveReading,
     *,
     reserved_modifier_ptrs: frozenset[int],
+    avoid_chaos_collisions: bool,
 ) -> CharacterPassiveSnapshot:
     base = dict(
         character_id=reading.character_id,
@@ -228,6 +249,19 @@ def _update_gamba(
         fresh = _GambaState()
         state.__dict__.update(fresh.__dict__)
 
+    # A shrine reservation is an exact source tag. If its log arrives one task
+    # after the permanent object, revoke a provisional Dice assignment and put
+    # its roll index back into the unresolved budget instead of double-claiming
+    # the pointer.
+    for ptr in reserved_modifier_ptrs:
+        assignment = state.assignments.pop(ptr, None)
+        if assignment is None:
+            continue
+        roll_index, modifier = assignment
+        state.attributed_ptrs.discard(ptr)
+        state.unresolved_indices.add(roll_index)
+        _remove_gamba_total(state, modifier)
+
     for modifier in reading.permanent_modifiers:
         ptr = int(getattr(modifier, "object_ptr", 0) or 0)
         if not ptr or ptr in state.observed_ptrs:
@@ -240,29 +274,47 @@ def _update_gamba(
     for ptr in tuple(state.pending_candidates):
         if ptr in reserved_modifier_ptrs:
             state.pending_candidates.pop(ptr, None)
+            state.contested_ptrs.discard(ptr)
 
     if not state.initialized:
-        indices = tuple(range(current_level))
+        state.unresolved_indices.update(range(current_level))
         state.initialized = True
     else:
-        indices = tuple(range(state.current_level, current_level))
+        state.unresolved_indices.update(range(state.current_level, current_level))
 
-    if indices:
-        assignments, unresolved = _solve_gamba_batch(
-            indices,
-            tuple(state.pending_candidates.values()),
+    if state.unresolved_indices:
+        if avoid_chaos_collisions:
+            state.contested_ptrs.update(
+                int(getattr(modifier, "object_ptr", 0))
+                for modifier in state.pending_candidates.values()
+                if _looks_like_single_chaos_roll(modifier)
+                and any(
+                    _matches_gamba_roll(modifier, roll_index)
+                    for roll_index in state.unresolved_indices
+                )
+            )
+        candidates = tuple(
+            modifier
+            for modifier in state.pending_candidates.values()
+            if int(getattr(modifier, "object_ptr", 0)) not in state.contested_ptrs
         )
-        for _roll_index, modifier in assignments:
+        assignments, unresolved, ambiguous = _solve_gamba_batch(
+            tuple(sorted(state.unresolved_indices)),
+            candidates,
+        )
+        for roll_index, modifier in assignments:
             ptr = int(getattr(modifier, "object_ptr", 0))
             if ptr in state.attributed_ptrs:
                 continue
             state.attributed_ptrs.add(ptr)
+            state.assignments[ptr] = (roll_index, modifier)
+            state.unresolved_indices.discard(roll_index)
             state.pending_candidates.pop(ptr, None)
             _add_gamba_total(state, modifier)
-        state.ambiguous += unresolved
+        state.ambiguous = unresolved + ambiguous
 
     state.current_level = current_level
-    missing = max(0, current_level - state.attributed_rolls)
+    missing = max(len(state.unresolved_indices), current_level - state.attributed_rolls)
     effects = tuple(
         CharacterPassiveEffectSnapshot(
             key=f"stat:{total.stat_id}",
@@ -275,7 +327,7 @@ def _update_gamba(
         )
         for total in sorted(state.totals.values(), key=chaos_tome_stat_sort_key)
     )
-    complete = missing == 0
+    complete = missing == 0 and state.ambiguous == 0
     return CharacterPassiveSnapshot(
         **base,
         status=(
@@ -293,7 +345,7 @@ def _update_gamba(
 def _solve_gamba_batch(
     indices: tuple[int, ...],
     candidates: tuple[Any, ...],
-) -> tuple[list[tuple[int, Any]], int]:
+) -> tuple[list[tuple[int, Any]], int, int]:
     """Return a one-pointer/one-index maximum assignment.
 
     The first 255 indices retain their level-specific decay. At the clamp all
@@ -301,7 +353,7 @@ def _solve_gamba_batch(
     pointer set is meaningful and can be assigned without pretending an order.
     """
     if not indices or not candidates:
-        return [], len(indices)
+        return [], len(indices), 0
 
     early = tuple(index for index in indices if index < GAMBA_LEVEL_SPECIFIC_ROLLS)
     floor = tuple(index for index in indices if index >= GAMBA_LEVEL_SPECIFIC_ROLLS)
@@ -342,7 +394,11 @@ def _solve_gamba_batch(
     ]
     floor_count = min(len(floor), len(floor_candidates))
     assignments.extend(zip(floor[:floor_count], floor_candidates[:floor_count]))
-    return assignments, len(indices) - len(assignments)
+    ambiguous = sum(
+        1 for index in early if len(adjacency.get(index, ())) > 1
+    )
+    ambiguous += max(0, len(floor_candidates) - len(floor))
+    return assignments, len(indices) - len(assignments), ambiguous
 
 
 def _is_gamba_pool_candidate(modifier: Any) -> bool:
@@ -399,6 +455,30 @@ def _add_gamba_total(state: _GambaState, modifier: Any) -> None:
         current.value += value
         current.rolls += 1
     state.attributed_rolls += 1
+
+
+def _remove_gamba_total(state: _GambaState, modifier: Any) -> None:
+    stat_id = int(getattr(modifier, "stat_id"))
+    current = state.totals.get(stat_id)
+    if current is None:
+        return
+    current.value -= float(getattr(modifier, "value"))
+    current.rolls -= 1
+    state.attributed_rolls = max(0, state.attributed_rolls - 1)
+    if current.rolls <= 0:
+        state.totals.pop(stat_id, None)
+
+
+def _looks_like_single_chaos_roll(modifier: Any) -> bool:
+    # Imported lazily to keep this module's top-level dependency one-way while
+    # still sharing Chaos Tome's canonical two-rarity fingerprint solver.
+    from core.tracker.chaos import looks_like_chaos_value
+
+    return looks_like_chaos_value(
+        int(getattr(modifier, "stat_id", -1)),
+        float(getattr(modifier, "value", 0.0)),
+        max_rolls=1,
+    ) > 0
 
 
 def _f32(value: float) -> float:

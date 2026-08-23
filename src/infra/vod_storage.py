@@ -12,15 +12,21 @@ from typing import Any
 
 from infra import paths
 
+from core.character_passives import (
+    CharacterPassiveEffectKind,
+    CharacterPassiveEffectSnapshot,
+    CharacterPassiveSnapshot,
+    CharacterPassiveStatus,
+)
 from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT, RecordingSettings
 from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, ChargeShrineSnapshot, ChargeShrineStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
-# 8 adds the Charge Shrine run/map aggregate. Older recordings omit it and
-# remain readable as "not recorded", represented by ``None``.
-VOD_FORMAT_VERSION = 8
+# 9 adds character identity metadata and the generic character-passive frame.
+# Older recordings omit both and remain readable as "not recorded".
+VOD_FORMAT_VERSION = 9
 RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
 LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -65,6 +71,7 @@ class VodSnapshot:
     tomes: tuple[TomeSnapshot, ...] = ()
     chaos_tome: ChaosTomeSnapshot | None = None
     shrines: ChargeShrineSnapshot | None = None
+    character_passive: CharacterPassiveSnapshot | None = None
     banishes: tuple[str, ...] = ()
     damage_sources: tuple[DamageSourceSnapshot, ...] = ()
     chests_per_minute: float | None = None
@@ -115,6 +122,8 @@ class VodMetadata:
     duration_seconds: int
     snapshot_count: int
     run_seed: int | None = None
+    character_id: int | None = None
+    character_name: str | None = None
 
     @property
     def created_label(self) -> str:
@@ -150,6 +159,8 @@ def _metadata_to_index_record(metadata: VodMetadata, *, mtime_ns: int, size: int
             "duration_seconds": metadata.duration_seconds,
             "snapshot_count": metadata.snapshot_count,
             "run_seed": metadata.run_seed,
+            "character_id": metadata.character_id,
+            "character_name": metadata.character_name,
         },
     }
 
@@ -165,6 +176,10 @@ def _metadata_from_index_record(record: dict[str, Any]) -> tuple[Path, int, int,
         duration_seconds=int(raw.get("duration_seconds") or 0),
         snapshot_count=int(raw.get("snapshot_count") or 0),
         run_seed=raw.get("run_seed"),
+        character_id=_coerce_optional_int(raw.get("character_id")),
+        character_name=(
+            str(raw.get("character_name")) if raw.get("character_name") else None
+        ),
     )
     return path, int(record.get("mtime_ns") or 0), int(record.get("size") or 0), metadata
 
@@ -272,12 +287,20 @@ class VodRecorder:
         self.is_recording = False
         self._file = None
 
-    def start(self, *, name: str | None = None, seed: int | None = None) -> Path:
+    def start(
+        self,
+        *,
+        name: str | None = None,
+        seed: int | None = None,
+        character_id: int | None = None,
+        character_name: str | None = None,
+    ) -> Path:
         self.vods_dir.mkdir(parents=True, exist_ok=True)
         created_at = datetime.now().replace(microsecond=0)
         file_stem = created_at.strftime("%Y-%m-%d_%H-%M-%S")
         self.path = _unique_path(self.vods_dir / f"{file_stem}.jsonl")
-        self.name = name or f"Run {created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+        default_prefix = str(character_name).strip() if character_name else "Run"
+        self.name = name or f"{default_prefix} {created_at.strftime('%Y-%m-%d %H:%M:%S')}"
         self.start_time = self.clock()
         self.last_snapshot_time = None
         self.snapshot_count = 0
@@ -291,6 +314,8 @@ class VodRecorder:
                 "created_at": created_at.isoformat(),
                 "snapshot_interval_seconds": self.interval_seconds,
                 "run_seed": seed,
+                "character_id": character_id,
+                "character_name": character_name,
             },
             flush=True,
         )
@@ -358,6 +383,7 @@ class VodRecorder:
         *,
         chaos_tome: ChaosTomeSnapshot | None = None,
         shrines: ChargeShrineSnapshot | None = None,
+        character_passive: CharacterPassiveSnapshot | None = None,
         chests_per_minute: float | None = None,
         game_time_seconds: float | None = None,
         mob_kills: int | None = None,
@@ -399,6 +425,7 @@ class VodRecorder:
             tomes=tuple(tomes),
             chaos_tome=chaos_tome,
             shrines=shrines,
+            character_passive=character_passive,
             banishes=tuple(banishes),
             damage_sources=tuple(damage_sources),
             chests_per_minute=chests_per_minute,
@@ -734,6 +761,12 @@ def _metadata_from_records(
         duration_seconds=duration_seconds,
         snapshot_count=snapshot_count,
         run_seed=run_seed,
+        character_id=_coerce_optional_int(metadata_record.get("character_id")),
+        character_name=(
+            str(metadata_record.get("character_name"))
+            if metadata_record.get("character_name")
+            else None
+        ),
     )
 
 
@@ -754,6 +787,9 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         "tomes": [_tome_to_record(tome) for tome in snapshot.tomes],
         "chaos_tome": _chaos_tome_to_record(snapshot.chaos_tome),
         "shrines": _charge_shrines_to_record(snapshot.shrines),
+        "character_passive": _character_passive_to_record(
+            snapshot.character_passive
+        ),
         "banishes": list(snapshot.banishes),
         "damage_sources": [_damage_source_to_record(source) for source in snapshot.damage_sources],
         "chests_per_minute": snapshot.chests_per_minute,
@@ -859,6 +895,9 @@ def _record_to_snapshot(record: dict[str, Any], pool: dict[str, str] | None = No
         tomes=tuple(_record_to_tome(tome, share) for tome in record.get("tomes") or ()),
         chaos_tome=_record_to_chaos_tome(record.get("chaos_tome")),
         shrines=_record_to_charge_shrines(record.get("shrines"), share),
+        character_passive=_record_to_character_passive(
+            record.get("character_passive"), share
+        ),
         banishes=tuple(_shared_name(item, share) for item in record.get("banishes") or ()),
         damage_sources=tuple(_record_to_damage_source(item, share) for item in record.get("damage_sources") or ()),
         chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
@@ -1007,6 +1046,37 @@ def _charge_shrines_to_record(shrines: ChargeShrineSnapshot | None) -> dict[str,
         "pending": shrines.pending,
         "stats": [stat_record(stat) for stat in shrines.stats],
         "ambiguous_matches": shrines.ambiguous_matches,
+    }
+
+
+def _character_passive_to_record(
+    passive: CharacterPassiveSnapshot | None,
+) -> dict[str, Any] | None:
+    if passive is None:
+        return None
+    return {
+        "character_id": passive.character_id,
+        "character_name": passive.character_name,
+        "passive_id": passive.passive_id,
+        "passive_name": passive.passive_name,
+        "runtime_class": passive.runtime_class,
+        "level": passive.level,
+        "status": passive.status.value,
+        "coverage": passive.coverage,
+        "ambiguous": passive.ambiguous,
+        "pending": passive.pending,
+        "effects": [
+            {
+                "key": effect.key,
+                "label": effect.label,
+                "value": effect.value,
+                "value_format": effect.value_format.value,
+                "kind": effect.kind.value,
+                "stat_id": effect.stat_id,
+                "count": effect.count,
+            }
+            for effect in passive.effects
+        ],
     }
 
 
@@ -1172,6 +1242,69 @@ def _record_to_charge_shrines(record: Any, share=None) -> ChargeShrineSnapshot |
         ambiguous_matches=max(
             0, _coerce_int(record.get("ambiguous_matches"), default=0)
         ),
+    )
+
+
+def _record_to_character_passive(record: Any, share=None) -> CharacterPassiveSnapshot | None:
+    if not isinstance(record, dict):
+        return None
+    share = share or (lambda value, _default: value)
+    try:
+        status = CharacterPassiveStatus(
+            str(record.get("status") or CharacterPassiveStatus.UNAVAILABLE.value)
+        )
+    except ValueError:
+        status = CharacterPassiveStatus.UNKNOWN
+
+    effects = []
+    for raw_effect in record.get("effects") or ():
+        if not isinstance(raw_effect, dict):
+            continue
+        try:
+            value_format = PlayerStatFormat(
+                str(raw_effect.get("value_format") or PlayerStatFormat.FLAT.value)
+            )
+        except ValueError:
+            value_format = PlayerStatFormat.FLAT
+        try:
+            kind = CharacterPassiveEffectKind(
+                str(
+                    raw_effect.get("kind")
+                    or CharacterPassiveEffectKind.PERMANENT_LEVEL.value
+                )
+            )
+        except ValueError:
+            kind = CharacterPassiveEffectKind.COUNTER
+        effects.append(
+            CharacterPassiveEffectSnapshot(
+                key=_shared_name(raw_effect.get("key") or "effect", share),
+                label=_shared_name(
+                    raw_effect.get("label") or "Passive bonus", share
+                ),
+                value=_coerce_optional_float(raw_effect.get("value")),
+                value_format=value_format,
+                kind=kind,
+                stat_id=_coerce_optional_int(raw_effect.get("stat_id")),
+                count=_coerce_optional_int(raw_effect.get("count")),
+            )
+        )
+
+    return CharacterPassiveSnapshot(
+        character_id=_coerce_int(record.get("character_id"), default=-1),
+        character_name=_shared_name(
+            record.get("character_name") or "Unknown Character", share
+        ),
+        passive_id=_coerce_int(record.get("passive_id"), default=-1),
+        passive_name=_shared_name(
+            record.get("passive_name") or "Unknown Passive", share
+        ),
+        runtime_class=_shared_name(record.get("runtime_class") or "", share),
+        level=max(0, _coerce_int(record.get("level"), default=0)),
+        status=status,
+        effects=tuple(effects),
+        coverage=_shared_name(record.get("coverage") or "identity_only", share),
+        ambiguous=max(0, _coerce_int(record.get("ambiguous"), default=0)),
+        pending=max(0, _coerce_int(record.get("pending"), default=0)),
     )
 
 

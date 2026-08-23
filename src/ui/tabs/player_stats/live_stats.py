@@ -521,6 +521,9 @@ class LiveStatsTab:
         self._stat_cards.display_charge_shrines(
             None, status_text="Waiting for Charge Shrine data..."
         )
+        self._stat_cards.display_character_passive(
+            None, status_text="Waiting for character passive data..."
+        )
         self._stat_cards.display_damage_sources(
             (), status_text="Waiting for damage source data..."
         )
@@ -534,6 +537,7 @@ class LiveStatsTab:
         tomes=(),
         chaos_tome=None,
         shrines=None,
+        character_passive=None,
         banishes=(),
         damage_sources=(),
         weapons_available: bool = True,
@@ -617,6 +621,7 @@ class LiveStatsTab:
             shrines,
             status_text=None if shrines is not None else "No Charge Shrine data yet",
         )
+        self._stat_cards.display_character_passive(character_passive)
         self._stat_cards.display_damage_sources(
             damage_sources if damage_sources_available else (),
             status_text=None if damage_sources_available else "Damage sources unavailable",
@@ -634,6 +639,7 @@ class LiveStatsTab:
             tomes=getattr(snapshot, "tomes", ()),
             chaos_tome=getattr(snapshot, "chaos_tome", None),
             shrines=getattr(snapshot, "shrines", None),
+            character_passive=getattr(snapshot, "character_passive", None),
             banishes=getattr(snapshot, "banishes", ()),
             damage_sources=getattr(snapshot, "damage_sources", ()),
             status_text=(
@@ -728,6 +734,10 @@ class LiveStatsTab:
             shrines,
             status_text=None if shrines is not None else "No Charge Shrine data yet",
         )
+
+    def set_character_passive_card(self, character_passive) -> None:
+        """Repaint the selected character's passive from the fast lane."""
+        self._stat_cards.display_character_passive(character_passive)
 
     def set_in_game_time_text(self, text: str) -> None:
         """Set the Live Stats in-game time line.
@@ -1298,6 +1308,20 @@ class LiveStatsTab:
         player_shrine_scroll, _player_shrine_content, player_shrine_scroll_layout = _make_scroll_section()
         player_shrine_scroll_layout.setContentsMargins(0, 0, 0, 0)
         shrine_tab_layout.addWidget(player_shrine_scroll)
+        character_passive_tab = QWidget()
+        character_passive_tab_layout = QVBoxLayout(character_passive_tab)
+        character_passive_status_label = QLabel(
+            "Waiting for character passive data..."
+        )
+        character_passive_status_label.setWordWrap(True)
+        character_passive_tab_layout.addWidget(character_passive_status_label)
+        (
+            player_character_passive_scroll,
+            _player_character_passive_content,
+            player_character_passive_scroll_layout,
+        ) = _make_scroll_section()
+        player_character_passive_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        character_passive_tab_layout.addWidget(player_character_passive_scroll)
         damage_sources_tab = QWidget()
         damage_sources_tab_layout = QVBoxLayout(damage_sources_tab)
         damage_sources_status_label = QLabel("Waiting for damage source data...")
@@ -1401,6 +1425,8 @@ class LiveStatsTab:
             chaos_status_label=chaos_status_label,
             shrine_layout=player_shrine_scroll_layout,
             shrine_status_label=shrine_status_label,
+            character_passive_layout=player_character_passive_scroll_layout,
+            character_passive_status_label=character_passive_status_label,
             damage_sources_layout=player_damage_sources_scroll_layout,
             damage_sources_status_label=damage_sources_status_label,
             # Same waste as the Recordings tab, on a one-second refresh instead
@@ -1422,6 +1448,7 @@ class LiveStatsTab:
         self._detail_tabs.addTab(tomes_tab, "Tomes")
         self._detail_tabs.addTab(chaos_tab, "Chaos")
         self._detail_tabs.addTab(shrine_tab, "Shrines")
+        self._detail_tabs.addTab(character_passive_tab, "Passives")
         self._detail_tabs.addTab(damage_sources_tab, "Damage Sources")
         self._detail_tabs.addTab(build_progression_tab, "Build Progression")
         self.refresh_build_progression()
@@ -1437,6 +1464,7 @@ class LiveStatsTab:
         tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
         chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
         shrine_tab_layout.setContentsMargins(0, 0, 0, 0)
+        character_passive_tab_layout.setContentsMargins(0, 0, 0, 0)
         damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
         loot_tab_layout.setContentsMargins(0, 0, 0, 0)
 

@@ -43,6 +43,7 @@ def build_vod_capture(
     recordings_list_view: Any = None,
     is_live_stats_tab_active: bool | Callable[[], bool] = True,
     clock: Callable[[], float] | None = None,
+    read_character_identity: Callable[[], tuple[int, str] | None] | None = None,
     world: Any = None,
 ) -> tuple[VodCapture, Any]:
     """A real `VodCapture` with its eleven collaborators faked.
@@ -109,6 +110,7 @@ def build_vod_capture(
         ),
         log=lambda message, tag=None: world.log.append((message, tag)),
         reset_snapshot_buffer=lambda: world.snapshot_resets.append(True),
+        read_character_identity=read_character_identity,
         **({"clock": clock} if clock is not None else {}),
     )
     return service, world
@@ -138,8 +140,28 @@ class _FakeRecorder:
         self.start_calls: list[dict] = []
         self.stop_calls = 0
 
-    def start(self, *, seed=None, name=None):
-        self.start_calls.append({"seed": seed, "name": name})
+    def start(
+        self,
+        *,
+        seed=None,
+        name=None,
+        character_id=None,
+        character_name=None,
+    ):
+        self.start_calls.append(
+            {
+                "seed": seed,
+                "name": name,
+                **(
+                    {
+                        "character_id": character_id,
+                        "character_name": character_name,
+                    }
+                    if character_id is not None or character_name is not None
+                    else {}
+                ),
+            }
+        )
         self.is_recording = True
         return SimpleNamespace(name=f"vod-{seed}.json")
 

@@ -42,6 +42,7 @@ class RecordingStatCardsView:
         self.tomes: list[tuple[tuple, str | None]] = []
         self.chaos: list[tuple[object, str | None]] = []
         self.shrines: list[tuple[object, str | None]] = []
+        self.character_passives: list[tuple[object, str | None]] = []
         self.damage_sources: list[tuple[tuple, str | None]] = []
         self.invalidations = 0
 
@@ -59,6 +60,11 @@ class RecordingStatCardsView:
 
     def display_charge_shrines(self, shrines, *, status_text: str | None = None, scope=None) -> None:
         self.shrines.append((shrines, status_text))
+
+    def display_character_passive(
+        self, character_passive, *, status_text: str | None = None
+    ) -> None:
+        self.character_passives.append((character_passive, status_text))
 
     def display_damage_sources(self, damage_sources, *, status_text: str | None = None) -> None:
         self.damage_sources.append((tuple(damage_sources or ()), status_text))

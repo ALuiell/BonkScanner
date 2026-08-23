@@ -10,6 +10,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from core.character_passives import (
+    CharacterPassiveEffectKind,
+    CharacterPassiveEffectSnapshot,
+    CharacterPassiveSnapshot,
+    CharacterPassiveStatus,
+)
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 from infra.vod_storage import LEGACY_VODS_DIR, RECORDINGS_DIR, VodRecorder, delete_vod, delete_vods_below_snapshot_count, list_vods, load_cached_vods, load_vod, load_vod_metadata, rename_vod, refresh_vod_metadata_index
@@ -29,6 +35,73 @@ class FakeRecordingSettings:
 
 
 class VodStorageTests(unittest.TestCase):
+    def test_character_default_name_metadata_and_passive_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(
+                vods_dir=Path(temp_dir), interval_seconds=30, clock=lambda: 1000.0
+            )
+            passive = CharacterPassiveSnapshot(
+                character_id=18,
+                character_name="Dice",
+                passive_id=15,
+                passive_name="Gamba",
+                runtime_class="PassiveAbilityGamba",
+                level=145,
+                status=CharacterPassiveStatus.SUPPORTED,
+                effects=(
+                    CharacterPassiveEffectSnapshot(
+                        key="stat:5",
+                        label="Evasion",
+                        value=0.105954933912,
+                        value_format=PlayerStatFormat.PERCENT,
+                        kind=CharacterPassiveEffectKind.PERMANENT_ROLL,
+                        stat_id=5,
+                        count=4,
+                    ),
+                ),
+                coverage="complete",
+            )
+            path = recorder.start(
+                seed=123,
+                character_id=18,
+                character_name="Dice",
+            )
+            recorder.capture({}, character_passive=passive)
+            recorder.stop()
+
+            loaded = load_vod(path)
+            self.assertRegex(loaded.metadata.name, r"^Dice \d{4}-\d{2}-\d{2} ")
+            self.assertEqual(loaded.metadata.character_id, 18)
+            self.assertEqual(loaded.metadata.character_name, "Dice")
+            self.assertEqual(loaded.snapshots[0].character_passive, passive)
+
+    def test_custom_name_wins_over_character_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(vods_dir=Path(temp_dir), clock=lambda: 1000.0)
+            path = recorder.start(
+                name="My challenge",
+                character_id=0,
+                character_name="Fox",
+            )
+            for _ in range(3):
+                recorder.capture({})
+            recorder.stop()
+            self.assertEqual(load_vod_metadata(path).name, "My challenge")
+
+    def test_older_recording_has_no_character_metadata_or_passive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "old.jsonl"
+            path.write_text(
+                '{"type":"metadata","version":8,"name":"Run old","created_at":"2026-08-22T10:00:00","snapshot_interval_seconds":30}\n'
+                '{"type":"snapshot","elapsed_seconds":0,"captured_at":1,"stats":{}}\n'
+                '{"type":"summary","duration_seconds":0,"snapshot_count":1}\n',
+                encoding="utf-8",
+            )
+            loaded = load_vod(path)
+            self.assertIsNone(loaded.metadata.character_id)
+            self.assertIsNone(loaded.metadata.character_name)
+            self.assertIsNone(loaded.snapshots[0].character_passive)
+
     def test_vod_metadata_index_persists_and_drops_deleted_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             from infra import vod_storage as vod_storage

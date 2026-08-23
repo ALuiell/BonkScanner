@@ -98,7 +98,7 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             assert [
                 view._detail_tabs.tabText(index)
                 for index in range(view._detail_tabs.count())
-            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Shrines", "Damage Sources", "Build Progression"]
+            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Shrines", "Passives", "Damage Sources", "Build Progression"]
             build_card = view.root_widget.findChild(QFrame, "BuildProgressionCard")
             assert build_card is not None
             assert build_card.findChild(QLabel, "BuildProgressionName") is not None
@@ -252,8 +252,8 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 SimpleNamespace(source_key="dice", source_name="Dice", damage=100.0),
                 SimpleNamespace(source_key="staff", source_name="Fire Staff", damage=400.0),
             ))
-            damage_page = view._detail_tabs.widget(6)
-            view._detail_tabs.setCurrentIndex(6)
+            damage_page = view._detail_tabs.widget(7)
+            view._detail_tabs.setCurrentIndex(7)
             for _ in range(3):
                 app.processEvents()
             source_names = damage_page.findChildren(QLabel, "DamageSourceName")
@@ -283,7 +283,7 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             app.processEvents()
             assert len({card.geometry().y() for card in chaos_cards[:5]}) == 1
             assert chaos_cards[5].geometry().y() > chaos_cards[0].geometry().y()
-            view._detail_tabs.setCurrentIndex(6)
+            view._detail_tabs.setCurrentIndex(7)
             app.processEvents()
             assert len({card.geometry().y() for card in source_cards[:3]}) == 1
             assert source_cards[3].geometry().y() > source_cards[0].geometry().y()

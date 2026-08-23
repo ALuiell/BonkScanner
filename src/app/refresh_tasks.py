@@ -83,6 +83,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from app import config
 from app.player_stats_memory import player_stats_memory
 from app.read_sources import (
+    CHARACTER_PASSIVE_READING,
     CHAOS_TRACKING_STATE,
     EXPECTED_CHEST_INPUTS,
     KPS_GROUP_SPAN_LIMIT_SECONDS,
@@ -249,18 +250,20 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     )
     coordinator.register(
         RefreshTask(
-            task_id="chaos_tome",
-            interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
-            required=service._should_refresh_chaos_tome,
-            run=service._refresh_chaos_tome_task,
-        )
-    )
-    coordinator.register(
-        RefreshTask(
+            # Reserve exact ShrineLogs pointers before the shared permanent
+            # modifier lane runs on ticks where both tasks are due.
             task_id="charge_shrines",
             interval_ms=PASSIVE_ITEMS_REFRESH_MS,
             required=service._should_refresh_charge_shrines,
             run=service._refresh_charge_shrines_task,
+        )
+    )
+    coordinator.register(
+        RefreshTask(
+            task_id="chaos_tome",
+            interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
+            required=service._should_refresh_chaos_tome,
+            run=service._refresh_chaos_tome_task,
         )
     )
     if app_coordinator is not None:
@@ -977,11 +980,36 @@ class RefreshTasks:
                 CHAOS_TRACKING_STATE,
                 lambda: client.get_chaos_tracking_state(owner_stats),
             )
-            self._memory().record_memory_success()
-            self._tracker().update_chaos_tome(
-                chaos_level=chaos_level,
-                permanent_modifiers=permanent_modifiers if chaos_level is not None else {},
+            passive_reader = getattr(client, "get_character_passive_reading", None)
+            character_passive = (
+                read_memory_source(
+                    context,
+                    CHARACTER_PASSIVE_READING,
+                    lambda: passive_reader(
+                        owner_stats,
+                        permanent_modifiers=permanent_modifiers,
+                    ),
+                )
+                if callable(passive_reader)
+                else None
             )
+            self._memory().record_memory_success()
+            update_sources = getattr(self._tracker(), "update_permanent_sources", None)
+            if callable(update_sources) and character_passive is not None:
+                update_sources(
+                    character_passive,
+                    chaos_level=chaos_level,
+                    permanent_modifiers=(
+                        permanent_modifiers if chaos_level is not None else {}
+                    ),
+                )
+            else:
+                self._tracker().update_chaos_tome(
+                    chaos_level=chaos_level,
+                    permanent_modifiers=(
+                        permanent_modifiers if chaos_level is not None else {}
+                    ),
+                )
             # The card was painted only by the 10 s payload while this task
             # folded a new reading every tick, which is why `!chaos` in chat
             # could report a roll the app's own card had not shown yet. Same
@@ -989,10 +1017,14 @@ class RefreshTasks:
             # values and the user may have scrubbed the timeline.
             if self._tab_active() and not self._pinned():
                 self._view().set_chaos_tome_card(self._tracker().chaos_tome_snapshot())
+                setter = getattr(self._view(), "set_character_passive_card", None)
+                if callable(setter):
+                    setter(self._tracker().character_passive_snapshot())
             return True
         except Exception as exc:
             self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("chaos_tome", exc)
+            self._mark_fast_feature_failed("character_passive", exc)
             return False
 
     def _refresh_charge_shrines_task(self, context: RefreshTickContext) -> bool:

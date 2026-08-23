@@ -116,6 +116,9 @@ class PlayerStatsView(Protocol):
     def set_charge_shrine_card(self, shrines) -> None:
         """Render the Charge Shrine card from the fast tracker snapshot."""
 
+    def set_character_passive_card(self, character_passive) -> None:
+        """Render the current character passive from the fast tracker snapshot."""
+
     def set_in_game_time_text(self, text: str) -> None:
         """Set the Live Stats in-game time line.
 
