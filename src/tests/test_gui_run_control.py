@@ -30,6 +30,7 @@ import ui.tabs.templates.panel as ui_tabs_templates_panel
 from app.snapshot_store import LiveSnapshotStore, live_snapshot_store
 from app.run_lifecycle import run_lifecycle
 from app.refresh_tasks import (
+    PASSIVE_ITEMS_REFRESH_MS,
     ensure_refresh_coordinator,
     player_stats_refresh_required,
     refresh_tasks,
@@ -2931,6 +2932,25 @@ class GuiRunControlTests(unittest.TestCase):
         # 20 s of ticking / the task's 1 s interval -- not 40, which is what
         # inheriting the driver's 500 ms would give.
         self.assertEqual(len(sync_calls), 20)
+
+    def test_chaos_and_shrines_share_the_one_second_attribution_cadence(self) -> None:
+        app = self.build_recording_app()
+
+        coordinator = ensure_refresh_coordinator(app)
+
+        self.assertEqual(PASSIVE_ITEMS_REFRESH_MS, 1_000)
+        self.assertEqual(
+            coordinator._tasks["charge_shrines"].interval_ms,
+            PASSIVE_ITEMS_REFRESH_MS,
+        )
+        self.assertEqual(
+            coordinator._tasks["chaos_tome"].interval_ms,
+            PASSIVE_ITEMS_REFRESH_MS,
+        )
+        self.assertLess(
+            list(coordinator._tasks).index("charge_shrines"),
+            list(coordinator._tasks).index("chaos_tome"),
+        )
 
     def test_recording_lifecycle_reuses_the_cached_lifecycle_state(self) -> None:
         # What makes 1 s affordable. The sync used to call the uncached, heavier

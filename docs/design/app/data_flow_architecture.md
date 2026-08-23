@@ -17,7 +17,7 @@ flowchart LR
     Coordinator --> Powerups[powerups 500 ms]
     Coordinator --> Chests[expected_chest_inputs 500 ms]
     Coordinator --> Event[event_timer 1 s]
-    Coordinator --> Chaos[chaos_tome 500 ms]
+    Coordinator --> Chaos[chaos_tome / character passives 1 s]
     Slow --> Store[LiveSnapshotStore last-known values]
     Slow --> Tracker[LiveRunTracker feature states]
     Combat --> Tracker
@@ -159,8 +159,8 @@ This section defines the active logic that pulls from data sources and pushes to
   - **Destination:** Merges into `LiveSnapshotStore`, updates LiveRunTracker with stage transitions and item updates.
 - **Fast KPS, Chaos, and Powerup Refresh**
   - **Code location:** `src/app/refresh_tasks.py` (`combat_metrics`, `chaos_tome`, `powerups`, `expected_chest_inputs`, `event_timer` tasks)
-  - **Updates:** Kills, run timer, Chaos Tome modifiers, Powerup snapshots, Chest counters.
-  - **Cadence:** Every 500 ms (`FAST_TRACKER_INTERVAL_MS`), except `event_timer` (stage timer and stage index) at 1 s.
+  - **Updates:** Kills, run timer, Chaos Tome and character-passive modifiers, Powerup snapshots, Chest counters.
+  - **Cadence:** `combat_metrics`, `powerups`, and `expected_chest_inputs` use `FAST_TRACKER_INTERVAL_MS` (500 ms by default). `chaos_tome` shares the 1 s permanent-source attribution cadence with Charge Shrines; `event_timer` is also 1 s.
   - **Destination:** Directly pushes data into `LiveRunTracker`.
 - **Fast Passive-Item Refresh**
   - **Code location:** `src/app/refresh_tasks.py` (`passive_items` task).
@@ -256,7 +256,7 @@ This defines who is reading the data at the end of the pipeline.
 | Tracked items | Game memory | Passive-item refresh | 1 s | 1 s | LiveRunTracker | Session Stats, Live Stats, OBS overlay |
 | Stage summary | Derived | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats, Compare Runs |
 | Banishes | Game memory | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats |
-| Chaos tome | Game memory | Fast Chaos refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, Twitch bot |
+| Chaos tome / character passive | Game memory | Shared permanent-source refresh | 1 s | 1 s | LiveRunTracker | Live Stats, Recordings, Compare Runs, Twitch bot |
 | Powerups | Game memory | Fast Powerup refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats |
 | Chest counters | Game memory | Fast Chest refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats |
 | VOD snapshot data| In-memory | VodRecorder interval | ~30 s | 30 s | VodRecorder | VOD list, Compare Runs |

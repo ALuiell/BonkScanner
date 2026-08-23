@@ -361,7 +361,12 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     coordinator.register(
         RefreshTask(
             task_id="chaos_tome",
-            interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
+            # Dice and Chaos share the permanent-modifier attribution lane.
+            # Keep it on the same one-second cadence as the Shrine reservation
+            # pass immediately above: this halves the default read load while
+            # preserving the ordering that hides exact ShrineLog pointers
+            # before either source may claim them.
+            interval_ms=PASSIVE_ITEMS_REFRESH_MS,
             required=service._should_refresh_chaos_tome,
             run=service._refresh_chaos_tome_task,
         )
