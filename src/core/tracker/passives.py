@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 import math
 import struct
 from typing import Any
@@ -65,6 +66,55 @@ def reset(state: _CharacterPassiveState) -> None:
     state.gamba = _GambaState()
 
 
+def reading_identity_key(reading: CharacterPassiveReading) -> tuple[int, int, str, int]:
+    """Return the runtime identity that owns one passive state."""
+    return (
+        int(reading.character_id),
+        int(reading.passive_id),
+        str(reading.runtime_class),
+        int(reading.passive_object_ptr),
+    )
+
+
+def is_gamba_reading(reading: CharacterPassiveReading) -> bool:
+    spec = CHARACTER_PASSIVE_SPEC_BY_CHARACTER_ID.get(int(reading.character_id))
+    return bool(spec is not None and spec.is_gamba)
+
+
+def mark_recovering(
+    state: _CharacterPassiveState,
+    reading: CharacterPassiveReading,
+) -> None:
+    """Publish a non-blocking cold-recovery status without mutating roll state."""
+    identity_key = reading_identity_key(reading)
+    if state.identity_key != identity_key:
+        reset(state)
+        state.identity_key = identity_key
+    previous = state.latest
+    effects = tuple(getattr(previous, "effects", ()))
+    attributed = state.gamba.attributed_rolls if state.gamba.initialized else 0
+    current_level = max(
+        0,
+        int(
+            reading.level
+            if reading.gamba_current_level is None
+            else reading.gamba_current_level
+        ),
+    )
+    state.latest = CharacterPassiveSnapshot(
+        character_id=reading.character_id,
+        character_name=reading.character_name,
+        passive_id=reading.passive_id,
+        passive_name=reading.passive_name,
+        runtime_class=reading.runtime_class,
+        level=reading.level,
+        status=CharacterPassiveStatus.UPDATING,
+        effects=effects,
+        coverage="recovering_history",
+        pending=max(0, current_level - attributed),
+    )
+
+
 def update(
     state: _CharacterPassiveState,
     reading: CharacterPassiveReading,
@@ -72,12 +122,7 @@ def update(
     reserved_modifier_ptrs: frozenset[int] = frozenset(),
     avoid_chaos_collisions: bool = False,
 ) -> None:
-    identity_key = (
-        int(reading.character_id),
-        int(reading.passive_id),
-        str(reading.runtime_class),
-        int(reading.passive_object_ptr),
-    )
+    identity_key = reading_identity_key(reading)
     if state.identity_key != identity_key:
         reset(state)
         state.identity_key = identity_key
@@ -289,8 +334,8 @@ def _update_gamba(
                 for modifier in state.pending_candidates.values()
                 if _looks_like_single_chaos_roll(modifier)
                 and any(
-                    _matches_gamba_roll(modifier, roll_index)
-                    for roll_index in state.unresolved_indices
+                    roll_index in state.unresolved_indices
+                    for roll_index in _matching_gamba_roll_indices(modifier)
                 )
             )
         candidates = tuple(
@@ -362,13 +407,14 @@ def _solve_gamba_batch(
         for candidate in candidates
         if (ptr := int(getattr(candidate, "object_ptr", 0) or 0))
     }
+    early_set = frozenset(early)
+    adjacency_lists: dict[int, list[int]] = {index: [] for index in early}
+    for ptr, candidate in by_ptr.items():
+        for index in _matching_gamba_roll_indices(candidate):
+            if index in early_set:
+                adjacency_lists[index].append(ptr)
     adjacency: dict[int, tuple[int, ...]] = {
-        index: tuple(
-            ptr
-            for ptr, candidate in by_ptr.items()
-            if _matches_gamba_roll(candidate, index)
-        )
-        for index in early
+        index: tuple(pointers) for index, pointers in adjacency_lists.items()
     }
 
     reverse_adjacency: dict[int, set[int]] = {}
@@ -447,7 +493,7 @@ def _solve_gamba_batch(
         for ptr, candidate in by_ptr.items()
         if ptr not in used_ptrs
         and ptr not in unresolved_early_ptrs
-        and _matches_gamba_roll(candidate, 255)
+        and 255 in _matching_gamba_roll_indices(candidate)
     ]
     if len(floor_candidates) <= len(floor):
         assignments.extend(zip(floor, floor_candidates))
@@ -467,18 +513,37 @@ def _is_gamba_pool_candidate(modifier: Any) -> bool:
     return int(getattr(modifier, "modify_type", -1)) == int(rule.modify_type)
 
 
-def _matches_gamba_roll(modifier: Any, roll_index: int) -> bool:
+def _matching_gamba_roll_indices(modifier: Any) -> tuple[int, ...]:
     if not _is_gamba_pool_candidate(modifier):
-        return False
+        return ()
     value = float(getattr(modifier, "value", float("nan")))
     if not math.isfinite(value):
-        return False
+        return ()
     stat_id = int(getattr(modifier, "stat_id", -1))
-    return any(
-        _ulp_distance(value, gamba_roll_value(stat_id, rarity, roll_index))
-        <= GAMBA_MAX_ULP_DISTANCE
-        for rarity in GAMBA_RARITY_MULTIPLIERS
-    )
+    value_bits = struct.unpack("<I", struct.pack("<f", value))[0]
+    fingerprint_index = _gamba_fingerprint_index(stat_id)
+    matches: set[int] = set()
+    for bits in range(
+        max(0, value_bits - GAMBA_MAX_ULP_DISTANCE),
+        min(0xFFFFFFFF, value_bits + GAMBA_MAX_ULP_DISTANCE) + 1,
+    ):
+        matches.update(fingerprint_index.get(bits, ()))
+    return tuple(sorted(matches))
+
+
+@lru_cache(maxsize=None)
+def _gamba_fingerprint_index(stat_id: int) -> dict[int, tuple[int, ...]]:
+    """Index all distinct level/rarity fingerprints by their float32 bits."""
+    by_bits: dict[int, set[int]] = {}
+    for roll_index in range(GAMBA_LEVEL_SPECIFIC_ROLLS + 1):
+        for rarity in GAMBA_RARITY_MULTIPLIERS:
+            value = gamba_roll_value(stat_id, rarity, roll_index)
+            bits = struct.unpack("<I", struct.pack("<f", value))[0]
+            by_bits.setdefault(bits, set()).add(roll_index)
+    return {
+        bits: tuple(sorted(indices))
+        for bits, indices in by_bits.items()
+    }
 
 
 def gamba_decay(roll_index: int) -> float:

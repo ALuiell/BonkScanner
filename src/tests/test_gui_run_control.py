@@ -3504,6 +3504,92 @@ class GuiRunControlTests(unittest.TestCase):
             ],
         )
 
+    def test_dice_cold_recovery_is_polled_and_buffers_the_latest_sample(self) -> None:
+        readings = [
+            SimpleNamespace(
+                character_id=18,
+                passive_id=15,
+                runtime_class="PassiveAbilityGamba",
+                passive_object_ptr=0x5000,
+                character_name="Dice",
+                level=64,
+                gamba_current_level=64,
+                permanent_modifiers=(),
+            )
+        ]
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_chaos_tracking_state=lambda _owner: (0, {}),
+            get_character_passive_reading=lambda _owner, **_kwargs: readings[0],
+        )
+        jobs: list[object] = []
+
+        class ControlledJob:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+                self.error = None
+                self.result = object()
+                self.completed = False
+                jobs.append(self)
+
+            def done(self):
+                return self.completed
+
+        applied: list[tuple[object, object, object]] = []
+        sync_updates: list[object] = []
+        tracker = SimpleNamespace(
+            needs_permanent_source_recovery=lambda _reading: True,
+            begin_permanent_source_recovery=lambda _reading: ("token", frozenset()),
+            apply_permanent_source_recovery=lambda token, result, reading: (
+                applied.append((token, result, reading)) or True
+            ),
+            update_permanent_sources=lambda reading, **_kwargs: sync_updates.append(reading),
+            chaos_tome_snapshot=lambda: None,
+            character_passive_snapshot=lambda: None,
+            mark_feature_available=lambda _feature: None,
+            mark_feature_failed=lambda _feature, _error: None,
+        )
+        service, _world = build_refresh_tasks(
+            stats_client=client,
+            tracker=tracker,
+            permanent_source_recovery_job_factory=ControlledJob,
+        )
+
+        self.assertTrue(
+            service._refresh_chaos_tome_task(
+                RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+            )
+        )
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(sync_updates, [])
+
+        readings[0] = SimpleNamespace(**{
+            **readings[0].__dict__,
+            "level": 65,
+            "gamba_current_level": 65,
+        })
+        jobs[0].completed = True
+        self.assertTrue(
+            service._refresh_chaos_tome_task(
+                RefreshTickContext(pass_id=2, started_at=0.0, clock=lambda: 0.0)
+            )
+        )
+        self.assertEqual(len(applied), 1)
+        self.assertEqual(applied[0][2].gamba_current_level, 65)
+        self.assertEqual(len(jobs), 2)
+        self.assertIs(jobs[1].base, jobs[0].result)
+        self.assertEqual(sync_updates, [])
+
+        jobs[1].completed = True
+        self.assertTrue(
+            service._refresh_chaos_tome_task(
+                RefreshTickContext(pass_id=3, started_at=0.0, clock=lambda: 0.0)
+            )
+        )
+        self.assertEqual(len(applied), 2)
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(sync_updates, [])
+
     def test_powerup_failure_does_not_block_other_owner_tasks(self) -> None:
         expected_updates: list[tuple[int, int]] = []
         chaos_updates: list[dict[str, object]] = []

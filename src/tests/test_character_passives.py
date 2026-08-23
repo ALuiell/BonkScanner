@@ -16,7 +16,7 @@ from core.tracker.passives import (
     gamba_decay,
     gamba_roll_value,
 )
-from core.tracker.live_run import LiveRunTracker
+from core.tracker.live_run import LiveRunTracker, build_permanent_source_recovery
 from core.tracker.shrines import SHRINE_STAT_RULES
 from infra.memory.player_stats_client import PlayerStatsClient
 from infra.memory.reader import MemoryReadError
@@ -292,6 +292,73 @@ class GambaAdapterTests(unittest.TestCase):
         self.assertEqual(dice.status, CharacterPassiveStatus.PARTIAL)
         self.assertEqual(sum(effect.count for effect in dice.effects), 7)
         self.assertEqual(chaos.stats[0].value, chaos_only.value)
+
+    def test_cold_recovery_matches_the_synchronous_shared_lane(self) -> None:
+        rolls = tuple(
+            _modifier(0xD000 + index, 12, gamba_roll_value(12, 1.0, index))
+            for index in range(64)
+        )
+        reading = _reading(
+            18,
+            level=64,
+            gamba_current_level=64,
+            gamba_upgrade_multiplier=0.75,
+            gamba_min_multiplier=0.06,
+            gamba_max_multiplier=1.0,
+            permanent_modifiers=rolls,
+        )
+        expected = LiveRunTracker()
+        expected.update_permanent_sources(
+            reading,
+            chaos_level=0,
+            permanent_modifiers={12: rolls},
+        )
+
+        tracker = LiveRunTracker()
+        self.assertTrue(tracker.needs_permanent_source_recovery(reading))
+        token, reserved = tracker.begin_permanent_source_recovery(reading)
+        self.assertEqual(
+            tracker.character_passive_snapshot().status,
+            CharacterPassiveStatus.UPDATING,
+        )
+        result = build_permanent_source_recovery(
+            reading,
+            chaos_level=0,
+            permanent_modifiers={12: rolls},
+            reserved_modifier_ptrs=reserved,
+        )
+
+        self.assertTrue(tracker.apply_permanent_source_recovery(token, result, reading))
+        self.assertEqual(
+            tracker.character_passive_snapshot(),
+            expected.character_passive_snapshot(),
+        )
+        self.assertEqual(tracker.chaos_tome_snapshot(), expected.chaos_tome_snapshot())
+
+    def test_cold_recovery_result_is_rejected_after_run_reset(self) -> None:
+        roll = _modifier(0xE000, 12, gamba_roll_value(12, 1.0, 0))
+        reading = _reading(
+            18,
+            level=64,
+            gamba_current_level=64,
+            gamba_upgrade_multiplier=0.75,
+            gamba_min_multiplier=0.06,
+            gamba_max_multiplier=1.0,
+            permanent_modifiers=(roll,),
+        )
+        tracker = LiveRunTracker()
+        token, reserved = tracker.begin_permanent_source_recovery(reading)
+        result = build_permanent_source_recovery(
+            reading,
+            chaos_level=0,
+            permanent_modifiers={12: (roll,)},
+            reserved_modifier_ptrs=reserved,
+        )
+
+        tracker._reset_for_new_run()
+
+        self.assertFalse(tracker.apply_permanent_source_recovery(token, result, reading))
+        self.assertIsNone(tracker.character_passive_snapshot())
 
 
 class CharacterPassiveMemoryReaderTests(unittest.TestCase):

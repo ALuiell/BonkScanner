@@ -77,6 +77,8 @@ unguarded call sites (``_should_refresh_expected_chest_inputs`` and
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -104,6 +106,7 @@ from app.read_sources import (
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from app.run_lifecycle import run_lifecycle
 from core.tracker.snapshots import PowerupMapContext
+from core.tracker.live_run import build_permanent_source_recovery
 from core import run_summary
 from app.player_stats_view import player_stats_view
 from app.snapshot_selection import player_stats_snapshot_is_pinned
@@ -132,6 +135,103 @@ RECORDING_LIFECYCLE_REFRESH_MS = 1_000
 # configurable down to 100): the item dictionary is a per-entry walk, and 1 s
 # buys effectively all of the latency back at a fifth of that read cost.
 PASSIVE_ITEMS_REFRESH_MS = 1_000
+PERMANENT_SOURCE_RECOVERY_RETRY_SECONDS = 5.0
+
+
+def _permanent_modifier_key(modifier: Any) -> tuple[int, int, int, float]:
+    return (
+        int(getattr(modifier, "object_ptr", 0) or 0),
+        int(getattr(modifier, "stat_id", -1)),
+        int(getattr(modifier, "modify_type", -1)),
+        float(getattr(modifier, "value", 0.0)),
+    )
+
+
+@dataclass(frozen=True)
+class _PermanentSourceSample:
+    reading: Any
+    chaos_level: int | None
+    permanent_modifiers: dict[int, tuple[Any, ...]]
+    key: tuple[Any, ...]
+
+    @classmethod
+    def capture(cls, reading, chaos_level, permanent_modifiers):
+        frozen_modifiers = {
+            int(stat_id): tuple(modifiers)
+            for stat_id, modifiers in (permanent_modifiers or {}).items()
+        }
+        dice_modifiers = tuple(
+            _permanent_modifier_key(modifier)
+            for modifier in tuple(getattr(reading, "permanent_modifiers", ()))
+        )
+        modifier_version = dice_modifiers or tuple(
+            _permanent_modifier_key(modifier)
+            for _stat_id, modifiers in sorted(frozen_modifiers.items())
+            for modifier in modifiers
+        )
+        identity = (
+            int(getattr(reading, "character_id", -1)),
+            int(getattr(reading, "passive_id", -1)),
+            str(getattr(reading, "runtime_class", "")),
+            int(getattr(reading, "passive_object_ptr", 0) or 0),
+        )
+        key = (
+            identity,
+            int(getattr(reading, "level", 0) or 0),
+            int(getattr(reading, "gamba_current_level", 0) or 0),
+            None if chaos_level is None else int(chaos_level),
+            modifier_version,
+        )
+        return cls(
+            reading=reading,
+            chaos_level=None if chaos_level is None else int(chaos_level),
+            permanent_modifiers=frozen_modifiers,
+            key=key,
+        )
+
+
+class _PermanentSourceRecoveryJob:
+    """One daemon calculation polled by the GUI-owned refresh task."""
+
+    def __init__(
+        self,
+        *,
+        tracker,
+        token,
+        sample: _PermanentSourceSample,
+        reserved_modifier_ptrs: frozenset[int],
+        base=None,
+    ) -> None:
+        self.tracker = tracker
+        self.token = token
+        self.sample = sample
+        self.result = None
+        self.error: Exception | None = None
+        self._done = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            args=(reserved_modifier_ptrs, base),
+            name="DicePassiveRecovery",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run(self, reserved_modifier_ptrs, base) -> None:
+        try:
+            self.result = build_permanent_source_recovery(
+                self.sample.reading,
+                chaos_level=self.sample.chaos_level,
+                permanent_modifiers=self.sample.permanent_modifiers,
+                reserved_modifier_ptrs=reserved_modifier_ptrs,
+                base=base,
+            )
+        except Exception as exc:
+            self.error = exc
+        finally:
+            self._done.set()
+
+    def done(self) -> bool:
+        return self._done.is_set()
 
 
 def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
@@ -406,6 +506,7 @@ class RefreshTasks:
         refresh_session_tracked_items: Callable[[], None],
         refresh_required: Callable[[], bool],
         build_progression_service: Callable[[], Any] | None = None,
+        permanent_source_recovery_job_factory: Callable[..., Any] | None = None,
     ) -> None:
         self._memory = memory
         self._lifecycle = lifecycle
@@ -422,11 +523,17 @@ class RefreshTasks:
         self._refresh_session_tracked_items = refresh_session_tracked_items
         self._refresh_required = refresh_required
         self._build_progression_service = build_progression_service or (lambda: None)
+        self._permanent_source_recovery_job_factory = (
+            permanent_source_recovery_job_factory or _PermanentSourceRecoveryJob
+        )
 
         # Owned state. Initialised to the value the ``getattr`` default on the
         # app used to supply, so the read before the first write is unchanged.
         # Nothing outside this file ever touched this name.
         self._player_stats_refresh_status_text = "Live player stats"
+        self._permanent_source_recovery_job = None
+        self._permanent_source_recovery_latest_sample = None
+        self._permanent_source_recovery_retry_at = 0.0
 
     def _refresh_run_lifecycle_probe_task(self, context: RefreshTickContext) -> bool:
         """Refresh lifecycle state first, inside the shared read pass.
@@ -996,13 +1103,31 @@ class RefreshTasks:
             self._memory().record_memory_success()
             update_sources = getattr(self._tracker(), "update_permanent_sources", None)
             if callable(update_sources) and character_passive is not None:
-                update_sources(
-                    character_passive,
-                    chaos_level=chaos_level,
-                    permanent_modifiers=(
-                        permanent_modifiers if chaos_level is not None else {}
-                    ),
+                source_modifiers = permanent_modifiers if chaos_level is not None else {}
+                tracker = self._tracker()
+                needs_recovery = getattr(
+                    tracker, "needs_permanent_source_recovery", None
                 )
+                recovery_required = bool(
+                    self._permanent_source_recovery_job is not None
+                    or callable(needs_recovery)
+                    and needs_recovery(character_passive)
+                )
+                if recovery_required:
+                    sample = _PermanentSourceSample.capture(
+                        character_passive,
+                        chaos_level,
+                        source_modifiers,
+                    )
+                    recovery_required = self._advance_permanent_source_recovery(
+                        sample
+                    )
+                if not recovery_required:
+                    update_sources(
+                        character_passive,
+                        chaos_level=chaos_level,
+                        permanent_modifiers=source_modifiers,
+                    )
             else:
                 self._tracker().update_chaos_tome(
                     chaos_level=chaos_level,
@@ -1026,6 +1151,79 @@ class RefreshTasks:
             self._mark_fast_feature_failed("chaos_tome", exc)
             self._mark_fast_feature_failed("character_passive", exc)
             return False
+
+    def _advance_permanent_source_recovery(
+        self,
+        sample: _PermanentSourceSample,
+    ) -> bool:
+        """Poll/start Dice cold recovery without waiting in the GUI thread."""
+        tracker = self._tracker()
+        job = self._permanent_source_recovery_job
+        if job is not None:
+            self._permanent_source_recovery_latest_sample = sample
+            if not job.done():
+                return True
+
+            self._permanent_source_recovery_job = None
+            latest = self._permanent_source_recovery_latest_sample or sample
+            self._permanent_source_recovery_latest_sample = None
+            if job.error is not None:
+                self._permanent_source_recovery_retry_at = (
+                    time.monotonic() + PERMANENT_SOURCE_RECOVERY_RETRY_SECONDS
+                )
+                self._mark_fast_feature_failed("character_passive", job.error)
+                return True
+
+            apply_result = getattr(tracker, "apply_permanent_source_recovery", None)
+            applied = bool(
+                tracker is job.tracker
+                and callable(apply_result)
+                and apply_result(job.token, job.result, latest.reading)
+            )
+            if not applied:
+                needs_recovery = getattr(
+                    tracker, "needs_permanent_source_recovery", None
+                )
+                if not callable(needs_recovery) or not needs_recovery(latest.reading):
+                    return False
+                return self._start_permanent_source_recovery(latest)
+            if latest.key != job.sample.key:
+                return self._start_permanent_source_recovery(
+                    latest,
+                    base=job.result,
+                )
+            self._permanent_source_recovery_retry_at = 0.0
+            return True
+
+        needs_recovery = getattr(tracker, "needs_permanent_source_recovery", None)
+        if not callable(needs_recovery) or not needs_recovery(sample.reading):
+            return False
+        if time.monotonic() < self._permanent_source_recovery_retry_at:
+            return True
+        return self._start_permanent_source_recovery(sample)
+
+    def _start_permanent_source_recovery(
+        self,
+        sample: _PermanentSourceSample,
+        *,
+        base=None,
+    ) -> bool:
+        tracker = self._tracker()
+        begin = getattr(tracker, "begin_permanent_source_recovery", None)
+        if not callable(begin):
+            return False
+        token, reserved_modifier_ptrs = begin(sample.reading)
+        self._permanent_source_recovery_latest_sample = sample
+        self._permanent_source_recovery_job = (
+            self._permanent_source_recovery_job_factory(
+                tracker=tracker,
+                token=token,
+                sample=sample,
+                reserved_modifier_ptrs=reserved_modifier_ptrs,
+                base=base,
+            )
+        )
+        return True
 
     def _refresh_charge_shrines_task(self, context: RefreshTickContext) -> bool:
         try:

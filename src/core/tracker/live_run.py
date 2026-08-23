@@ -108,6 +108,12 @@ FAST_SIZE_TTL_SECONDS = 3.0
 # ``RunLifecycle`` distinguishes that from a pause, which is byte-identical.
 FAST_ITEM_COOLDOWNS_TTL_SECONDS = FAST_ITEMS_TTL_SECONDS
 
+# Reconstructing Dice's first 255 level-specific rolls is deliberately moved
+# off the refresh/UI thread once the cold history is large enough to be
+# noticeable. Incremental updates below this boundary stay synchronous and
+# retain their existing sub-frame latency.
+PERMANENT_SOURCE_BACKGROUND_RECOVERY_MIN_LEVEL = 64
+
 
 def with_lock(method):
     @wraps(method)
@@ -166,6 +172,98 @@ class _RunState:
 @dataclass
 class _AvailabilityState:
     feature_status: dict[str, FeatureStatus] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PermanentSourceRecoveryToken:
+    generation: int
+    run_id: str | None
+    passive_identity: tuple[int, int, str, int]
+
+
+@dataclass(frozen=True)
+class PermanentSourceRecoveryResult:
+    """Detached Dice/Chaos states computed without touching a live tracker."""
+
+    passive_identity: tuple[int, int, str, int]
+    character_passive_state: _CharacterPassiveState
+    chaos_tome_state: _ChaosTomeState
+
+
+def _update_permanent_source_states(
+    character_passive_state: _CharacterPassiveState,
+    chaos_tome_state: _ChaosTomeState,
+    reading,
+    *,
+    chaos_level: int | None,
+    permanent_modifiers: dict[int, tuple[Any, ...]],
+    reserved_modifier_ptrs: frozenset[int],
+) -> None:
+    """Attribute one immutable sample into detached or tracker-owned states."""
+    previous_chaos_level = chaos_tome_state.chaos_tome_level
+    chaos_budget_rising = bool(
+        chaos_level is not None
+        and (
+            previous_chaos_level is None
+            and int(chaos_level) > 0
+            or previous_chaos_level is not None
+            and int(chaos_level) > int(previous_chaos_level)
+        )
+    )
+    passives.update(
+        character_passive_state,
+        reading,
+        reserved_modifier_ptrs=reserved_modifier_ptrs,
+        avoid_chaos_collisions=chaos_budget_rising,
+    )
+    claimed = (
+        passives.claimed_modifier_ptrs(character_passive_state)
+        | passives.contested_modifier_ptrs(character_passive_state)
+        | reserved_modifier_ptrs
+    )
+    filtered = {
+        int(stat_id): tuple(
+            modifier
+            for modifier in modifiers
+            if int(getattr(modifier, "object_ptr", 0) or 0) not in claimed
+        )
+        for stat_id, modifiers in (permanent_modifiers or {}).items()
+    }
+    chaos.update(
+        chaos_tome_state,
+        chaos_level=chaos_level,
+        permanent_modifiers=filtered,
+    )
+
+
+def build_permanent_source_recovery(
+    reading,
+    *,
+    chaos_level: int | None,
+    permanent_modifiers: dict[int, tuple[Any, ...]],
+    reserved_modifier_ptrs: frozenset[int] = frozenset(),
+    base: PermanentSourceRecoveryResult | None = None,
+) -> PermanentSourceRecoveryResult:
+    """Build a cold or catch-up Dice/Chaos result entirely off-tracker."""
+    if base is None:
+        character_passive_state = _CharacterPassiveState()
+        chaos_tome_state = _ChaosTomeState()
+    else:
+        character_passive_state = copy.deepcopy(base.character_passive_state)
+        chaos_tome_state = copy.deepcopy(base.chaos_tome_state)
+    _update_permanent_source_states(
+        character_passive_state,
+        chaos_tome_state,
+        reading,
+        chaos_level=chaos_level,
+        permanent_modifiers=permanent_modifiers,
+        reserved_modifier_ptrs=reserved_modifier_ptrs,
+    )
+    return PermanentSourceRecoveryResult(
+        passive_identity=passives.reading_identity_key(reading),
+        character_passive_state=character_passive_state,
+        chaos_tome_state=chaos_tome_state,
+    )
 
 
 DEFAULT_TRACKED_ITEM_RULES: tuple[TrackedItemRule, ...] = (
@@ -281,6 +379,7 @@ class LiveRunTracker:
         self.tracked_item_rules = tuple(tracked_item_rules)
         self._tracked_counts = {rule.id: 0 for rule in self.tracked_item_rules}
         self._combo_run_counts = {rule.id: 0 for rule in self.tracked_item_rules}
+        self._permanent_source_generation = 0
         self._lock = threading.RLock()
 
     @with_lock
@@ -461,42 +560,69 @@ class LiveRunTracker:
         rise together, values valid for one Chaos roll remain unresolved on
         the Dice side instead of being awarded by task ordering.
         """
-        previous_chaos_level = self._chaos_state.chaos_tome_level
-        chaos_budget_rising = bool(
-            chaos_level is not None
-            and (
-                previous_chaos_level is None
-                and int(chaos_level) > 0
-                or previous_chaos_level is not None
-                and int(chaos_level) > int(previous_chaos_level)
-            )
-        )
         self._mark_feature_success_unlocked("character_passive", self.clock())
-        passives.update(
-            self._character_passive_state,
-            reading,
-            reserved_modifier_ptrs=frozenset(self._shrine_state.seen_log_ptrs),
-            avoid_chaos_collisions=chaos_budget_rising,
-        )
-        claimed = (
-            passives.claimed_modifier_ptrs(self._character_passive_state)
-            | passives.contested_modifier_ptrs(self._character_passive_state)
-            | frozenset(self._shrine_state.seen_log_ptrs)
-        )
-        filtered = {
-            int(stat_id): tuple(
-                modifier
-                for modifier in modifiers
-                if int(getattr(modifier, "object_ptr", 0) or 0) not in claimed
-            )
-            for stat_id, modifiers in (permanent_modifiers or {}).items()
-        }
         self._mark_feature_success_unlocked("chaos_tome", self.clock())
-        chaos.update(
+        _update_permanent_source_states(
+            self._character_passive_state,
             self._chaos_state,
+            reading,
             chaos_level=chaos_level,
-            permanent_modifiers=filtered,
+            permanent_modifiers=permanent_modifiers,
+            reserved_modifier_ptrs=frozenset(self._shrine_state.seen_log_ptrs),
         )
+
+    @with_lock
+    def needs_permanent_source_recovery(self, reading) -> bool:
+        if not passives.is_gamba_reading(reading):
+            return False
+        current_level = max(0, int(reading.gamba_current_level or 0))
+        if current_level < PERMANENT_SOURCE_BACKGROUND_RECOVERY_MIN_LEVEL:
+            return False
+        return (
+            self._character_passive_state.identity_key
+            != passives.reading_identity_key(reading)
+            or not self._character_passive_state.gamba.initialized
+        )
+
+    @with_lock
+    def begin_permanent_source_recovery(
+        self,
+        reading,
+    ) -> tuple[PermanentSourceRecoveryToken, frozenset[int]]:
+        """Publish `updating` and capture the validation/reservation boundary."""
+        identity = passives.reading_identity_key(reading)
+        passives.mark_recovering(self._character_passive_state, reading)
+        self._mark_feature_success_unlocked("character_passive", self.clock())
+        return (
+            PermanentSourceRecoveryToken(
+                generation=self._permanent_source_generation,
+                run_id=self.run_id,
+                passive_identity=identity,
+            ),
+            frozenset(self._shrine_state.seen_log_ptrs),
+        )
+
+    @with_lock
+    def apply_permanent_source_recovery(
+        self,
+        token: PermanentSourceRecoveryToken,
+        result: PermanentSourceRecoveryResult,
+        reading,
+    ) -> bool:
+        """Atomically publish a detached result if its run still owns it."""
+        identity = passives.reading_identity_key(reading)
+        if (
+            token.generation != self._permanent_source_generation
+            or token.run_id != self.run_id
+            or token.passive_identity != identity
+            or result.passive_identity != identity
+        ):
+            return False
+        self._character_passive_state = result.character_passive_state
+        self._chaos_state = result.chaos_tome_state
+        self._mark_feature_success_unlocked("character_passive", self.clock())
+        self._mark_feature_success_unlocked("chaos_tome", self.clock())
+        return True
 
     @with_lock
     def character_passive_snapshot(self):
@@ -1322,6 +1448,7 @@ class LiveRunTracker:
         )
 
     def _reset_for_new_run(self) -> None:
+        self._permanent_source_generation += 1
         self.run_id = uuid4().hex
         self._lifecycle = RunLifecycle.ACTIVE
         self.snapshots.clear()
