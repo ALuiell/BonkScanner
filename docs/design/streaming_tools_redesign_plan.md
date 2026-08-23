@@ -2,7 +2,7 @@
 
 Three tabs — **OBS Overlay**, **Twitch Bot**, **In-Game Overlay** — rebuilt on one
 shared skeleton. The source mock is retained as a local-only design artifact.
-Palette and control geometry: `ui_assets/bonkscanner_redesign.qss`.
+Palette and control geometry: `ui_assets/bonkscanner_theme.qss`.
 
 > **Status: implemented.** All three tabs are rebuilt. What changed *during*
 > implementation, beyond this plan:
@@ -127,7 +127,7 @@ State arrives through `setText`, exactly as `ScannerToggle` already does
 keep writing their captions. `_set_widget_style_role` renaming `objectName` is
 already survivable — the frame is selected by the `[segmentedToggle="true"]`
 property (`ui/scanner_toggle.py:31-36`), and the QSS rules exist
-(`bonkscanner_redesign.qss:403-448`).
+(`bonkscanner_theme.qss:403-448`).
 
 > **Trap.** A caption-driven control fails silently: a typo in the per-tab
 > caption constants leaves the toggle stuck on Start with nothing raising.

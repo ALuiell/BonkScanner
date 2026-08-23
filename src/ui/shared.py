@@ -50,7 +50,7 @@ class LabeledSwitch(QCheckBox):
     ``paintEvent`` -- but its *colours* still come from the stylesheet, through
     ``qproperty-`` on the eight properties below. That distinction is the point:
     with the values inlined in ``paintEvent`` this was the one control on the
-    Live Stats tab that a palette change in `bonkscanner_redesign.qss` could not
+    Live Stats tab that a palette change in `bonkscanner_theme.qss` could not
     reach, so it would drift away from the segments and the selected sub-tab
     silently, with nothing in the stylesheet to say why.
 

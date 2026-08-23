@@ -29,7 +29,7 @@ from pathlib import Path
 
 SRC_DIR = Path(src.__file__).resolve().parent
 STYLES = SRC_DIR / "ui" / "styles.py"
-REDESIGN = SRC_DIR.parent / "ui_assets" / "bonkscanner_redesign.qss"
+REDESIGN = SRC_DIR.parent / "ui_assets" / "bonkscanner_theme.qss"
 
 #: Where the fallback block starts and ends inside `styles.py`. Sliced by
 #: markers rather than line numbers so an edit above it does not silently move
@@ -87,7 +87,7 @@ class StylesheetOrphanTests(unittest.TestCase):
             "These object names are styled only by the fallback stylesheet, "
             "which ships only when the redesign asset cannot be read -- so in "
             "a real build they are unstyled. Move the rule into "
-            "ui_assets/bonkscanner_redesign.qss:\n"
+            "ui_assets/bonkscanner_theme.qss:\n"
             + "\n".join(f"  {name}: {', '.join(w)}" for name, w in sorted(orphans.items())),
         )
 

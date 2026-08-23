@@ -477,7 +477,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                 .replace("__CHECKMARK_ICON__", checkmark_path)
     )
 
-    redesign_path = Path(resource_path("ui_assets/bonkscanner_redesign.qss"))
+    redesign_path = Path(resource_path("ui_assets/bonkscanner_theme.qss"))
     try:
         redesign_stylesheet = redesign_path.read_text(encoding="utf-8")
     except OSError:
@@ -1124,7 +1124,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
 
     # Minimal mirror of the canonical Compare Runs rules above. This is only
     # the source-run/partial-install fallback when the external QSS asset is
-    # unavailable; visual changes belong in bonkscanner_redesign.qss first.
+    # unavailable; visual changes belong in bonkscanner_theme.qss first.
     compare_runs_compatibility_stylesheet = """
         QWidget#CompareRunsPage, QWidget#CompareRunsTabPage,
         QWidget#CompareRunsWorkspacePage, QWidget#CompareRunsChooserPage,

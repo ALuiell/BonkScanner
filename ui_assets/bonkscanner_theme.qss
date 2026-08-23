@@ -1,5 +1,5 @@
 /* ============================================================================
-   BonkScanner — Redesign QSS (v3, full)
+   BonkScanner — Application Theme QSS (v3, full)
    Полный стиль под PySide6/Qt. Классы применяются через objectName в Python:
    widget.setObjectName("primary")  /  для состояния: setProperty + polish.
 

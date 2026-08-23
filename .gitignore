@@ -62,6 +62,6 @@ docs/agent_reviews_local/
 # published from this directory.
 ui_assets/**
 !ui_assets/
-!ui_assets/bonkscanner_redesign.qss
+!ui_assets/bonkscanner_theme.qss
 
 Dump

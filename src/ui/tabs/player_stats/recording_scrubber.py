@@ -42,7 +42,7 @@ from ui.timeline_visuals import (
 
 
 # Shared painter tokens are defined in `ui/timeline_visuals.py` and mirrored by
-# `ui_assets/bonkscanner_redesign.qss`; QSS cannot style custom-painted pixels.
+# `ui_assets/bonkscanner_theme.qss`; QSS cannot style custom-painted pixels.
 _BG = TRACK_SURFACE
 _BORDER = TRACK_BORDER
 _BAND_TOP = STAGE_A_FILL
