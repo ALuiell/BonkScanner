@@ -1963,7 +1963,7 @@ _COMPARE_POINT_B_COLOR = "#C084FC"
 
 
 def compare_detail_rarity_rows(
-    previous_snapshot, snapshot, *, segment_snapshots=()
+    previous_snapshot, snapshot, *, segment_snapshots=(), item_changes=None
 ) -> tuple[tuple[str, str], ...]:
     """The segment's item changes as `((label html, items html), ...)`.
 
@@ -1985,9 +1985,11 @@ def compare_detail_rarity_rows(
     Pure and here rather than in the tab: the grouping is a projection
     decision, and this way it is testable without a widget.
     """
-    changes = summarize_item_segment_changes(
-        segment_snapshots or (previous_snapshot, snapshot)
-    )
+    changes = item_changes
+    if changes is None:
+        changes = summarize_item_segment_changes(
+            segment_snapshots or (previous_snapshot, snapshot)
+        )
     rows: list[tuple[str, str]] = list(
         _compare_gain_rarity_rows(changes.get("gained") or ())
     )
@@ -2063,7 +2065,9 @@ def _compare_gain_item_html(display_name: str, count: int, rarity_color: str) ->
     )
 
 
-def format_segment_headline(base_snapshot, snapshot, *, segment_snapshots=()) -> str:
+def format_segment_headline(
+    base_snapshot, snapshot, *, segment_snapshots=(), item_changes=None
+) -> str:
     """The compare card's header line: `Segment A 12:40 -> B 52:10 · totals`.
 
     One line where there used to be two -- a rarity-dot gains preview and a
@@ -2084,7 +2088,9 @@ def format_segment_headline(base_snapshot, snapshot, *, segment_snapshots=()) ->
         f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(base_snapshot))}</span>'
     ]
     span = tuple(segment_snapshots or (base_snapshot, snapshot))
-    changes = summarize_item_segment_changes(span)
+    changes = item_changes
+    if changes is None:
+        changes = summarize_item_segment_changes(span)
     # Levels, items, kills -- the mockup's order, and the order they grow in.
     level_delta = _segment_counter_delta(span, "player_level")
     if level_delta:

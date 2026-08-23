@@ -850,9 +850,10 @@ class RecordingsTab:
         if self._scrubber is not None:
             self._scrubber.set_index(index)
         snapshot = self._loaded_vod.snapshots[index]
-        # One repaint for the whole tab rather than one per widget: this method
-        # writes ~40 of them.
-        with batched_updates(self._tab):
+        # Batch the detail pane that receives the ~40 writes, without forcing
+        # the timeline and the whole Recordings tab through a repaint on every
+        # scrubbed frame. Items chips manage their own update batch.
+        with batched_updates(self._detail_tabs):
             self._render_loaded_vod_snapshot(index, snapshot)
     def _render_loaded_vod_snapshot(self, index: int, snapshot) -> None:
         # No status-line write here any more. It restated the position pill --
@@ -882,10 +883,19 @@ class RecordingsTab:
         # totals are not a function of where you are looking -- and put a walk
         # over the whole prefix on the drag path.
         self._refresh_stage_cards()
-        previous_snapshot = self._resolve_vod_compare_base_snapshot(index)
-        segment_snapshots = self._vod_compare_segment_snapshots(index)
-        self._refresh_vod_compare_controls()
-        self._refresh_vod_compare_details(previous_snapshot, snapshot, index=index, segment_snapshots=segment_snapshots)
+        if self._compare_start_index is None:
+            # Compare Details is hidden without a pin. Do not resolve or walk
+            # an invisible ten-second segment on every scrubbed frame.
+            self._refresh_vod_compare_details(None, snapshot, index=index)
+        else:
+            previous_snapshot = self._resolve_vod_compare_base_snapshot(index)
+            segment_snapshots = self._vod_compare_segment_snapshots(index)
+            self._refresh_vod_compare_details(
+                previous_snapshot,
+                snapshot,
+                index=index,
+                segment_snapshots=segment_snapshots,
+            )
         update_banishes_section(
             getattr(self, "_banishes_view", None),
             self._banishes_label,
@@ -1130,20 +1140,31 @@ class RecordingsTab:
         group = self._compare_details_group
         if group is not None:
             group.setVisible(pinned and base_snapshot is not None and snapshot is not None)
+        if not pinned:
+            return
         if base_snapshot is None or snapshot is None:
             _set_text(self._compare_details_summary_label, "--")
             self._render_compare_detail_rows(())
             return
 
+        item_changes = formatting.summarize_item_segment_changes(
+            segment_snapshots or (base_snapshot, snapshot)
+        )
         _set_text(
             self._compare_details_summary_label,
             formatting.format_segment_headline(
-                base_snapshot, snapshot, segment_snapshots=segment_snapshots
+                base_snapshot,
+                snapshot,
+                segment_snapshots=segment_snapshots,
+                item_changes=item_changes,
             ),
         )
         self._render_compare_detail_rows(
             formatting.compare_detail_rarity_rows(
-                base_snapshot, snapshot, segment_snapshots=segment_snapshots
+                base_snapshot,
+                snapshot,
+                segment_snapshots=segment_snapshots,
+                item_changes=item_changes,
             )
         )
 

@@ -272,6 +272,30 @@ def patched_formatters():
 
 
 class CompareRunsDiffCacheTests(unittest.TestCase):
+    def test_redesigned_stage_tab_skips_the_invisible_legacy_summary(self) -> None:
+        tab = build_diffable_compare_tab()
+        tab._detail_tabs = MagicMock()
+        tab._stage_summary_enabled = True
+        tab._set_compare_runs_diff_cards = MagicMock()
+        stages_table = MetricTable()
+
+        with (
+            patched_formatters(),
+            patch.object(
+                formatting,
+                "build_compare_runs_stages_table",
+                return_value=stages_table,
+            ) as build_table,
+        ):
+            tab._refresh_compare_runs_diff()
+
+            formatting.format_compare_runs_stage_summary_diff.assert_not_called()
+            build_table.assert_called_once()
+
+        payload = tab._set_compare_runs_diff_cards.call_args.kwargs
+        self.assertEqual("--", payload["stage_summary_text"])
+        self.assertIs(stages_table, payload["stages_table"])
+
     def test_scrubbing_back_to_a_seen_frame_reformats_nothing(self) -> None:
         tab = build_diffable_compare_tab()
         tab._set_compare_runs_diff_cards = MagicMock()

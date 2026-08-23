@@ -257,6 +257,11 @@ class ItemsSectionView:
         self._items: tuple[str, ...] = ()
         self._items_text: str | None = None
         self._render_signature: tuple | None = None
+        # Scrubbing a recording changes item counts frequently, but usually
+        # leaves the list's shape almost identical. Keep the QLabel instances
+        # in the FlowLayout and update them in place instead of deleting and
+        # recreating every chip on every rendered frame.
+        self._chip_widgets: list[QLabel] = []
 
     # -- rendering ------------------------------------------------------------
 
@@ -344,26 +349,39 @@ class ItemsSectionView:
         scroll_position = scrollbar.value() if scrollbar is not None else None
         self._chips_container.setUpdatesEnabled(False)
         try:
-            _clear_layout(layout)
             if placeholder is not None:
-                note = QLabel(placeholder)
-                note.setObjectName("itemChipNote")
-                layout.addWidget(note)
-                return
-            if not items:
-                note = QLabel("--")
-                note.setObjectName("itemChipNote")
-                layout.addWidget(note)
-                return
-            for item_text in items:
-                display_text, object_name = formatting.item_chip_display(item_text)
-                chip = QLabel(display_text)
-                chip.setObjectName(object_name)
-                layout.addWidget(chip)
+                rendered = [(placeholder, "itemChipNote")]
+            elif not items:
+                rendered = [("--", "itemChipNote")]
+            else:
+                rendered = [
+                    formatting.item_chip_display(item_text)
+                    for item_text in items
+                ]
             if more_count > 0:
-                more_label = QLabel(f"+{more_count} more")
-                more_label.setObjectName("itemChipNote")
-                layout.addWidget(more_label)
+                rendered.append((f"+{more_count} more", "itemChipNote"))
+
+            while len(self._chip_widgets) < len(rendered):
+                chip = QLabel()
+                layout.addWidget(chip)
+                self._chip_widgets.append(chip)
+
+            for index, (text, object_name) in enumerate(rendered):
+                chip = self._chip_widgets[index]
+                if chip.text() != text:
+                    chip.setText(text)
+                if chip.objectName() != object_name:
+                    chip.setObjectName(object_name)
+                    # Object-name selectors choose the rarity colour. Qt does
+                    # not automatically repolish an existing widget when its
+                    # objectName changes, so make the new selector effective.
+                    style = chip.style()
+                    style.unpolish(chip)
+                    style.polish(chip)
+                chip.setVisible(True)
+
+            for chip in self._chip_widgets[len(rendered) :]:
+                chip.setVisible(False)
         finally:
             self._chips_container.setUpdatesEnabled(True)
             self._chips_container.updateGeometry()

@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
+from projections import formatting
 from support.player_stats import (
     RecordingItemsSectionView,
     RecordingStatCardsView,
@@ -279,6 +281,51 @@ class CompareDetailsVisibilityTests(unittest.TestCase):
         tab.display_loaded_vod_snapshot(3)
 
         self.assertFalse(tab._compare_details_group.visible)
+
+    def test_hidden_details_do_not_format_an_invisible_segment(self) -> None:
+        tab = self._tab()
+        tab._compare_start_index = None
+
+        with (
+            patch.object(formatting, "summarize_item_segment_changes") as summarize,
+            patch.object(formatting, "format_segment_headline") as headline,
+            patch.object(formatting, "compare_detail_rarity_rows") as rows,
+        ):
+            tab.display_loaded_vod_snapshot(3)
+
+        summarize.assert_not_called()
+        headline.assert_not_called()
+        rows.assert_not_called()
+
+    def test_pinned_details_share_one_item_segment_summary(self) -> None:
+        tab = self._tab()
+        tab._compare_start_index = 0
+        segment = SNAPSHOTS[:4]
+        changes = {"gained": (), "broken": (), "lost": ()}
+
+        with (
+            patch.object(
+                formatting,
+                "summarize_item_segment_changes",
+                return_value=changes,
+            ) as summarize,
+            patch.object(
+                formatting, "format_segment_headline", return_value="headline"
+            ) as headline,
+            patch.object(
+                formatting, "compare_detail_rarity_rows", return_value=()
+            ) as rows,
+        ):
+            tab._refresh_vod_compare_details(
+                SNAPSHOTS[0],
+                SNAPSHOTS[3],
+                index=3,
+                segment_snapshots=segment,
+            )
+
+        summarize.assert_called_once_with(segment)
+        self.assertIs(headline.call_args.kwargs["item_changes"], changes)
+        self.assertIs(rows.call_args.kwargs["item_changes"], changes)
 
     def test_shown_once_a_pin_exists(self) -> None:
         tab = self._tab()

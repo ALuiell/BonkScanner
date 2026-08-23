@@ -1141,6 +1141,7 @@ class CompareRunsTab:
         show_passives = bool(self._passives_enabled)
         item_details_expanded = bool(self._item_details_expanded)
         stat_labels = tuple(self._compare_run_selected_stat_labels())
+        legacy_diff_cards = self._detail_tabs is None
 
         # Everything that can change a formatted diff is in this key -- both
         # recordings, both indexes, which sections are on, the selected stats,
@@ -1161,6 +1162,7 @@ class CompareRunsTab:
             show_chaos,
             show_shrines,
             show_passives,
+            legacy_diff_cards,
         )
         cached = self._diff_cache.get(cache_key)
         if cached is None:
@@ -1206,7 +1208,7 @@ class CompareRunsTab:
                         vod_b,
                         self._compare_run_index("b"),
                     )
-                    if show_stage_summary
+                    if show_stage_summary and legacy_diff_cards
                     else "--"
                 ),
                 (
