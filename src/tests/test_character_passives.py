@@ -348,6 +348,13 @@ class CharacterPassiveMemoryReaderTests(unittest.TestCase):
         )
         return memory, owner
 
+    def test_character_identity_does_not_depend_on_passive_runtime_fields(self) -> None:
+        memory, owner = self._fox_memory()
+
+        identity = PlayerStatsClient(memory=memory).get_character_identity(owner)
+
+        self.assertEqual(identity, (0, "Fox"))
+
     def test_reads_validated_fox_identity_runtime_field_and_owned_modifier(self) -> None:
         memory, owner = self._fox_memory()
         reading = PlayerStatsClient(memory=memory).get_character_passive_reading(owner)

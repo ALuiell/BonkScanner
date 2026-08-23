@@ -752,10 +752,31 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, f"Dice passive is not active for this run{suffix}.")
             return
 
+        status_value = getattr(passive, "status", None)
+        status = str(getattr(status_value, "value", status_value) or "").casefold()
+        unavailable_messages = {
+            "unsupported": "Dice passive tracking is not supported.",
+            "unavailable": "Dice passive tracking is unavailable.",
+            "unknown": "Dice passive tracking is unavailable for this game build.",
+        }
+        if status in unavailable_messages:
+            self._send_chat(channel, unavailable_messages[status])
+            return
+
         effects = tuple(getattr(passive, "effects", ()) or ())
         level = max(0, int(getattr(passive, "level", 0) or 0))
         rolls = sum(max(0, int(getattr(effect, "count", 0) or 0)) for effect in effects)
         ambiguous = max(0, int(getattr(passive, "ambiguous", 0) or 0))
+        if status == "partial":
+            tracking_suffix = (
+                f" (partial: {ambiguous} unresolved)"
+                if ambiguous
+                else " (partial)"
+            )
+        elif status == "updating":
+            tracking_suffix = " (tracking updating)"
+        else:
+            tracking_suffix = ""
         parts = []
         for effect in effects:
             label = str(getattr(effect, "label", "") or "")
@@ -778,14 +799,15 @@ class TwitchBotWorker(QThread):
             "ambiguous": ambiguous,
         }
         if not parts:
+            text = self._format_template(
+                "dice",
+                "Dice Lv{level}: {dice}",
+                dice="no bonuses tracked yet",
+                **template_values,
+            )
             self._send_chat(
                 channel,
-                self._format_template(
-                    "dice",
-                    "Dice Lv{level}: {dice}",
-                    dice="no bonuses tracked yet",
-                    **template_values,
-                ),
+                truncate_chat_message(f"{text}{tracking_suffix}"),
             )
             return
 
@@ -799,7 +821,7 @@ class TwitchBotWorker(QThread):
                 dice=" | ".join(candidate),
                 **template_values,
             )
-            if current and len(rendered) > 450:
+            if current and len(rendered) + len(tracking_suffix) > 450:
                 chunks.append(current)
                 current = [part]
             else:
@@ -813,7 +835,10 @@ class TwitchBotWorker(QThread):
                 dice=" | ".join(chunk),
                 **template_values,
             )
-            self._send_chat(channel, truncate_chat_message(text))
+            self._send_chat(
+                channel,
+                truncate_chat_message(f"{text}{tracking_suffix}"),
+            )
 
     def _handle_stages(self, channel: str):
         rows = self._runtime_snapshot().stage_summary

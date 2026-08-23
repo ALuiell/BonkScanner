@@ -592,6 +592,26 @@ def _reset_owner_snapshot_buffer(owner) -> None:
 
 
 def _read_owner_character_identity(owner) -> tuple[int, str] | None:
+    # Recording can start from the armed/waiting state before the first full
+    # snapshot resets the previous run. Read the active process first so a
+    # cached Dice snapshot cannot name a new Fox recording. The tracker remains
+    # a best-effort fallback for a transient start-time memory failure.
+    try:
+        memory = player_stats_memory(owner)
+        client = memory._get_player_stats_client()
+        owner_stats = client.resolve_owner_stats()
+        identity_reader = getattr(client, "get_character_identity", None)
+        if callable(identity_reader):
+            character_id, character_name = identity_reader(owner_stats)
+        else:
+            reading = client.get_character_passive_reading(owner_stats)
+            character_id = reading.character_id
+            character_name = reading.character_name
+        if int(character_id) >= 0 and str(character_name).strip():
+            return int(character_id), str(character_name).strip()
+    except Exception:
+        pass
+
     tracker = getattr(owner, "live_run_tracker", None)
     snapshot_reader = getattr(tracker, "character_passive_snapshot", None)
     if callable(snapshot_reader):
@@ -600,14 +620,7 @@ def _read_owner_character_identity(owner) -> tuple[int, str] | None:
             name = str(getattr(snapshot, "character_name", "") or "").strip()
             if name:
                 return int(snapshot.character_id), name
-
-    memory = player_stats_memory(owner)
-    client = memory._get_player_stats_client()
-    owner_stats = client.resolve_owner_stats()
-    reading = client.get_character_passive_reading(owner_stats)
-    if int(reading.character_id) < 0 or not str(reading.character_name).strip():
-        return None
-    return int(reading.character_id), str(reading.character_name).strip()
+    return None
 
 
 def vod_capture(owner) -> VodCapture:

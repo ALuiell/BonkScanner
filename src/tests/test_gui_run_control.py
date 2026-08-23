@@ -60,6 +60,7 @@ from ui.dialogs import (
 )
 from app.vod_capture import (
     PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
+    _read_owner_character_identity,
     _stage_index_signals_new_run,
     vod_capture,
 )
@@ -1882,6 +1883,26 @@ class GuiRunControlTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_recording_identity_prefers_live_character_over_previous_run_cache(self) -> None:
+        owner = SimpleNamespace(
+            live_run_tracker=SimpleNamespace(
+                character_passive_snapshot=lambda: SimpleNamespace(
+                    character_id=18,
+                    character_name="Dice",
+                )
+            )
+        )
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_character_identity=lambda _owner: (0, "Fox"),
+        )
+        memory = SimpleNamespace(_get_player_stats_client=lambda: client)
+
+        with patch("app.vod_capture.player_stats_memory", return_value=memory):
+            identity = _read_owner_character_identity(owner)
+
+        self.assertEqual(identity, (0, "Fox"))
 
     def test_stop_recording_forces_final_snapshot_before_closing_recorder(self) -> None:
         recording_state = []

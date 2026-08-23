@@ -590,6 +590,50 @@ class TestTwitchBotWorker(unittest.TestCase):
             "channel", "Dice Lv145: DMG +17% | Luck +14%"
         )
 
+    def test_handle_dice_marks_partial_totals_as_incomplete(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.runtime_snapshot.side_effect = None
+        self.run_tracker.runtime_snapshot.return_value = SimpleNamespace(
+            character_passive=SimpleNamespace(
+                character_name="Dice",
+                level=145,
+                status=SimpleNamespace(value="partial"),
+                ambiguous=3,
+                effects=(
+                    SimpleNamespace(
+                        label="Damage",
+                        display_delta="+16.8%",
+                        count=8,
+                    ),
+                ),
+            )
+        )
+
+        self.bot._handle_dice("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel", "Dice Lv145: DMG +17% (partial: 3 unresolved)"
+        )
+
+    def test_handle_dice_reports_unavailable_tracking_instead_of_zero_bonuses(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.runtime_snapshot.side_effect = None
+        self.run_tracker.runtime_snapshot.return_value = SimpleNamespace(
+            character_passive=SimpleNamespace(
+                character_name="Dice",
+                level=145,
+                status=SimpleNamespace(value="unavailable"),
+                ambiguous=0,
+                effects=(),
+            )
+        )
+
+        self.bot._handle_dice("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel", "Dice passive tracking is unavailable."
+        )
+
     def test_handle_dice_rejects_another_characters_passive(self):
         self.bot._send_chat = MagicMock()
         self.run_tracker.runtime_snapshot.side_effect = None

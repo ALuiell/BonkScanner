@@ -1237,6 +1237,29 @@ class PlayerStatsClient:
             force_rescan=force_modifier_rescan,
         )
 
+    def get_character_identity(
+        self,
+        owner_stats: int | None = None,
+    ) -> tuple[int, str]:
+        """Read the selected character without depending on passive internals."""
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        player_inventory = self.memory.read_ptr(
+            owner_stats + self.PLAYER_INVENTORY_OFFSET
+        )
+        if not player_inventory:
+            raise MemoryReadError("Player inventory is not initialized.")
+        character_data = self.memory.read_ptr(
+            player_inventory + self.CHARACTER_DATA_OFFSET
+        )
+        if not character_data:
+            raise MemoryReadError("Character data is not initialized.")
+        character_id = self.memory.read_i32(
+            character_data + self.CHARACTER_DATA_CHARACTER_ID_OFFSET
+        )
+        spec = CHARACTER_PASSIVE_SPEC_BY_CHARACTER_ID.get(character_id)
+        character_name = spec.character_name if spec else f"Character {character_id}"
+        return character_id, character_name
+
     def get_character_passive_reading(
         self,
         owner_stats: int | None = None,
