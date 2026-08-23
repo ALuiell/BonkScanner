@@ -179,6 +179,7 @@ class PermanentSourceRecoveryToken:
     generation: int
     run_id: str | None
     passive_identity: tuple[int, int, str, int]
+    reserved_modifier_ptrs: frozenset[int]
 
 
 @dataclass(frozen=True)
@@ -591,6 +592,7 @@ class LiveRunTracker:
     ) -> tuple[PermanentSourceRecoveryToken, frozenset[int]]:
         """Publish `updating` and capture the validation/reservation boundary."""
         identity = passives.reading_identity_key(reading)
+        reserved_modifier_ptrs = frozenset(self._shrine_state.seen_log_ptrs)
         passives.mark_recovering(self._character_passive_state, reading)
         self._mark_feature_success_unlocked("character_passive", self.clock())
         return (
@@ -598,8 +600,9 @@ class LiveRunTracker:
                 generation=self._permanent_source_generation,
                 run_id=self.run_id,
                 passive_identity=identity,
+                reserved_modifier_ptrs=reserved_modifier_ptrs,
             ),
-            frozenset(self._shrine_state.seen_log_ptrs),
+            reserved_modifier_ptrs,
         )
 
     @with_lock
@@ -616,6 +619,8 @@ class LiveRunTracker:
             or token.run_id != self.run_id
             or token.passive_identity != identity
             or result.passive_identity != identity
+            or token.reserved_modifier_ptrs
+            != frozenset(self._shrine_state.seen_log_ptrs)
         ):
             return False
         self._character_passive_state = result.character_passive_state

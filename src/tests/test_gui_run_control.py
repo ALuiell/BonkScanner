@@ -31,6 +31,7 @@ from app.snapshot_store import LiveSnapshotStore, live_snapshot_store
 from app.run_lifecycle import run_lifecycle
 from app.refresh_tasks import (
     PASSIVE_ITEMS_REFRESH_MS,
+    TERMINAL_PERMANENT_SOURCE_RECOVERY_GRACE_SECONDS,
     ensure_refresh_coordinator,
     player_stats_refresh_required,
     refresh_tasks,
@@ -3609,6 +3610,110 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(len(applied), 2)
         self.assertEqual(len(jobs), 2)
         self.assertEqual(sync_updates, [])
+
+    def test_terminal_lifecycle_applies_dice_recovery_before_stopping_vod(self) -> None:
+        reading = SimpleNamespace(
+            character_id=18,
+            passive_id=15,
+            runtime_class="PassiveAbilityGamba",
+            passive_object_ptr=0x5000,
+            character_name="Dice",
+            level=64,
+            gamba_current_level=64,
+            permanent_modifiers=(),
+        )
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_chaos_tracking_state=lambda _owner: (0, {}),
+            get_character_passive_reading=lambda _owner, **_kwargs: reading,
+        )
+        jobs: list[object] = []
+
+        class ControlledJob:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+                self.error = None
+                self.result = object()
+                self.completed = False
+                jobs.append(self)
+
+            def done(self):
+                return self.completed
+
+        applied: list[tuple[object, object, object]] = []
+        sync_updates: list[object] = []
+        events: list[str] = []
+
+        def apply_recovery(token, result, latest):
+            events.append("apply")
+            applied.append((token, result, latest))
+            return True
+
+        tracker = SimpleNamespace(
+            needs_permanent_source_recovery=lambda _reading: not applied,
+            begin_permanent_source_recovery=lambda _reading: ("token", frozenset()),
+            apply_permanent_source_recovery=apply_recovery,
+            update_permanent_sources=lambda latest, **_kwargs: sync_updates.append(latest),
+            chaos_tome_snapshot=lambda: None,
+            character_passive_snapshot=lambda: None,
+            mark_feature_available=lambda _feature: None,
+            mark_feature_failed=lambda _feature, _error: None,
+        )
+        lifecycle = SimpleNamespace(completed_run=False)
+        service, _world = build_refresh_tasks(
+            stats_client=client,
+            tracker=tracker,
+            lifecycle=lifecycle,
+            capture=SimpleNamespace(
+                sync_run_state=lambda _context=None: events.append("stop") or "stopped"
+            ),
+            vod_recorder=SimpleNamespace(is_recording=True),
+            permanent_source_recovery_job_factory=ControlledJob,
+        )
+        service._refresh_charge_shrines_task = (
+            lambda _context: events.append("shrines") or True
+        )
+
+        # Start recovery during the live run, then cross the terminal boundary
+        # before its background calculation finishes.
+        self.assertTrue(
+            service._refresh_chaos_tome_task(
+                RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+            )
+        )
+        lifecycle.completed_run = True
+        self.assertTrue(
+            service._refresh_recording_lifecycle_task(
+                RefreshTickContext(pass_id=2, started_at=0.0, clock=lambda: 0.0)
+            )
+        )
+        self.assertNotIn("stop", events)
+        self.assertEqual(applied, [])
+        self.assertIn("finalizing recording", service._player_stats_refresh_status_text)
+
+        jobs[0].completed = True
+        self.assertTrue(
+            service._refresh_recording_lifecycle_task(
+                RefreshTickContext(pass_id=3, started_at=0.0, clock=lambda: 0.0)
+            )
+        )
+
+        self.assertEqual(len(applied), 1)
+        self.assertEqual(sync_updates, [])
+        self.assertEqual(events[-3:], ["shrines", "apply", "stop"])
+
+    def test_terminal_dice_recovery_grace_is_bounded(self) -> None:
+        service, _world = build_refresh_tasks()
+        service._permanent_source_recovery_job = object()
+        grace = TERMINAL_PERMANENT_SOURCE_RECOVERY_GRACE_SECONDS
+
+        with patch(
+            "app.refresh_tasks.time.monotonic",
+            side_effect=(100.0, 100.0 + grace, 101.0 + grace),
+        ):
+            self.assertTrue(service._should_defer_terminal_recording_stop())
+            self.assertFalse(service._should_defer_terminal_recording_stop())
+            self.assertFalse(service._should_defer_terminal_recording_stop())
 
     def test_powerup_failure_does_not_block_other_owner_tasks(self) -> None:
         expected_updates: list[tuple[int, int]] = []

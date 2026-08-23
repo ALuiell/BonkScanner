@@ -8,7 +8,11 @@ from core.character_passives import (
     CharacterPassiveStatus,
 )
 from core.stats.formats import PlayerStatFormat
-from core.stats.types import PlayerStatModifierSnapshot
+from core.stats.types import (
+    ChargeShrineLogEntry,
+    ChargeShrineReading,
+    PlayerStatModifierSnapshot,
+)
 from core.tracker import passives
 from core.tracker.passives import (
     _CharacterPassiveState,
@@ -334,6 +338,51 @@ class GambaAdapterTests(unittest.TestCase):
             expected.character_passive_snapshot(),
         )
         self.assertEqual(tracker.chaos_tome_snapshot(), expected.chaos_tome_snapshot())
+
+    def test_cold_recovery_is_rejected_after_shrine_reservations_change(self) -> None:
+        roll = _modifier(0xD100, 5, 0.06)
+        reading = _reading(
+            18,
+            level=64,
+            gamba_current_level=64,
+            gamba_upgrade_multiplier=0.75,
+            gamba_min_multiplier=0.06,
+            gamba_max_multiplier=1.0,
+            permanent_modifiers=(roll,),
+        )
+        tracker = LiveRunTracker()
+        token, reserved = tracker.begin_permanent_source_recovery(reading)
+        result = build_permanent_source_recovery(
+            reading,
+            chaos_level=0,
+            permanent_modifiers={5: (roll,)},
+            reserved_modifier_ptrs=reserved,
+        )
+        tracker.update_charge_shrines(
+            ChargeShrineReading(
+                charged_total=1,
+                shown_log=(
+                    ChargeShrineLogEntry(
+                        object_ptr=roll.object_ptr,
+                        stat_id=roll.stat_id,
+                        label=roll.label,
+                        value=roll.value,
+                        value_format=roll.value_format,
+                        modify_type=roll.modify_type,
+                    ),
+                ),
+            ),
+            wrench_stacks=0,
+        )
+
+        self.assertEqual(tracker.charge_shrine_snapshot().selected, 1)
+        self.assertFalse(
+            tracker.apply_permanent_source_recovery(token, result, reading)
+        )
+        self.assertEqual(
+            tracker.character_passive_snapshot().status,
+            CharacterPassiveStatus.UPDATING,
+        )
 
     def test_cold_recovery_result_is_rejected_after_run_reset(self) -> None:
         roll = _modifier(0xE000, 12, gamba_roll_value(12, 1.0, 0))

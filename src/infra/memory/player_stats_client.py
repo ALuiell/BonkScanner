@@ -1614,13 +1614,35 @@ class PlayerStatsClient:
         changed_stat_ids = set(self._cached_permanent_modifier_dirty_stat_ids)
         if dictionary_changed:
             previous_lists = self._cached_permanent_modifier_lists
+            # Treat the dictionary header and its resolved stat lists as one
+            # cache transaction. A live writer can expose the new count/version
+            # before every new entry is readable; committing the header first
+            # would make the next tick accept the old list map as current after
+            # a transient scan failure.
+            current_lists = self._find_permanent_modifier_lists(
+                dictionary_address,
+                entries=entries,
+                count=count,
+            )
+            verified_header = (
+                self.memory.read_ptr(
+                    dictionary_address + self.DICT_ENTRIES_OFFSET
+                ),
+                self.memory.read_i32(
+                    dictionary_address + self.DICT_COUNT_OFFSET
+                ),
+                self.memory.read_i32(
+                    dictionary_address + self.DICT_VERSION_OFFSET
+                ),
+            )
+            if verified_header != (entries, count, version):
+                raise MemoryReadError(
+                    "Permanent stat dictionary changed during cache refresh."
+                )
             self._cached_permanent_modifiers_dict = dictionary_address
             self._cached_permanent_modifiers_entries = entries
             self._cached_permanent_modifiers_count = count
             self._cached_permanent_modifiers_version = version
-            current_lists = self._find_permanent_modifier_lists(
-                dictionary_address, count=count
-            )
             self._cached_permanent_modifier_lists = current_lists
             changed_stat_ids.update(
                 stat_id
@@ -1719,9 +1741,13 @@ class PlayerStatsClient:
         self,
         dictionary_address: int,
         *,
+        entries: int | None = None,
         count: int | None = None,
     ) -> dict[int, tuple[int, int, int, int, tuple[int, ...]]]:
-        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if entries is None:
+            entries = self.memory.read_ptr(
+                dictionary_address + self.DICT_ENTRIES_OFFSET
+            )
         if not entries:
             return {}
         if count is None:
@@ -1739,7 +1765,9 @@ class PlayerStatsClient:
             stat_id = self.memory.read_i32(entry + self.WEAPON_DICT_ENTRY_KEY_OFFSET)
             list_address = self.memory.read_ptr(entry + self.WEAPON_DICT_ENTRY_VALUE_OFFSET)
             if not list_address:
-                continue
+                raise MemoryReadError(
+                    f"Permanent stat modifier list pointer is null for stat {stat_id}."
+                )
             items_array = self.memory.read_ptr(list_address + self.LIST_ITEMS_OFFSET)
             size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
             list_version = self.memory.read_i32(list_address + self.LIST_VERSION_OFFSET)
@@ -1766,19 +1794,31 @@ class PlayerStatsClient:
         *,
         expected_stat_id: int,
     ) -> tuple[int, ...]:
-        if not items_array or size <= 0:
+        if size <= 0:
             return ()
+        if not items_array:
+            raise MemoryReadError(
+                f"Permanent stat modifier array pointer is null for stat {expected_stat_id}."
+            )
         modifier_ptrs: list[int] = []
         for index in range(size):
             modifier_ptr = self.memory.read_ptr(
                 items_array + self.ARRAY_DATA_OFFSET + (index * self.OBJECT_POINTER_SIZE)
             )
             if not modifier_ptr:
-                continue
-            if self.memory.read_i32(
+                raise MemoryReadError(
+                    "Permanent stat modifier pointer is null "
+                    f"for stat {expected_stat_id} at index {index}."
+                )
+            actual_stat_id = self.memory.read_i32(
                 modifier_ptr + self.STAT_MODIFIER_STAT_OFFSET
-            ) == expected_stat_id:
-                modifier_ptrs.append(modifier_ptr)
+            )
+            if actual_stat_id != expected_stat_id:
+                raise MemoryReadError(
+                    "Permanent stat modifier has an unexpected stat id "
+                    f"{actual_stat_id}; expected {expected_stat_id} at index {index}."
+                )
+            modifier_ptrs.append(modifier_ptr)
         return tuple(modifier_ptrs)
 
     def _read_cached_stat_modifier(

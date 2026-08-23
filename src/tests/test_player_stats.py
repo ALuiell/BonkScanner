@@ -1820,11 +1820,30 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         client = PlayerStatsClient(memory=memory)
         self.assertEqual(len(client.get_chaos_tracking_state(owner_stats)[1][12]), 1)
 
-        memory.pointers[
-            modifier_array + PlayerStatsClient.ARRAY_DATA_OFFSET + PlayerStatsClient.OBJECT_POINTER_SIZE
-        ] = second_modifier
+        second_modifier_slot = (
+            modifier_array
+            + PlayerStatsClient.ARRAY_DATA_OFFSET
+            + PlayerStatsClient.OBJECT_POINTER_SIZE
+        )
+        memory.pointers[second_modifier_slot] = 0
         memory.ints[modifier_list + PlayerStatsClient.LIST_SIZE_OFFSET] = 2
         memory.ints[modifier_list + PlayerStatsClient.LIST_VERSION_OFFSET] = 2
+
+        # A published size can become visible before its new element pointer.
+        # Do not accept that partial list as the authoritative version.
+        with self.assertRaises(MemoryReadError):
+            client.get_chaos_tracking_state(owner_stats)
+
+        memory.pointers[second_modifier_slot] = second_modifier
+        memory.ints[
+            second_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET
+        ] = 30
+        with self.assertRaisesRegex(MemoryReadError, "unexpected stat id"):
+            client.get_chaos_tracking_state(owner_stats)
+
+        memory.ints[
+            second_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET
+        ] = 12
 
         second_value_address = (
             second_modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET
@@ -1840,7 +1859,7 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         _, modifiers = client.get_chaos_tracking_state(owner_stats)
         self.assertEqual(len(modifiers[12]), 2)
 
-    def test_chaos_tracking_state_rescans_changed_modifier_dictionary_count(self) -> None:
+    def test_chaos_tracking_state_retries_failed_modifier_dictionary_rescan(self) -> None:
         memory = build_player_stats_memory()
         owner_stats = 0x20000300
         player_inventory = 0x20001600
@@ -1907,8 +1926,17 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         client = PlayerStatsClient(memory=memory)
         self.assertEqual(set(client.get_chaos_tracking_state(owner_stats)[1]), {12})
 
+        luck_list_address = luck_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_VALUE_OFFSET
+        memory.pointers[luck_list_address] = 0
         memory.ints[modifiers_dict + PlayerStatsClient.DICT_COUNT_OFFSET] = 2
 
+        with self.assertRaises(MemoryReadError):
+            client.get_chaos_tracking_state(owner_stats)
+
+        # The new count must not become authoritative until every entry has
+        # been scanned successfully. Restoring the same dictionary version and
+        # count must therefore retry instead of retaining the one-stat cache.
+        memory.pointers[luck_list_address] = luck_list
         _, modifiers = client.get_chaos_tracking_state(owner_stats)
         self.assertEqual(set(modifiers), {12, 30})
 

@@ -136,6 +136,7 @@ RECORDING_LIFECYCLE_REFRESH_MS = 1_000
 # buys effectively all of the latency back at a fifth of that read cost.
 PASSIVE_ITEMS_REFRESH_MS = 1_000
 PERMANENT_SOURCE_RECOVERY_RETRY_SECONDS = 5.0
+TERMINAL_PERMANENT_SOURCE_RECOVERY_GRACE_SECONDS = 5.0
 
 
 def _permanent_modifier_key(modifier: Any) -> tuple[int, int, int, float]:
@@ -539,6 +540,7 @@ class RefreshTasks:
         self._permanent_source_recovery_job = None
         self._permanent_source_recovery_latest_sample = None
         self._permanent_source_recovery_retry_at = 0.0
+        self._terminal_permanent_source_recovery_started_at: float | None = None
 
     def _refresh_run_lifecycle_probe_task(self, context: RefreshTickContext) -> bool:
         """Refresh lifecycle state first, inside the shared read pass.
@@ -561,17 +563,31 @@ class RefreshTasks:
         which is what having a task made possible.
         """
         recorder = self._vod_recorder()
-        if (
+        terminal_recording = (
             self._lifecycle().completed_run
             and recorder is not None
             and recorder.is_recording
-        ):
-            # The lifecycle task runs before the normal shrine task. Once the
-            # run is complete that task is no longer demanded, so fold the
-            # terminal counters into the tracker now, while the recorder is
-            # still open. The task owns its failure handling; a stale final
-            # sample must never prevent the recording from closing.
+        )
+        if terminal_recording:
+            # The lifecycle task runs before the normal fast-source tasks. Once
+            # the run is complete they are no longer demanded, so fold their
+            # terminal state into the tracker now, while the recorder is still
+            # open. Preserve the ordinary ordering: ShrineLog pointers must be
+            # reserved before Dice/Chaos inspect permanentChanges. Both tasks
+            # own their failure handling. Shrine reservations must be current
+            # before a completed recovery result is validated and published.
+            # The poll after both reads still applies a finished result when
+            # Dice/Chaos memory has already disappeared.
             self._refresh_charge_shrines_task(context)
+            self._refresh_chaos_tome_task(context)
+            self._poll_completed_permanent_source_recovery()
+            if self._should_defer_terminal_recording_stop():
+                self._player_stats_refresh_status_text = (
+                    "Live player stats (finalizing recording after run end)"
+                )
+                return True
+        else:
+            self._terminal_permanent_source_recovery_started_at = None
         recording_state_action = self._capture().sync_run_state(context)
         self._player_stats_refresh_status_text = (
             "Live player stats"
@@ -579,6 +595,27 @@ class RefreshTasks:
             else "Live player stats (recording auto-stopped after run end)"
         )
         return True
+
+    def _poll_completed_permanent_source_recovery(self) -> None:
+        """Apply an already-finished Dice recovery without requiring a new read."""
+        job = self._permanent_source_recovery_job
+        sample = self._permanent_source_recovery_latest_sample
+        if job is None or sample is None or not job.done():
+            return
+        self._advance_permanent_source_recovery(sample)
+
+    def _should_defer_terminal_recording_stop(self) -> bool:
+        """Keep the VOD open briefly for pending Dice recovery, never indefinitely."""
+        if self._permanent_source_recovery_job is None:
+            self._terminal_permanent_source_recovery_started_at = None
+            return False
+        now = time.monotonic()
+        if self._terminal_permanent_source_recovery_started_at is None:
+            self._terminal_permanent_source_recovery_started_at = now
+        return (
+            now - self._terminal_permanent_source_recovery_started_at
+            < TERMINAL_PERMANENT_SOURCE_RECOVERY_GRACE_SECONDS
+        )
 
     def _fast_task_client(self, context: RefreshTickContext) -> PlayerStatsClient:
         return context.get_or_create(

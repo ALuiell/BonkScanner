@@ -221,7 +221,7 @@ class ChargeShrineTrackerTests(unittest.TestCase):
         self.assertEqual(result.selected, 1)
         self.assertEqual(result.pending, 0)
 
-    def test_terminal_lifecycle_folds_shrines_before_stopping_recording(self):
+    def test_terminal_lifecycle_folds_fast_sources_before_stopping_recording(self):
         events = []
         reading = ChargeShrineReading(charged_total=1, shown_log=())
         client = SimpleNamespace(
@@ -243,6 +243,9 @@ class ChargeShrineTrackerTests(unittest.TestCase):
         world.tracker.update_charge_shrines = (
             lambda _reading, **_kwargs: events.append("shrines")
         )
+        service._refresh_chaos_tome_task = (
+            lambda _context: events.append("permanent_sources") or True
+        )
 
         self.assertTrue(
             service._refresh_recording_lifecycle_task(
@@ -250,7 +253,7 @@ class ChargeShrineTrackerTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(events, ["shrines", "stop"])
+        self.assertEqual(events, ["shrines", "permanent_sources", "stop"])
 
     def test_memory_reader_samples_log_before_charged_counter(self):
         events = []
