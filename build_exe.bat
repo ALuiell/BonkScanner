@@ -31,16 +31,15 @@ REM only symptom was a '?' placeholder on the OBS Overlay, Twitch Bot and
 REM In-Game Overlay tabs of a built exe -- TabHero draws that when its icon
 REM fails to load. A forgotten file cannot happen with a directory rule.
 REM
-REM src\media is therefore the ship set, and nothing that must not ship may
-REM sit in it -- that is why the two unused button PNGs moved to
-REM assets\unused. ui_assets stays a single named file on purpose: local
-REM design proposals in that folder have no business in the executable.
+REM src\media is therefore the ship set, including the application QSS theme,
+REM and nothing that must not ship may sit in it -- that is why the two unused
+REM button PNGs moved to assets\unused.
 REM
 REM BonkScanner.spec is this script's OUTPUT, not its input. Every run
 REM regenerates it from these flags, which is why it is gitignored and why
 REM editing it by hand never survives.
 echo [BUILD] Building executable...
-"%PYINSTALLER_EXE%" --clean --noupx --noconfirm --noconsole --onefile --paths="src" --icon="src\media\bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "src\media;media" --add-data "ui_assets\bonkscanner_theme.qss;ui_assets" --add-data "docs\help;docs\help" src\main.py
+"%PYINSTALLER_EXE%" --clean --noupx --noconfirm --noconsole --onefile --paths="src" --icon="src\media\bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "src\media;media" --add-data "docs\help;docs\help" src\main.py
 
 if errorlevel 1 (
     echo [ERROR] PyInstaller failed to build the executable.

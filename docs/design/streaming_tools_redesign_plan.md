@@ -2,7 +2,7 @@
 
 Three tabs — **OBS Overlay**, **Twitch Bot**, **In-Game Overlay** — rebuilt on one
 shared skeleton. The source mock is retained as a local-only design artifact.
-Palette and control geometry: `ui_assets/bonkscanner_theme.qss`.
+Palette and control geometry: `src/media/bonkscanner_theme.qss`.
 
 > **Status: implemented.** All three tabs are rebuilt. What changed *during*
 > implementation, beyond this plan:

@@ -899,11 +899,11 @@ Popup, `SupportPopup`:
   them, so the note reads "Thank you, and 6 more". A scroll bar inside a popup
   is a worse answer than a number.
 - Tiers sort to the top; within a tier the given order is preserved rather than
-  alphabetised, because a hand-maintained list means something by its order. Surface `#101419`, border `#2A3542`, radius 11 — unchanged, these are the existing `#supportPopupCard` values in [ui_assets/bonkscanner_theme.qss](../../ui_assets/bonkscanner_theme.qss).
+  alphabetised, because a hand-maintained list means something by its order. Surface `#101419`, border `#2A3542`, radius 11 — unchanged, these are the existing `#supportPopupCard` values in [src/media/bonkscanner_theme.qss](../../src/media/bonkscanner_theme.qss).
 - Title `#B9C2CE`, 12.5 px, weight 800. Note `#8A94A3`, 11 px.
 - Names in a two-column grid, 11.5 px, `#B9C2CE`, ellipsised on overflow — a display name is user-supplied text and can be arbitrarily long.
 - Three states, distinguished by *platform* rather than by amount, all at weight 700: a Patreon subscription is `#FF6F61` with a `♦` prefix; a supporter pack is the same `#FF6F61` without the diamond, because the money is the same and only the recurrence differs; a Ko-fi tip is `#29ABE0`, the Ko-fi button's own blue, which reads as a different place rather than a higher rank. An entry with no tier stays `#B9C2CE`. A fourth state would turn a thank-you card into a pricing page — do not add one.
-- The Patreon and Ko-fi buttons stay at the bottom, below a `#1B222B` rule. They keep `#PatreonButton` / `#KofiButton` from [ui_assets/bonkscanner_theme.qss](../../ui_assets/bonkscanner_theme.qss) so the popup and the settings card cannot drift apart.
+- The Patreon and Ko-fi buttons stay at the bottom, below a `#1B222B` rule. They keep `#PatreonButton` / `#KofiButton` from [src/media/bonkscanner_theme.qss](../../src/media/bonkscanner_theme.qss) so the popup and the settings card cannot drift apart.
 
 Overflow: when the list outgrows the popup, move it to a card in the Help dialog — names in three columns, all four platform buttons — and leave the footer counter as the entry point. Help is where a long block costs nothing, because people open it deliberately. Do **not** put the card on a main-window tab: on Logs it is pushed off-screen by the log within seconds, and everywhere else it takes space from data.
 

@@ -477,7 +477,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                 .replace("__CHECKMARK_ICON__", checkmark_path)
     )
 
-    redesign_path = Path(resource_path("ui_assets/bonkscanner_theme.qss"))
+    redesign_path = Path(resource_path("media/bonkscanner_theme.qss"))
     try:
         redesign_stylesheet = redesign_path.read_text(encoding="utf-8")
     except OSError:

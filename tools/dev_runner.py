@@ -19,7 +19,7 @@ POLL_SECONDS = 0.25
 DEBOUNCE_SECONDS = 0.45
 GRACEFUL_CLOSE_SECONDS = 5.0
 WATCH_SUFFIXES = frozenset({".py", ".qss"})
-WATCH_DIRECTORIES = ("src", "ui_assets")
+WATCH_DIRECTORIES = ("src",)
 
 FileState = tuple[int, int]
 WatchSnapshot = dict[Path, FileState]
