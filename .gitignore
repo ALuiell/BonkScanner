@@ -57,4 +57,11 @@ docs/recovery/HISTORY-DONT-USE/
 reports/
 docs/agent_reviews_local/
 
+# === LOCAL UI DESIGN SOURCES ===
+# HTML mockups stay available locally. Only the runtime Qt stylesheet is
+# published from this directory.
+ui_assets/**
+!ui_assets/
+!ui_assets/bonkscanner_redesign.qss
+
 Dump

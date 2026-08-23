@@ -426,11 +426,11 @@ Runtime and architecture:
 
 Proposed layouts:
 
-- [Shared Build Progression editor](../../ui_mockups/build_progression/build_progression_settings_v2.html) — historical layout reference; the implemented editor now keeps the catalog on the left and the selected requirement form plus deadline-sorted list on the right.
-- [Interactive layout comparison](../../ui_mockups/build_progression/build_progression_overlay_options.html) — switch between in-progress, overdue, and complete states and optionally show completed rows.
-- [OBS readable compact card](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-obs-title) — bounded translucent card intended to remain legible on stream.
-- [In-Game minimal HUD list](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-ingame-title) — frameless, shadowed text intended to stay out of the player's way.
-- [Ultra-compact urgent target](../../ui_mockups/build_progression/build_progression_overlay_options.fragment.html#bonk-focus-title) — only the next urgent missing requirement plus overall progress.
+- **Shared Build Progression editor** — historical local-only layout reference; the implemented editor now keeps the catalog on the left and the selected requirement form plus deadline-sorted list on the right.
+- **Interactive layout comparison** — switch between in-progress, overdue, and complete states and optionally show completed rows.
+- **OBS readable compact card** — bounded translucent card intended to remain legible on stream.
+- **In-Game minimal HUD list** — frameless, shadowed text intended to stay out of the player's way.
+- **Ultra-compact urgent target** — only the next urgent missing requirement plus overall progress.
 
 ### Live Run Refactor Fixes
 
@@ -845,7 +845,7 @@ read as "not a supporter".
 
 Design reference:
 
-- [ui_mockups/app_shell/support_footer_proposal.html](../../ui_mockups/app_shell/support_footer_proposal.html) — open in a browser. The whole main window is drawn to scale around the strip, so the proposal can be read in context rather than as a floating snippet.
+- The local-only `support_footer_proposal.html` design artifact draws the whole main window to scale around the strip, so the proposal can be read in context rather than as a floating snippet.
 - Section **4, "Надстройка: счётчик вместо слова «Support»"**, is this item. Sections 1-3 are the footer that already exists; section 5 records the header heart-icon variant and **why it was rejected** — do not resurrect it without reading that section first.
 - The supporters list inside the Help dialog appears only as prose in this document, not in the mockup. An earlier revision of that file drew it; the rewrite that matched the mockup to the real window dropped it.
 
@@ -899,11 +899,11 @@ Popup, `SupportPopup`:
   them, so the note reads "Thank you, and 6 more". A scroll bar inside a popup
   is a worse answer than a number.
 - Tiers sort to the top; within a tier the given order is preserved rather than
-  alphabetised, because a hand-maintained list means something by its order. Surface `#101419`, border `#2A3542`, radius 11 — unchanged, these are the existing `#supportPopupCard` values at [ui_mockups/bonkscanner_redesign.qss:1488](../../ui_mockups/bonkscanner_redesign.qss:1488).
+  alphabetised, because a hand-maintained list means something by its order. Surface `#101419`, border `#2A3542`, radius 11 — unchanged, these are the existing `#supportPopupCard` values in [ui_assets/bonkscanner_redesign.qss](../../ui_assets/bonkscanner_redesign.qss).
 - Title `#B9C2CE`, 12.5 px, weight 800. Note `#8A94A3`, 11 px.
 - Names in a two-column grid, 11.5 px, `#B9C2CE`, ellipsised on overflow — a display name is user-supplied text and can be arbitrarily long.
 - Three states, distinguished by *platform* rather than by amount, all at weight 700: a Patreon subscription is `#FF6F61` with a `♦` prefix; a supporter pack is the same `#FF6F61` without the diamond, because the money is the same and only the recurrence differs; a Ko-fi tip is `#29ABE0`, the Ko-fi button's own blue, which reads as a different place rather than a higher rank. An entry with no tier stays `#B9C2CE`. A fourth state would turn a thank-you card into a pricing page — do not add one.
-- The Patreon and Ko-fi buttons stay at the bottom, below a `#1B222B` rule. They keep `#PatreonButton` / `#KofiButton` ([ui_mockups/bonkscanner_redesign.qss:1321](../../ui_mockups/bonkscanner_redesign.qss:1321)) so the popup and the settings card cannot drift apart.
+- The Patreon and Ko-fi buttons stay at the bottom, below a `#1B222B` rule. They keep `#PatreonButton` / `#KofiButton` from [ui_assets/bonkscanner_redesign.qss](../../ui_assets/bonkscanner_redesign.qss) so the popup and the settings card cannot drift apart.
 
 Overflow: when the list outgrows the popup, move it to a card in the Help dialog — names in three columns, all four platform buttons — and leave the footer counter as the entry point. Help is where a long block costs nothing, because people open it deliberately. Do **not** put the card on a main-window tab: on Logs it is pushed off-screen by the log within seconds, and everywhere else it takes space from data.
 

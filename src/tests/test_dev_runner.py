@@ -5,7 +5,7 @@ from tools.dev_runner import changed_paths, scan_watch_files
 
 def test_dev_runner_watches_python_and_qss_only(tmp_path) -> None:
     source = tmp_path / "src"
-    styles = tmp_path / "ui_mockups"
+    styles = tmp_path / "ui_assets"
     cache = source / "__pycache__"
     source.mkdir()
     styles.mkdir()
@@ -25,7 +25,7 @@ def test_dev_runner_watches_python_and_qss_only(tmp_path) -> None:
 
 def test_dev_runner_detects_add_modify_and_remove(tmp_path) -> None:
     source = tmp_path / "src"
-    styles = tmp_path / "ui_mockups"
+    styles = tmp_path / "ui_assets"
     source.mkdir()
     styles.mkdir()
     existing = source / "existing.py"

@@ -1,8 +1,8 @@
 # Streaming Tools redesign — implementation plan
 
 Three tabs — **OBS Overlay**, **Twitch Bot**, **In-Game Overlay** — rebuilt on one
-shared skeleton. Source mock: `ui_mockups/streaming_tools/streaming_tools_proposal.html`.
-Palette and control geometry: `ui_mockups/bonkscanner_redesign.qss`.
+shared skeleton. The source mock is retained as a local-only design artifact.
+Palette and control geometry: `ui_assets/bonkscanner_redesign.qss`.
 
 > **Status: implemented.** All three tabs are rebuilt. What changed *during*
 > implementation, beyond this plan:
