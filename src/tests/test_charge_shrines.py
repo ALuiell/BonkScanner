@@ -307,16 +307,30 @@ class ChargeShrineRecordingTests(unittest.TestCase):
         )
         self.assertIsNone(decoded.shrines)
 
-    def test_compare_table_contains_rewards_and_all_bonus_details(self):
+    def test_compare_table_contains_only_cumulative_stat_bonuses(self):
         snapshot_a = VodSnapshot(1, 2.0, {}, shrines=self._shrines())
         snapshot_b = VodSnapshot(1, 2.0, {}, shrines=None)
         table = build_compare_runs_shrines_table(snapshot_a, snapshot_b)
-        labels = [row.label for section in table.sections for row in section.rows]
-        self.assertIn("Rewards", labels)
-        self.assertNotIn("Spawned", labels)
-        self.assertNotIn("Coverage", labels)
-        self.assertIn("Damage", labels)
-        self.assertTrue(any("C2" in row.value_a for section in table.sections for row in section.rows))
+
+        self.assertEqual(len(table.sections), 1)
+        self.assertEqual(table.sections[0].headers, ("Stat", "A", "B", "Diff"))
+        self.assertEqual(len(table.sections[0].rows), 1)
+        damage = table.sections[0].rows[0]
+        self.assertEqual(damage.label, "Damage")
+        self.assertEqual(
+            (damage.value_a, damage.value_b, damage.delta),
+            ("+24%", "--", "--"),
+        )
+
+    def test_compare_table_hides_counts_when_no_stat_bonus_was_recorded(self):
+        empty_shrines = ChargeShrineSnapshot(charged=4, selected=4, stats=())
+        snapshot_a = VodSnapshot(1, 2.0, {}, shrines=empty_shrines)
+        snapshot_b = VodSnapshot(1, 2.0, {}, shrines=None)
+
+        table = build_compare_runs_shrines_table(snapshot_a, snapshot_b)
+
+        self.assertEqual(table.sections, ())
+        self.assertEqual(table.empty_text, "No Charge Shrine data")
 
 
 if __name__ == "__main__":

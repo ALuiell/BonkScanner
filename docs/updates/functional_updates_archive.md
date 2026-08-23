@@ -28,10 +28,13 @@ Implemented in the current branch:
   from the shared `ShrineLogs.shownLog` list.
 - Gritch Shrine's `+5% Difficulty` does not match Charge Shrine's `+8%`
   Difficulty base and therefore cannot consume the reward budget.
-- Live Stats has a Shrines tab showing the accumulated bonuses. The same
-  immutable run snapshot is saved in VOD format 8 and rendered in Recordings
-  and Compare Runs. Spawn counts, stage baselines and coverage classification
-  are intentionally outside this feature's contract.
+- Live Stats has a Shrines tab showing accumulated bonuses, tracked rolls and
+  inferred rarity details. The same immutable run snapshot is saved in VOD
+  format 8 and rendered in Recordings. Compare Runs mirrors the Chaos stat-total
+  table and shows only each cumulative bonus for A, B and their difference;
+  reward counts, pending state, per-stat rolls and rarity details stay out of
+  the comparison. Spawn counts, stage baselines and coverage classification are
+  intentionally outside this feature's contract.
 - Shrine cards mirror the Chaos Tome layout: tracked rolls are completed
   Charge Shrine rewards, each stat card shows how many matching rewards were
   selected and their accumulated bonus.
