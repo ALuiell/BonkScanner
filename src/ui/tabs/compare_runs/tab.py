@@ -79,7 +79,7 @@ from ui.recording_library import RecordingLibraryRow, recording_search_text
 from ui.shared import (
     FullWidthTabWidget,
     LabeledSwitch,
-    LazyPage,
+    StagedLoadingPage,
     _apply_summary_label_padding,
     _make_scroll_section,
     _set_text,
@@ -543,6 +543,12 @@ class CompareRunsTab:
         self._chooser_page = None
 
     def refresh_compare_runs_list(self):
+        """Refresh both chooser lists synchronously after the initial build."""
+        for _step in self._refresh_compare_runs_list_steps(batch_size=0):
+            pass
+
+    def _refresh_compare_runs_list_steps(self, *, batch_size: int):
+        """Refresh both lists, yielding between row batches when requested."""
         list_a = self._run_a_list_frame
         list_b = self._run_b_list_frame
         if list_a is None or list_b is None:
@@ -571,8 +577,22 @@ class CompareRunsTab:
         if self._list_signature == signature:
             return
 
-        self._populate_compare_run_list(list_a, vods, selected_a)
-        self._populate_compare_run_list(list_b, vods, selected_b)
+        yield from self._populate_compare_run_list_steps(
+            list_a,
+            vods,
+            selected_a,
+            batch_size=batch_size,
+        )
+        if batch_size:
+            yield None
+        yield from self._populate_compare_run_list_steps(
+            list_b,
+            vods,
+            selected_b,
+            batch_size=batch_size,
+        )
+        if batch_size:
+            yield None
         self._filter_compare_run_list("a")
         self._filter_compare_run_list("b")
         self._list_signature = signature
@@ -610,6 +630,22 @@ class CompareRunsTab:
         return dict(self._sections)
 
     def _populate_compare_run_list(self, list_frame, vods, selected_path) -> None:
+        for _step in self._populate_compare_run_list_steps(
+            list_frame,
+            vods,
+            selected_path,
+            batch_size=0,
+        ):
+            pass
+
+    def _populate_compare_run_list_steps(
+        self,
+        list_frame,
+        vods,
+        selected_path,
+        *,
+        batch_size: int,
+    ):
         list_frame.blockSignals(True)
         list_frame.clear()
         if not vods:
@@ -634,6 +670,8 @@ class CompareRunsTab:
             list_frame.setItemWidget(item, widget)
             if selected_path == vod.path:
                 selected_row = row
+            if batch_size and (row + 1) % batch_size == 0:
+                yield None
         if selected_row is not None:
             list_frame.setCurrentRow(selected_row)
         list_frame.blockSignals(False)
@@ -1980,7 +2018,12 @@ class CompareRunsTab:
         `refresh_compare_runs_list`, which returns on it, and
         `_compare_runs_sort_mode`, which falls back to the saved order.
         """
-        self._tab = LazyPage(self._build_workspace)
+        self._tab = StagedLoadingPage(
+            self._build_workspace,
+            object_prefix="CompareRuns",
+            # Run A is blue and Run B is purple everywhere else in this tab.
+            spinner_colors=("#38BDF8", "#C084FC"),
+        )
         self._tab.setObjectName("CompareRunsPage")
         self._tabview.addTab(self._tab, "Compare Runs")
 
@@ -1989,9 +2032,9 @@ class CompareRunsTab:
         if self._tab is not None:
             self._tab.build_now()
 
-    def _build_workspace(self):
-        """Build the redesigned, timeline-first Compare Runs workspace."""
-        compare_layout = QVBoxLayout(self._tab)
+    def _build_workspace(self, workspace):
+        """Build the timeline-first workspace in short GUI-thread stages."""
+        compare_layout = QVBoxLayout(workspace)
         compare_layout.setContentsMargins(8, 8, 8, 8)
         compare_layout.setSpacing(10)
 
@@ -2021,16 +2064,23 @@ class CompareRunsTab:
         header.addLayout(swap_column)
         header.addWidget(plaque_b, 1)
         compare_layout.addLayout(header)
+        yield None
 
         self._workspace_stack = QStackedWidget()
         self._workspace_stack.setObjectName("CompareRunsWorkspaceStack")
+        compare_layout.addWidget(self._workspace_stack, 1)
 
         self._workspace_page = QWidget()
         self._workspace_page.setObjectName("CompareRunsWorkspacePage")
         workspace_layout = QVBoxLayout(self._workspace_page)
         workspace_layout.setContentsMargins(0, 0, 0, 0)
         workspace_layout.setSpacing(10)
+        self._workspace_stack.addWidget(self._workspace_page)
+        self._workspace_stack.setCurrentWidget(self._workspace_page)
+        yield None
+
         self._build_stats_selector(workspace_layout)
+        yield None
 
         timeline_card = QGroupBox("Timeline")
         timeline_card.setObjectName("CompareRunsTimelineCard")
@@ -2110,33 +2160,39 @@ class CompareRunsTab:
         timeline_layout.addWidget(self._timeline_legend)
         self._timeline_legend.setVisible(not self._timeline_compact)
         workspace_layout.addWidget(timeline_card)
+        yield None
 
         self._detail_tabs = FullWidthTabWidget()
         self._detail_tabs.setObjectName("CompareRunsTabs")
         self._detail_tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self._build_overview_page()
+        workspace_layout.addWidget(self._detail_tabs, 1)
+        yield None
+
+        yield from self._build_overview_page_steps()
         self._build_stats_page()
+        yield None
         self._build_stages_page()
+        yield None
         self._build_items_page()
+        yield None
         self._build_table_page("Weapons", "_diff_weapons_group", "_diff_weapons_table")
         self._build_table_page("Tomes", "_diff_tomes_group", "_diff_tomes_table")
+        yield None
         self._build_table_page("Chaos", "_diff_chaos_group", "_diff_chaos_table")
         self._build_table_page("Shrines", "_diff_shrines_group", "_diff_shrines_table")
+        yield None
         self._build_table_page("Passives", "_diff_passives_group", "_diff_passives_table")
         self._detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
-        workspace_layout.addWidget(self._detail_tabs, 1)
+        yield None
 
         self._chooser_page = QWidget()
         self._chooser_page.setObjectName("CompareRunsChooserPage")
         chooser_page_layout = QVBoxLayout(self._chooser_page)
         chooser_page_layout.setContentsMargins(0, 0, 0, 0)
         chooser_page_layout.setSpacing(0)
-        self._build_chooser(chooser_page_layout)
-
-        self._workspace_stack.addWidget(self._workspace_page)
         self._workspace_stack.addWidget(self._chooser_page)
-        self._workspace_stack.setCurrentWidget(self._workspace_page)
-        compare_layout.addWidget(self._workspace_stack, 1)
+        self._build_chooser(chooser_page_layout)
+        yield None
 
         self._run_a_slider = None
         self._run_b_slider = None
@@ -2151,7 +2207,9 @@ class CompareRunsTab:
         # the signature says "painted" only because it starts as `None`. A tab
         # opened for the first time must find its library, not an empty column.
         self._list_signature = None
-        self.refresh_compare_runs_list()
+        # Each recording renders twice, once per chooser side. Batch the rows so
+        # a large library cannot freeze the A/B loading ring for the whole pass.
+        yield from self._refresh_compare_runs_list_steps(batch_size=8)
         self.refresh_compare_runs_ui()
 
     def _build_run_plaque(self, side: str):
@@ -2254,6 +2312,10 @@ class CompareRunsTab:
         return page, content, content_layout
 
     def _build_overview_page(self) -> None:
+        for _step in self._build_overview_page_steps():
+            pass
+
+    def _build_overview_page_steps(self):
         """Luck &amp; Loot, then the axis, then three ways out.
 
         What this replaced was a three-line verdict beside a six-row snapshot
@@ -2265,11 +2327,13 @@ class CompareRunsTab:
         """
         page, _content, layout = self._new_scroll_page()
         self._luck_loot_view = CompareRunsLuckLootView()
+        layout.addWidget(self._luck_loot_view)
+        yield None
         self._axis_view = CompareRunsAxisView()
+        layout.addWidget(self._axis_view)
+        yield None
         self._hub_view = CompareRunsHubView(("Stages", "Items", "Weapons"))
         self._hub_view.jumpRequested.connect(self._jump_to_page)
-        layout.addWidget(self._luck_loot_view)
-        layout.addWidget(self._axis_view)
         layout.addWidget(self._hub_view)
         layout.addStretch(1)
 

@@ -93,7 +93,7 @@ from ui.shared import (
     FlowLayout,
     FullWidthTabWidget,
     LabeledSwitch,
-    LazyPage,
+    StagedLoadingPage,
     _apply_button_icon,
     _apply_summary_label_padding,
     _clear_text_input,
@@ -410,7 +410,11 @@ class RecordingsTab:
         self._compare_start_index = None
         self._stage_range_anchor_index = None
         self._stage_range_anchor_number = None
-        self._chooser_expanded = False
+        # Seed the drawer state before the staged page starts. On the first
+        # switch the router can then promote a closed drawer to a guided open
+        # while the loading card is still visible; the final build replays the
+        # newest state instead of overwriting it with an older config read.
+        self._chooser_expanded = bool(recording_library_open())
         self._guided_selection_active = False
         self._body_splitter = None
         # The drawer's width, remembered across opens and across launches. The
@@ -1734,10 +1738,17 @@ class RecordingsTab:
         config.save_config(config.user_config)
 
     def build(self):
-        """Put the tab in the bar. Its contents wait until someone opens it.
+        """Put the tab in the bar; build its heavy contents after first paint.
 
         400 widgets, built at every launch whether or not the tab was opened --
         the second-largest tab after Compare Runs, which went the same way.
+
+        A synchronous lazy build still made the first click wait for all 400:
+        Qt polishes the complete QSS-backed tree from ``showEvent`` before the
+        new page can paint. Recordings therefore uses its own staged page. The
+        loading ring is the only synchronous first frame; the workspace
+        generator yields between expensive attachment batches beneath its
+        opaque overlay, which is removed only when the workspace is complete.
 
         Safe to defer because every writer into this tab already asks whether it
         is showing: the router gates `refresh_vods_list` and
@@ -1757,7 +1768,11 @@ class RecordingsTab:
         can construct the component without paying for a widget tree, and the
         built tab is covered by `tools/step21_vod_trace.py` instead.
         """
-        self._tab = LazyPage(self._build_workspace)
+        self._tab = StagedLoadingPage(
+            self._build_workspace,
+            object_prefix="Recordings",
+            workspace_object_name="RecordingsWorkspace",
+        )
         self._tab.setObjectName("RecordingsPage")
         self._tabview.addTab(self._tab, "Recordings")
 
@@ -1766,8 +1781,9 @@ class RecordingsTab:
         if self._tab is not None:
             self._tab.build_now()
 
-    def _build_workspace(self):
-        vods_layout = QVBoxLayout(self._tab)
+    def _build_workspace(self, workspace):
+        """Yield between QSS-heavy construction batches on the GUI thread."""
+        vods_layout = QVBoxLayout(workspace)
 
         # A splitter, not the QHBoxLayout this used to be: the library is a
         # drawer now, and a drawer the user cannot resize is a fixed panel that
@@ -1781,12 +1797,18 @@ class RecordingsTab:
         self._body_splitter.splitterMoved.connect(
             lambda _pos, _index: self._on_library_width_dragged()
         )
+        # Attach empty structural containers early. Adding a fully populated
+        # subtree here would make Qt polish every descendant in one 50-70 ms
+        # burst; populating an already attached shell lets the yields below
+        # spread that work across event-loop turns.
+        vods_layout.addWidget(self._body_splitter, 1)
         vods_detail = QWidget()
         vods_detail_layout = QVBoxLayout(vods_detail)
         # `vods_layout` already supplies the tab's outer inset. Keeping Qt's
         # default 9 px margin here added a second empty strip above the
         # recording/title row and made it look detached from the timeline.
         vods_detail_layout.setContentsMargins(0, 0, 0, 0)
+        self._body_splitter.addWidget(vods_detail)
         vods_detail_layout.addWidget(self._build_record_plaque())
         vods_detail_layout.addLayout(self._build_scrubber_header())
         self._scrubber = RecordingScrubber()
@@ -1812,12 +1834,15 @@ class RecordingsTab:
         self._legend_meta_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         legend_row.addWidget(self._legend_meta_label)
         vods_detail_layout.addLayout(legend_row)
+        yield None
+
         recordings_page = QWidget()
         recordings_page.setObjectName("LiveStatsPage")
         recordings_page_layout = QGridLayout(recordings_page)
         recordings_page_layout.setContentsMargins(0, 0, 0, 0)
         recordings_page_layout.setHorizontalSpacing(10)
         recordings_page_layout.setVerticalSpacing(0)
+        vods_detail_layout.addWidget(recordings_page, 1)
 
         recordings_main = QWidget()
         recordings_main.setObjectName("LiveStatsMain")
@@ -1932,6 +1957,7 @@ class RecordingsTab:
             chips_scroll=vod_banishes_chips_scroll,
         )
         vod_items_layout.addWidget(vod_banishes_section)
+        yield None
 
         vod_summary_grid = QGridLayout()
         vod_summary_grid.setContentsMargins(0, 0, 0, 0)
@@ -2010,6 +2036,8 @@ class RecordingsTab:
         vod_compare_details_layout.addWidget(vod_compare_scroll)
         self._compare_details_group.setVisible(False)
         recordings_main_layout.addWidget(self._compare_details_group)
+        yield None
+
         self._detail_tabs = FullWidthTabWidget()
         self._detail_tabs.setObjectName("subTabs")
         self._detail_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
@@ -2071,6 +2099,7 @@ class RecordingsTab:
                 compact_rows_layout.addWidget(compact_stat)
             group_layout.addWidget(compact_rows)
             compact_stats_grid.add_card(stat_group)
+            yield None
 
         expanded_stats_grid = _ResponsiveCardGrid(
             minimum_card_width=300,
@@ -2096,6 +2125,7 @@ class RecordingsTab:
                 self._rows[spec.label] = value_label
                 group_layout.addRow(name_label, value_label)
             expanded_stats_grid.add_card(stat_group)
+            yield None
 
         compact_stats_grid.setVisible(False)
         self._stats_expanded_toggle.toggled.connect(compact_stats_grid.setHidden)
@@ -2110,6 +2140,7 @@ class RecordingsTab:
         compact_stats_grid.setHidden(self._stats_expanded_toggle.isChecked())
         expanded_stats_grid.setVisible(self._stats_expanded_toggle.isChecked())
         vods_scroll_layout.addStretch(1)
+        yield None
 
         vod_loot_tab = QWidget()
         vod_loot_tab_layout = QVBoxLayout(vod_loot_tab)
@@ -2143,6 +2174,8 @@ class RecordingsTab:
             vod_loot_grid.setColumnStretch(column, 1)
         vod_loot_scroll_layout.addLayout(vod_loot_grid)
         vod_loot_scroll_layout.addStretch(1)
+        yield None
+
         vod_weapons_tab = QWidget()
         vod_weapons_tab_layout = QVBoxLayout(vod_weapons_tab)
         vods_weapons_status_label = QLabel("Select a recording")
@@ -2218,19 +2251,27 @@ class RecordingsTab:
             damage_sources_status_label=vods_damage_sources_status_label,
             section_visible=section_visibility_over(lambda: self._detail_tabs),
         )
+        yield None
+
         self._detail_tabs.currentChanged.connect(
             lambda _index: self._on_detail_tab_changed()
         )
         self._detail_tabs.addTab(vod_stats_tab, "Stats")
+        yield None
         self._detail_tabs.addTab(vod_loot_tab, "Loot")
+        yield None
         self._detail_tabs.addTab(vod_weapons_tab, "Weapons")
         self._detail_tabs.addTab(vod_tomes_tab, "Tomes")
+        yield None
         self._detail_tabs.addTab(vod_chaos_tab, "Chaos")
         self._detail_tabs.addTab(vod_shrine_tab, "Shrines")
+        yield None
         self._detail_tabs.addTab(vod_character_passive_tab, "Passives")
         self._detail_tabs.addTab(vod_damage_sources_tab, "Damage Sources")
+        yield None
         self._detail_tabs.setMinimumHeight(self._detail_tabs.sizeHint().height())
         recordings_main_layout.addWidget(self._detail_tabs)
+        yield None
         vod_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_loot_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -2252,12 +2293,15 @@ class RecordingsTab:
         recordings_main_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         recordings_main_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         recordings_main_scroll.setWidget(recordings_main)
+        yield None
         recordings_page_layout.addWidget(recordings_main_scroll, 0, 0)
+        yield None
         recordings_page_layout.addWidget(vod_items_group, 0, 1)
         recordings_page_layout.setColumnStretch(0, 3)
         recordings_page_layout.setColumnStretch(1, 1)
         recordings_page_layout.setRowStretch(0, 1)
-        vods_detail_layout.addWidget(recordings_page, 1)
+        yield None
+
         self._chooser_group = QGroupBox("Recordings")
         self._chooser_group.setVisible(False)
         self._chooser_group.setMinimumWidth(RECORDINGS_LIST_MIN_WIDTH)
@@ -2332,21 +2376,28 @@ class RecordingsTab:
         self._cleanup_btn.clicked.connect(self.cleanup_recordings_by_snapshot_count)
         footer_layout.addWidget(self._cleanup_btn, 0, Qt.AlignLeft)
         chooser_layout.addWidget(footer)
+        # Parent the drawer before the footer refresh below. That refresh also
+        # replays the current open/closed state; when the saved state is open,
+        # `setVisible(True)` on this still-parentless QGroupBox promotes it to a
+        # temporary top-level BonkScanner window until insertWidget reparents it.
+        self._body_splitter.insertWidget(0, self._chooser_group)
         # Filled here rather than waiting for the first `refresh_vods_list`:
         # the panel is built collapsed and shown later, so a footer that only
         # populates on refresh reads as "0 recordings, 0 MB" for however long
         # it takes the first refresh to arrive.
         self._refresh_library_footer(list(self._library.index))
-        self._body_splitter.addWidget(self._chooser_group)
-        self._body_splitter.addWidget(vods_detail)
+        yield None
         self._body_splitter.setStretchFactor(0, 0)
         self._body_splitter.setStretchFactor(1, 1)
-        vods_layout.addWidget(self._body_splitter, 1)
-        # Replay the saved drawer state. `guided=False` because this is not the
-        # app offering the library, it is the user's own last choice coming
-        # back -- so the auto-close after a pick must not fire on it.
+        yield None
+
+        # Replay the newest drawer state. With staged construction the router
+        # may already have requested a guided open while the loading card was
+        # visible, so reading config again here would incorrectly close it.
         self.set_recordings_chooser_expanded(
-            recording_library_open(), guided=False, remember=False
+            self._chooser_expanded,
+            guided=self._guided_selection_active,
+            remember=False,
         )
         # The list was not painted while there was nothing to paint into, and
         # the signature says "painted" only because it starts as `None`. A tab

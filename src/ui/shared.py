@@ -260,6 +260,191 @@ class LazyPage(QWidget):
         super().showEvent(event)
 
 
+class StagedLoadingSpinner(QWidget):
+    """A quiet loading ring that can carry one or two feature colours."""
+
+    def __init__(
+        self,
+        *,
+        colors: tuple[str, ...] = ("#38BDF8",),
+        object_name: str = "StagedLoadingSpinner",
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName(object_name)
+        self.setProperty("stagedLoadingSpinner", "true")
+        self.setAccessibleName("Loading")
+        self.setFixedSize(72, 72)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._colors = tuple(QColor(color) for color in colors) or (
+            QColor("#38BDF8"),
+        )
+        self._angle = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(30)
+        self._timer.timeout.connect(self._advance)
+
+    def _advance(self) -> None:
+        self._angle = (self._angle + 14) % 360
+        self.update()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        timer = getattr(self, "_timer", None)
+        if timer is not None:
+            timer.start()
+
+    def hideEvent(self, event) -> None:
+        timer = getattr(self, "_timer", None)
+        if timer is not None:
+            timer.stop()
+        super().hideEvent(event)
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        ring = self.rect().adjusted(8, 8, -8, -8)
+
+        background_pen = QPen(QColor("#263241"), 6)
+        background_pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(background_pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(ring)
+
+        arc_span = 105 if len(self._colors) == 1 else 72
+        angle_step = 360 // len(self._colors)
+        for index, color in enumerate(self._colors):
+            active_pen = QPen(color, 6)
+            active_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(active_pen)
+            start = 90 - self._angle + index * angle_step
+            painter.drawArc(ring, int(start * 16), int(-arc_span * 16))
+
+
+class StagedLoadingPage(QWidget):
+    """Paint a full-page loading overlay while a widget generator advances."""
+
+    FIRST_STAGE_DELAY_MS = 16
+
+    def __init__(
+        self,
+        populate,
+        *,
+        object_prefix: str,
+        spinner_colors: tuple[str, ...] = ("#38BDF8",),
+        workspace_object_name: str | None = None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._populate = populate
+        self._object_prefix = str(object_prefix)
+        self._spinner_colors = tuple(spinner_colors)
+        self._workspace_object_name = workspace_object_name
+        self._steps = None
+        self._built = False
+        self._loading_page = None
+        self._workspace = None
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._advance)
+        # The small shell is eager so the hidden tab gets its final geometry
+        # before the first click; the generator itself is not advanced yet.
+        self._ensure_started()
+
+    @property
+    def is_built(self) -> bool:
+        return bool(self._built)
+
+    def _ensure_started(self) -> None:
+        if self._steps is not None or self._built:
+            return
+
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._workspace = QWidget(self)
+        self._workspace.setObjectName(
+            self._workspace_object_name
+            or f"{self._object_prefix}LoadingWorkspace"
+        )
+        self._workspace.setProperty("stagedLoadingWorkspace", "true")
+        self._workspace.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        page_layout.addWidget(self._workspace)
+
+        self._loading_page = QWidget(self)
+        self._loading_page.setObjectName(f"{self._object_prefix}LoadingPage")
+        self._loading_page.setProperty("stagedLoadingOverlay", "true")
+        self._loading_page.setAttribute(Qt.WA_StyledBackground, True)
+        loading_layout = QVBoxLayout(self._loading_page)
+        loading_layout.setContentsMargins(24, 24, 24, 24)
+        loading_layout.addStretch(1)
+        loading_layout.addWidget(
+            StagedLoadingSpinner(
+                colors=self._spinner_colors,
+                object_name=f"{self._object_prefix}LoadingSpinner",
+            ),
+            0,
+            Qt.AlignCenter,
+        )
+        loading_layout.addStretch(1)
+
+        self._sync_loading_overlay()
+        self._steps = iter(self._populate(self._workspace))
+
+    def _sync_loading_overlay(self) -> None:
+        if self._loading_page is None or not self._loading_page.isVisible():
+            return
+        self._loading_page.setGeometry(self.rect())
+        self._loading_page.raise_()
+
+    def _consume_step(self) -> bool:
+        try:
+            next(self._steps)
+        except StopIteration:
+            self._built = True
+            self._steps = None
+            self._populate = None
+            self.layout().activate()
+            workspace_layout = self._workspace.layout()
+            if workspace_layout is not None:
+                workspace_layout.activate()
+            self._workspace.updateGeometry()
+            self._workspace.update()
+            self._loading_page.hide()
+            return False
+        return True
+
+    def _advance(self) -> None:
+        if self._built or self._steps is None or not self.isVisible():
+            return
+        if self._consume_step():
+            self._timer.start(0)
+
+    def build_now(self) -> None:
+        """Drain all remaining stages synchronously. Safe to call twice."""
+        self._ensure_started()
+        self._timer.stop()
+        while not self._built:
+            self._consume_step()
+
+    def showEvent(self, event) -> None:
+        self._ensure_started()
+        super().showEvent(event)
+        self._sync_loading_overlay()
+        if not self._built and not self._timer.isActive():
+            self._timer.start(self.FIRST_STAGE_DELAY_MS)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._sync_loading_overlay()
+
+    def hideEvent(self, event) -> None:
+        timer = getattr(self, "_timer", None)
+        if timer is not None:
+            timer.stop()
+        super().hideEvent(event)
+
+
 class FullWidthTabWidget(QTabWidget):
     """A tab widget whose tab bar and corner control share one full-width frame."""
 

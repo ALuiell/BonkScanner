@@ -1320,6 +1320,30 @@ QListWidget#CompareRunsRecordingList[side="B"]::item:selected {
     background-color: rgba(192, 132, 252, 0.12);
     border-left: 2px solid #C084FC;
 }
+QWidget#RecordingsWorkspace {
+    background: transparent;
+    border: none;
+}
+QWidget#RecordingsLoadingPage {
+    background-color: #0E1217;
+    border: none;
+}
+QWidget#RecordingsLoadingSpinner {
+    background: transparent;
+    border: none;
+}
+QWidget[stagedLoadingWorkspace="true"] {
+    background: transparent;
+    border: none;
+}
+QWidget[stagedLoadingOverlay="true"] {
+    background-color: #0E1217;
+    border: none;
+}
+QWidget[stagedLoadingSpinner="true"] {
+    background: transparent;
+    border: none;
+}
 QWidget#RecordingRow {
     background: transparent;
 }

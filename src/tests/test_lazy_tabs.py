@@ -6,9 +6,9 @@ opened. Measured on the real library that is about 12 MB and most of a second
 of startup.
 
 What is deferred is the contents, not the tab: the bar's order is part of the
-design, and a tab that appears late is a tab that moves. So the assertions are
-in two halves -- the tab is in the bar and its page is empty, and opening it
-fills the page in.
+design, and a tab that appears late is a tab that moves. Recordings and Compare
+Runs first paint lightweight loading rings, then yield between construction
+batches so the tab switch itself remains responsive.
 
 Run in a subprocess against the real application, as `test_startup_window_order`
 does. A fake tab widget would prove nothing here: the trigger is Qt's own
@@ -34,9 +34,11 @@ import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 PREAMBLE = """
 import os
 import sys
+import time
 import traceback
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import src
+from PySide6.QtCore import QEvent, QObject
 from PySide6.QtWidgets import QApplication, QTabWidget, QWidget
 from app import config
 from gui_app import MegabonkApp
@@ -98,29 +100,29 @@ class LazyTabsTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_the_tab_is_in_the_bar_with_nothing_built_inside_it(self) -> None:
-        """Both halves, because either alone is the wrong outcome.
+    def test_the_tabs_are_registered_without_heavy_contents(self) -> None:
+        """Both tabs exist, but neither pays for its heavy workspace at startup.
 
-        A page with children would mean the deferral did not happen; a missing
-        tab would mean it went too far and moved the bar.
+        Both heavy tabs keep only their tiny loading shells eager so Qt can give
+        them the final viewport before the first click.
         """
         self._run(
             """
-            for caption, deferred in (
-                ("Compare Runs", page),
-                ("Recordings", recordings_page),
-            ):
-                assert deferred is not None, caption
-                assert not deferred.is_built, caption + " built itself unopened"
-                assert deferred.findChildren(QWidget) == [], (
-                    caption, len(deferred.findChildren(QWidget))
-                )
+            assert page is not None
+            assert not page.is_built
+            assert page.findChild(QWidget, "CompareRunsLoadingPage") is not None
+            assert page.findChild(QWidget, "CompareRunsLoadingSpinner") is not None
+
+            assert recordings_page is not None
+            assert not recordings_page.is_built
+            assert recordings_page.findChild(QWidget, "RecordingsLoadingPage") is not None
+            assert recordings_page.findChild(QWidget, "RecordingsLoadingSpinner") is not None
 
             # The tab bar is unchanged: same positions, same captions.
             assert tabs.tabText(compare_index) == "Compare Runs"
             assert tabs.tabText(recordings_index) == "Recordings"
 
-            # And the widgets the tabs will own do not exist yet. `__init__`
+            # And the heavy workspace widgets do not exist yet. `__init__`
             # declares them None precisely so this state is representable.
             assert app._compare_runs_view._timeline is None
             assert app._compare_runs_view._detail_tabs is None
@@ -135,8 +137,8 @@ class LazyTabsTests(unittest.TestCase):
             """
         )
 
-    def test_opening_the_tab_builds_it_in_full(self) -> None:
-        """Deferred, not dropped -- the whole workspace has to arrive.
+    def test_opening_recordings_paints_before_building_it_in_full(self) -> None:
+        """The first frame is cheap, then every workspace section arrives.
 
         The detail pages are the check rather than a widget count: a count
         would fail on any honest change to the tab's contents, where a missing
@@ -145,8 +147,50 @@ class LazyTabsTests(unittest.TestCase):
         self._run(
             """
             tabs.setCurrentIndex(recordings_index)
-            qt.processEvents()
+            assert not recordings_page.is_built
+            assert recordings_page.findChild(QWidget, "RecordingsLoadingPage") is not None
+            assert recordings_page.findChild(QWidget, "RecordingsLoadingSpinner") is not None
+            loading_page = recordings_page.findChild(QWidget, "RecordingsLoadingPage")
+            assert loading_page.geometry() == recordings_page.rect(), (
+                loading_page.geometry(),
+                recordings_page.rect(),
+            )
+            assert loading_page.isVisible()
+            workspace = recordings_page.findChild(QWidget, "RecordingsWorkspace")
+            assert workspace.geometry() == recordings_page.rect(), (
+                workspace.geometry(),
+                recordings_page.rect(),
+            )
+            assert app._recordings_view._scrubber is None
+
+            unexpected_windows = []
+            class WindowShowSpy(QObject):
+                def eventFilter(self, obj, event):
+                    if (
+                        event.type() == QEvent.Show
+                        and isinstance(obj, QWidget)
+                        and obj is not app.window
+                        and obj.isWindow()
+                    ):
+                        unexpected_windows.append(
+                            (type(obj).__name__, obj.objectName(), obj.windowTitle())
+                        )
+                    return False
+            window_show_spy = WindowShowSpy()
+            qt.installEventFilter(window_show_spy)
+
+            deadline = time.monotonic() + 10.0
+            while not recordings_page.is_built and time.monotonic() < deadline:
+                qt.processEvents()
+                if not recordings_page.is_built:
+                    assert loading_page.isVisible()
+                    assert loading_page.geometry() == recordings_page.rect()
+                    assert workspace.geometry() == recordings_page.rect()
+                time.sleep(0.002)
+
             assert recordings_page.is_built
+            assert not loading_page.isVisible()
+            assert not unexpected_windows, unexpected_windows
             assert recordings_page.findChildren(QWidget), "Recordings built nothing"
             recordings = app._recordings_view
             assert recordings._body_splitter is not None
@@ -158,9 +202,26 @@ class LazyTabsTests(unittest.TestCase):
             ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Shrines", "Passives", "Damage Sources"]
 
             tabs.setCurrentIndex(compare_index)
-            qt.processEvents()
+            compare_loading_page = page.findChild(QWidget, "CompareRunsLoadingPage")
+            compare_workspace = page.findChild(QWidget, "CompareRunsLoadingWorkspace")
+            assert not page.is_built
+            assert compare_loading_page.isVisible()
+            assert compare_loading_page.geometry() == page.rect()
+            assert compare_workspace.geometry() == page.rect()
+
+            deadline = time.monotonic() + 10.0
+            while not page.is_built and time.monotonic() < deadline:
+                qt.processEvents()
+                if not page.is_built:
+                    assert compare_loading_page.isVisible()
+                    assert compare_loading_page.geometry() == page.rect()
+                    assert compare_workspace.geometry() == page.rect()
+                time.sleep(0.002)
 
             assert page.is_built
+            assert not compare_loading_page.isVisible()
+            qt.removeEventFilter(window_show_spy)
+            assert not unexpected_windows, unexpected_windows
             assert page.findChildren(QWidget), "opening the tab built nothing"
 
             view = app._compare_runs_view
@@ -179,10 +240,9 @@ class LazyTabsTests(unittest.TestCase):
     def test_the_router_finds_the_widgets_when_the_switch_reaches_it(self) -> None:
         """The ordering the whole deferral rests on.
 
-        `_refresh_recording_tabs` runs off `currentChanged` and calls straight
-        into this tab. Qt shows the incoming page before it emits that signal,
-        so the widgets are there by the time the router asks -- but that is Qt's
-        ordering, not ours, and this is what would catch it changing.
+        `_refresh_recording_tabs` runs off `currentChanged` while the staged
+        workspace is still loading. Its calls must remain safe in that state,
+        and the finished build must replay the newest chooser state.
         """
         self._run(
             """
@@ -195,11 +255,17 @@ class LazyTabsTests(unittest.TestCase):
             tabs.setCurrentIndex(compare_index)
             qt.processEvents()
 
-            assert seen.get("built") is True, seen
+            assert seen.get("built") is False, seen
 
-            # And the router's own call is safe to make now.
+            # The router's own call is safe while the widgets are still absent.
             app._tab_router._refresh_recording_tabs()
-            qt.processEvents()
+            deadline = time.monotonic() + 10.0
+            while not page.is_built and time.monotonic() < deadline:
+                qt.processEvents()
+                time.sleep(0.002)
+            assert page.is_built
+            assert app._compare_runs_view._chooser_expanded
+            assert app._compare_runs_view._chooser_group.isVisible()
             """
         )
 

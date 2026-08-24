@@ -449,6 +449,7 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
         is_active=lambda: True,
     )
     compare.build()
+    compare.build_now()
     tabs.resize(1400, 900)
     tabs.show()
     app.processEvents()
@@ -547,7 +548,7 @@ def test_timeline_footer_shows_visible_series_a_b_and_delta() -> None:
     )
     compare.build()
     # The tab's contents wait for a show; this test drives the widgets without
-    # one, so it asks for them. See `LazyPage`.
+    # one, so it asks for them. See `StagedLoadingPage`.
     compare.build_now()
     compare._vod_a = _vod((1.0,))
     compare._vod_b = _vod((2.0,))
@@ -628,7 +629,7 @@ def test_the_cap_checkboxes_drive_the_timeline() -> None:
     tabs = QTabWidget()
     compare = CompareRunsTab(tabview=tabs, vod_library=Library(), is_active=lambda: True)
     compare.build()
-    compare.build_now()  # no show in this test; see `LazyPage`
+    compare.build_now()  # no show in this test; see `StagedLoadingPage`
     compare._vod_a = _vod((0.0, 60.0), stages=(0, 1))
     compare._vod_b = _vod((0.0, 70.0), stages=(0, 1))
 
@@ -686,6 +687,7 @@ def test_recording_chooser_replaces_workspace_and_uses_available_height() -> Non
         is_active=lambda: True,
     )
     compare.build()
+    compare.build_now()
     tabs.resize(1400, 900)
     tabs.show()
     app.processEvents()
