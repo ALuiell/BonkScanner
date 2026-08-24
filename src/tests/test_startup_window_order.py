@@ -69,10 +69,6 @@ class StartupWindowOrderTests(unittest.TestCase):
 
             app.on_closing()
             qt.processEvents()
-            # See the note in `test_building_the_ui_shows_no_window_of_its_own`:
-            # in-process teardown of a real app exits 0xC0000409 often enough to
-            # make this assertion flaky when the file's tests run together.
-            os._exit(0)
             """
         )
         env = os.environ.copy()
@@ -140,11 +136,6 @@ class StartupWindowOrderTests(unittest.TestCase):
             assert shown == [], shown
             app.on_closing()
             qt.processEvents()
-            # Skip interpreter teardown. A real app torn down in-process exits
-            # 0xC0000409 often enough to make an exit-code assertion flaky, and
-            # that crash is pre-existing and not this test's subject. A failed
-            # assertion still raises above this line and still exits non-zero.
-            os._exit(0)
             """
         )
         env = os.environ.copy()

@@ -102,9 +102,8 @@ def assert_no_field_armed(where):
 """
 
 EPILOGUE = """
-# In-process teardown of a real app exits 0xC0000409 often enough to make this
-# flaky; see the same note in `test_startup_window_order`.
-os._exit(0)
+app.on_closing()
+qt.processEvents()
 """
 
 

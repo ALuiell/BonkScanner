@@ -17,7 +17,9 @@ from types import SimpleNamespace
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
-from support.player_stats import FakeCardsLayout, FakeTimelineWidget
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+
+from support.player_stats import FakeTimelineWidget
 from ui.tabs.player_stats.stat_cards import StatCardsView
 
 
@@ -32,15 +34,33 @@ def _weapon(weapon_id: int, level: int):
 
 
 class DeferredSectionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.qt_app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.roots: list[QWidget] = []
+
+    def tearDown(self) -> None:
+        for root in self.roots:
+            root.close()
+            root.deleteLater()
+        self.qt_app.processEvents()
+
+    def _layout(self) -> QVBoxLayout:
+        root = QWidget()
+        self.roots.append(root)
+        return QVBoxLayout(root)
+
     def _view(self, visible_sections: set[str]):
         self.widgets = {
-            "weapons_layout": FakeCardsLayout(),
+            "weapons_layout": self._layout(),
             "weapons_status_label": FakeTimelineWidget("weapons_status_label"),
-            "tomes_layout": FakeCardsLayout(),
+            "tomes_layout": self._layout(),
             "tomes_status_label": FakeTimelineWidget("tomes_status_label"),
-            "chaos_layout": FakeCardsLayout(),
+            "chaos_layout": self._layout(),
             "chaos_status_label": FakeTimelineWidget("chaos_status_label"),
-            "damage_sources_layout": FakeCardsLayout(),
+            "damage_sources_layout": self._layout(),
             "damage_sources_status_label": FakeTimelineWidget("damage_sources_status_label"),
         }
         self.visible = visible_sections
@@ -120,13 +140,13 @@ class DeferredSectionTests(unittest.TestCase):
     def test_without_a_visibility_port_everything_renders(self) -> None:
         """Live Stats and Compare Runs build this view and did not opt in."""
         widgets = {
-            "weapons_layout": FakeCardsLayout(),
+            "weapons_layout": self._layout(),
             "weapons_status_label": FakeTimelineWidget("weapons_status_label"),
-            "tomes_layout": FakeCardsLayout(),
+            "tomes_layout": self._layout(),
             "tomes_status_label": FakeTimelineWidget("tomes_status_label"),
-            "chaos_layout": FakeCardsLayout(),
+            "chaos_layout": self._layout(),
             "chaos_status_label": FakeTimelineWidget("chaos_status_label"),
-            "damage_sources_layout": FakeCardsLayout(),
+            "damage_sources_layout": self._layout(),
             "damage_sources_status_label": FakeTimelineWidget("damage_sources_status_label"),
         }
         view = StatCardsView(**widgets)

@@ -33,11 +33,20 @@ import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 PREAMBLE = """
 import os
+import sys
+import traceback
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import src
 from PySide6.QtWidgets import QApplication, QTabWidget, QWidget
 from app import config
 from gui_app import MegabonkApp
+
+unhandled = []
+def record_unhandled(exc_type, exc_value, exc_traceback):
+    unhandled.append(
+        "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    )
+sys.excepthook = record_unhandled
 
 config.save_config = lambda *_args, **_kwargs: None
 app = MegabonkApp()
@@ -64,9 +73,9 @@ recordings_index, recordings_page = page_for("Recordings")
 """
 
 EPILOGUE = """
-# In-process teardown of a real app exits 0xC0000409 often enough to make this
-# flaky; see the same note in `test_startup_window_order`.
-os._exit(0)
+app.on_closing()
+qt.processEvents()
+assert not unhandled, "\\n".join(unhandled)
 """
 
 
