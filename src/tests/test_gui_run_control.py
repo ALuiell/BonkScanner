@@ -1957,6 +1957,8 @@ class GuiRunControlTests(unittest.TestCase):
             ChargeShrineReading(charged_total=1, shown_log=()),
             wrench_stacks=0,
         )
+        app.live_run_tracker.update_fast_run_timer(10.0)
+        app.live_run_tracker.track_kills(10.0, 12_345)
 
         vod_capture(app).stop_recording(refresh_live_stats=False)
 
@@ -1964,6 +1966,10 @@ class GuiRunControlTests(unittest.TestCase):
         final_shrines = app.player_stats_vod_recorder.capture_calls[0]["shrines"]
         self.assertEqual(final_shrines.charged, 1)
         self.assertEqual(final_shrines.pending, 1)
+        self.assertEqual(
+            app.player_stats_vod_recorder.capture_calls[0]["mob_kills"],
+            12_345,
+        )
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
 
     def test_build_stage_summary_tracks_stage_transitions_and_item_stack_gains(self) -> None:
@@ -3611,6 +3617,91 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(len(jobs), 2)
         self.assertEqual(sync_updates, [])
 
+    def test_terminal_lifecycle_reads_final_kills_before_stopping_vod(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=1000.0,
+                stats={},
+                game_time_seconds=110.0,
+                stage_time_seconds=20.0,
+                mob_kills=10_000,
+                map_seed=7,
+                stage_ptr=0x1234,
+                stage_index=2,
+            )
+        )
+        client = SimpleNamespace(
+            get_run_timer=lambda: 120.0,
+            get_killed_mobs=lambda: 12_345,
+            get_stage_timer_context=lambda: (30.0, 2, 60.0),
+        )
+        lifecycle = SimpleNamespace(completed_run=True, is_active_run=lambda: False)
+        observed_at_stop: list[int | None] = []
+        capture = SimpleNamespace(
+            sync_run_state=lambda _context=None: (
+                observed_at_stop.append(tracker.runtime_snapshot().mob_kills)
+                or "stopped"
+            )
+        )
+        published_rows: list[list[dict]] = []
+        view = SimpleNamespace(
+            set_in_game_time_text=lambda _text: None,
+            set_mob_kills_text=lambda _text: None,
+            set_kps_averages_text=lambda _text: None,
+            set_stage_summary_rows=lambda rows: published_rows.append(rows),
+            set_charge_shrine_card=lambda _snapshot: None,
+            set_chaos_tome_card=lambda _snapshot: None,
+        )
+        service, world = build_refresh_tasks(
+            stats_client=client,
+            tracker=tracker,
+            lifecycle=lifecycle,
+            capture=capture,
+            vod_recorder=SimpleNamespace(is_recording=True),
+            view=view,
+            tab_active=True,
+            widget_refresh_active=lambda widget_id: widget_id == "stage_summary",
+        )
+
+        self.assertTrue(
+            service._refresh_recording_lifecycle_task(
+                RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+            )
+        )
+
+        self.assertEqual(observed_at_stop, [12_345])
+        self.assertEqual(published_rows[-1], tracker.stage_summary_rows())
+        self.assertGreaterEqual(len(world.overlay_syncs), 1)
+
+    def test_terminal_lifecycle_still_stops_when_final_combat_read_fails(self) -> None:
+        stopped: list[bool] = []
+        client = SimpleNamespace(
+            get_run_timer=lambda: 120.0,
+            get_killed_mobs=lambda: (_ for _ in ()).throw(
+                MemoryReadError("terminal kill counter unavailable")
+            ),
+        )
+        service, _world = build_refresh_tasks(
+            stats_client=client,
+            lifecycle=SimpleNamespace(
+                completed_run=True,
+                is_active_run=lambda: False,
+            ),
+            capture=SimpleNamespace(
+                sync_run_state=lambda _context=None: stopped.append(True) or "stopped"
+            ),
+            vod_recorder=SimpleNamespace(is_recording=True),
+        )
+
+        self.assertTrue(
+            service._refresh_recording_lifecycle_task(
+                RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+            )
+        )
+
+        self.assertEqual(stopped, [True])
+
     def test_terminal_lifecycle_applies_dice_recovery_before_stopping_vod(self) -> None:
         reading = SimpleNamespace(
             character_id=18,
@@ -4486,7 +4577,11 @@ class GuiRunControlTests(unittest.TestCase):
             {"stats": stats, "items": tuple(items), "kwargs": kwargs}
         )
 
-        view.display_player_stats_snapshot(snapshot)
+        live_rows = [{"label": "Stage 1", "kills": "42"}]
+        view.display_player_stats_snapshot(
+            snapshot,
+            stage_summary_rows=live_rows,
+        )
 
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["kwargs"]["status_text"], "Recorded snapshot 1/1 at 01:00 | In-Game Time: 01:21")
@@ -4495,6 +4590,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(calls[0]["kwargs"]["player_level"], 4)
         self.assertEqual(calls[0]["kwargs"]["tomes"], snapshot.tomes)
         self.assertEqual(calls[0]["kwargs"]["banishes"], snapshot.banishes)
+        self.assertIs(calls[0]["kwargs"]["stage_summary_rows"], live_rows)
 
     def test_display_player_stats_snapshot_uses_compact_segment_compare_text(self) -> None:
         calls: list[dict[str, object]] = []

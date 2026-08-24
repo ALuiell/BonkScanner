@@ -628,7 +628,13 @@ class LiveStatsTab:
         )
         self.refresh_build_progression()
 
-    def display_player_stats_snapshot(self, snapshot, *, items_text: str | None = None):
+    def display_player_stats_snapshot(
+        self,
+        snapshot,
+        *,
+        items_text: str | None = None,
+        stage_summary_rows: list[dict[str, str]] | None = None,
+    ):
         snapshots = self._vod_snapshots()
         index = snapshots.index(snapshot) + 1
         total = len(snapshots)
@@ -659,7 +665,11 @@ class LiveStatsTab:
                 snapshot,
                 segment_snapshots=self._player_stats_snapshot_segment(snapshot),
             ),
-            stage_summary_rows=formatting.build_stage_summary(snapshots[:index]),
+            stage_summary_rows=(
+                stage_summary_rows
+                if stage_summary_rows is not None
+                else formatting.build_stage_summary(snapshots[:index])
+            ),
         )
 
     def _previous_player_stats_snapshot(self, snapshot):

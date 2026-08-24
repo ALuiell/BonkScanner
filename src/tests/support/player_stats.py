@@ -350,7 +350,13 @@ class RecordingPlayerStatsView:
     def display_player_stats(self, stats, items=(), **kwargs) -> None:
         self.displays.append({"stats": stats, "items": tuple(items), "kwargs": kwargs})
 
-    def display_player_stats_snapshot(self, snapshot, *, items_text=None) -> None:
+    def display_player_stats_snapshot(
+        self,
+        snapshot,
+        *,
+        items_text=None,
+        stage_summary_rows=None,
+    ) -> None:
         self.snapshots.append((snapshot, items_text))
 
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True) -> None:

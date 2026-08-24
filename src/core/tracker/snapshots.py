@@ -232,6 +232,10 @@ class RuntimeStateSnapshot:
     # Fresh run clock already read by the combat fast lane.  Publishing it on
     # the boundary lets derived consumers share the read instead of polling.
     run_timer_seconds: float | None = None
+    # Highest kill total observed by either the full snapshot or the combat
+    # fast lane. The counter is monotonic within one run, so this is the fresh
+    # value consumers should persist instead of the 10 s snapshot's copy.
+    mob_kills: int | None = None
 
 
 @dataclass(frozen=True)

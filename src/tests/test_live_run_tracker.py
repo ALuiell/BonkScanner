@@ -102,6 +102,26 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(values["banishes"], ("Clover",))
         self.assertEqual(values["damage_sources"], (damage,))
 
+    def test_vod_projection_prefers_fast_terminal_kill_total(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=110.0, mob_kills=10_000))
+        tracker.update_fast_run_timer(120.0)
+        tracker.track_kills(120.0, 12_345)
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=30.0,
+            stage_index=2,
+            stage_duration_seconds=60.0,
+        )
+
+        runtime = tracker.runtime_snapshot()
+        values = build_vod_capture_kwargs(runtime)
+
+        self.assertEqual(runtime.mob_kills, 12_345)
+        self.assertEqual(values["mob_kills"], 12_345)
+        self.assertEqual(values["game_time_seconds"], 120.0)
+        self.assertEqual(values["stage_time_seconds"], 30.0)
+        self.assertEqual(values["stage_index"], 2)
+
     def test_tracker_counts_anvil_map_one_only_before_stage_transition(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=1.0))

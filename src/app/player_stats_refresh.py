@@ -495,7 +495,15 @@ class PlayerStatsRefresh:
             view.refresh_player_stats_timeline_ui()
             self._recordings_list()._refresh_vods_list_if_visible()
             if is_live_tab_active and not pinned:
-                view.display_player_stats_snapshot(snapshot, items_text=items_text)
+                # The newest capture is still the live view. Keep its Stage
+                # Summary on the same fast tracker projection OBS just received;
+                # only a manually pinned historical snapshot should fold the
+                # slower VOD timeline independently.
+                view.display_player_stats_snapshot(
+                    snapshot,
+                    items_text=items_text,
+                    stage_summary_rows=live_stage_summary_rows,
+                )
             return True
 
         if is_live_tab_active:

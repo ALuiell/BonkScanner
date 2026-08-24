@@ -81,6 +81,7 @@ def build_overlay_state_from_snapshot(
     """Project a runtime snapshot into the stable OBS HTTP payload."""
     overlay_config = overlay_config or {}
     snapshot = runtime.latest_snapshot
+    runtime_mob_kills = getattr(runtime, "mob_kills", None)
     widgets = widget_config_by_id(overlay_config)
     state = OverlayState(
         status=runtime.status,
@@ -88,7 +89,11 @@ def build_overlay_state_from_snapshot(
         run_id=runtime.run_id,
         current_stage=runtime.current_stage_index,
         run_timer_label=_format_timer(getattr(snapshot, "game_time_seconds", None)),
-        mob_kills=_coerce_optional_int(getattr(snapshot, "mob_kills", None)),
+        mob_kills=_coerce_optional_int(
+            runtime_mob_kills
+            if runtime_mob_kills is not None
+            else getattr(snapshot, "mob_kills", None)
+        ),
         player_level=_coerce_optional_int(getattr(snapshot, "player_level", None)),
         chests_per_minute=_coerce_optional_float(getattr(snapshot, "chests_per_minute", None)),
         widgets=widgets,

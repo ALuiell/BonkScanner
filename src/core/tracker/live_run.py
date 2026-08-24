@@ -653,13 +653,26 @@ class LiveRunTracker:
         """Return one immutable boundary object for consumer projections."""
         now = self.clock()
         map_context = self._fresh_powerup_map_context_unlocked()
+        latest_snapshot = copy.deepcopy(self._latest_snapshot_unlocked())
+        observed_mob_kills = [
+            int(value)
+            for value in (
+                getattr(latest_snapshot, "mob_kills", None),
+                (
+                    self._recent_kills_history[-1][1]
+                    if self._recent_kills_history
+                    else None
+                ),
+            )
+            if value is not None
+        ]
         return RuntimeStateSnapshot(
             status=self._status_unlocked(now),
             lifecycle=self._lifecycle,
             updated_at=now,
             run_id=self.run_id,
             current_stage_index=self.current_stage_index,
-            latest_snapshot=copy.deepcopy(self._latest_snapshot_unlocked()),
+            latest_snapshot=latest_snapshot,
             tracked_items=tuple(self._tracked_item_rows_unlocked()),
             stage_summary=tuple(self._stage_summary_rows_unlocked()),
             chest_stats=self._get_chest_stats_unlocked(),
@@ -684,6 +697,7 @@ class LiveRunTracker:
             fast_items=self._fresh_fast_items_unlocked(),
             item_cooldowns=self._fresh_item_cooldowns_unlocked(),
             run_timer_seconds=self._fresh_fast_run_timer_unlocked(),
+            mob_kills=max(observed_mob_kills) if observed_mob_kills else None,
         )
 
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:

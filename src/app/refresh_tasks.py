@@ -572,18 +572,23 @@ class RefreshTasks:
             and recorder.is_recording
         )
         if terminal_recording:
-            # The lifecycle task runs before the normal fast-source tasks. Once
-            # the run is complete they are no longer demanded, so fold their
-            # terminal state into the tracker now, while the recorder is still
-            # open. Preserve the ordinary ordering: ShrineLog pointers must be
-            # reserved before Dice/Chaos inspect permanentChanges. Both tasks
-            # own their failure handling. Shrine reservations must be current
-            # before a completed recovery result is validated and published.
-            # The poll after both reads still applies a finished result when
-            # Dice/Chaos memory has already disappeared.
+            # The lifecycle task runs before the normal fast-source tasks, and
+            # `completed_run` disables their demand predicates. Run the terminal
+            # combat/stage passes explicitly so the final VOD does not freeze on
+            # the previous 500 ms kill sample or an uncommitted stage boundary.
+            # Both tasks contain their own read failures; stopping the recorder
+            # remains reliable when the process disappears first.
+            self._refresh_combat_metrics_task(context)
+            self._refresh_event_timer_task(context)
+
+            # Preserve the ordinary permanent-source ordering: ShrineLog
+            # pointers must be reserved before Dice/Chaos inspect
+            # permanentChanges. The poll after both reads still applies a
+            # finished result when Dice/Chaos memory has already disappeared.
             self._refresh_charge_shrines_task(context)
             self._refresh_chaos_tome_task(context)
             self._poll_completed_permanent_source_recovery()
+            self._publish_terminal_stage_summary()
             if self._should_defer_terminal_recording_stop():
                 self._player_stats_refresh_status_text = (
                     "Live player stats (finalizing recording after run end)"
@@ -598,6 +603,25 @@ class RefreshTasks:
             else "Live player stats (recording auto-stopped after run end)"
         )
         return True
+
+    def _publish_terminal_stage_summary(self) -> None:
+        """Give Live Stats and OBS one identical frame before terminal freeze."""
+        rows_reader = getattr(self._tracker(), "stage_summary_rows", None)
+        if not callable(rows_reader):
+            return
+        rows = rows_reader()
+        try:
+            if self._tab_active() and not self._pinned():
+                self._view().set_stage_summary_rows(rows)
+        except Exception:
+            # A UI failure must never keep the recording file open.
+            pass
+        try:
+            if self._widget_refresh_active("stage_summary"):
+                self._sync_overlay_state()
+        except Exception:
+            # OBS is an optional consumer; terminal recording closure is not.
+            pass
 
     def _poll_completed_permanent_source_recovery(self) -> None:
         """Apply an already-finished Dice recovery without requiring a new read."""

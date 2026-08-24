@@ -78,15 +78,19 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
     app.player_stats_recording_armed = False
     app.player_stats_auto_recording_suppressed = False
 
-    rendered = {"live": 0, "snapshot": []}
+    rendered = {"live": 0, "snapshot": [], "snapshot_stage_rows": []}
     # Three doubles, because step 19 split the one nine-operation port into the
     # three features that actually implement it. Faking them separately is the
     # point: a single object satisfying all nine is what let the app layer
     # reach the overlay and the recordings list through "the player stats
     # view" without anything noticing.
+    def display_snapshot(snap, **kwargs):
+        rendered["snapshot"].append(snap.time_label)
+        rendered["snapshot_stage_rows"].append(kwargs.get("stage_summary_rows"))
+
     app._player_stats_view = SimpleNamespace(
         display_player_stats=lambda *a, **k: rendered.__setitem__("live", rendered["live"] + 1),
-        display_player_stats_snapshot=lambda snap, **k: rendered["snapshot"].append(snap.time_label),
+        display_player_stats_snapshot=display_snapshot,
         refresh_player_stats_timeline_ui=lambda *a, **k: None,
         set_recording_status_text=lambda text: None,
         set_mob_kills_text=lambda text: None,
@@ -200,6 +204,17 @@ class PinnedSnapshotSurvivesRefreshTests(unittest.TestCase):
 
         self.assertEqual(1, app.player_stats_selected_snapshot_index)
         self.assertEqual(["cap1"], app.rendered["snapshot"])
+
+    def test_live_capture_uses_the_fast_stage_rows_shared_with_obs(self) -> None:
+        app = build_refresh_app(
+            snapshots=[snap("00:10")], selected=0, pinned=False, should_capture=True
+        )
+        live_rows = [{"label": "Stage 1", "kills": "1,250"}]
+        app.live_run_tracker.stage_summary_rows = lambda: live_rows
+
+        self._refresh(app)
+
+        self.assertEqual([live_rows], app.rendered["snapshot_stage_rows"])
 
 
 class PinPredicateTests(unittest.TestCase):

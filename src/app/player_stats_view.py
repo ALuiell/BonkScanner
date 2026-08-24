@@ -76,7 +76,13 @@ class PlayerStatsView(Protocol):
     def display_player_stats(self, stats, items, **kwargs) -> None:
         """Render a live reading into the Live Stats tab."""
 
-    def display_player_stats_snapshot(self, snapshot, *, items_text) -> None:
+    def display_player_stats_snapshot(
+        self,
+        snapshot,
+        *,
+        items_text,
+        stage_summary_rows=None,
+    ) -> None:
         """Render a captured recording snapshot into the Live Stats tab."""
 
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True) -> None:

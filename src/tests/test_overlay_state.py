@@ -99,6 +99,26 @@ class OverlayStateTests(unittest.TestCase):
 
         self.assertIsNone(state["chests_per_minute"])
 
+    def test_overlay_uses_the_same_fast_kill_total_as_stage_summary(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=1.0,
+                stats={},
+                game_time_seconds=10.0,
+                mob_kills=1_000,
+                map_seed=1,
+                stage_ptr=10,
+            )
+        )
+        tracker.update_fast_run_timer(11.0)
+        tracker.track_kills(11.0, 1_250)
+
+        state = build_overlay_state(tracker, {"widgets": []})
+
+        self.assertEqual(state["mob_kills"], 1_250)
+        self.assertEqual(state["stage_summary"][0]["kills"], "1,250")
+
     def test_overlay_widget_float_settings_reject_non_finite_values(self) -> None:
         state = build_overlay_state(
             LiveRunTracker(clock=lambda: 123.0),
