@@ -217,6 +217,38 @@ class SessionStatsTabWidgetTests(unittest.TestCase):
             """
         )
 
+    def test_dynamic_rows_keep_their_widget_identity(self) -> None:
+        self._run(
+            """
+            tracked_a = [
+                {"item_names": ("Anvil",), "mode": "map_1_only",
+                 "count": 1, "percent": 10.0, "label": "Anvil T1"},
+            ]
+            tracked_b = [
+                {"item_names": ("Anvil",), "mode": "map_1_only",
+                 "count": 2, "percent": 20.0, "label": "Anvil T1"},
+            ]
+            view.set_tracked_rows(tracked_a)
+            tracked_widget = view._tracked_rows[0]
+            view.set_tracked_rows(tracked_b)
+            assert view._tracked_rows[0] is tracked_widget
+
+            view.set_average_rows([("Target", "#60A5FA", 4.0, 1)])
+            average_widget = view._average_rows[0]
+            view.set_average_rows([("Target", "#60A5FA", 8.0, 2)])
+            assert view._average_rows[0] is average_widget
+
+            view.set_map_highlights(
+                best_stats={"Shady Guy": 1}, worst_stats=None, active_templates=[]
+            )
+            map_widget = view._map_rows["best"][0]
+            view.set_map_highlights(
+                best_stats={"Shady Guy": 2}, worst_stats=None, active_templates=[]
+            )
+            assert view._map_rows["best"][0] is map_widget
+            """
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

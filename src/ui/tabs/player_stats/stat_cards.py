@@ -40,8 +40,9 @@ Eight widgets, previously reached by composed name against the shared ``self``,
 now constructor arguments -- so a missing one is a ``TypeError`` at the
 composition root instead of a panel that quietly stops painting.
 
-The four signature caches move inside too. They were ``{prefix}_weapon_signature``
-and friends on ``MegabonkApp``: repaint-suppression state that only this
+The section signature caches move inside too. They were
+``{prefix}_weapon_signature`` and friends on ``MegabonkApp``:
+repaint-suppression state that only this
 renderer reads or writes, sitting in the shared namespace where any of the
 other 270 attributes could collide with it. ``invalidate()`` replaces the
 ``self.player_stats_weapon_signature = None`` idiom at the two reset sites.
@@ -62,7 +63,6 @@ from math import isfinite
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QFormLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -124,6 +124,135 @@ def damage_source_share_text(damage: float | None, total_damage: float | None) -
     if percentage >= 99.95:
         return "100%"
     return f"{percentage:.1f}%"
+
+
+def _unique_pool_keys(values, key_for) -> tuple[object, ...]:
+    """Stable keys with an occurrence suffix for defensive duplicate handling."""
+    seen: dict[object, int] = {}
+    keys = []
+    for index, value in enumerate(values):
+        raw_key = key_for(value, index)
+        occurrence = seen.get(raw_key, 0)
+        seen[raw_key] = occurrence + 1
+        keys.append((raw_key, occurrence))
+    return tuple(keys)
+
+
+def _show_if_parented(widget: QWidget | None) -> None:
+    """Reveal an owned widget without promoting a fake-layout child to a window."""
+    if widget is not None and widget.parentWidget() is not None:
+        widget.show()
+
+
+class _StatValueRow(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        self._name_label = QLabel()
+        self._name_label.setStyleSheet(
+            "font-size: 13px; color: #D7DEE8; background: transparent;"
+        )
+        self._value_label = QLabel()
+        self._value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._value_label.setStyleSheet(
+            "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
+        )
+        layout.addWidget(self._name_label, 1)
+        layout.addWidget(self._value_label)
+
+    def set_values(self, name: str, value: str) -> None:
+        _set_text(self._name_label, name)
+        _set_text(self._value_label, value)
+
+
+class _WeaponCard(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StatCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        self._name_label = QLabel()
+        self._name_label.setStyleSheet(
+            "font-size: 15px; font-weight: 700; background: transparent;"
+        )
+        self._level_label = QLabel()
+        self._level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._level_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
+        )
+        header_layout.addWidget(self._name_label, 1)
+        header_layout.addWidget(self._level_label)
+        layout.addLayout(header_layout)
+
+        self._rows_layout = QVBoxLayout()
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(6)
+        layout.addLayout(self._rows_layout)
+        self._empty_label = QLabel("No upgraded stats decoded")
+        layout.addWidget(self._empty_label)
+        layout.addStretch(1)
+        self._row_ids: tuple[object, ...] = ()
+        self._row_widgets: list[_StatValueRow] = []
+
+    def update_weapon(self, weapon: WeaponSnapshot) -> None:
+        _set_text(self._name_label, str(weapon.name))
+        _set_text(self._level_label, f"Lv. {weapon.level}")
+        stats = tuple(
+            (stat_id, weapon.upgraded_stats[stat_id])
+            for stat_id in weapon.upgrade_stat_ids
+            if stat_id in weapon.upgraded_stats
+        )
+        row_ids = tuple(stat_id for stat_id, _stat in stats)
+        if row_ids != self._row_ids:
+            self._row_ids = row_ids
+            _clear_layout(self._rows_layout)
+            self._row_widgets = []
+            for _stat_id, _stat in stats:
+                row = _StatValueRow()
+                self._rows_layout.addWidget(row)
+                self._row_widgets.append(row)
+        for row, (_stat_id, stat) in zip(self._row_widgets, stats):
+            row.set_values(str(stat.label), str(stat.display_value))
+        self._empty_label.setVisible(not stats)
+
+
+class _TomeCard(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StatCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        self._name_label = QLabel()
+        self._name_label.setStyleSheet(
+            "font-size: 15px; font-weight: 700; background: transparent;"
+        )
+        self._level_label = QLabel()
+        self._level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._level_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
+        )
+        header_layout.addWidget(self._name_label, 1)
+        header_layout.addWidget(self._level_label)
+        layout.addLayout(header_layout)
+        self._stat_row = _StatValueRow()
+        layout.addWidget(self._stat_row)
+
+    def update_tome(self, tome: TomeSnapshot) -> None:
+        _set_text(self._name_label, str(tome.name))
+        _set_text(self._level_label, f"Lv. {tome.level}")
+        self._stat_row.set_values(str(tome.stat_label), str(tome.display_value))
 
 
 class _DamageSourceCard(QFrame):
@@ -276,8 +405,202 @@ class _DamageSourcesSummaryCard(QFrame):
         )
 
 
+class _RollStatCard(QFrame):
+    """One Chaos/Shrine stat card whose position may change without rebuilding it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StatCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(3)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self._name_label = QLabel()
+        self._name_label.setStyleSheet(
+            "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
+        )
+        self._value_label = QLabel()
+        self._value_label.setStyleSheet(
+            "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
+        )
+        self._value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row.addWidget(self._name_label, 1)
+        row.addWidget(self._value_label)
+        layout.addLayout(row)
+
+        self._rolls_label = QLabel()
+        layout.addWidget(self._rolls_label)
+        self._quality_color: str | None = None
+
+    def update_stat(
+        self,
+        stat,
+        *,
+        name: str,
+        quality: float | None,
+        quality_tooltip: str,
+    ) -> None:
+        _set_text(self._name_label, name)
+        _set_text(self._value_label, str(getattr(stat, "display_delta", "--")))
+        rolls = max(0, int(getattr(stat, "rolls", 0) or 0))
+        rolls_word = "roll" if rolls == 1 else "rolls"
+        _set_text(self._rolls_label, f"● {rolls} {rolls_word}")
+
+        quality_color = chaos_roll_quality_color(quality)
+        if quality_color != self._quality_color:
+            self._quality_color = quality_color
+            self._rolls_label.setStyleSheet(
+                f"font-size: 12px; font-weight: 700; color: {quality_color}; "
+                "background: transparent;"
+            )
+        self._rolls_label.setToolTip(
+            ""
+            if quality is None
+            else f"{quality_tooltip}: {round(quality * 100)}% of this stat's range"
+        )
+
+
+class _ChaosSummaryCard(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StatCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        title_label = QLabel("Chaos Tome")
+        title_label.setStyleSheet(
+            "font-size: 14px; font-weight: 700; background: transparent;"
+        )
+        self._level_label = QLabel()
+        self._level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._level_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
+        )
+        header_layout.addWidget(title_label, 1)
+        header_layout.addWidget(self._level_label)
+        layout.addLayout(header_layout)
+
+        self._summary_label = QLabel()
+        self._summary_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; background: transparent;"
+        )
+        layout.addWidget(self._summary_label)
+
+    def update_tome(self, chaos_tome) -> None:
+        stats = chaos_stats_in_game_order(chaos_tome)
+        _set_text(self._level_label, f"Lv. {int(getattr(chaos_tome, 'level', 0))}")
+        rolls = sum(int(getattr(stat, "rolls", 0) or 0) for stat in stats)
+        _set_text(self._summary_label, f"Tracked rolls: {rolls} | Stats: {len(stats)}")
+
+
+class _ShrineSummaryCard(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StatCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+        title_label = QLabel("Charge Shrines")
+        title_label.setStyleSheet(
+            "font-size: 14px; font-weight: 700; background: transparent;"
+        )
+        layout.addWidget(title_label)
+        self._summary_label = QLabel()
+        self._summary_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; background: transparent;"
+        )
+        layout.addWidget(self._summary_label)
+
+    def update_shrines(self, shrines) -> None:
+        stats = tuple(getattr(shrines, "stats", ()) or ())
+        rolls = max(0, int(getattr(shrines, "selected", 0) or 0))
+        _set_text(self._summary_label, f"Tracked rolls: {rolls} | Stats: {len(stats)}")
+
+
+class _CharacterPassiveSummaryCard(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StatCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+        self._title_label = QLabel()
+        self._title_label.setStyleSheet(
+            "font-size: 14px; font-weight: 700; background: transparent;"
+        )
+        self._level_label = QLabel()
+        self._level_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; background: transparent;"
+        )
+        layout.addWidget(self._title_label)
+        layout.addWidget(self._level_label)
+
+    def update_passive(self, character_passive) -> None:
+        _set_text(
+            self._title_label,
+            f"{getattr(character_passive, 'character_name', 'Unknown')} · "
+            f"{getattr(character_passive, 'passive_name', 'Passive')}",
+        )
+        _set_text(
+            self._level_label,
+            f"Level {int(getattr(character_passive, 'level', 0) or 0)}",
+        )
+
+
+class _CharacterPassiveEffectCard(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StatCard")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(6, 6, 6, 6)
+        self._layout.setSpacing(3)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self._name_label = QLabel()
+        self._name_label.setStyleSheet(
+            "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
+        )
+        self._value_label = QLabel()
+        self._value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._value_label.setStyleSheet(
+            "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
+        )
+        row.addWidget(self._name_label, 1)
+        row.addWidget(self._value_label)
+        self._layout.addLayout(row)
+        self._count_label: QLabel | None = None
+
+    def update_effect(self, effect) -> None:
+        _set_text(self._name_label, str(getattr(effect, "label", "Passive bonus")))
+        _set_text(self._value_label, str(getattr(effect, "display_delta", "--")))
+        count = getattr(effect, "count", None)
+        if count is None:
+            if self._count_label is not None:
+                self._count_label.hide()
+                _set_text(self._count_label, "")
+            return
+        if self._count_label is None:
+            self._count_label = QLabel()
+            self._count_label.setStyleSheet(
+                "font-size: 12px; font-weight: 700; color: #98A7BA; background: transparent;"
+            )
+            self._layout.addWidget(self._count_label)
+        count = max(0, int(count))
+        word = "roll" if count == 1 else "rolls"
+        _set_text(self._count_label, f"● {count} {word}")
+        self._count_label.show()
+
+
 #: Which detail tab each deferrable panel lives on, by that tab's title. Only
-#: these four are deferred; Stats and Loot are label writes and cost nothing.
+#: these six are deferred; Stats and Loot are label writes and cost nothing.
 #:
 #: Matched on the tab's *text* rather than its index: both tabs add their six
 #: a hundred lines away from here, and an index would silently point at the
@@ -345,6 +668,31 @@ class _ResponsiveStatCardGrid(QWidget):
         self._cards.append(card)
         self._reflow(self.width())
 
+    def set_cards(self, cards) -> None:
+        """Show ``cards`` in their new order while preserving pooled widgets.
+
+        Chaos, Shrines and Passives sort again after every reading. Reordering
+        layout items is cheap and keeps each card's identity; deleting the
+        cards merely to reflect a new rank is what caused the visible flash.
+        """
+        cards = list(cards)
+        if len(cards) == len(self._cards) and all(
+            left is right for left, right in zip(cards, self._cards)
+        ):
+            return
+        previous = tuple(self._cards)
+        self._cards = cards
+        wanted = {id(card) for card in cards}
+        for card in previous:
+            if id(card) not in wanted:
+                card.hide()
+        for card in cards:
+            card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._columns = 0
+        self._reflow(self.width())
+        for card in cards:
+            _show_if_parented(card)
+
     def trim_to(self, count: int) -> None:
         """Drop trailing cards so the grid holds at most `count`.
 
@@ -409,7 +757,7 @@ class _ResponsiveStatCardGrid(QWidget):
 
 
 class StatCardsView:
-    """The Weapons, Tomes, Chaos, Shrines and Damage Sources panels."""
+    """The Weapons, Tomes, Chaos, Shrines, Passives and Damage Sources panels."""
 
     def __init__(
         self,
@@ -429,7 +777,7 @@ class StatCardsView:
         section_visible: Callable[[str], bool] | None = None,
     ) -> None:
         # Rebuilding a panel nobody is looking at is the whole cost of a scrub
-        # frame: measured on a 713-snapshot recording, the four panels here
+        # frame: measured on a 713-snapshot recording, the card panels here
         # were 95 ms of a 103 ms frame, and the tab defaults to *Stats*, where
         # none of them is on screen. `section_visible` lets the owner say which
         # panel is showing; the rest record their last call and render it when
@@ -458,8 +806,23 @@ class StatCardsView:
         self._shrine_signature = None
         self._character_passive_signature = None
         self._damage_source_signature = None
-        self._weapon_cards: list = []
-        self._tome_cards: list = []
+        self._weapon_grid: _ResponsiveStatCardGrid | None = None
+        self._weapon_card_pool: dict[object, _WeaponCard] = {}
+        self._weapon_cards: list[_WeaponCard] = []
+        self._tome_grid: _ResponsiveStatCardGrid | None = None
+        self._tome_card_pool: dict[object, _TomeCard] = {}
+        self._tome_cards: list[_TomeCard] = []
+        self._chaos_summary_card: _ChaosSummaryCard | None = None
+        self._chaos_grid: _ResponsiveStatCardGrid | None = None
+        self._chaos_stat_cards: dict[object, _RollStatCard] = {}
+        self._shrine_summary_card: _ShrineSummaryCard | None = None
+        self._shrine_grid: _ResponsiveStatCardGrid | None = None
+        self._shrine_stat_cards: dict[object, _RollStatCard] = {}
+        self._character_passive_summary_card: _CharacterPassiveSummaryCard | None = None
+        self._character_passive_grid: _ResponsiveStatCardGrid | None = None
+        self._character_passive_effect_cards: dict[
+            object, _CharacterPassiveEffectCard
+        ] = {}
         # Reused across renders rather than rebuilt. `None` means "not built
         # yet, or torn down because the panel went empty".
         self._damage_sources_grid = None
@@ -500,7 +863,7 @@ class StatCardsView:
     def invalidate(self) -> None:
         """Drop every repaint-suppression signature.
 
-        Replaces the four ``self.<prefix>_<kind>_signature = None`` writes that
+        Replaces the ``self.<prefix>_<kind>_signature = None`` writes that
         `_reset_live_player_stats_ui` and `_clear_vod_snapshot_ui` performed
         directly on the shared namespace.
         """
@@ -527,8 +890,6 @@ class StatCardsView:
             return
 
         self._weapon_signature = signature
-        _clear_layout(layout)
-        self._weapon_cards = []
 
         if status_text is not None:
             _set_text(status_label, status_text)
@@ -536,68 +897,45 @@ class StatCardsView:
             _set_text(status_label, "" if weapons else "No weapons available")
 
         if not weapons:
+            self._weapon_cards = []
+            if self._weapon_grid is not None:
+                self._weapon_grid.set_cards(())
+                self._weapon_grid.hide()
             return
 
+        if self._weapon_grid is None:
+            _clear_layout(layout)
+            self._weapon_grid = _ResponsiveStatCardGrid(
+                object_name="WeaponCardGrid",
+                column_count=lambda _width: 2,
+                minimum_card_width=160,
+                spacing=8,
+                maximum_columns=2,
+            )
+            layout.addWidget(self._weapon_grid)
+            layout.addStretch(1)
+        keys = _unique_pool_keys(
+            weapons,
+            lambda weapon, index: (
+                "weapon",
+                getattr(weapon, "weapon_id", index),
+            ),
+        )
         cards = []
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(8)
-        for index, weapon in enumerate(weapons):
-            card = self._build_weapon_card(weapon)
-            grid.addWidget(card, index // 2, index % 2)
+        for key, weapon in zip(keys, weapons):
+            card = self._weapon_card_pool.get(key)
+            if card is None:
+                card = _WeaponCard()
+                self._weapon_card_pool[key] = card
+            card.update_weapon(weapon)
             cards.append(card)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        layout.addLayout(grid)
-        layout.addStretch(1)
         self._weapon_cards = cards
+        self._weapon_grid.set_cards(cards)
+        _show_if_parented(self._weapon_grid)
 
     def _build_weapon_card(self, weapon: WeaponSnapshot) -> QFrame:
-        card = QFrame()
-        card.setObjectName("StatCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
-
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(8)
-        weapon_name_label = QLabel(weapon.name)
-        weapon_name_label.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
-        weapon_level_label = QLabel(f"Lv. {weapon.level}")
-        weapon_level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        weapon_level_label.setStyleSheet(
-            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
-        )
-        header_layout.addWidget(weapon_name_label, 1)
-        header_layout.addWidget(weapon_level_label)
-        layout.addLayout(header_layout)
-
-        rows = QFormLayout()
-        rows.setContentsMargins(0, 0, 0, 0)
-        rows.setVerticalSpacing(6)
-        has_rows = False
-        for stat_id in weapon.upgrade_stat_ids:
-            stat = weapon.upgraded_stats.get(stat_id)
-            if stat is None:
-                continue
-            name_label = QLabel(stat.label)
-            name_label.setStyleSheet(
-                "font-size: 13px; color: #D7DEE8; background: transparent;"
-            )
-            value_label = QLabel(stat.display_value)
-            value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            value_label.setStyleSheet(
-                "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
-            )
-            rows.addRow(name_label, value_label)
-            has_rows = True
-        if has_rows:
-            layout.addLayout(rows)
-        else:
-            layout.addWidget(QLabel("No upgraded stats decoded"))
-        layout.addStretch(1)
+        card = _WeaponCard()
+        card.update_weapon(weapon)
         return card
 
     @staticmethod
@@ -631,8 +969,6 @@ class StatCardsView:
             return
 
         self._tome_signature = signature
-        _clear_layout(layout)
-        self._tome_cards = []
 
         if status_text is not None:
             _set_text(status_label, status_text)
@@ -640,58 +976,45 @@ class StatCardsView:
             _set_text(status_label, "" if tomes else "No tomes available")
 
         if not tomes:
+            self._tome_cards = []
+            if self._tome_grid is not None:
+                self._tome_grid.set_cards(())
+                self._tome_grid.hide()
             return
 
+        if self._tome_grid is None:
+            _clear_layout(layout)
+            self._tome_grid = _ResponsiveStatCardGrid(
+                object_name="TomeCardGrid",
+                column_count=lambda _width: 2,
+                minimum_card_width=160,
+                spacing=8,
+                maximum_columns=2,
+            )
+            layout.addWidget(self._tome_grid)
+            layout.addStretch(1)
+        keys = _unique_pool_keys(
+            tomes,
+            lambda tome, index: (
+                "tome",
+                getattr(tome, "tome_id", index),
+            ),
+        )
         cards = []
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(8)
-        for index, tome in enumerate(tomes):
-            card = self._build_tome_card(tome)
-            grid.addWidget(card, index // 2, index % 2)
+        for key, tome in zip(keys, tomes):
+            card = self._tome_card_pool.get(key)
+            if card is None:
+                card = _TomeCard()
+                self._tome_card_pool[key] = card
+            card.update_tome(tome)
             cards.append(card)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        layout.addLayout(grid)
-        layout.addStretch(1)
         self._tome_cards = cards
+        self._tome_grid.set_cards(cards)
+        _show_if_parented(self._tome_grid)
 
     def _build_tome_card(self, tome: TomeSnapshot) -> QFrame:
-        card = QFrame()
-        card.setObjectName("StatCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
-
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(8)
-        tome_name_label = QLabel(tome.name)
-        tome_name_label.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
-        tome_level_label = QLabel(f"Lv. {tome.level}")
-        tome_level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        tome_level_label.setStyleSheet(
-            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
-        )
-        header_layout.addWidget(tome_name_label, 1)
-        header_layout.addWidget(tome_level_label)
-        layout.addLayout(header_layout)
-
-        rows = QFormLayout()
-        rows.setContentsMargins(0, 0, 0, 0)
-        rows.setVerticalSpacing(6)
-        stat_name_label = QLabel(tome.stat_label)
-        stat_name_label.setStyleSheet(
-            "font-size: 13px; color: #D7DEE8; background: transparent;"
-        )
-        value_label = QLabel(tome.display_value)
-        value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        value_label.setStyleSheet(
-            "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
-        )
-        rows.addRow(stat_name_label, value_label)
-        layout.addLayout(rows)
+        card = _TomeCard()
+        card.update_tome(tome)
         return card
 
     @staticmethod
@@ -722,7 +1045,6 @@ class StatCardsView:
             return
 
         self._chaos_signature = signature
-        _clear_layout(layout)
 
         if status_text is not None:
             _set_text(status_label, status_text)
@@ -730,27 +1052,54 @@ class StatCardsView:
             _set_text(status_label, "" if chaos_tome is not None else "No Chaos Tome data")
 
         if chaos_tome is None:
+            if self._chaos_summary_card is not None:
+                self._chaos_summary_card.hide()
+            if self._chaos_grid is not None:
+                self._chaos_grid.hide()
             return
+
+        if self._chaos_grid is None:
+            _clear_layout(layout)
+            self._chaos_summary_card = _ChaosSummaryCard()
+            layout.addWidget(self._chaos_summary_card)
+            self._chaos_grid = _ResponsiveStatCardGrid(
+                object_name="ChaosCardGrid",
+                column_count=chaos_card_column_count,
+                minimum_card_width=160,
+                spacing=6,
+                maximum_columns=5,
+            )
+            layout.addWidget(self._chaos_grid)
+            layout.addStretch(1)
 
         stats = chaos_stats_by_roll_count(chaos_tome)
-        summary_card = self._build_chaos_summary_card(chaos_tome)
-        layout.addWidget(summary_card)
-
-        if not stats:
-            layout.addStretch(1)
-            return
-
-        grid = _ResponsiveStatCardGrid(
-            object_name="ChaosCardGrid",
-            column_count=chaos_card_column_count,
-            minimum_card_width=160,
-            spacing=6,
-            maximum_columns=5,
+        self._chaos_summary_card.update_tome(chaos_tome)
+        _show_if_parented(self._chaos_summary_card)
+        keys = _unique_pool_keys(
+            stats,
+            lambda stat, index: (
+                "stat",
+                int(getattr(stat, "stat_id", -1)),
+            ),
         )
-        for stat in stats:
-            grid.add_card(self._build_chaos_stat_card(stat))
-        layout.addWidget(grid)
-        layout.addStretch(1)
+        ordered_cards = []
+        for key, stat in zip(keys, stats):
+            card = self._chaos_stat_cards.get(key)
+            if card is None:
+                card = _RollStatCard()
+                self._chaos_stat_cards[key] = card
+            card.update_stat(
+                stat,
+                name=chaos_stat_label(stat),
+                quality=chaos_average_roll_quality(stat),
+                quality_tooltip="Average roll quality",
+            )
+            ordered_cards.append(card)
+        self._chaos_grid.set_cards(ordered_cards)
+        if ordered_cards:
+            _show_if_parented(self._chaos_grid)
+        else:
+            self._chaos_grid.hide()
 
     @staticmethod
     def _chaos_tome_signature_for(chaos_tome) -> tuple:
@@ -776,33 +1125,8 @@ class StatCardsView:
         )
 
     def _build_chaos_summary_card(self, chaos_tome) -> QFrame:
-        stats = chaos_stats_in_game_order(chaos_tome)
-        card = QFrame()
-        card.setObjectName("StatCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
-
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(8)
-        title_label = QLabel("Chaos Tome")
-        title_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
-        level_label = QLabel(f"Lv. {int(getattr(chaos_tome, 'level', 0))}")
-        level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        level_label.setStyleSheet(
-            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
-        )
-        header_layout.addWidget(title_label, 1)
-        header_layout.addWidget(level_label)
-        layout.addLayout(header_layout)
-
-        rolls = sum(int(getattr(stat, "rolls", 0) or 0) for stat in stats)
-        summary = QLabel(f"Tracked rolls: {rolls} | Stats: {len(stats)}")
-        summary.setStyleSheet(
-            "font-size: 12px; color: #98A7BA; background: transparent;"
-        )
-        layout.addWidget(summary)
+        card = _ChaosSummaryCard()
+        card.update_tome(chaos_tome)
         return card
 
     def _build_chaos_stat_card(self, stat) -> QFrame:
@@ -821,41 +1145,13 @@ class StatCardsView:
         quality: float | None,
         quality_tooltip: str,
     ) -> QFrame:
-        card = QFrame()
-        card.setObjectName("StatCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(3)
-
-        name_label = QLabel(name)
-        name_label.setStyleSheet(
-            "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
+        card = _RollStatCard()
+        card.update_stat(
+            stat,
+            name=name,
+            quality=quality,
+            quality_tooltip=quality_tooltip,
         )
-        value_label = QLabel(getattr(stat, "display_delta", "--"))
-        value_label.setStyleSheet(
-            "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
-        )
-        value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-        row.addWidget(name_label, 1)
-        row.addWidget(value_label)
-        layout.addLayout(row)
-
-        rolls = max(0, int(getattr(stat, "rolls", 0) or 0))
-        quality_color = chaos_roll_quality_color(quality)
-        rolls_word = "roll" if rolls == 1 else "rolls"
-        rolls_label = QLabel(f"● {rolls} {rolls_word}")
-        rolls_label.setStyleSheet(
-            f"font-size: 12px; font-weight: 700; color: {quality_color}; "
-            "background: transparent;"
-        )
-        if quality is not None:
-            rolls_label.setToolTip(
-                f"{quality_tooltip}: {round(quality * 100)}% of this stat's range"
-            )
-        layout.addWidget(rolls_label)
         return card
 
     # -- charge shrines --------------------------------------------------------
@@ -883,7 +1179,6 @@ class StatCardsView:
         if self._shrine_signature == signature and status_text is None:
             return
         self._shrine_signature = signature
-        _clear_layout(layout)
 
         if status_text is not None:
             _set_text(status_label, status_text)
@@ -892,30 +1187,62 @@ class StatCardsView:
         else:
             _set_text(status_label, "")
         if shrines is None:
+            if self._shrine_summary_card is not None:
+                self._shrine_summary_card.hide()
+            if self._shrine_grid is not None:
+                self._shrine_grid.hide()
             return
 
-        stats = tuple(getattr(shrines, "stats", ()) or ())
-        layout.addWidget(self._build_charge_shrine_summary_card(shrines))
-        if not stats:
+        if self._shrine_grid is None:
+            _clear_layout(layout)
+            self._shrine_summary_card = _ShrineSummaryCard()
+            layout.addWidget(self._shrine_summary_card)
+            self._shrine_grid = _ResponsiveStatCardGrid(
+                object_name="ShrineCardGrid",
+                column_count=chaos_card_column_count,
+                minimum_card_width=160,
+                spacing=6,
+                maximum_columns=5,
+            )
+            layout.addWidget(self._shrine_grid)
             layout.addStretch(1)
-            return
-        grid = _ResponsiveStatCardGrid(
-            object_name="ShrineCardGrid",
-            column_count=chaos_card_column_count,
-            minimum_card_width=160,
-            spacing=6,
-            maximum_columns=5,
+
+        stats = tuple(
+            sorted(
+                tuple(getattr(shrines, "stats", ()) or ()),
+                key=lambda value: (
+                    -max(0, int(getattr(value, "rolls", 0) or 0)),
+                    int(getattr(value, "stat_id", -1)),
+                ),
+            )
         )
-        for stat in sorted(
+        self._shrine_summary_card.update_shrines(shrines)
+        _show_if_parented(self._shrine_summary_card)
+        keys = _unique_pool_keys(
             stats,
-            key=lambda value: (
-                -max(0, int(getattr(value, "rolls", 0) or 0)),
+            lambda value, index: (
+                "stat",
                 int(getattr(value, "stat_id", -1)),
             ),
-        ):
-            grid.add_card(self._build_charge_shrine_stat_card(stat))
-        layout.addWidget(grid)
-        layout.addStretch(1)
+        )
+        ordered_cards = []
+        for key, stat in zip(keys, stats):
+            card = self._shrine_stat_cards.get(key)
+            if card is None:
+                card = _RollStatCard()
+                self._shrine_stat_cards[key] = card
+            card.update_stat(
+                stat,
+                name=str(getattr(stat, "label", "Shrine bonus")),
+                quality=shrine_average_roll_quality(stat),
+                quality_tooltip="Average shrine roll quality",
+            )
+            ordered_cards.append(card)
+        self._shrine_grid.set_cards(ordered_cards)
+        if ordered_cards:
+            _show_if_parented(self._shrine_grid)
+        else:
+            self._shrine_grid.hide()
 
     @staticmethod
     def _charge_shrine_signature_for(shrines) -> tuple:
@@ -939,24 +1266,8 @@ class StatCardsView:
 
     @staticmethod
     def _build_charge_shrine_summary_card(shrines) -> QFrame:
-        stats = tuple(getattr(shrines, "stats", ()) or ())
-        card = QFrame()
-        card.setObjectName("StatCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
-        title_label = QLabel("Charge Shrines")
-        title_label.setStyleSheet(
-            "font-size: 14px; font-weight: 700; background: transparent;"
-        )
-        layout.addWidget(title_label)
-
-        rolls = max(0, int(getattr(shrines, "selected", 0) or 0))
-        summary = QLabel(f"Tracked rolls: {rolls} | Stats: {len(stats)}")
-        summary.setStyleSheet(
-            "font-size: 12px; color: #98A7BA; background: transparent;"
-        )
-        layout.addWidget(summary)
+        card = _ShrineSummaryCard()
+        card.update_shrines(shrines)
         return card
 
     @staticmethod
@@ -991,7 +1302,6 @@ class StatCardsView:
         if self._character_passive_signature == signature and status_text is None:
             return
         self._character_passive_signature = signature
-        _clear_layout(layout)
 
         if status_text is not None:
             _set_text(status_label, status_text)
@@ -1008,24 +1318,57 @@ class StatCardsView:
             }
             _set_text(status_label, messages.get(status, ""))
         if character_passive is None:
+            if self._character_passive_summary_card is not None:
+                self._character_passive_summary_card.hide()
+            if self._character_passive_grid is not None:
+                self._character_passive_grid.hide()
             return
 
-        layout.addWidget(self._build_character_passive_summary_card(character_passive))
-        effects = tuple(getattr(character_passive, "effects", ()) or ())
-        if not effects:
+        if self._character_passive_grid is None:
+            _clear_layout(layout)
+            self._character_passive_summary_card = _CharacterPassiveSummaryCard()
+            layout.addWidget(self._character_passive_summary_card)
+            self._character_passive_grid = _ResponsiveStatCardGrid(
+                object_name="CharacterPassiveCardGrid",
+                column_count=chaos_card_column_count,
+                minimum_card_width=160,
+                spacing=6,
+                maximum_columns=5,
+            )
+            layout.addWidget(self._character_passive_grid)
             layout.addStretch(1)
-            return
-        grid = _ResponsiveStatCardGrid(
-            object_name="CharacterPassiveCardGrid",
-            column_count=chaos_card_column_count,
-            minimum_card_width=160,
-            spacing=6,
-            maximum_columns=5,
+
+        self._character_passive_summary_card.update_passive(character_passive)
+        _show_if_parented(self._character_passive_summary_card)
+        effects = tuple(getattr(character_passive, "effects", ()) or ())
+        keys = _unique_pool_keys(
+            effects,
+            lambda effect, index: (
+                "effect",
+                str(getattr(effect, "key", ""))
+                or (
+                    f"stat:{int(getattr(effect, 'stat_id', -1))}"
+                    if int(getattr(effect, "stat_id", -1)) >= 0
+                    else (
+                        f"label:{str(getattr(effect, 'label', ''))}:"
+                        f"{str(getattr(getattr(effect, 'kind', None), 'value', ''))}"
+                    )
+                ),
+            ),
         )
-        for effect in effects:
-            grid.add_card(self._build_character_passive_effect_card(effect))
-        layout.addWidget(grid)
-        layout.addStretch(1)
+        ordered_cards = []
+        for key, effect in zip(keys, effects):
+            card = self._character_passive_effect_cards.get(key)
+            if card is None:
+                card = _CharacterPassiveEffectCard()
+                self._character_passive_effect_cards[key] = card
+            card.update_effect(effect)
+            ordered_cards.append(card)
+        self._character_passive_grid.set_cards(ordered_cards)
+        if ordered_cards:
+            _show_if_parented(self._character_passive_grid)
+        else:
+            self._character_passive_grid.hide()
 
     @staticmethod
     def _character_passive_signature_for(character_passive) -> tuple:
@@ -1052,57 +1395,14 @@ class StatCardsView:
 
     @staticmethod
     def _build_character_passive_summary_card(character_passive) -> QFrame:
-        card = QFrame()
-        card.setObjectName("StatCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
-        title = QLabel(
-            f"{getattr(character_passive, 'character_name', 'Unknown')} · "
-            f"{getattr(character_passive, 'passive_name', 'Passive')}"
-        )
-        title.setStyleSheet(
-            "font-size: 14px; font-weight: 700; background: transparent;"
-        )
-        level = QLabel(f"Level {int(getattr(character_passive, 'level', 0) or 0)}")
-        level.setStyleSheet(
-            "font-size: 12px; color: #98A7BA; background: transparent;"
-        )
-        layout.addWidget(title)
-        layout.addWidget(level)
+        card = _CharacterPassiveSummaryCard()
+        card.update_passive(character_passive)
         return card
 
     @staticmethod
     def _build_character_passive_effect_card(effect) -> QFrame:
-        card = QFrame()
-        card.setObjectName("StatCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(3)
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-        name = QLabel(str(getattr(effect, "label", "Passive bonus")))
-        name.setStyleSheet(
-            "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
-        )
-        value = QLabel(str(getattr(effect, "display_delta", "--")))
-        value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        value.setStyleSheet(
-            "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
-        )
-        row.addWidget(name, 1)
-        row.addWidget(value)
-        layout.addLayout(row)
-        count = getattr(effect, "count", None)
-        if count is not None:
-            count = max(0, int(count))
-            word = "roll" if count == 1 else "rolls"
-            meta = QLabel(f"● {count} {word}")
-            meta.setStyleSheet(
-                "font-size: 12px; font-weight: 700; color: #98A7BA; background: transparent;"
-            )
-            layout.addWidget(meta)
+        card = _CharacterPassiveEffectCard()
+        card.update_effect(effect)
         return card
 
     # -- damage sources -------------------------------------------------------
@@ -1112,7 +1412,7 @@ class StatCardsView:
         status_label = self._damage_sources_status_label
         if layout is None or status_label is None:
             return
-        # Deferred before the sort: it is the most expensive of the four to
+        # Deferred before the sort: it is the most expensive panel to
         # rebuild, and the sort is not free either.
         if self._defer("damage_sources", (damage_sources,), {"status_text": status_text}):
             return

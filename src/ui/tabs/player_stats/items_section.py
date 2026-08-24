@@ -61,7 +61,7 @@ from PySide6.QtWidgets import (
 
 from projections import formatting
 from projections.item_sort import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC
-from ui.shared import _clear_layout, _set_text
+from ui.shared import _set_text
 
 PREVIEW_MAX_CHARS = 90
 
@@ -95,6 +95,7 @@ class BanishesSectionView:
         # hidden with the container so an empty section is not a blank strip.
         self._chips_scroll = chips_scroll
         self._banishes: tuple[str, ...] | None = None
+        self._chip_widgets: list[QLabel] = []
 
     def update(self, banishes=()) -> None:
         banishes = tuple(str(item) for item in (banishes or ()))
@@ -103,26 +104,50 @@ class BanishesSectionView:
         self._banishes = banishes
 
         layout = self._chips_container.layout()
+        scrollbar = (
+            self._chips_scroll.verticalScrollBar()
+            if self._chips_scroll is not None
+            else None
+        )
+        scroll_position = scrollbar.value() if scrollbar is not None else None
         self._chips_container.setUpdatesEnabled(False)
         try:
-            _clear_layout(layout)
             if not banishes:
                 self._label.setText("No banishes yet")
                 self._label.setVisible(True)
                 self._set_chips_visible(False)
+                for chip in self._chip_widgets:
+                    chip.hide()
                 return
 
             self._label.setVisible(False)
             self._set_chips_visible(True)
-            for item_text in banishes:
-                display_text, object_name = formatting.item_chip_display(item_text)
-                chip = QLabel(display_text)
-                chip.setObjectName(object_name)
+            while len(self._chip_widgets) < len(banishes):
+                chip = QLabel()
                 layout.addWidget(chip)
+                self._chip_widgets.append(chip)
+            for chip, item_text in zip(self._chip_widgets, banishes):
+                display_text, object_name = formatting.item_chip_display(item_text)
+                if chip.text() != display_text:
+                    chip.setText(display_text)
+                if chip.objectName() != object_name:
+                    chip.setObjectName(object_name)
+                    style = chip.style()
+                    style.unpolish(chip)
+                    style.polish(chip)
+                chip.show()
+            for chip in self._chip_widgets[len(banishes) :]:
+                chip.hide()
         finally:
             self._chips_container.setUpdatesEnabled(True)
             self._chips_container.updateGeometry()
             self._chips_container.update()
+            if scrollbar is not None and scroll_position is not None:
+                restore = lambda: scrollbar.setValue(
+                    min(scroll_position, scrollbar.maximum())
+                )
+                restore()
+                QTimer.singleShot(0, restore)
 
     def _set_chips_visible(self, visible: bool) -> None:
         self._chips_container.setVisible(visible)

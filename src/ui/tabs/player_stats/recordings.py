@@ -96,7 +96,6 @@ from ui.shared import (
     LazyPage,
     _apply_button_icon,
     _apply_summary_label_padding,
-    _clear_layout,
     _clear_text_input,
     _make_scroll_section,
     _read_text,
@@ -158,28 +157,40 @@ SCRUBBER_STAT_GROUPS = TIMELINE_SERIES_GROUPS
 COMPARE_ROW_LABEL_WIDTH = 74
 
 
+class _CompareRarityRow(QWidget):
+    """One reusable label/items row in the pinned segment comparison."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("CompareRarityRow")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self._badge = QLabel()
+        self._badge.setObjectName("CompareRarityBadge")
+        self._badge.setTextFormat(Qt.RichText)
+        self._badge.setFixedWidth(COMPARE_ROW_LABEL_WIDTH)
+        layout.addWidget(self._badge, 0, Qt.AlignTop)
+        self._items = QLabel()
+        self._items.setObjectName("CompareRarityItems")
+        self._items.setTextFormat(Qt.RichText)
+        self._items.setWordWrap(True)
+        layout.addWidget(self._items, 1, Qt.AlignTop)
+        _apply_summary_label_padding(self._badge, self._items)
+
+    def set_row(self, badge_html: str, items_html: str) -> None:
+        _set_text(self._badge, badge_html)
+        _set_text(self._items, items_html)
+
+
 def _build_compare_rarity_row(badge_html: str, items_html: str) -> QWidget:
     """One row's label beside its items, as two labels.
 
     Two rather than one so the wrapped lines of a long run stay clear of the
     label column: a single label would wrap the second line back under the dot.
     """
-    row = QWidget()
-    row.setObjectName("CompareRarityRow")
-    layout = QHBoxLayout(row)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(6)
-    badge = QLabel(badge_html)
-    badge.setObjectName("CompareRarityBadge")
-    badge.setTextFormat(Qt.RichText)
-    badge.setFixedWidth(COMPARE_ROW_LABEL_WIDTH)
-    layout.addWidget(badge, 0, Qt.AlignTop)
-    items = QLabel(items_html)
-    items.setObjectName("CompareRarityItems")
-    items.setTextFormat(Qt.RichText)
-    items.setWordWrap(True)
-    layout.addWidget(items, 1, Qt.AlignTop)
-    _apply_summary_label_padding(badge, items)
+    row = _CompareRarityRow()
+    row.set_row(badge_html, items_html)
     return row
 
 
@@ -455,6 +466,8 @@ class RecordingsTab:
         self._compare_clear_button = None
         self._compare_details_summary_label = None
         self._compare_details_items = None
+        self._compare_detail_rows: list[_CompareRarityRow] = []
+        self._compare_detail_empty_label = None
         self._detail_tabs = None
         self._stats_expanded_toggle = None
         self._stat_cards = None
@@ -1169,27 +1182,37 @@ class RecordingsTab:
         )
 
     def _render_compare_detail_rows(self, rows) -> None:
-        """Rebuild the gained-by-rarity rows, and the broken/lost ones below.
-
-        Rebuilt rather than updated in place, unlike the Items panel: this card
-        is visible only while a compare pin is set, and its contents change
-        shape entirely between segments rather than gaining and losing an item
-        at a time.
-        """
+        """Update the gained/broken/lost rows without replacing their widgets."""
         container = self._compare_details_items
         if container is None:
             return
+        rows = tuple(rows or ())
         layout = container.layout()
         container.setUpdatesEnabled(False)
         try:
-            _clear_layout(layout)
+            if self._compare_detail_empty_label is None:
+                self._compare_detail_empty_label = QLabel(
+                    "No item changes in this segment"
+                )
+                self._compare_detail_empty_label.setObjectName("itemChipNote")
+                layout.addWidget(self._compare_detail_empty_label)
             if not rows:
-                note = QLabel("No item changes in this segment")
-                note.setObjectName("itemChipNote")
-                layout.addWidget(note)
+                self._compare_detail_empty_label.show()
+                for row_widget in self._compare_detail_rows:
+                    row_widget.hide()
                 return
-            for badge_html, items_html in rows:
-                layout.addWidget(_build_compare_rarity_row(badge_html, items_html))
+            self._compare_detail_empty_label.hide()
+            while len(self._compare_detail_rows) < len(rows):
+                row_widget = _CompareRarityRow()
+                self._compare_detail_rows.append(row_widget)
+                layout.addWidget(row_widget)
+            for row_widget, (badge_html, items_html) in zip(
+                self._compare_detail_rows, rows
+            ):
+                row_widget.set_row(badge_html, items_html)
+                row_widget.show()
+            for row_widget in self._compare_detail_rows[len(rows) :]:
+                row_widget.hide()
         finally:
             container.setUpdatesEnabled(True)
             container.updateGeometry()

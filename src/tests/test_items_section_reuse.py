@@ -7,10 +7,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from ui.shared import FlowLayout
-from ui.tabs.player_stats.items_section import ItemsSectionView
+from ui.tabs.player_stats.items_section import BanishesSectionView, ItemsSectionView
 
 
 class ItemsSectionReuseTests(unittest.TestCase):
@@ -69,6 +69,22 @@ class ItemsSectionReuseTests(unittest.TestCase):
         self.assertEqual("No item data", original[0].text())
         self.assertEqual("itemChipNote", original[0].objectName())
         self.assertTrue(original[1].isHidden())
+
+    def test_banish_count_changes_reuse_existing_chip_widgets(self) -> None:
+        container = QWidget()
+        FlowLayout(container, margin=0, spacing=5)
+        label = QLabel()
+        view = BanishesSectionView(label=label, chips_container=container)
+
+        view.update(("Beer", "Key"))
+        original = tuple(view._chip_widgets)
+        view.update(("Beer", "Key", "Anvil"))
+
+        self.assertEqual(original, tuple(view._chip_widgets[:2]))
+        self.assertEqual(3, len(view._chip_widgets))
+        view.update(("Beer",))
+        self.assertIs(view._chip_widgets[0], original[0])
+        self.assertTrue(all(chip.isHidden() for chip in view._chip_widgets[1:]))
 
 
 if __name__ == "__main__":
