@@ -15,12 +15,15 @@ import unittest
 from pathlib import Path
 
 from PySide6.QtCore import QPoint
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
 from app import supporters as supporters_flow
 from infra import updater
 from ui.dialogs import update_prompt
 from ui.footer import SupportPopup
+from ui.shared import resource_path
+from ui.styles import build_qt_app_stylesheet
 
 _app = QApplication.instance() or QApplication([])
 
@@ -56,6 +59,7 @@ class SupportPopupTests(unittest.TestCase):
         self.popup.set_supporters(())
         self.assertEqual(_names(self.popup), [])
         self.assertEqual(self.popup._card.width(), SupportPopup.NARROW_WIDTH)
+        self.assertFalse(self.popup._legend.isVisibleTo(self.popup))
         self.assertFalse(self.popup._names_host.isVisibleTo(self.popup))
         self.assertFalse(self.popup._rule.isVisibleTo(self.popup))
         self.assertEqual(self.popup._title.text(), "Support BonkScanner")
@@ -72,7 +76,70 @@ class SupportPopupTests(unittest.TestCase):
         self.assertTrue(any("Nyxaria" in name for name in _names(self.popup)))
         self.assertEqual(self.popup._card.width(), SupportPopup.WIDE_WIDTH)
 
-    def test_each_tier_gets_its_own_style_and_only_patreon_is_marked(self):
+    def test_supporter_title_uses_singular_and_plural_grammar(self):
+        self.popup.set_supporters(["PrestoOmento"])
+        self.assertEqual(self.popup._title.text(), "1 person supports BonkScanner")
+
+        self.popup.set_supporters(["PrestoOmento", "Nyxaria"])
+        self.assertEqual(self.popup._title.text(), "2 people support BonkScanner")
+
+    def test_names_have_breathing_room_above_and_below(self):
+        margins = self.popup._names_grid.contentsMargins()
+
+        self.assertEqual(
+            (margins.left(), margins.top(), margins.right(), margins.bottom()),
+            (0, 3, 0, 4),
+        )
+
+    def test_legend_explains_platform_colours_and_status_symbols(self):
+        self.popup.set_supporters(["PrestoOmento"])
+        labels = {
+            label.objectName(): label.text()
+            for label in self.popup._legend.findChildren(QLabel)
+        }
+
+        self.assertTrue(self.popup._legend.isVisibleTo(self.popup))
+        self.assertEqual(
+            labels,
+            {
+                "supporterLegendPatreon": "●  Patreon",
+                "supporterLegendKofi": "●  Ko-fi",
+                "supporterLegendFounder": "★  Founder",
+                "supporterLegendPack": "■  Supporter Pack",
+                "supporterLegendSub": "♦  Active sub",
+            },
+        )
+
+    def test_legend_platform_colours_match_supporter_names(self):
+        previous_stylesheet = _app.styleSheet()
+        self.addCleanup(_app.setStyleSheet, previous_stylesheet)
+        checkmark_path = resource_path("media/checkmark.svg").replace("\\", "/")
+        _app.setStyleSheet(build_qt_app_stylesheet(checkmark_path))
+
+        popup = SupportPopup()
+        self.addCleanup(popup.deleteLater)
+        popup.set_supporters(
+            [
+                {"name": "patreon name", "tier": "patreon"},
+                {"name": "kofi name", "tier": "kofi"},
+            ]
+        )
+        popup.ensurePolished()
+
+        for legend_name, supporter_name in (
+            ("supporterLegendPatreon", "supporterNamePatreon"),
+            ("supporterLegendKofi", "supporterNameKofi"),
+        ):
+            legend = popup.findChild(QLabel, legend_name)
+            supporter = popup.findChild(QLabel, supporter_name)
+            legend.ensurePolished()
+            supporter.ensurePolished()
+            self.assertEqual(
+                legend.palette().color(QPalette.WindowText),
+                supporter.palette().color(QPalette.WindowText),
+            )
+
+    def test_each_tier_gets_its_own_style_and_marker(self):
         self.popup.set_supporters(
             [
                 {"name": "sub", "tier": "patreon"},
@@ -82,16 +149,33 @@ class SupportPopupTests(unittest.TestCase):
             ]
         )
 
-        styles = {text.lstrip("♦ "): name for text, name in _rows(self.popup)}
+        styles = {text.lstrip("★■♦ "): name for text, name in _rows(self.popup)}
         self.assertEqual(styles["sub"], "supporterNamePatreon")
         self.assertEqual(styles["buyer"], "supporterNamePack")
         self.assertEqual(styles["tipper"], "supporterNameKofi")
         self.assertEqual(styles["nobody"], "supporterName")
 
-        # The diamond is the subscription's alone -- a pack shares its colour.
-        marked = [text for text, _name in _rows(self.popup) if "♦" in text]
-        self.assertEqual(len(marked), 1)
-        self.assertIn("sub", marked[0])
+        rows = {text.lstrip("★■♦ "): text for text, _name in _rows(self.popup)}
+        self.assertEqual(rows["sub"], "♦  sub")
+        self.assertEqual(rows["buyer"], "■  buyer")
+        self.assertEqual(rows["tipper"], "tipper")
+        self.assertEqual(rows["nobody"], "nobody")
+
+    def test_founder_and_pack_badges_stack_with_an_active_subscription(self):
+        self.popup.set_supporters(
+            [
+                {
+                    "name": "PrestoOmento",
+                    "tier": "patreon",
+                    "badges": ["pack", "founder", "pack"],
+                }
+            ]
+        )
+
+        self.assertEqual(
+            _rows(self.popup),
+            [("★  ■  ♦  PrestoOmento", "supporterNamePatreon")],
+        )
 
     def test_tiers_group_in_order_and_keep_the_files_order_inside_a_group(self):
         self.popup.set_supporters(
@@ -105,7 +189,7 @@ class SupportPopupTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            [text.lstrip("♦ ") for text, _name in _rows(self.popup)],
+            [text.lstrip("★■♦ ") for text, _name in _rows(self.popup)],
             ["sub one", "pack one", "pack two", "kofi one", "plain one"],
         )
 
@@ -141,6 +225,7 @@ class SupportPopupTests(unittest.TestCase):
         self.popup.set_supporters(())
         self.assertEqual(_names(self.popup), [])
         self.assertEqual(self.popup._card.width(), SupportPopup.NARROW_WIDTH)
+        self.assertFalse(self.popup._legend.isVisibleTo(self.popup))
         self.assertEqual(self.popup._title.text(), "Support BonkScanner")
         self.assertEqual(self.popup._note.text(), SupportPopup.DEFAULT_NOTE)
 

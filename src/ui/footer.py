@@ -116,6 +116,42 @@ class SupportPopup(QFrame):
         self._title = title
         self._note = note
 
+        # A compact legend for the two independent signals used by the list:
+        # colour says where someone supported, while the symbols say what they
+        # have done. Kept on one quiet line so the popup remains a thank-you
+        # card, not a second settings panel.
+        self._legend = QWidget(card)
+        self._legend.setObjectName("supporterLegend")
+        legend_row = QHBoxLayout(self._legend)
+        legend_row.setContentsMargins(0, 2, 0, 2)
+        legend_row.setSpacing(7)
+        for object_name, caption in (
+            ("supporterLegendPatreon", "●  Patreon"),
+            ("supporterLegendKofi", "●  Ko-fi"),
+        ):
+            label = QLabel(caption, self._legend)
+            label.setObjectName(object_name)
+            label.setTextFormat(Qt.PlainText)
+            legend_row.addWidget(label, 0, Qt.AlignVCenter)
+
+        legend_separator = QFrame(self._legend)
+        legend_separator.setObjectName("supporterLegendSeparator")
+        legend_separator.setFixedSize(1, 15)
+        legend_row.addWidget(legend_separator, 0, Qt.AlignVCenter)
+
+        for object_name, caption in (
+            ("supporterLegendFounder", "★  Founder"),
+            ("supporterLegendPack", "■  Supporter Pack"),
+            ("supporterLegendSub", "♦  Active sub"),
+        ):
+            label = QLabel(caption, self._legend)
+            label.setObjectName(object_name)
+            label.setTextFormat(Qt.PlainText)
+            legend_row.addWidget(label, 0, Qt.AlignVCenter)
+        legend_row.addStretch(1)
+        self._legend.setVisible(False)
+        body.addWidget(self._legend)
+
         # The names, when there are any. Built empty and hidden, so the popup
         # is exactly what it was until something calls `set_supporters` -- see
         # that method for why the empty case must look like this and not like a
@@ -123,7 +159,12 @@ class SupportPopup(QFrame):
         self._names_host = QWidget(card)
         self._names_host.setObjectName("supporterList")
         self._names_grid = QGridLayout(self._names_host)
-        self._names_grid.setContentsMargins(0, 0, 0, 0)
+        # `body` already contributes 3px between its children. These small
+        # internal margins make the changing names section read as a group:
+        # 6px after the thank-you line and 7px before the divider, while the
+        # empty card remains exactly as compact as before because the host is
+        # hidden with the list.
+        self._names_grid.setContentsMargins(0, 3, 0, 4)
         self._names_grid.setHorizontalSpacing(16)
         self._names_grid.setVerticalSpacing(1)
         self._names_host.setVisible(False)
@@ -162,28 +203,33 @@ class SupportPopup(QFrame):
     #: wide one by two columns of display name, which are user-supplied text and
     #: can be any length -- they ellipsise rather than widen the card further.
     NARROW_WIDTH = 320
-    WIDE_WIDTH = 400
+    WIDE_WIDTH = 440
     DEFAULT_NOTE = "If it helps your runs, you can throw a little fuel its way."
     #: Names past this are not listed; the count in the caption still includes
     #: them. A popup is not a page, and a scroll bar inside one is a worse
     #: answer than "and 40 others".
     MAX_LISTED = 24
 
-    #: How a `tier` value is drawn: `(object name, prefix, sort rank)`.
+    #: How a `tier` value is drawn: `(object name, marker, sort rank)`.
     #:
-    #: Three states and no more, each earning its distinction. A diamond and the
-    #: Patreon red for a subscription, which is the only one that is *ongoing*;
-    #: the same red without the diamond for someone who bought a pack, since the
-    #: money is the same and the recurrence is not; the Ko-fi blue for a Ko-fi
-    #: tip, which reads as "a different place" rather than "a different amount".
-    #: Anything past this is a price list, which is not what a thank-you card is.
+    #: A diamond and Patreon red identify the only ongoing state; a square and
+    #: the same red identify a one-time pack; Ko-fi blue reads as "a different
+    #: place" rather than "a different amount". Permanent badges are composed
+    #: separately, so a founder who owns a pack and has an active subscription
+    #: can carry all three markers without becoming three people in the count.
     #:
     #: Keys are normalised by `_tier_key`, so `"Ko-Fi"` and `"ko_fi"` both land.
     TIER_STYLES = {
         "patreon": ("supporterNamePatreon", "♦  ", 0),
-        "pack": ("supporterNamePack", "", 1),
+        "pack": ("supporterNamePack", "■  ", 1),
         "kofi": ("supporterNameKofi", "", 2),
     }
+    #: Permanent, stackable acknowledgements. Tuple order is display order;
+    #: input order in a hand-edited JSON file cannot make the markers jump.
+    BADGE_MARKERS = (
+        ("founder", "★"),
+        ("pack", "■"),
+    )
     #: An unrecognised but non-empty tier. It is marked rather than dropped to
     #: grey: `supporters.json` is edited by hand in a browser, and a typo in the
     #: tier of someone who is *known to have paid* should cost them a diamond,
@@ -200,6 +246,22 @@ class SupportPopup(QFrame):
             for character in str(tier or "").lower()
             if character.isalnum()
         )
+
+    @classmethod
+    def _supporter_prefix(cls, badges, tier_marker: str) -> str:
+        """Compose known permanent badges and the current tier marker once."""
+        badge_keys = (
+            {cls._tier_key(badge) for badge in badges}
+            if isinstance(badges, (list, tuple))
+            else set()
+        )
+        markers = [
+            marker for key, marker in cls.BADGE_MARKERS if key in badge_keys
+        ]
+        current_marker = tier_marker.strip()
+        if current_marker and current_marker not in markers:
+            markers.append(current_marker)
+        return "".join(f"{marker}  " for marker in markers)
 
     def set_supporters(self, supporters=()) -> None:
         """Show these people, or go back to being the plain two-button card.
@@ -227,13 +289,16 @@ class SupportPopup(QFrame):
                     if not key
                     else self.TIER_STYLES.get(key, self.UNKNOWN_TIER_STYLE)
                 )
+                badges = entry.get("badges")
             else:
                 name = str(entry or "").strip()
                 style = self.PLAIN_STYLE
+                badges = ()
             if name:
-                people.append((name, style))
+                people.append((name, style, self._supporter_prefix(badges, style[1])))
 
         _clear_layout(self._names_grid)
+        self._legend.setVisible(bool(people))
         self._names_host.setVisible(bool(people))
         self._rule.setVisible(bool(people))
         self._card.setFixedWidth(self.WIDE_WIDTH if people else self.NARROW_WIDTH)
@@ -244,7 +309,12 @@ class SupportPopup(QFrame):
             self._reanchor()
             return
 
-        self._title.setText(f"{len(people)} people support BonkScanner")
+        count = len(people)
+        self._title.setText(
+            "1 person supports BonkScanner"
+            if count == 1
+            else f"{count} people support BonkScanner"
+        )
         # Grouped by tier, and inside a group the order they arrived in. Not
         # alphabetical: a list someone maintains by hand has an order, and
         # re-sorting it throws away whatever they meant by it. `sort` is stable,
@@ -257,7 +327,9 @@ class SupportPopup(QFrame):
         )
 
         rows = (len(listed) + 1) // 2
-        for index, (name, (object_name, prefix, _rank)) in enumerate(listed):
+        for index, (name, (object_name, _tier_marker, _rank), prefix) in enumerate(
+            listed
+        ):
             label = QLabel(prefix + name, self._names_host)
             label.setObjectName(object_name)
             # Elided rather than wrapped, and the grid column carries the width:

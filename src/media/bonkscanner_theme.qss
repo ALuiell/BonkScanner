@@ -1691,6 +1691,21 @@ QFrame#supportPopupCard {
 QFrame#supportPopupCard QLabel { background: transparent; }
 QLabel#supportPopupTitle { color: #B9C2CE; font-size: 12.5px; font-weight: 800; }
 QLabel#supportPopupNote { color: #8A94A3; font-size: 12px; font-weight: 600; }
+QWidget#supporterLegend { background: transparent; }
+QWidget#supporterLegend QLabel {
+    color: #8A94A3;
+    font-size: 11px;
+    font-weight: 600;
+    background: transparent;
+}
+/* Match the platform colours used by supporter names. The parent-qualified
+   selectors deliberately outrank the muted legend default above. */
+QWidget#supporterLegend QLabel#supporterLegendPatreon { color: #FF6F61; }
+QWidget#supporterLegend QLabel#supporterLegendKofi { color: #29ABE0; }
+QFrame#supporterLegendSeparator {
+    background-color: #2A3542;
+    border: none;
+}
 /* Список саппортеров. Имена приходят из supporters.json в репозитории —
    `app.supporters.load_supporters`. Пустой случай и есть отгружаемый: без
    списка карточка выглядит ровно как раньше. */
