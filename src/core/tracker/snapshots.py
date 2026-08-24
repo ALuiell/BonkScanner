@@ -342,6 +342,7 @@ class ChestStatsSnapshot:
     expected_available: bool = False
     total_opened_minimum: int | None = None
     total_opened_is_minimum: bool = False
+    expected_initialized: bool = False
 
     @property
     def total_opened(self) -> int | None:
@@ -367,6 +368,17 @@ class ChestStatsSnapshot:
             and self.expected_available
             and self.expected_tracked_opens == self.normal_opened
         )
+
+    @property
+    def expected_status(self) -> str:
+        """Why Expected is complete or intentionally hidden."""
+        if self.expected_complete:
+            return "complete"
+        if not self.expected_available:
+            return "baseline_missed" if self.expected_initialized else "pending"
+        if not self.counters_available:
+            return "counters_unavailable"
+        return "coverage_mismatch"
 
 
 @dataclass(frozen=True)

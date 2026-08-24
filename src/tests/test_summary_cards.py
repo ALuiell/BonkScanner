@@ -230,6 +230,26 @@ class ChestsCardTests(unittest.TestCase):
         self.assertTrue(labels["status"].isVisible())
         self.assertIn("running from the start", labels["status"].text())
 
+    def test_expected_dashed_explains_the_live_failure_mode(self) -> None:
+        expectations = {
+            "pending": "initial Expected chest baseline",
+            "baseline_missed": "after a normal chest",
+            "counters_unavailable": "complete chest counters",
+            "coverage_mismatch": "temporarily unavailable",
+        }
+        for expected_status, fragment in expectations.items():
+            with self.subTest(expected_status=expected_status):
+                labels = {"expected": FakeLabel(), "status": FakeLabel()}
+
+                set_chests_card_values(
+                    labels,
+                    {"expected": "--"},
+                    expected_status=expected_status,
+                )
+
+                self.assertTrue(labels["status"].isVisible())
+                self.assertIn(fragment, labels["status"].text())
+
 
 def _rarity_labels() -> dict:
     labels = {

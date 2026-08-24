@@ -448,8 +448,12 @@ class PlayerStatsRefresh:
                 chests_bought,
                 chests_purchased,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            mark_feature_failed = getattr(
+                self._live_tracker(), "mark_feature_failed", None
+            )
+            if callable(mark_feature_failed):
+                mark_feature_failed("chest_counters", exc)
 
         view = self._live_stats_view()
         overlay = self._overlay()

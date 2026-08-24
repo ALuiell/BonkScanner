@@ -1338,8 +1338,11 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertFalse(tracker.update_chest_counters(5, 2))
         stats = tracker.get_chest_stats()
+        counter_status = tracker.runtime_snapshot().feature_status["chest_counters"]
 
         self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (2, 1, 1))
+        self.assertEqual(counter_status.availability, FeatureAvailability.STALE)
+        self.assertIn("bought=5", counter_status.last_error or "")
 
     def test_chest_counters_self_heal_after_new_stage_is_observed(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
@@ -2010,6 +2013,42 @@ class LiveRunTrackerTests(unittest.TestCase):
         stats = tracker.get_chest_stats()
         self.assertAlmostEqual(stats.expected_key_procs, 1.0 / 11.0)
 
+    def test_first_active_snapshot_preserves_fast_expected_history(self) -> None:
+        """The slow lane claiming a fresh run must not erase its fast lane.
+
+        This is the startup race seen in production: a first full read fails or
+        is still inactive, Expected establishes a zero baseline and sees a chest,
+        then the first accepted active snapshot arrives up to ten seconds later.
+        """
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.track_expected_key_procs(0, 0)
+        tracker.track_expected_key_procs(1, 1)
+
+        tracker.update(snapshot(time_seconds=10.0))
+        tracker.update_chests_and_keys(1, 46, 1)
+        self.assertTrue(tracker.update_chest_counters(1, 1))
+        stats = tracker.get_chest_stats()
+
+        self.assertTrue(stats.expected_available)
+        self.assertTrue(stats.expected_initialized)
+        self.assertEqual(stats.expected_tracked_opens, 1)
+        self.assertAlmostEqual(stats.expected_key_procs, 1.0 / 11.0)
+        self.assertTrue(stats.expected_complete)
+
+    def test_zero_factual_counter_arms_expected_baseline(self) -> None:
+        """A slow zero is enough to prove that no normal roll was missed."""
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0))
+        tracker.update_chests_and_keys(0, 46, 0)
+
+        self.assertTrue(tracker.update_chest_counters(0, 0))
+        stats = tracker.get_chest_stats()
+
+        self.assertTrue(stats.expected_initialized)
+        self.assertTrue(stats.expected_available)
+        self.assertTrue(stats.expected_complete)
+        self.assertEqual(stats.expected_status, "complete")
+
     def test_expected_key_procs_are_unavailable_when_tracking_starts_mid_run(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
 
@@ -2019,6 +2058,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         stats = tracker.get_chest_stats()
         self.assertFalse(stats.expected_available)
         self.assertEqual(stats.expected_tracked_opens, 1)
+        self.assertEqual(stats.expected_status, "baseline_missed")
 
     def test_expected_key_procs_reset_when_run_counter_rolls_back(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

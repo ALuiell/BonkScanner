@@ -873,6 +873,7 @@ class LiveStatsTab:
                     chest_stats.expected_key_procs if chest_stats.expected_complete else None,
                     chest_stats.total_opened_is_minimum,
                 ),
+                expected_status=getattr(chest_stats, "expected_status", None),
             )
 
     def _update_live_loot_rarity_summary(self, tracker, stats) -> None:

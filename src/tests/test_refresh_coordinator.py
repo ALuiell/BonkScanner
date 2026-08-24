@@ -46,6 +46,33 @@ class RefreshCoordinatorTests(unittest.TestCase):
         self.assertEqual(diagnostics["bad"].failure_count, 1)
         self.assertEqual(diagnostics["good"].failure_count, 0)
 
+    def test_failed_task_uses_short_retry_then_returns_to_normal_interval(self) -> None:
+        now = [10.0]
+        outcomes = iter((False, True, True))
+        coordinator = RefreshCoordinator(clock=lambda: now[0])
+        coordinator.register(
+            RefreshTask(
+                "snapshot",
+                10_000,
+                lambda: True,
+                lambda _context: next(outcomes),
+                failure_retry_ms=1_000,
+            )
+        )
+
+        self.assertEqual(coordinator.tick(), ("snapshot",))
+        now[0] += 0.999
+        self.assertEqual(coordinator.tick(), ())
+        now[0] += 0.001
+        self.assertEqual(coordinator.tick(), ("snapshot",))
+
+        # Success clears the retry state; the ordinary ten-second cadence owns
+        # the next due time again.
+        now[0] += 1.0
+        self.assertEqual(coordinator.tick(), ())
+        now[0] += 9.0
+        self.assertEqual(coordinator.tick(), ("snapshot",))
+
     def test_required_failure_does_not_block_other_tasks(self) -> None:
         coordinator = RefreshCoordinator(clock=lambda: 10.0)
         coordinator.register(

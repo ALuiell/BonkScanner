@@ -289,6 +289,9 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
         RefreshTask(
             task_id="full_player_snapshot",
             interval_ms=PLAYER_STATS_REFRESH_MS,
+            # A failed startup read must not leave the slow lane asleep for ten
+            # seconds while fast Expected begins collecting the same run.
+            failure_retry_ms=1_000,
             required=service._should_refresh_full_player_snapshot,
             # ``refresh_live_player_stats_now`` stays ``owner``-resolved: it is
             # genuine ``MegabonkApp`` surface (``gui_layout``/``gui_twitch`` call

@@ -368,6 +368,7 @@ class LiveRunTracker:
                 "player",
                 "combat",
                 "progression",
+                "chest_counters",
                 "world",
                 "powerups",
                 "chaos_tome",
@@ -404,7 +405,21 @@ class LiveRunTracker:
             return
 
         if self._should_reset_for_snapshot(snapshot):
-            self._reset_for_new_run()
+            # A fast Expected baseline can exist before the slow lane accepts
+            # its first active snapshot.  With no prior run identity or snapshot
+            # there is nothing older to leak across this boundary, and a baseline
+            # proven from zero belongs to the snapshot that is arriving now.
+            preserve_pre_snapshot_chest_expected = bool(
+                not self.snapshots
+                and self.run_id is None
+                and self._chest_state.expected_available
+                and self._chest_state.expected_chests_bought is not None
+            )
+            self._reset_for_new_run(
+                preserve_pre_snapshot_chest_expected=(
+                    preserve_pre_snapshot_chest_expected
+                )
+            )
             reset_for_snapshot = True
 
         if self.run_id is None:
@@ -1353,10 +1368,22 @@ class LiveRunTracker:
 
     @with_lock
     def update_chest_counters(self, chests_bought: int, chests_purchased: int) -> bool:
-        self._mark_feature_success_unlocked("progression", self.clock())
-        return chests.update_chest_counters(
+        accepted = chests.update_chest_counters(
             self._chest_state, chests_bought, chests_purchased
         )
+        now = self.clock()
+        if accepted:
+            self._mark_feature_success_unlocked("chest_counters", now)
+        else:
+            self._mark_feature_failure_unlocked(
+                "chest_counters",
+                now,
+                (
+                    "inconsistent chest counters: "
+                    f"bought={int(chests_bought)}, purchased={int(chests_purchased)}"
+                ),
+            )
+        return accepted
 
     # Called class-qualified from projections/formatting.py, so it has to stay
     # resolvable on LiveRunTracker even though the implementation moved.
@@ -1452,7 +1479,11 @@ class LiveRunTracker:
             failure_count=previous.failure_count + 1,
         )
 
-    def _reset_for_new_run(self) -> None:
+    def _reset_for_new_run(
+        self,
+        *,
+        preserve_pre_snapshot_chest_expected: bool = False,
+    ) -> None:
         self._permanent_source_generation += 1
         self.run_id = uuid4().hex
         self._lifecycle = RunLifecycle.ACTIVE
@@ -1470,7 +1501,10 @@ class LiveRunTracker:
         self._slow_stage_timer_reset_pending_from = None
         combat.reset(self._combat_state)
         self.current_stage_index = 1
-        chests.reset(self._chest_state)
+        chests.reset(
+            self._chest_state,
+            preserve_expected=preserve_pre_snapshot_chest_expected,
+        )
         loot.reset(self._loot_state)
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()

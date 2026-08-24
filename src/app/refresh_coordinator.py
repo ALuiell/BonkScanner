@@ -138,6 +138,7 @@ class RefreshTask:
     interval_ms: int
     required: Callable[[], bool]
     run: Callable[[RefreshTickContext], bool | None]
+    failure_retry_ms: int | None = None
     last_started_at: float | None = None
     last_succeeded_at: float | None = None
     last_error: str | None = None
@@ -177,6 +178,8 @@ class RefreshCoordinator:
             raise ValueError("Refresh task id is required")
         if task.interval_ms < 1:
             raise ValueError("Refresh task interval must be positive")
+        if task.failure_retry_ms is not None and task.failure_retry_ms < 1:
+            raise ValueError("Refresh task failure retry interval must be positive")
         if task.task_id in self._tasks:
             raise ValueError(f"Refresh task already registered: {task.task_id}")
         self._tasks[task.task_id] = task
@@ -247,10 +250,20 @@ class RefreshCoordinator:
 
     @staticmethod
     def _is_due(task: RefreshTask, now: float) -> bool:
-        return task.last_started_at is None or now - task.last_started_at >= task.interval_ms / 1000.0
+        interval_ms = (
+            task.failure_retry_ms
+            if task.last_error is not None and task.failure_retry_ms is not None
+            else task.interval_ms
+        )
+        return task.last_started_at is None or now - task.last_started_at >= interval_ms / 1000.0
 
     @staticmethod
     def _next_due_at(task: RefreshTask, now: float) -> float | None:
         if task.last_started_at is None:
             return now
-        return task.last_started_at + task.interval_ms / 1000.0
+        interval_ms = (
+            task.failure_retry_ms
+            if task.last_error is not None and task.failure_retry_ms is not None
+            else task.interval_ms
+        )
+        return task.last_started_at + interval_ms / 1000.0

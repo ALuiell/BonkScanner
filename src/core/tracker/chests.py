@@ -54,7 +54,21 @@ def baseline_chest_total_for_history(chests_total: int) -> int:
     return 69 if total >= 69 else 46
 
 
-def reset(state: _ChestState) -> None:
+def reset(
+    state: _ChestState,
+    *,
+    preserve_expected: bool = False,
+) -> None:
+    """Reset run-scoped chest state without discarding proven fast history.
+
+    The fast Expected lane can establish a zero baseline before the first full
+    player snapshot is accepted.  That first snapshot is the slow lane finally
+    claiming the *same* run, not a second run boundary, so its reset must retain
+    the history when ``LiveRunTracker`` explicitly proves that situation.
+
+    ``expected_detected_run_reset`` is the older form of the same hand-off: the
+    fast cumulative counter noticed a rollback before the slow snapshot did.
+    """
     state.chests_opened = 0
     state.chests_total = 46
     state.keys_count = 0
@@ -65,7 +79,7 @@ def reset(state: _ChestState) -> None:
     state.chest_history_incomplete = False
     state.total_opened_minimum = None
     state.total_opened_is_minimum = False
-    if state.expected_detected_run_reset:
+    if state.expected_detected_run_reset or preserve_expected:
         state.expected_detected_run_reset = False
     else:
         state.expected_key_procs = 0.0
@@ -172,6 +186,16 @@ def update_chest_counters(
     ):
         return False
 
+    # The slow factual read is an independent proof that no normal chest has
+    # been opened yet.  Use it to arm Expected even when the fast paired read
+    # could not resolve the still-initialising passive-item dictionary.  No Key
+    # probability is consumed at zero, so the current stack value is irrelevant
+    # until a later fast sample observes an actual opening.
+    if chests_bought == 0 and state.expected_chests_bought is None:
+        state.expected_chests_bought = 0
+        state.expected_keys_count = state.keys_count
+        state.expected_available = True
+
     state.paid_chest_opens = chests_purchased
     state.key_chest_procs = chests_bought - chests_purchased
     state.free_chest_opens = (
@@ -242,4 +266,5 @@ def get_chest_stats(state: _ChestState) -> ChestStatsSnapshot:
         expected_available=state.expected_available,
         total_opened_minimum=state.total_opened_minimum,
         total_opened_is_minimum=state.total_opened_is_minimum,
+        expected_initialized=state.expected_chests_bought is not None,
     )

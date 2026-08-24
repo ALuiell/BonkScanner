@@ -53,12 +53,23 @@ def set_stage_summary_labels(labels, rows) -> None:
             )
 
 
-#: Shared by the Chests and Item Rarity cards: both fail apart for the same
-#: reason -- a late attach breaks the baseline "Expected" is computed from --
-#: so they show the same one-line reason rather than each spelling it out.
+#: The Item Rarity explanation and the legacy/fallback Chests explanation.
+#: Live Chests now supplies a precise status because its strict completeness
+#: gate can also be waiting on factual counters or a fast/slow coverage match.
 EXPECTED_COUNTS_UNAVAILABLE_TEXT = (
     "Needs the app running from the start of the run for an accurate count."
 )
+
+CHEST_EXPECTED_STATUS_TEXT = {
+    "pending": "Waiting for the initial Expected chest baseline.",
+    "baseline_missed": (
+        "Expected tracking began after a normal chest was already opened."
+    ),
+    "counters_unavailable": "Waiting for complete chest counters.",
+    "coverage_mismatch": (
+        "Chest counters are syncing; Expected is temporarily unavailable."
+    ),
+}
 
 
 def set_loot_rarity_card_values(labels, luck_value, loot_stats) -> None:
@@ -95,12 +106,18 @@ def set_loot_rarity_card_values(labels, luck_value, loot_stats) -> None:
         status.setVisible(not available)
 
 
-def set_chests_card_values(labels, values: dict[str, str] | None) -> None:
+def set_chests_card_values(
+    labels,
+    values: dict[str, str] | None,
+    *,
+    expected_status: str | None = None,
+) -> None:
     """Write the chests card, falling back to the all-empty projection.
 
-    `Expected` fails apart the same way the rarity card's counts do, so its
-    own "why" line is driven off the same signal: the cell reads `"--"`
-    exactly when the value passed in was `None`.
+    The cell still decides whether the status line is visible.  Live data also
+    supplies ``expected_status`` so the line distinguishes a missed baseline
+    from pending factual counters and a temporary coverage mismatch; legacy
+    recordings retain the old fallback text.
     """
     if not labels:
         return
@@ -114,5 +131,9 @@ def set_chests_card_values(labels, values: dict[str, str] | None) -> None:
     status = labels.get("status")
     if status is not None:
         expected_available = values.get("expected", "--") != "--"
-        _set_text(status, "" if expected_available else EXPECTED_COUNTS_UNAVAILABLE_TEXT)
+        unavailable_text = CHEST_EXPECTED_STATUS_TEXT.get(
+            str(expected_status),
+            EXPECTED_COUNTS_UNAVAILABLE_TEXT,
+        )
+        _set_text(status, "" if expected_available else unavailable_text)
         status.setVisible(not expected_available)
