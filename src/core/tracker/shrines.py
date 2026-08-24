@@ -114,6 +114,7 @@ class _ShrineState:
     initialized: bool = False
     last_charged_total: int = 0
     seen_log_ptrs: set[int] = field(default_factory=set)
+    deferred_log_ptrs: set[int] = field(default_factory=set)
     pending: deque[_PendingReward] = field(default_factory=deque)
     events: list[_ShrineEvent] = field(default_factory=list)
     ambiguous_matches: int = 0
@@ -123,6 +124,7 @@ def reset(state: _ShrineState) -> None:
     state.initialized = False
     state.last_charged_total = 0
     state.seen_log_ptrs.clear()
+    state.deferred_log_ptrs.clear()
     state.pending.clear()
     state.events.clear()
     state.ambiguous_matches = 0
@@ -159,13 +161,23 @@ def update(
             continue
         if _consume_log_entry(state, entry):
             state.seen_log_ptrs.add(object_ptr)
+            state.deferred_log_ptrs.discard(object_ptr)
+            continue
+        match = match_shrine_reward(entry, wrench_stacks=None)
+        if match is None:
+            state.seen_log_ptrs.add(object_ptr)
+            state.deferred_log_ptrs.discard(object_ptr)
             continue
         # A compatible reward observed without a budget can be the narrow
-        # log/counter race described by the memory reader. Leave it unseen so
-        # the next counter sample may consume it. Definitively unrelated
-        # Gritch/Greed entries are safe to discard now.
-        if match_shrine_reward(entry, wrench_stacks=None) is None:
+        # log-before-counter race described by the memory reader. Give it one
+        # following sample to receive that budget, then retire it: ShrineLogs
+        # is shared, so an unbounded grace period lets old modded effects spend
+        # unrelated future Charge Shrine rewards.
+        if object_ptr in state.deferred_log_ptrs:
+            state.deferred_log_ptrs.remove(object_ptr)
             state.seen_log_ptrs.add(object_ptr)
+        else:
+            state.deferred_log_ptrs.add(object_ptr)
 
     state.last_charged_total = charged_total
 
@@ -179,6 +191,7 @@ def _initialize_from_reading(
     charged_total = max(0, int(reading.charged_total))
     state.initialized = True
     state.last_charged_total = charged_total
+    state.deferred_log_ptrs.clear()
     state.seen_log_ptrs = {
         int(entry.object_ptr) for entry in reading.shown_log if int(entry.object_ptr)
     }

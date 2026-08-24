@@ -11,6 +11,9 @@ Luck hypothesis that still needs a controlled experiment.
 - A normal map spawns 15 Charge Shrines.
 - Beacon adds two Charge Shrines to the next map. It does not increase reward
   magnitude.
+- `chargedShrines` increases when charging completes, before the player chooses
+  one of the three offers. The selected modifier is appended to `shownLog` only
+  after that choice, so the pending selection has no timeout.
 - Charging one shrine presents three stat offers; the player selects one, and
   that one choice becomes the permanent reward modifier.
 - Wrench multiplies every reward by `1 + 0.075 * stack_count`.
@@ -101,7 +104,15 @@ Object pointers deduplicate log entries. The memory reader samples `shownLog`
 before `chargedShrines`: if a charge lands between those two reads, the new
 counter opens a budget while the old log is safely consumed on the next tick.
 The inverse ordering is also handled by leaving a fingerprint-compatible
-no-budget entry unseen until the counter catches up.
+no-budget entry unseen for one following sample. If the counter still has not
+caught up, the entry is retired so old compatible effects from the shared log
+cannot spend future Charge Shrine reward slots.
+
+This one-sample grace applies only when there is no reward budget. A pending
+budget created by `chargedShrines` does not expire while the player keeps the
+offer window open. A fingerprint-compatible third-party effect appended during
+that open pending window remains indistinguishable without reading the actual
+offer objects.
 
 The tracker reuses the once-per-second passive-item sample to obtain Wrench
 stacks. Exact current-stack matching is attempted first. If the inventory and

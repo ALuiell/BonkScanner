@@ -204,6 +204,104 @@ class ChargeShrineTrackerTests(unittest.TestCase):
         self.assertEqual(result.selected, 1)
         self.assertEqual(result.pending, 0)
 
+    def test_old_unbudgeted_mod_entries_do_not_spend_future_shrine_rewards(self):
+        state = _ShrineState()
+        mod_luck_entries = tuple(
+            _entry(
+                100 + index,
+                30,
+                "Luck",
+                0.05,
+                PlayerStatFormat.PERCENT,
+                2,
+            )
+            for index in range(13)
+        )
+        real_damage_entries = tuple(
+            _entry(
+                200 + index,
+                12,
+                "Damage",
+                0.12,
+                PlayerStatFormat.MULTIPLIER,
+                0,
+            )
+            for index in range(30)
+        )
+
+        update(
+            state,
+            ChargeShrineReading(charged_total=0, shown_log=()),
+            wrench_stacks=0,
+        )
+        update(
+            state,
+            ChargeShrineReading(charged_total=0, shown_log=mod_luck_entries),
+            wrench_stacks=0,
+        )
+        update(
+            state,
+            ChargeShrineReading(charged_total=0, shown_log=mod_luck_entries),
+            wrench_stacks=0,
+        )
+
+        for charged_total in range(1, 31):
+            update(
+                state,
+                ChargeShrineReading(
+                    charged_total=charged_total,
+                    shown_log=(
+                        mod_luck_entries
+                        + real_damage_entries[:charged_total]
+                    ),
+                ),
+                wrench_stacks=0,
+            )
+
+        result = snapshot(state)
+        self.assertEqual(result.charged, 30)
+        self.assertEqual(result.selected, 30)
+        self.assertEqual(result.pending, 0)
+        self.assertEqual(
+            [(stat.label, stat.rolls) for stat in result.stats],
+            [("Damage", 30)],
+        )
+
+    def test_pending_selection_does_not_expire_while_player_waits(self):
+        state = _ShrineState()
+        update(
+            state,
+            ChargeShrineReading(charged_total=0, shown_log=()),
+            wrench_stacks=0,
+        )
+        update(
+            state,
+            ChargeShrineReading(charged_total=1, shown_log=()),
+            wrench_stacks=0,
+        )
+
+        for _ in range(300):
+            update(
+                state,
+                ChargeShrineReading(charged_total=1, shown_log=()),
+                wrench_stacks=0,
+            )
+
+        waiting = snapshot(state)
+        self.assertEqual(waiting.selected, 0)
+        self.assertEqual(waiting.pending, 1)
+
+        update(
+            state,
+            ChargeShrineReading(charged_total=1, shown_log=(DAMAGE,)),
+            wrench_stacks=0,
+        )
+
+        result = snapshot(state)
+        self.assertEqual(result.selected, 1)
+        self.assertEqual(result.pending, 0)
+        self.assertEqual([stat.label for stat in result.stats], ["Damage"])
+
     def test_valid_reward_falls_back_to_inferred_wrench_at_inventory_boundary(self):
         state = _ShrineState()
         update(
