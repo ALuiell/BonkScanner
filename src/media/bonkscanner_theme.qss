@@ -1603,6 +1603,15 @@ QWidget#dialogHead, QWidget#dialogFooter { background: transparent; }
 /* Одинаковая минимальная ширина: иначе кнопка «OK» вдвое уже «Cancel» рядом,
    и пара читается как разные по весу. */
 QWidget#dialogFooter QPushButton { min-width: 96px; }
+/* A transparent leading action should read from the same left edge as the
+   dialog content. Centring it inside the footer's shared button width makes
+   the label look detached even though the widget itself is already first. */
+QWidget#dialogFooter QPushButton#ghost[footerEdge="true"] {
+    min-width: 0px;
+    padding-left: 0px;
+    padding-right: 8px;
+    text-align: left;
+}
 QLabel#dialogNote { color: #5C6675; background: transparent; font-size: 12px; }
 /* То, о чём спрашивает окно, — имя записи в «удалить запись?». Не заголовок и
    не подпись: это данные, и их читают. */
@@ -1622,6 +1631,86 @@ QFrame#DangerInfoCard {
     background-color: #35191C;
     border: 1px solid #6B2A31;
     border-radius: 12px;
+}
+
+/* The updater stays inside the same modal surface from release notes through
+   download, verification and restart. Its hierarchy mirrors the compact cards
+   elsewhere in the app instead of introducing a separate installer style. */
+QFrame#UpdateSummaryCard {
+    background-color: #101820;
+    border: 1px solid #263746;
+    border-radius: 10px;
+}
+QLabel#UpdateVersionOld {
+    color: #8A94A3;
+    font-size: 13px;
+    font-weight: 600;
+}
+QLabel#UpdateVersionArrow {
+    color: #5C6675;
+    font-size: 15px;
+}
+QLabel#UpdateVersionNew {
+    color: #7DE68C;
+    font-size: 14px;
+    font-weight: 800;
+}
+QLabel#UpdateTrustNote {
+    color: #6FAF86;
+    font-size: 11px;
+}
+QLabel#UpdateSectionTitle {
+    color: #B9C2CE;
+    font-size: 12px;
+    font-weight: 700;
+}
+QTextEdit#UpdateReleaseNotes {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+    padding: 10px;
+    color: #D7DEE8;
+}
+QFrame#UpdateProgressPanel {
+    background-color: #111B25;
+    border: 1px solid #28445B;
+    border-radius: 10px;
+}
+QFrame#UpdateProgressPanel[state="verified"] {
+    background-color: #102219;
+    border-color: #285D3A;
+}
+QFrame#UpdateProgressPanel[state="error"] {
+    background-color: #261416;
+    border-color: #6B2A31;
+}
+QLabel#UpdateProgressStatus {
+    color: #EDF1F5;
+    font-size: 13px;
+    font-weight: 700;
+}
+QLabel#UpdateProgressDetail {
+    color: #8A94A3;
+    font-size: 11px;
+}
+QProgressBar#UpdateDownloadProgress {
+    min-height: 8px;
+    max-height: 8px;
+    background-color: #18232E;
+    border-radius: 4px;
+}
+QProgressBar#UpdateDownloadProgress::chunk {
+    background-color: #38BDF8;
+    border-radius: 4px;
+}
+QProgressBar#UpdateDownloadProgress[state="verifying"]::chunk {
+    background-color: #A78BFA;
+}
+QProgressBar#UpdateDownloadProgress[state="verified"]::chunk {
+    background-color: #4ADE80;
+}
+QProgressBar#UpdateDownloadProgress[state="error"]::chunk {
+    background-color: #F87171;
 }
 
 /* ======================================================================

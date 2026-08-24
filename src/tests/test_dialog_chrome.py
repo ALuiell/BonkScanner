@@ -34,8 +34,7 @@ SRC_DIR = Path(src.__file__).resolve().parent
 WIDTH_NAMES = {"DIALOG_COMPACT", "DIALOG_REGULAR", "DIALOG_WIDE"}
 WIDTH_VALUES = {DIALOG_COMPACT, DIALOG_REGULAR, DIALOG_WIDE}
 
-#: `shell.py` defines the scale; the update prompt is a stock `QMessageBox`
-#: subclass with no body of its own to lay out.
+#: `shell.py` defines the scale and therefore cannot consume itself.
 EXEMPT_FILES = {"ui/dialogs/shell.py"}
 
 

@@ -829,7 +829,7 @@ class FooterView:
         clicks and a modal away from the line that reports the answer.
 
         `"unavailable"` hides the slot outright. It is what a source run gets --
-        `check_and_update` returns before it reaches the network there -- and a
+        `check_for_update` returns before it reaches the network there -- and a
         button that cannot do anything is worse than no button. `"unknown"`,
         by contrast, is a real invitation: nothing has been checked *yet*.
         """
@@ -837,6 +837,8 @@ class FooterView:
             "checking": "Checking…",
             "current": "Up to date",
             "available": f"v{version} available  →",
+            "downloading": "Downloading update…",
+            "installing": "Restarting…",
             "unknown": "Check for updates",
         }
         visible = state != "unavailable"
@@ -845,18 +847,22 @@ class FooterView:
         if not visible:
             return
         self._update_btn.setText(captions.get(state, captions["unknown"]))
-        # Only while a request is in flight. Every other state is pressable --
-        # including "Up to date", which is the whole point of it being a button.
-        self._update_btn.setEnabled(state != "checking")
+        # The full update session is single-flight. Current/available/unknown
+        # remain pressable; checking, downloading and installing cannot start a
+        # second request beneath the active dialog.
+        self._update_btn.setEnabled(
+            state not in {"checking", "downloading", "installing"}
+        )
         self._update_btn.setProperty("state", state)
         # A property a stylesheet selects on does not repaint on its own.
         self._update_btn.style().unpolish(self._update_btn)
         self._update_btn.style().polish(self._update_btn)
 
     def check_for_updates(self) -> None:
-        self.set_update_status("checking")
         # `force_check=True`, unlike the launch check: this one was asked for,
         # so a version the user once skipped should still be reported back.
+        # The session owner sets the busy state only after it wins the
+        # single-flight claim; a duplicate click cannot strand this button.
         start_update_check(self._app, force_check=True)
 
     def set_supporters(self, supporters=()) -> None:

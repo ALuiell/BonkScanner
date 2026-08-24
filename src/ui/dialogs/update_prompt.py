@@ -3,7 +3,13 @@ from __future__ import annotations
 import threading
 
 from app.supporters import load_supporters
-from app.update_flow import check_and_update
+from app.update_flow import (
+    check_for_update,
+    consume_update_result,
+    launch_prepared_update,
+    prepare_update,
+    skip_update_version,
+)
 from ui.dialogs.update_dialog import show_update_dialog
 
 
@@ -25,68 +31,184 @@ def _start_registered_thread(app_instance, *, target, args=(), kwargs=None, name
     return thread
 
 
+def _claim_update_session(app_instance) -> bool:
+    """Allow one check/dialog/download session for this application at a time."""
+    if app_instance is None:
+        return False
+    state = getattr(app_instance, "__dict__", None)
+    if state is None:
+        return False
+    lock = state.setdefault("_update_session_lock", threading.Lock())
+    with lock:
+        if state.get("_update_session_active", False):
+            return False
+        state["_update_session_active"] = True
+        return True
+
+
+def _finish_update_session(app_instance) -> None:
+    state = getattr(app_instance, "__dict__", None)
+    if state is None:
+        return
+    lock = state.get("_update_session_lock")
+    if lock is None:
+        state["_update_session_active"] = False
+        return
+    with lock:
+        state["_update_session_active"] = False
+
+
 def start_update_check(app_instance, *, force_check: bool):
-    """Run the update check off the GUI thread, prompting through the Qt dialog.
+    """Check in the background, then own one complete modal update session."""
+    if not _claim_update_session(app_instance):
+        return None
 
-    The flow in ``app/`` owns the decisions and knows nothing about widgets; this
-    is the adapter that hands it a way to ask, to log, and to get back onto the
-    GUI thread before the dialog is built.
-    """
+    log = getattr(app_instance, "log", None)
+    after = getattr(app_instance, "after", None)
+    footer = getattr(app_instance, "footer", None)
+    if after is None:
+        _finish_update_session(app_instance)
+        return None
 
-    def confirm(latest_version: str, release_notes: str) -> bool | None:
-        parent = getattr(app_instance, "window", app_instance)
-        return show_update_dialog(parent, latest_version, release_notes)
+    previous_result = consume_update_result()
+    if previous_result is not None and callable(log):
+        state, message = previous_result
+        if state == "success":
+            log(f"[+] BonkScanner updated successfully to v{message}.", tag="success")
+        else:
+            log(f"[!] Update installation failed: {message}", tag="error")
 
-    log = getattr(app_instance, "log", None) if app_instance else None
-    after = getattr(app_instance, "after", None) if app_instance else None
-    schedule = (lambda callback: after(0, callback)) if after else None
+    if footer is not None:
+        footer.set_update_status("checking")
 
-    # Same `getattr` shape as `log` and `after` above, and for the same reason:
-    # this function is driven by stand-in app objects in the suite, and by the
-    # real one before `build_layout` has run. No footer means no report -- the
-    # flow keeps printing its outcome and nothing else changes.
-    footer = getattr(app_instance, "footer", None) if app_instance else None
+    def finish() -> None:
+        _finish_update_session(app_instance)
 
-    def report_to_footer(state: str, version: str) -> None:
-        # `check_and_update` runs on the thread started below; the strip is a
-        # widget. `schedule` is the hop back, the same one the dialog uses.
-        schedule(lambda: footer.set_update_status(state, version))
+    def handle_result(result) -> None:
+        if footer is not None:
+            footer.set_update_status(result.state, result.version)
 
-    report = report_to_footer if (footer is not None and schedule is not None) else None
+        if result.state == "current":
+            if force_check and callable(log):
+                log(
+                    f"[*] You already have the latest version (v{result.version}).",
+                    tag="success",
+                )
+            finish()
+            return
+        if result.state == "unavailable":
+            finish()
+            return
+        if result.state == "unknown":
+            if callable(log):
+                log(
+                    f"[!] Failed to check for updates: {result.error or 'unknown error'}",
+                    tag="warning",
+                )
+            finish()
+            return
+        if not result.should_prompt or result.release is None or result.exe_path is None:
+            finish()
+            return
+
+        release = result.release
+
+        def start_download(progress, ready, failed):
+            if footer is not None:
+                footer.set_update_status("downloading", release.version)
+            if callable(log):
+                log(
+                    f"[*] Downloading and verifying update v{release.version}...",
+                    tag="warning",
+                )
+
+            def worker() -> None:
+                try:
+                    prepared = prepare_update(
+                        result.exe_path,
+                        release,
+                        progress=progress,
+                    )
+                except Exception as exc:
+                    if footer is not None:
+                        after(
+                            0,
+                            lambda: footer.set_update_status("available", release.version),
+                        )
+                    failed(str(exc))
+                    return
+                ready(prepared)
+
+            return _start_registered_thread(
+                app_instance,
+                target=worker,
+                name="BonkUpdateDownload",
+            )
+
+        def install_update(prepared) -> None:
+            launch_prepared_update(prepared)
+            if footer is not None:
+                footer.set_update_status("installing", release.version)
+            if callable(log):
+                log(
+                    f"[+] Update v{release.version} verified. Restarting BonkScanner...",
+                    tag="success",
+                )
+            shutdown = getattr(app_instance, "on_closing", None)
+            if not callable(shutdown):
+                shutdown = getattr(app_instance, "destroy", None)
+            if not callable(shutdown):
+                raise RuntimeError("BonkScanner could not start its clean shutdown.")
+            after(150, shutdown)
+
+        try:
+            parent = getattr(app_instance, "window", app_instance)
+            decision = show_update_dialog(
+                parent,
+                release,
+                start_download=start_download,
+                install_update=install_update,
+            )
+            if decision == "skip":
+                skip_update_version(release.version)
+                if callable(log):
+                    log(
+                        f"[*] Update v{release.version} skipped. "
+                        "It remains available from the footer.",
+                        tag="warning",
+                    )
+            elif decision == "later" and callable(log):
+                log(
+                    f"[*] Update v{release.version} postponed.",
+                    tag="warning",
+                )
+        except Exception as exc:
+            if callable(log):
+                log(f"[!] Updater error: {exc}", tag="error")
+            if footer is not None:
+                footer.set_update_status("available", release.version)
+        finally:
+            finish()
+
+    def check_worker() -> None:
+        result = check_for_update(force_check=force_check)
+        after(0, lambda: handle_result(result))
 
     return _start_registered_thread(
         app_instance,
-        target=check_and_update,
-        kwargs={
-            "confirm": confirm,
-            "log": log,
-            "schedule": schedule,
-            "report": report,
-            "force_check": force_check,
-        },
+        target=check_worker,
         name="BonkUpdateCheck",
     )
 
 
 def start_supporters_load(app_instance):
-    """Fill the footer's supporters list, off the GUI thread.
-
-    Deliberately its own request and its own thread rather than a passenger on
-    the update check, which returns before it reaches the network on a source
-    run (`check_and_update` -> `frozen_exe_path`). Riding along would mean the
-    list is invisible to everyone running from source, including while working
-    on it -- a difference that reads as a bug every time it is rediscovered.
-    """
+    """Fill the footer supporters list off the GUI thread."""
     footer = getattr(app_instance, "footer", None) if app_instance else None
     after = getattr(app_instance, "after", None) if app_instance else None
-    # Same shape as the `report` wiring above: driven by stand-in app objects in
-    # the suite, and by the real one before `build_layout` has run.
     if footer is None or after is None:
         return None
 
     def report_to_footer(supporters: list) -> None:
-        # `load_supporters` runs on the thread started below; the strip is a
-        # widget. Same hop as `report_to_footer` above, for the same reason.
         after(0, lambda: footer.set_supporters(supporters))
 
     return _start_registered_thread(

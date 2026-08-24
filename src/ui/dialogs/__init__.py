@@ -12,14 +12,9 @@ what settled §2's open question of package-versus-flat-module. The contents are
 **not** split -- step 27 is closure, not migration -- so this ``__init__``
 carries all 1,847 lines.
 
-``update_prompt.py`` moved in with it, out of ``ui/``. It had to: it imports
-``ui.dialogs.update_dialog``, and this module imports ``start_update_check``
-from it, so leaving it outside would make ``ui.dialogs`` and ``ui.update_prompt``
-import each other. That cycle would have survived -- Python resolves it by
-statement order, and neither the suite nor ``test_import_direction`` imports
-anything -- which is exactly the shape step 19 shipped once through
-``gui_layout``. Inside the package it is a plain ``__init__ -> update_prompt ->
-update_dialog`` chain with no back edge.
+``update_prompt.py`` moved in with it, out of ``ui/``. The update surface now
+lives beside the shared dialog shell while the always-visible footer owns the
+manual check action.
 """
 from __future__ import annotations
 
@@ -97,7 +92,6 @@ from core.template_colors import (
 from app import config
 from app.player_stats_view import overlay_view, player_stats_view
 from app.vod_capture import vod_capture
-from ui.dialogs.update_prompt import start_update_check
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
 KOFI_SUPPORT_URL = config.KOFI_SUPPORT_URL
@@ -1557,22 +1551,13 @@ class SettingsDialog(QDialog):
         support_layout.addLayout(support_button_row)
         layout.addWidget(support_card)
 
-        # Save is a footer button like every other dialog's, rather than a
-        # full-width bar stacked above the support block -- which put the
-        # window's primary action in its middle, with donation links under it.
-        self.update_btn = QPushButton("Check for Updates")
-        self.update_btn.clicked.connect(self.check_update)
+        # Update checking lives in the always-visible footer. Settings keeps one
+        # clear job and one primary action instead of duplicating that control.
         self.save_btn = QPushButton("Save")
         self.save_btn.clicked.connect(self.save)
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
-        dialog_footer(
-            self, primary=self.save_btn, secondary=cancel_btn, leading=self.update_btn
-        )
-
-    def check_update(self):
-        start_update_check(self.master, force_check=True)
-        self.close()
+        dialog_footer(self, primary=self.save_btn, secondary=cancel_btn)
 
     def open_patreon_support_page(self):
         webbrowser.open(PATREON_SUPPORT_URL)
