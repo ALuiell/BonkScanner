@@ -236,22 +236,33 @@ class RecordingScrubber(QWidget):
         return 0 if index is None else index
 
     def mousePressEvent(self, event) -> None:
-        if self._model.count <= 0 or event.button() != Qt.LeftButton:
+        if self._model.count <= 0:
+            super().mousePressEvent(event)
+            return
+        button = event.button()
+        shift_pressed = bool(event.modifiers() & Qt.ShiftModifier)
+        if button != Qt.LeftButton and not (
+            button == Qt.RightButton and shift_pressed
+        ):
             super().mousePressEvent(event)
             return
         index = self._index_at_x(event.position().x())
-        if event.modifiers() & Qt.ShiftModifier:
-            # Shift-drag owns compare point B until the button is released.
-            # A short press is still the old Shift-click gesture; keeping the
-            # drag active makes fine positioning continuous instead of a row
-            # of repeated clicks.
+        if button == Qt.RightButton:
+            # Shift+RMB owns compare point B until the button is released.
+            # A short press sets B; keeping the drag active makes fine
+            # positioning continuous instead of a row of repeated clicks.
             self._pin_dragging = True
             self._dragging = False
             self.set_pin(index, emit=True)
+            event.accept()
             return
+        # LMB always owns point A, including while Shift is held. This makes
+        # the two compare points follow the physical buttons consistently:
+        # Shift+LMB moves A and Shift+RMB moves B.
         self._pin_dragging = False
         self._dragging = True
         self.set_index(index, emit=True)
+        event.accept()
 
     def mouseMoveEvent(self, event) -> None:
         if self._pin_dragging:

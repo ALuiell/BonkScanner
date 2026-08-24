@@ -1664,7 +1664,8 @@ class RecordingsTab:
         if anchor is None:
             _set_text(
                 label,
-                '<span style="color:#5C6675;">Shift+click sets compare point '
+                '<span style="color:#5C6675;">Shift+LMB moves '
+                '<b style="color:#38BDF8;">A</b> &nbsp;·&nbsp; Shift+RMB sets '
                 '<b style="color:#C084FC;">B</b></span>&nbsp;&nbsp;·&nbsp;&nbsp;',
             )
             return
@@ -1813,7 +1814,7 @@ class RecordingsTab:
         vods_detail_layout.addLayout(self._build_scrubber_header())
         self._scrubber = RecordingScrubber()
         self._scrubber.setToolTip(
-            "Drag to move A  ·  Shift+drag moves compare point B\n"
+            "LMB / Shift+LMB drags A  ·  Shift+RMB drags compare point B\n"
             "← → step (Shift × 10)  ·  Home / End  ·  B pins  ·  Esc clears B"
         )
         self._scrubber.setEnabled(False)

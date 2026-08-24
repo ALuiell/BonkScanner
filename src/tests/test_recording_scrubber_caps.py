@@ -109,7 +109,29 @@ def test_b_key_pins_compare_point_b_at_the_current_playhead() -> None:
     assert widget.pin() == 2
 
 
-def test_shift_drag_moves_compare_point_b_until_release() -> None:
+def test_shift_left_drag_moves_compare_point_a_until_release() -> None:
+    app = QApplication.instance() or QApplication([])
+    widget = RecordingScrubber()
+    widget.resize(500, 150)
+    widget.set_model(ScrubberModel(count=5))
+    widget.set_index(2)
+    widget.set_pin(3)
+    widget.show()
+    app.processEvents()
+
+    QTest.mousePress(widget, Qt.LeftButton, Qt.ShiftModifier, QPoint(100, 75))
+    first_index = widget.index()
+    QTest.mouseMove(widget, QPoint(400, 75))
+    moved_index = widget.index()
+    QTest.mouseRelease(widget, Qt.LeftButton, Qt.NoModifier, QPoint(400, 75))
+    QTest.mouseMove(widget, QPoint(200, 75))
+
+    assert moved_index > first_index
+    assert widget.index() == moved_index
+    assert widget.pin() == 3
+
+
+def test_shift_right_drag_moves_compare_point_b_until_release() -> None:
     app = QApplication.instance() or QApplication([])
     widget = RecordingScrubber()
     widget.resize(500, 150)
@@ -118,11 +140,11 @@ def test_shift_drag_moves_compare_point_b_until_release() -> None:
     widget.show()
     app.processEvents()
 
-    QTest.mousePress(widget, Qt.LeftButton, Qt.ShiftModifier, QPoint(100, 75))
+    QTest.mousePress(widget, Qt.RightButton, Qt.ShiftModifier, QPoint(100, 75))
     first_pin = widget.pin()
     QTest.mouseMove(widget, QPoint(400, 75))
     moved_pin = widget.pin()
-    QTest.mouseRelease(widget, Qt.LeftButton, Qt.NoModifier, QPoint(400, 75))
+    QTest.mouseRelease(widget, Qt.RightButton, Qt.NoModifier, QPoint(400, 75))
     QTest.mouseMove(widget, QPoint(200, 75))
 
     assert first_pin is not None
@@ -130,6 +152,22 @@ def test_shift_drag_moves_compare_point_b_until_release() -> None:
     assert moved_pin > first_pin
     assert widget.pin() == moved_pin
     assert widget.index() == 2
+
+
+def test_right_click_without_shift_does_not_move_either_compare_point() -> None:
+    app = QApplication.instance() or QApplication([])
+    widget = RecordingScrubber()
+    widget.resize(500, 150)
+    widget.set_model(ScrubberModel(count=5))
+    widget.set_index(2)
+    widget.set_pin(3)
+    widget.show()
+    app.processEvents()
+
+    QTest.mouseClick(widget, Qt.RightButton, Qt.NoModifier, QPoint(100, 75))
+
+    assert widget.index() == 2
+    assert widget.pin() == 3
 
 
 def test_playhead_updates_do_not_rebuild_recording_static_layer() -> None:
