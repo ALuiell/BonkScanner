@@ -22,6 +22,7 @@ EXPECTED_ASSET_NAME = "BonkScanner.exe"
 MAX_UPDATE_BYTES = 250 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
 INSTALLER_WAIT_ATTEMPTS = 120
+INSTALLER_MOVE_ATTEMPTS = 30
 UPDATE_RESULT_NAME = ".bonkscanner-update-result.txt"
 _VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){2}$")
 _SHA256_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
@@ -200,10 +201,31 @@ goto wait_loop
 :replace
 if not exist "%NEW%" goto install_failed
 if exist "%BACKUP%" del /f /q "%BACKUP%" >nul 2>&1
-if exist "%TARGET%" move /y "%TARGET%" "%BACKUP%" >nul 2>&1
-if errorlevel 1 goto install_failed
+
+REM PyInstaller's outer one-file launcher can keep TARGET locked briefly after
+REM the GUI PID exits. Retry the filesystem hand-off instead of treating that
+REM normal shutdown race as a failed update.
+set /a MOVE_ATTEMPTS=0
+:move_old
+if not exist "%TARGET%" goto move_new
+move /y "%TARGET%" "%BACKUP%" >nul 2>&1
+if not errorlevel 1 goto move_new
+set /a MOVE_ATTEMPTS+=1
+if %MOVE_ATTEMPTS% GEQ {INSTALLER_MOVE_ATTEMPTS} goto install_failed
+ping 127.0.0.1 -n 2 >nul
+goto move_old
+
+:move_new
+set /a MOVE_ATTEMPTS=0
+:move_new_loop
 move /y "%NEW%" "%TARGET%" >nul 2>&1
-if errorlevel 1 goto restore_old
+if not errorlevel 1 goto install_succeeded
+set /a MOVE_ATTEMPTS+=1
+if %MOVE_ATTEMPTS% GEQ {INSTALLER_MOVE_ATTEMPTS} goto restore_old
+ping 127.0.0.1 -n 2 >nul
+goto move_new_loop
+
+:install_succeeded
 if not exist "%TARGET%" goto restore_old
 > "%RESULT%" echo SUCCESS {version}
 start "" "%TARGET%"

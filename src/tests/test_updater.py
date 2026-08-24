@@ -159,6 +159,16 @@ class UpdaterBackendTests(unittest.TestCase):
             self.assertEqual(body, Path(prepared.new_exe_path).read_bytes())
             script = Path(prepared.installer_path).read_text(encoding="utf-8")
             self.assertIn("if %ATTEMPTS% GEQ 120 goto timed_out", script)
+            self.assertIn(":move_old", script)
+            self.assertIn(
+                "if %MOVE_ATTEMPTS% GEQ 30 goto install_failed", script
+            )
+            self.assertIn("goto move_old", script)
+            self.assertIn(":move_new_loop", script)
+            self.assertIn(
+                "if %MOVE_ATTEMPTS% GEQ 30 goto restore_old", script
+            )
+            self.assertIn("goto move_new_loop", script)
             self.assertIn(":restore_old", script)
             self.assertIn("echo SUCCESS 3.2.1", script)
             self.assertIn("echo ERROR The update could not be installed", script)
