@@ -35,6 +35,23 @@ class FakeRecordingSettings:
 
 
 class VodStorageTests(unittest.TestCase):
+    def test_recording_kill_count_uses_compact_suffixes(self) -> None:
+        expected = {
+            0: "0",
+            970: "970",
+            999: "999",
+            1_000: "1K",
+            10_000: "10K",
+            970_000: "970K",
+            16_000_000: "16M",
+        }
+        for value, display in expected.items():
+            with self.subTest(value=value):
+                self.assertEqual(
+                    vod_storage.format_recording_kill_count(value),
+                    display,
+                )
+
     def test_character_default_name_metadata_and_passive_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             recorder = VodRecorder(
@@ -66,11 +83,22 @@ class VodStorageTests(unittest.TestCase):
                 character_id=18,
                 character_name="Dice",
             )
-            recorder.capture({}, character_passive=passive)
+            recorder.capture(
+                {},
+                character_passive=passive,
+                mob_kills=970_000,
+            )
+            # A disappearing process can expose a reset counter during the
+            # best-effort final capture. The completed name keeps the run max.
+            recorder.capture({}, mob_kills=12)
             recorder.stop()
 
             loaded = load_vod(path)
-            self.assertRegex(loaded.metadata.name, r"^Dice \d{4}-\d{2}-\d{2} ")
+            self.assertRegex(
+                loaded.metadata.name,
+                r"^Dice 970K \d{4}-\d{2}-\d{2} ",
+            )
+            self.assertEqual(load_vod_metadata(path).name, loaded.metadata.name)
             self.assertEqual(loaded.metadata.character_id, 18)
             self.assertEqual(loaded.metadata.character_name, "Dice")
             self.assertEqual(loaded.snapshots[0].character_passive, passive)
@@ -84,7 +112,7 @@ class VodStorageTests(unittest.TestCase):
                 character_name="Fox",
             )
             for _ in range(3):
-                recorder.capture({})
+                recorder.capture({}, mob_kills=16_000_000)
             recorder.stop()
             self.assertEqual(load_vod_metadata(path).name, "My challenge")
 

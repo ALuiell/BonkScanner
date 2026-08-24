@@ -24,9 +24,10 @@ from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, ChargeShrineSnapshot, ChargeShrineStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
-# 9 adds character identity metadata and the generic character-passive frame.
-# Older recordings omit both and remain readable as "not recorded".
-VOD_FORMAT_VERSION = 9
+# 10 lets the final summary publish the completed automatic name and kill count.
+# 9 added character identity metadata and the generic character-passive frame.
+# Older recordings omit newer fields and keep their original metadata name.
+VOD_FORMAT_VERSION = 10
 RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
 LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -43,6 +44,28 @@ def use_settings(settings: RecordingSettings | None) -> None:
     global _settings
     _settings = settings
 SNAPSHOT_FLUSH_EVERY = 3
+
+
+def format_recording_kill_count(value: int) -> str:
+    """Return the compact whole-number count used in automatic VOD names."""
+    count = max(0, int(value))
+    if count < 1_000:
+        return str(count)
+    if count < 1_000_000:
+        return f"{count // 1_000}K"
+    return f"{count // 1_000_000}M"
+
+
+def _automatic_vod_name(
+    prefix: str,
+    created_at: datetime,
+    mob_kills: int | None = None,
+) -> str:
+    parts = [prefix]
+    if mob_kills is not None:
+        parts.append(format_recording_kill_count(mob_kills))
+    parts.append(created_at.strftime("%Y-%m-%d %H:%M:%S"))
+    return " ".join(parts)
 
 
 # `slots=True` on the two types below, and it is not a style choice: these are
@@ -286,6 +309,10 @@ class VodRecorder:
         self.snapshot_count = 0
         self.is_recording = False
         self._file = None
+        self._uses_automatic_name = True
+        self._automatic_name_prefix = "Run"
+        self._created_at: datetime | None = None
+        self._max_mob_kills: int | None = None
 
     def start(
         self,
@@ -300,7 +327,11 @@ class VodRecorder:
         file_stem = created_at.strftime("%Y-%m-%d_%H-%M-%S")
         self.path = _unique_path(self.vods_dir / f"{file_stem}.jsonl")
         default_prefix = str(character_name).strip() if character_name else "Run"
-        self.name = name or f"{default_prefix} {created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+        self._uses_automatic_name = not bool(name)
+        self._automatic_name_prefix = default_prefix
+        self._created_at = created_at
+        self._max_mob_kills = None
+        self.name = name or _automatic_vod_name(default_prefix, created_at)
         self.start_time = self.clock()
         self.last_snapshot_time = None
         self.snapshot_count = 0
@@ -325,11 +356,23 @@ class VodRecorder:
         self.is_recording = False
         status = "kept"
         if self._file is not None:
+            if (
+                self._uses_automatic_name
+                and self._created_at is not None
+                and self._max_mob_kills is not None
+            ):
+                self.name = _automatic_vod_name(
+                    self._automatic_name_prefix,
+                    self._created_at,
+                    self._max_mob_kills,
+                )
             self._write_record(
                 {
                     "type": "summary",
+                    "name": self.name,
                     "duration_seconds": self.elapsed_seconds(),
                     "snapshot_count": self.snapshot_count,
+                    "mob_kills": self._max_mob_kills,
                 },
                 flush=True,
             )
@@ -413,6 +456,13 @@ class VodRecorder:
             raise RuntimeError("VOD recorder is not active.")
 
         now = self.clock()
+        if mob_kills is not None:
+            current_mob_kills = max(0, int(mob_kills))
+            if (
+                self._max_mob_kills is None
+                or current_mob_kills > self._max_mob_kills
+            ):
+                self._max_mob_kills = current_mob_kills
         snapshot = VodSnapshot(
             elapsed_seconds=self.elapsed_seconds(),
             captured_at=now,
@@ -589,6 +639,9 @@ def rename_vod(path: Path, new_name: str) -> VodMetadata:
         raise ValueError(f"VOD metadata is missing in {path}")
 
     records[0]["name"] = new_name
+    for record in records:
+        if record.get("type") == "summary":
+            record["name"] = new_name
     temp_path = path.with_suffix(path.suffix + ".tmp")
     with temp_path.open("w", encoding="utf-8") as file:
         for record in records:
@@ -753,9 +806,10 @@ def _metadata_from_records(
     except (TypeError, ValueError):
         run_seed = None
 
+    summary_name = summary_record.get("name") if summary_record is not None else None
     return VodMetadata(
         path=path,
-        name=str(metadata_record.get("name") or path.stem),
+        name=str(summary_name or metadata_record.get("name") or path.stem),
         created_at=str(metadata_record.get("created_at") or ""),
         interval_seconds=int(metadata_record.get("snapshot_interval_seconds") or 30),
         duration_seconds=duration_seconds,
