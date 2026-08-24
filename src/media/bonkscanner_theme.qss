@@ -1652,9 +1652,9 @@ QPushButton#footerUpdate[state="available"]:hover { color: #A7F3B4; border-botto
 /* Пока запрос в полёте — не нажимается и не подсвечивается. */
 QPushButton#footerUpdate:disabled { color: #3F4A59; }
 
-/* Ссылки набраны тем же #8A94A3, что весь второстепенный текст: в шапке
-   цветом работает точка состояния, и второе цветное пятно на экране —
-   тем более просящее денег — это ровно то, что раздражает. */
+/* Три ссылки остаются без фона, но больше не выглядят выключенными. Цвета
+   задаются qproperty, потому что сама кнопка плавно смешивает normal/hover и
+   рисует короткую линию из центра — QSS умеет только мгновенный border-bottom. */
 QPushButton#footerLink, QPushButton#footerSupportLink {
     background: transparent;
     border: none;
@@ -1664,20 +1664,26 @@ QPushButton#footerLink, QPushButton#footerSupportLink {
     /* 500, а не 600: Qt рисует Segoe UI Semibold заметно жирнее, чем браузер
        в макете, и правый край начинал перевешивать строку с версией. */
     font-weight: 500;
-    color: #8A94A3;
 }
-QPushButton#footerLink:hover {
-    color: #EDF1F5;
-    border-bottom: 1px solid #2E3A48;
-    padding-bottom: 1px;
+QPushButton#footerLink[linkRole="github"] {
+    color: #B9C2CE;
+    qproperty-restColor: #B9C2CE;
+    qproperty-hoverColor: #EDF1F5;
+    qproperty-lineColor: #EDF1F5;
 }
-/* Support чуть теплее соседей в покое и брендовый только под курсором —
-   #FF6F61 тот же, что у кнопки Patreon в настройках. */
-QPushButton#footerSupportLink { color: #93726E; }
-QPushButton#footerSupportLink:hover {
+QPushButton#footerLink[linkRole="discord"] {
+    color: #AEBBFF;
+    qproperty-restColor: #AEBBFF;
+    qproperty-hoverColor: #CDD3FF;
+    qproperty-lineColor: #CDD3FF;
+}
+/* Сердце рисуется отдельно и чуть крупнее подписи. Python анимирует только его;
+   цвет по-прежнему тот же Patreon red, что у кнопки в настройках. */
+QPushButton#footerSupportLink {
     color: #FF6F61;
-    border-bottom: 1px solid #4B2B2F;
-    padding-bottom: 1px;
+    qproperty-restColor: #FF6F61;
+    qproperty-hoverColor: #FF978C;
+    qproperty-lineColor: #FF978C;
 }
 
 /* Всплывашка выбора площадки. Площадок две, и выбирать за пользователя

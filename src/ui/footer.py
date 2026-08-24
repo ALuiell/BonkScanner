@@ -6,11 +6,12 @@ The version was readable only in the title bar and in the log's welcome line,
 which scrolls away; and the four support links existed only inside the settings
 dialog, which nobody reopens after setting their hotkeys once.
 
-Both go here, on one 28px line, in the register the rest of the secondary text
-uses. The Support link is *not* an accent: the header's status dot is what
-speaks in colour, and a second coloured element competing with it -- especially
-one asking for money -- is the thing that actually annoys people. It warms to
-the Patreon red on hover and not before.
+Both go here, on one 28px line. The three links stay compact and backgroundless,
+but no longer read like disabled metadata: GitHub and Discord carry quiet cool
+colours, while Support carries the Patreon red. Hover draws one short line out
+from the caption's centre. Support also owns the only ambient motion in the
+strip -- a small double heartbeat after a long pause -- and replaces it with one
+clear beat while the pointer is over the button.
 
 The strip spans the whole window rather than sitting inside the 16px content
 margins, which is why ``build_layout`` now nests its content in an inner widget:
@@ -20,8 +21,19 @@ from __future__ import annotations
 
 import webbrowser
 
-from PySide6.QtCore import QPoint, Qt, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import (
+    Property,
+    QEasingCurve,
+    QLineF,
+    QPoint,
+    QRectF,
+    QPropertyAnimation,
+    QSequentialAnimationGroup,
+    QSize,
+    Qt,
+    QTimer,
+)
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -42,6 +54,347 @@ FOOTER_HEIGHT = 28
 PATREON_ICON_PATH = "media/patreon_logo.svg"
 KOFI_ICON_PATH = "media/kofi_logo.svg"
 
+FOOTER_HOVER_IN_MS = 180
+FOOTER_HOVER_OUT_MS = 140
+HEART_FONT_SCALE = 13.5 / 11.5
+HEART_PASSIVE_PAUSE_MS = 3000
+HEART_PASSIVE_FIRST_SCALE = 1.08
+HEART_PASSIVE_SECOND_SCALE = 1.04
+HEART_HOVER_SCALE = 1.09
+
+
+def _mix_color(start: QColor, end: QColor, progress: float) -> QColor:
+    """Interpolate two stylesheet-provided colours without changing geometry."""
+    progress = max(0.0, min(1.0, float(progress)))
+    return QColor.fromRgbF(
+        start.redF() + (end.redF() - start.redF()) * progress,
+        start.greenF() + (end.greenF() - start.greenF()) * progress,
+        start.blueF() + (end.blueF() - start.blueF()) * progress,
+        start.alphaF() + (end.alphaF() - start.alphaF()) * progress,
+    )
+
+
+class _AnimatedFooterLink(QPushButton):
+    """A backgroundless footer link with a centre-out light trace on hover.
+
+    QSS pseudo-states can switch colour and add a border, but they cannot
+    interpolate either. Painting the two small pieces here keeps the visible
+    contract in the stylesheet -- the three colours are qproperties -- while a
+    single 0..1 property drives the colour lift, glow and underline together.
+    """
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self._rest_color = QColor("#B9C2CE")
+        self._hover_color = QColor("#EDF1F5")
+        self._line_color = QColor("#EDF1F5")
+        self._hover_progress = 0.0
+
+        self._hover_animation = QPropertyAnimation(self, b"hoverProgress", self)
+        self._hover_animation.setEasingCurve(QEasingCurve.OutCubic)
+
+    # -- stylesheet colours -------------------------------------------------
+
+    def _get_rest_color(self) -> QColor:
+        return QColor(self._rest_color)
+
+    def _set_rest_color(self, color: QColor) -> None:
+        self._rest_color = QColor(color)
+        self.update()
+
+    restColor = Property(QColor, _get_rest_color, _set_rest_color)
+
+    def _get_hover_color(self) -> QColor:
+        return QColor(self._hover_color)
+
+    def _set_hover_color(self, color: QColor) -> None:
+        self._hover_color = QColor(color)
+        self.update()
+
+    hoverColor = Property(QColor, _get_hover_color, _set_hover_color)
+
+    def _get_line_color(self) -> QColor:
+        return QColor(self._line_color)
+
+    def _set_line_color(self, color: QColor) -> None:
+        self._line_color = QColor(color)
+        self.update()
+
+    lineColor = Property(QColor, _get_line_color, _set_line_color)
+
+    # -- hover progress ------------------------------------------------------
+
+    def _get_hover_progress(self) -> float:
+        return self._hover_progress
+
+    def _set_hover_progress(self, value: float) -> None:
+        self._hover_progress = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    hoverProgress = Property(float, _get_hover_progress, _set_hover_progress)
+
+    def _animate_hover(self, target: float) -> None:
+        start = self._hover_progress
+        target = max(0.0, min(1.0, float(target)))
+        self._hover_animation.stop()
+        if abs(target - start) < 0.001:
+            self._hover_animation.setStartValue(start)
+            self._hover_animation.setEndValue(target)
+            self._set_hover_progress(target)
+            return
+        full_duration = FOOTER_HOVER_IN_MS if target > start else FOOTER_HOVER_OUT_MS
+        self._hover_animation.setDuration(max(1, round(full_duration * abs(target - start))))
+        self._hover_animation.setStartValue(start)
+        self._hover_animation.setEndValue(target)
+        self._hover_animation.start()
+
+    def enterEvent(self, event) -> None:  # noqa: N802 -- Qt's name
+        self._animate_hover(1.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802 -- Qt's name
+        self._animate_hover(0.0)
+        super().leaveEvent(event)
+
+    def hideEvent(self, event) -> None:  # noqa: N802 -- Qt's name
+        self._hover_animation.stop()
+        self._set_hover_progress(0.0)
+        super().hideEvent(event)
+
+    # -- painting ------------------------------------------------------------
+
+    @staticmethod
+    def _draw_text(
+        painter: QPainter,
+        rect: QRectF,
+        font: QFont,
+        text: str,
+        color: QColor,
+        *,
+        glow_alpha: int = 0,
+    ) -> None:
+        painter.setFont(font)
+        flags = Qt.AlignCenter | Qt.TextSingleLine
+        if glow_alpha > 0:
+            glow = QColor(color)
+            glow.setAlpha(max(0, min(255, glow_alpha)))
+            painter.setPen(glow)
+            for dx, dy in ((-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)):
+                painter.drawText(rect.translated(dx, dy), flags, text)
+        painter.setPen(color)
+        painter.drawText(rect, flags, text)
+
+    def _content_width(self) -> float:
+        return QFontMetricsF(self.font()).horizontalAdvance(self.text())
+
+    def _paint_content(self, painter: QPainter, rect: QRectF, color: QColor) -> None:
+        self._draw_text(
+            painter,
+            rect,
+            self.font(),
+            self.text(),
+            color,
+            glow_alpha=round(36 * self._hover_progress),
+        )
+
+    def paintEvent(self, _event) -> None:  # noqa: N802 -- Qt's name
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+
+        color = _mix_color(
+            self._rest_color, self._hover_color, self._hover_progress
+        )
+        if self.isDown():
+            color = color.darker(118)
+
+        content = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -2.0)
+        self._paint_content(painter, content, color)
+
+        if self._hover_progress <= 0.001:
+            return
+        half_width = self._content_width() * self._hover_progress / 2.0
+        centre_x = content.center().x()
+        y = content.bottom() + 1.0
+        line = QColor(self._line_color)
+
+        halo = QColor(line)
+        halo.setAlpha(round(42 * self._hover_progress))
+        painter.setPen(QPen(halo, 3.0, Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(QLineF(centre_x - half_width, y, centre_x + half_width, y))
+
+        line.setAlpha(round(220 * self._hover_progress))
+        painter.setPen(QPen(line, 1.0, Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(QLineF(centre_x - half_width, y, centre_x + half_width, y))
+
+
+class _SupportFooterLink(_AnimatedFooterLink):
+    """The support link, with a separately painted and animated heart."""
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        self._caption = ""
+        self._heart_scale = 1.0
+        self._hovered = False
+        super().__init__("", parent)
+        self.setText(text)
+
+        self._ambient_heartbeat = QSequentialAnimationGroup(self)
+        self._ambient_heartbeat.addPause(HEART_PASSIVE_PAUSE_MS)
+        self._ambient_heartbeat.addAnimation(
+            self._heart_step(1.0, HEART_PASSIVE_FIRST_SCALE, 80, QEasingCurve.OutCubic)
+        )
+        self._ambient_heartbeat.addAnimation(
+            self._heart_step(HEART_PASSIVE_FIRST_SCALE, 1.0, 100, QEasingCurve.InCubic)
+        )
+        self._ambient_heartbeat.addPause(40)
+        self._ambient_heartbeat.addAnimation(
+            self._heart_step(1.0, HEART_PASSIVE_SECOND_SCALE, 70, QEasingCurve.OutCubic)
+        )
+        self._ambient_heartbeat.addAnimation(
+            self._heart_step(HEART_PASSIVE_SECOND_SCALE, 1.0, 90, QEasingCurve.InCubic)
+        )
+        self._ambient_heartbeat.setLoopCount(-1)
+
+        self._hover_heartbeat = QSequentialAnimationGroup(self)
+        self._hover_heartbeat.addAnimation(
+            self._heart_step(1.0, HEART_HOVER_SCALE, 90, QEasingCurve.OutCubic)
+        )
+        self._hover_heartbeat.addAnimation(
+            self._heart_step(HEART_HOVER_SCALE, 1.0, 170, QEasingCurve.InCubic)
+        )
+
+    def _heart_step(
+        self,
+        start: float,
+        end: float,
+        duration: int,
+        easing: QEasingCurve.Type,
+    ) -> QPropertyAnimation:
+        animation = QPropertyAnimation(self, b"heartScale")
+        animation.setStartValue(start)
+        animation.setEndValue(end)
+        animation.setDuration(duration)
+        animation.setEasingCurve(easing)
+        return animation
+
+    def _get_heart_scale(self) -> float:
+        return self._heart_scale
+
+    def _set_heart_scale(self, value: float) -> None:
+        self._heart_scale = max(1.0, float(value))
+        self.update()
+
+    heartScale = Property(float, _get_heart_scale, _set_heart_scale)
+
+    def setText(self, text: str) -> None:  # noqa: N802 -- Qt's name
+        visible_text = str(text)
+        self._caption = visible_text.replace("♥", "", 1).strip()
+        super().setText(visible_text)
+        self.updateGeometry()
+
+    def caption(self) -> str:
+        return self._caption
+
+    def _heart_font(self) -> QFont:
+        font = QFont(self.font())
+        if font.pointSizeF() > 0:
+            font.setPointSizeF(font.pointSizeF() * HEART_FONT_SCALE)
+        elif font.pixelSize() > 0:
+            font.setPixelSize(max(1, round(font.pixelSize() * HEART_FONT_SCALE)))
+        return font
+
+    def _content_metrics(self) -> tuple[QFont, float, float, float]:
+        heart_font = self._heart_font()
+        heart_width = QFontMetricsF(heart_font).horizontalAdvance("♥")
+        caption_width = QFontMetricsF(self.font()).horizontalAdvance(self._caption)
+        gap = 4.0
+        return heart_font, heart_width, caption_width, gap
+
+    def _content_width(self) -> float:
+        _heart_font, heart_width, caption_width, gap = self._content_metrics()
+        return heart_width + gap + caption_width
+
+    def _paint_content(self, painter: QPainter, rect: QRectF, color: QColor) -> None:
+        heart_font, heart_width, caption_width, gap = self._content_metrics()
+        total_width = heart_width + gap + caption_width
+        start_x = rect.center().x() - total_width / 2.0
+        heart_rect = QRectF(start_x, rect.top(), heart_width, rect.height())
+        caption_rect = QRectF(
+            start_x + heart_width + gap,
+            rect.top(),
+            caption_width,
+            rect.height(),
+        )
+
+        self._draw_text(
+            painter,
+            caption_rect,
+            self.font(),
+            self._caption,
+            color,
+            glow_alpha=round(36 * self._hover_progress),
+        )
+
+        pulse = max(
+            0.0,
+            min(1.0, (self._heart_scale - 1.0) / (HEART_HOVER_SCALE - 1.0)),
+        )
+        painter.save()
+        centre = heart_rect.center()
+        painter.translate(centre)
+        painter.scale(self._heart_scale, self._heart_scale)
+        painter.translate(-centre)
+        self._draw_text(
+            painter,
+            heart_rect,
+            heart_font,
+            "♥",
+            color,
+            glow_alpha=round(max(48 * self._hover_progress, 86 * pulse)),
+        )
+        painter.restore()
+
+    def sizeHint(self) -> QSize:  # noqa: N802 -- Qt's name
+        hint = super().sizeHint()
+        return QSize(hint.width() + 3, max(24, hint.height()))
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 -- Qt's name
+        return self.sizeHint()
+
+    def _restart_ambient_heartbeat(self) -> None:
+        self._ambient_heartbeat.stop()
+        self._set_heart_scale(1.0)
+        if self.isVisible() and not self._hovered:
+            # The pause is the first animation, so every restart waits before
+            # drawing the next passive beat instead of answering a hover twice.
+            self._ambient_heartbeat.start()
+
+    def enterEvent(self, event) -> None:  # noqa: N802 -- Qt's name
+        self._hovered = True
+        self._ambient_heartbeat.stop()
+        self._hover_heartbeat.stop()
+        self._set_heart_scale(1.0)
+        self._hover_heartbeat.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802 -- Qt's name
+        self._hovered = False
+        self._hover_heartbeat.stop()
+        self._set_heart_scale(1.0)
+        super().leaveEvent(event)
+        self._restart_ambient_heartbeat()
+
+    def showEvent(self, event) -> None:  # noqa: N802 -- Qt's name
+        super().showEvent(event)
+        self._restart_ambient_heartbeat()
+
+    def hideEvent(self, event) -> None:  # noqa: N802 -- Qt's name
+        self._hovered = False
+        self._ambient_heartbeat.stop()
+        self._hover_heartbeat.stop()
+        self._set_heart_scale(1.0)
+        super().hideEvent(event)
+
 
 def _separator() -> QFrame:
     """The hairline between two footer items.
@@ -57,9 +410,21 @@ def _separator() -> QFrame:
     return line
 
 
-def _link(text: str, object_name: str = "footerLink") -> QPushButton:
-    button = QPushButton(text)
+def _link(
+    text: str,
+    object_name: str = "footerLink",
+    *,
+    link_role: str = "",
+) -> QPushButton:
+    if object_name == "footerSupportLink":
+        button = _SupportFooterLink(text)
+    elif object_name == "footerLink":
+        button = _AnimatedFooterLink(text)
+    else:
+        button = QPushButton(text)
     button.setObjectName(object_name)
+    if link_role:
+        button.setProperty("linkRole", link_role)
     button.setFlat(True)
     button.setCursor(Qt.PointingHandCursor)
     # Without this a footer link steals the focus ring on click and keeps it,
@@ -553,12 +918,12 @@ def build_footer(app) -> QFrame:
 
     row.addStretch(1)
 
-    github_btn = _link("GitHub")
+    github_btn = _link("GitHub", link_role="github")
     github_btn.clicked.connect(lambda: webbrowser.open(config.GITHUB_REPOSITORY_URL))
     row.addWidget(github_btn, 0, Qt.AlignVCenter)
     row.addWidget(_separator(), 0, Qt.AlignVCenter)
 
-    discord_btn = _link("Discord")
+    discord_btn = _link("Discord", link_role="discord")
     discord_btn.clicked.connect(lambda: webbrowser.open(config.DISCORD_SUPPORT_URL))
     row.addWidget(discord_btn, 0, Qt.AlignVCenter)
     row.addWidget(_separator(), 0, Qt.AlignVCenter)
