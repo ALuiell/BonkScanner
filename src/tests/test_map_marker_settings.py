@@ -150,13 +150,15 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
                 for index in range(dialog.action_combo.count())
                 if dialog.action_combo.itemData(index)
             }
-            self.assertEqual(len(action_ids), 14)
+            self.assertEqual(len(action_ids), 15)
+            self.assertIn("balance_shrine", action_ids)
             self.assertIn("egg", action_ids)
             self.assertIn("sus_bush", action_ids)
             for action_id in (
                 "microwave_white",
                 "shady_guy_white",
                 "moai",
+                "balance_shrine",
                 "egg",
                 "sus_bush",
             ):

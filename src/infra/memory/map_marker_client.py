@@ -94,6 +94,10 @@ class MapMarkerMemoryClient:
     MICROWAVE_IS_COOKING_OFFSET = 0x88
     MICROWAVE_HAS_ITEM_OFFSET = 0xF4
     SHRINE_DONE_OFFSET = 0x68
+    EGG_DONE_OFFSET = 0xA0
+    CHARACTER_FIGHT_CHARACTER_OFFSET = 0x58
+    CHARACTER_FIGHT_DONE_OFFSET = 0x68
+    CHARACTER_DATA_CHARACTER_OFFSET = 0x50
 
     NATIVE_COMPONENT_GAME_OBJECT_OFFSET = 0x20
     NATIVE_GAME_OBJECT_HANDLE_ROOT_OFFSET = 0x20
@@ -118,8 +122,11 @@ class MapMarkerMemoryClient:
             "InteractableShadyGuy",
             "InteractableShrineMagnet",
             "InteractableShrineMoai",
+            "InteractableShrineBalance",
             "InteractableShrineChallenge",
             "InteractableShrineCursed",
+            "InteractableEgg",
+            "InteractableCharacterFight",
         }
     )
 
@@ -253,6 +260,12 @@ class MapMarkerMemoryClient:
             return uses_left > 0 or is_cooking or has_item
         if class_name == "InteractableShadyGuy":
             return not bool(self.memory.read_u8(object_ptr + self.SHADY_DONE_OFFSET))
+        if class_name == "InteractableEgg":
+            return not bool(self.memory.read_u8(object_ptr + self.EGG_DONE_OFFSET))
+        if class_name == "InteractableCharacterFight":
+            return not bool(
+                self.memory.read_u8(object_ptr + self.CHARACTER_FIGHT_DONE_OFFSET)
+            )
         return not bool(self.memory.read_u8(object_ptr + self.SHRINE_DONE_OFFSET))
 
     def _resolve_full_map(self) -> int:
@@ -393,11 +406,21 @@ class MapMarkerMemoryClient:
             return None
 
         rarity: int | None = None
+        character: int | None = None
         if class_name == "InteractableMicrowave":
             rarity = self.memory.read_i32(object_ptr + self.MICROWAVE_RARITY_OFFSET)
         elif class_name == "InteractableShadyGuy":
             rarity = self.memory.read_i32(object_ptr + self.SHADY_RARITY_OFFSET)
-        action_id = action_id_for_interactable(class_name, rarity)
+        elif class_name == "InteractableCharacterFight":
+            character_data = self.memory.read_ptr(
+                object_ptr + self.CHARACTER_FIGHT_CHARACTER_OFFSET
+            )
+            if not character_data:
+                return None
+            character = self.memory.read_i32(
+                character_data + self.CHARACTER_DATA_CHARACTER_OFFSET
+            )
+        action_id = action_id_for_interactable(class_name, rarity, character)
         if not action_id:
             return None
 

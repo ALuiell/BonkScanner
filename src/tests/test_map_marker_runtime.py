@@ -135,13 +135,27 @@ class MapMarkerProjectionTests(unittest.TestCase):
             action_id_for_interactable("InteractableShrineCursed"),
             "boss_curse",
         )
+        self.assertEqual(
+            action_id_for_interactable("InteractableShrineBalance"),
+            "balance_shrine",
+        )
+        self.assertIn(
+            "InteractableShrineBalance",
+            MapMarkerMemoryClient.ALLOWED_CLASSES,
+        )
+        self.assertEqual(action_id_for_interactable("InteractableEgg"), "egg")
+        self.assertEqual(
+            action_id_for_interactable("InteractableCharacterFight", character=9),
+            "sus_bush",
+        )
         self.assertIsNone(action_id_for_interactable("InteractableChest"))
-        self.assertIsNone(action_id_for_interactable("InteractableEgg"))
-        self.assertIsNone(action_id_for_interactable("InteractableSusBush"))
+        self.assertIsNone(
+            action_id_for_interactable("InteractableCharacterFight", character=10)
+        )
 
-    def test_egg_and_sus_bush_are_explicitly_manual_only(self) -> None:
-        self.assertTrue(MAP_MARKER_ACTION_BY_ID["egg"].manual_only)
-        self.assertTrue(MAP_MARKER_ACTION_BY_ID["sus_bush"].manual_only)
+    def test_egg_and_sus_bush_are_available_to_automatic_discovery(self) -> None:
+        self.assertFalse(MAP_MARKER_ACTION_BY_ID["egg"].manual_only)
+        self.assertFalse(MAP_MARKER_ACTION_BY_ID["sus_bush"].manual_only)
         self.assertFalse(MAP_MARKER_ACTION_BY_ID["challenge_shrine"].manual_only)
 
     def test_light_marker_fills_use_dark_pictograms(self) -> None:
@@ -155,6 +169,10 @@ class MapMarkerProjectionTests(unittest.TestCase):
         )
         self.assertEqual(MAP_MARKER_ACTION_BY_ID["moai"].icon_name, "moai_dark")
         self.assertEqual(
+            MAP_MARKER_ACTION_BY_ID["balance_shrine"].icon_name,
+            "balance_shrine_dark",
+        )
+        self.assertEqual(
             MAP_MARKER_ACTION_BY_ID["microwave_white"].settings_icon_name,
             "microwave",
         )
@@ -166,6 +184,10 @@ class MapMarkerProjectionTests(unittest.TestCase):
             MAP_MARKER_ACTION_BY_ID["moai"].settings_icon_name,
             "moai",
         )
+        self.assertEqual(
+            MAP_MARKER_ACTION_BY_ID["balance_shrine"].settings_icon_name,
+            "balance_shrine",
+        )
 
     def test_complete_palette_fits_small_full_map_at_large_scale(self) -> None:
         viewport = MapViewport(20.0, 30.0, 800.0, 800.0)
@@ -175,7 +197,7 @@ class MapMarkerProjectionTests(unittest.TestCase):
             viewport=viewport,
             scale=2.0,
         )
-        self.assertEqual(len(palette.rows), 14)
+        self.assertEqual(len(palette.rows), 15)
         self.assertGreaterEqual(palette.rows[0].top, viewport.top)
         self.assertLessEqual(
             palette.rows[-1].top + palette.rows[-1].height,
@@ -486,6 +508,44 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         client, memory, obj = self.client("InteractableShadyGuy")
         memory.u8s[obj + client.SHADY_DONE_OFFSET] = 1
         self.assertFalse(client.activity_is_active(obj))
+
+    def test_egg_and_bush_use_their_own_done_flags(self) -> None:
+        client, memory, obj = self.client("InteractableEgg")
+        self.assertTrue(client.activity_is_active(obj))
+        memory.u8s[obj + client.EGG_DONE_OFFSET] = 1
+        self.assertFalse(client.activity_is_active(obj))
+
+        client, memory, obj = self.client("InteractableCharacterFight")
+        self.assertTrue(client.activity_is_active(obj))
+        memory.u8s[obj + client.CHARACTER_FIGHT_DONE_OFFSET] = 1
+        self.assertFalse(client.activity_is_active(obj))
+
+    def test_character_fight_discovery_accepts_only_bush(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        object_ptr = 0x1000
+        class_ptr = 0x2000
+        character_data = 0x3000
+        memory.ptrs[object_ptr] = class_ptr
+        memory.ptrs[
+            object_ptr + client.CHARACTER_FIGHT_CHARACTER_OFFSET
+        ] = character_data
+        memory.i32s[character_data + client.CHARACTER_DATA_CHARACTER_OFFSET] = 9
+        client._class_name_from_ptr = lambda candidate: (
+            "InteractableCharacterFight" if candidate == class_ptr else None
+        )
+        client.activity_is_active = lambda _candidate: True
+        client._component_transform = lambda _candidate: 0x4000
+        client._transform_point = lambda _transform, _point: (12.0, 0.0, -34.0)
+
+        activity = client._read_current_activity(object_ptr)
+
+        self.assertIsNotNone(activity)
+        self.assertEqual(activity.action_id, "sus_bush")
+        self.assertEqual((activity.world_x, activity.world_z), (12.0, -34.0))
+
+        memory.i32s[character_data + client.CHARACTER_DATA_CHARACTER_OFFSET] = 10
+        self.assertIsNone(client._read_current_activity(object_ptr))
 
     def test_microwave_stays_until_last_item_is_collected(self) -> None:
         client, memory, obj = self.client("InteractableMicrowave")

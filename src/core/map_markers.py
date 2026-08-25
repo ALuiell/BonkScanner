@@ -148,6 +148,14 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         color="#B7C0CA",
     ),
     MapMarkerAction(
+        id="balance_shrine",
+        family="balance_shrine",
+        label="Shrine of Balance",
+        variant=None,
+        icon_name="balance_shrine_dark",
+        color="#D8BC78",
+    ),
+    MapMarkerAction(
         id="challenge_shrine",
         family="challenge_shrine",
         label="Challenge Shrine",
@@ -170,7 +178,6 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         variant=None,
         icon_name="egg",
         color="#BBD86A",
-        manual_only=True,
     ),
     MapMarkerAction(
         id="sus_bush",
@@ -179,7 +186,6 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         variant=None,
         icon_name="sus_bush",
         color="#39B96C",
-        manual_only=True,
     ),
 )
 
@@ -188,9 +194,16 @@ MAP_MARKER_ACTION_BY_ID = {action.id: action for action in MAP_MARKER_ACTIONS}
 INTERACTABLE_ACTIONS = {
     "InteractableShrineMagnet": "magnet_shrine",
     "InteractableShrineMoai": "moai",
+    "InteractableShrineBalance": "balance_shrine",
     "InteractableShrineChallenge": "challenge_shrine",
     "InteractableShrineCursed": "boss_curse",
+    "InteractableEgg": "egg",
 }
+
+# InteractableCharacterFight is shared by several character encounters.  Only
+# the Bush encounter belongs to the map-marker allowlist, so the class alone is
+# not enough evidence.  CharacterData.eCharacter identifies Bush in this build.
+BUSH_CHARACTER_VALUE = 9
 
 MOUSE_BINDINGS = {"mouse_middle", "mouse4", "mouse5"}
 _MODIFIER_ORDER = ("ctrl", "alt", "shift", "win")
@@ -341,13 +354,19 @@ def normalize_map_marker_settings(value: Any) -> dict[str, Any]:
     }
 
 
-def action_id_for_interactable(class_name: str, rarity: int | None = None) -> str | None:
+def action_id_for_interactable(
+    class_name: str,
+    rarity: int | None = None,
+    character: int | None = None,
+) -> str | None:
     """Map one allow-listed IL2CPP class and optional rarity to a stable action."""
 
     if class_name == "InteractableMicrowave":
         family = "microwave"
     elif class_name == "InteractableShadyGuy":
         family = "shady_guy"
+    elif class_name == "InteractableCharacterFight":
+        return "sus_bush" if character == BUSH_CHARACTER_VALUE else None
     else:
         return INTERACTABLE_ACTIONS.get(class_name)
 
@@ -449,9 +468,8 @@ def build_marker_palette(
     """Build the clamped hold-menu geometry used by input and the painter."""
 
     factor = max(0.75, min(float(scale), 2.0))
-    # The complete palette grew beyond the original automatic-marker set when
-    # manual-only actions were added. Scale the menu down just enough to keep
-    # every row reachable inside the currently visible Full Map.
+    # The complete palette is taller than the original marker set. Scale the
+    # menu down just enough to keep every row reachable inside the visible map.
     base_total_height = (
         6.0 * 2.0
         + len(MAP_MARKER_ACTIONS) * 30.0
