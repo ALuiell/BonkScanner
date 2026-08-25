@@ -372,9 +372,7 @@ LEGACY_TWITCH_SHRINES_TEMPLATES = {
 
 
 PATREON_SUPPORT_URL = "https://www.patreon.com/cw/ALuiel"
-# Filled when the standalone crypto support page is published. The UI keeps
-# the route visible but disabled until then, rather than opening a placeholder.
-CRYPTO_SUPPORT_URL = ""
+CRYPTO_SUPPORT_URL = "https://aluiel.github.io/BonkScanner/"
 GITHUB_REPOSITORY_URL = "https://github.com/ALuiell/BonkScanner/releases"
 DISCORD_SUPPORT_URL = "https://discord.gg/dYkcrMCJWM"
 

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <title>Microwave</title>
+  <rect x="3.5" y="7" width="25" height="18" rx="2.5" stroke="#F5F7FA" stroke-width="2.6"/>
+  <rect x="7" y="10.5" width="13" height="11" rx="1" stroke="#F5F7FA" stroke-width="2"/>
+  <circle cx="24.2" cy="12.7" r="1.35" fill="#F5F7FA"/>
+  <circle cx="24.2" cy="18.2" r="1.35" fill="#F5F7FA"/>
+</svg>
