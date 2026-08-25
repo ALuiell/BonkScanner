@@ -372,7 +372,7 @@ LEGACY_TWITCH_SHRINES_TEMPLATES = {
 
 
 PATREON_SUPPORT_URL = "https://www.patreon.com/cw/ALuiel"
-CRYPTO_SUPPORT_URL = "https://aluiel.github.io/BonkScanner/"
+CRYPTO_SUPPORT_URL = "https://aluiell.github.io/BonkScanner/"
 GITHUB_REPOSITORY_URL = "https://github.com/ALuiell/BonkScanner/releases"
 DISCORD_SUPPORT_URL = "https://discord.gg/dYkcrMCJWM"
 
