@@ -58,6 +58,17 @@ class SettingsResetHoldInputTests(unittest.TestCase):
         self.assertEqual(entry.value(), config.MIN_RESET_HOLD_DURATION)
         self.assertEqual(entry.text(), "0.10 s")
 
+    def test_configured_minimum_allows_a_short_hold_duration(self) -> None:
+        with patch.object(config, "MIN_RESET_HOLD_DURATION", 0.01):
+            with patch.object(config, "RESET_HOLD_DURATION", 0.03):
+                dialog = SettingsDialog(None, master=MagicMock())
+        self.addCleanup(dialog.close)
+
+        entry = dialog.reset_hold_duration_entry
+        self.assertEqual(entry.minimum(), 0.01)
+        self.assertEqual(entry.value(), 0.03)
+        self.assertEqual(entry.text(), "0.03 s")
+
 
 if __name__ == "__main__":
     unittest.main()

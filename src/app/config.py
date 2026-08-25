@@ -437,7 +437,10 @@ def save_game_config(data: dict) -> bool:
 #: (`reset_hold_duration_to_game_value`) -- they are one pair and must not drift
 #: apart. Advanced users may override the shared value in BonkScanner's config.
 DEFAULT_RESET_HOLD_SAFETY_MARGIN = 0.05
-MIN_RESET_HOLD_DURATION = 0.10
+DEFAULT_MIN_RESET_HOLD_DURATION = 0.10
+LOWEST_RESET_HOLD_DURATION = 0.01
+MAX_RESET_HOLD_DURATION = 10.00
+MIN_RESET_HOLD_DURATION = DEFAULT_MIN_RESET_HOLD_DURATION
 MAX_RESET_HOLD_SAFETY_MARGIN = 1.00
 RESET_HOLD_SAFETY_MARGIN = DEFAULT_RESET_HOLD_SAFETY_MARGIN
 
@@ -656,6 +659,14 @@ def coerce_float(value, default=0.0):
     return parsed
 
 
+def normalize_min_reset_hold_duration(value) -> float:
+    """Return the configurable absolute floor for scanner key holds."""
+    parsed = coerce_float(value, DEFAULT_MIN_RESET_HOLD_DURATION)
+    if not LOWEST_RESET_HOLD_DURATION <= parsed <= MAX_RESET_HOLD_DURATION:
+        return DEFAULT_MIN_RESET_HOLD_DURATION
+    return round(parsed, 2)
+
+
 def normalize_reset_hold_safety_margin(value) -> float:
     """Return a finite two-decimal safety margin from the advanced config key."""
     parsed = coerce_float(value, DEFAULT_RESET_HOLD_SAFETY_MARGIN)
@@ -663,6 +674,11 @@ def normalize_reset_hold_safety_margin(value) -> float:
         return DEFAULT_RESET_HOLD_SAFETY_MARGIN
     return round(parsed, 2)
 
+
+MIN_RESET_HOLD_DURATION = normalize_min_reset_hold_duration(
+    user_config.get("MIN_RESET_HOLD_DURATION")
+)
+user_config["MIN_RESET_HOLD_DURATION"] = MIN_RESET_HOLD_DURATION
 
 RESET_HOLD_SAFETY_MARGIN = normalize_reset_hold_safety_margin(
     user_config.get("RESET_HOLD_SAFETY_MARGIN")
@@ -1257,7 +1273,7 @@ def resolve_reset_hold_duration(
     longer than `quick_reset_time` still restarts the run -- only holding it
     shorter never does -- so a hold the user deliberately raised stays raised,
     and only a value that drifted *below* the threshold is pulled back up.
-    `game_floor` already carries the 0.05 s safety margin; see
+    `game_floor` already carries the configured safety margin; see
     `get_game_reset_time`.
 
     That drift was otherwise unrepairable from inside the app. The caller reads

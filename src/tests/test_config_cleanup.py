@@ -215,6 +215,36 @@ class ResetHoldSafetyMarginConfigTests(unittest.TestCase):
                 )
 
 
+class MinimumResetHoldDurationConfigTests(unittest.TestCase):
+    def test_valid_values_are_rounded_to_two_decimals(self) -> None:
+        self.assertEqual(config.normalize_min_reset_hold_duration("0.034"), 0.03)
+        self.assertEqual(config.normalize_min_reset_hold_duration(0.01), 0.01)
+        self.assertEqual(config.normalize_min_reset_hold_duration(10.0), 10.0)
+
+    def test_invalid_values_fall_back_to_the_safe_default(self) -> None:
+        for value in (0.0, -0.01, 10.01, "invalid", float("nan"), float("inf")):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    config.normalize_min_reset_hold_duration(value),
+                    config.DEFAULT_MIN_RESET_HOLD_DURATION,
+                )
+
+    def test_custom_minimum_allows_a_short_game_aligned_hold(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            with open(game_config_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": 0.01}}, handle)
+
+            with patch.object(config, "MIN_RESET_HOLD_DURATION", 0.01):
+                with patch.object(config, "RESET_HOLD_SAFETY_MARGIN", 0.02):
+                    with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                        game_floor = config.get_game_reset_time()
+                    duration, raised_from = config.resolve_reset_hold_duration(0.03, game_floor)
+
+            self.assertAlmostEqual(duration, 0.03, places=6)
+            self.assertIsNone(raised_from)
+
+
 class RefreshResetHoldDurationTests(unittest.TestCase):
     """Import-time is not the only check: the game rewrites its config on exit."""
 
