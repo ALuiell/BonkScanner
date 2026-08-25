@@ -135,12 +135,14 @@ class SupportPopupTests(unittest.TestCase):
         self.popup.set_supporters(["PrestoOmento", "Nyxaria"])
         self.assertEqual(self.popup._title.text(), "2 people support BonkScanner")
 
-    def test_names_have_breathing_room_above_and_below(self):
+    def test_legend_and_names_have_breathing_room(self):
+        self.assertEqual(self.popup._legend.layout().spacing(), 5)
+
         margins = self.popup._names_grid.contentsMargins()
 
         self.assertEqual(
             (margins.left(), margins.top(), margins.right(), margins.bottom()),
-            (0, 3, 0, 4),
+            (0, 7, 0, 4),
         )
 
     def test_legend_explains_platform_colours_and_status_badges(self):

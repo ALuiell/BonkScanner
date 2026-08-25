@@ -617,7 +617,7 @@ class SupportPopup(QFrame):
         self._legend.setObjectName("supporterLegend")
         legend_layout = QVBoxLayout(self._legend)
         legend_layout.setContentsMargins(0, 2, 0, 2)
-        legend_layout.setSpacing(1)
+        legend_layout.setSpacing(5)
 
         source_row = QHBoxLayout()
         source_row.setSpacing(7)
@@ -684,12 +684,10 @@ class SupportPopup(QFrame):
         self._names_host = QWidget(card)
         self._names_host.setObjectName("supporterList")
         self._names_grid = QGridLayout(self._names_host)
-        # `body` already contributes 3px between its children. These small
-        # internal margins make the changing names section read as a group:
-        # 6px after the thank-you line and 7px before the divider, while the
-        # empty card remains exactly as compact as before because the host is
-        # hidden with the list.
-        self._names_grid.setContentsMargins(0, 3, 0, 4)
+        # The body already adds 3px between groups. The extra top margin gives
+        # the changing names list a clear 10px break after the legend, while
+        # the hidden host keeps an empty card exactly as compact as before.
+        self._names_grid.setContentsMargins(0, 7, 0, 4)
         self._names_grid.setHorizontalSpacing(16)
         self._names_grid.setVerticalSpacing(1)
         self._names_host.setVisible(False)
