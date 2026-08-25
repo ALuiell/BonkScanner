@@ -94,11 +94,11 @@ from app.player_stats_view import overlay_view, player_stats_view
 from app.vod_capture import vod_capture
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
-KOFI_SUPPORT_URL = config.KOFI_SUPPORT_URL
+CRYPTO_SUPPORT_URL = config.CRYPTO_SUPPORT_URL
 GITHUB_REPOSITORY_URL = config.GITHUB_REPOSITORY_URL
 DISCORD_SUPPORT_URL = config.DISCORD_SUPPORT_URL
 PATREON_ICON_PATH = "media/patreon_logo.svg"
-KOFI_ICON_PATH = "media/kofi_logo.svg"
+CRYPTO_ICON_PATH = "media/crypto_coins.svg"
 GITHUB_ICON_PATH = "media/github_logo.svg"
 DISCORD_ICON_PATH = "media/discord_logo.svg"
 
@@ -1524,12 +1524,15 @@ class SettingsDialog(QDialog):
         self.patreon_btn.setIconSize(QSize(18, 18))
         self.patreon_btn.clicked.connect(self.open_patreon_support_page)
         self.patreon_btn.setProperty("class", "SupportPlatformButton")
-        self.kofi_btn = QPushButton("Ko-fi")
-        self.kofi_btn.setObjectName("KofiButton")
-        self.kofi_btn.setIcon(QIcon(resource_path(KOFI_ICON_PATH)))
-        self.kofi_btn.setIconSize(QSize(18, 18))
-        self.kofi_btn.clicked.connect(self.open_kofi_support_page)
-        self.kofi_btn.setProperty("class", "SupportPlatformButton")
+        self.crypto_btn = QPushButton("Crypto")
+        self.crypto_btn.setObjectName("CryptoButton")
+        self.crypto_btn.setIcon(QIcon(resource_path(CRYPTO_ICON_PATH)))
+        self.crypto_btn.setIconSize(QSize(18, 18))
+        self.crypto_btn.clicked.connect(self.open_crypto_support_page)
+        self.crypto_btn.setProperty("class", "SupportPlatformButton")
+        self.crypto_btn.setEnabled(bool(CRYPTO_SUPPORT_URL))
+        if not CRYPTO_SUPPORT_URL:
+            self.crypto_btn.setToolTip("Crypto support page is coming soon.")
         self.github_btn = QPushButton("GitHub")
         self.github_btn.setObjectName("GithubButton")
         self.github_btn.setIcon(QIcon(resource_path(GITHUB_ICON_PATH)))
@@ -1544,9 +1547,14 @@ class SettingsDialog(QDialog):
         self.discord_btn.setProperty("class", "SupportPlatformButton")
         # An equal share of the row each, filling the card. They used to be
         # fixed to the width of the longest caption and packed at the left with
-        # the surplus behind them, which read as four buttons that had run out
-        # of room rather than a row of four.
-        for button in (self.patreon_btn, self.kofi_btn, self.github_btn, self.discord_btn):
+        # the surplus behind them, which read as buttons that had run out of
+        # room rather than a complete row.
+        for button in (
+            self.patreon_btn,
+            self.crypto_btn,
+            self.github_btn,
+            self.discord_btn,
+        ):
             support_button_row.addWidget(button, 1)
         support_layout.addLayout(support_button_row)
         layout.addWidget(support_card)
@@ -1562,8 +1570,9 @@ class SettingsDialog(QDialog):
     def open_patreon_support_page(self):
         webbrowser.open(PATREON_SUPPORT_URL)
 
-    def open_kofi_support_page(self):
-        webbrowser.open(KOFI_SUPPORT_URL)
+    def open_crypto_support_page(self):
+        if CRYPTO_SUPPORT_URL:
+            webbrowser.open(CRYPTO_SUPPORT_URL)
 
     def open_github_repository_page(self):
         webbrowser.open(GITHUB_REPOSITORY_URL)

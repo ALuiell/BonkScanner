@@ -10,6 +10,7 @@ import src  # noqa: F401
 from PySide6.QtWidgets import QApplication, QAbstractSpinBox
 
 from app import config
+from ui import dialogs as dialogs_module
 from ui.dialogs import SettingsDialog
 
 
@@ -26,6 +27,18 @@ class SettingsResetHoldInputTests(unittest.TestCase):
         checkbox = dialog.stop_scanning_on_player_movement_var
         self.assertEqual(checkbox.text(), "Stop scanning when player moves")
         self.assertFalse(checkbox.isChecked())
+
+    def test_support_routes_include_the_crypto_page_button(self) -> None:
+        dialog = SettingsDialog(None, master=MagicMock())
+        self.addCleanup(dialog.close)
+
+        self.assertEqual(dialog.crypto_btn.text(), "Crypto")
+        self.assertEqual(dialog.crypto_btn.objectName(), "CryptoButton")
+        self.assertFalse(dialog.crypto_btn.icon().isNull())
+        self.assertEqual(
+            dialog.crypto_btn.isEnabled(),
+            bool(dialogs_module.CRYPTO_SUPPORT_URL),
+        )
 
     def test_a_value_below_the_minimum_clamps_instead_of_restoring_the_old_value(
         self,

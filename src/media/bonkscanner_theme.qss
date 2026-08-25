@@ -1529,20 +1529,23 @@ QFrame#SupportDivider {
     max-height: 1px;
 }
 
-/* Четыре кнопки — единственное место в программе, где цвет не наш, а чужого
-   бренда, и это осознанно: их узнают по цвету раньше, чем прочитают. */
+/* Кнопки внешних маршрутов узнаются по собственным акцентам раньше, чем по
+   подписи. Crypto использует тот же синий, что и Direct в списке саппортеров. */
 QPushButton#PatreonButton {
     background-color: #22181A; color: #FF6F61;
     border: 1px solid #4B2B2F; border-radius: 8px;
     font-weight: 700; padding: 7px 12px;
 }
 QPushButton#PatreonButton:hover { background-color: #2B1D20; border-color: #6A393F; }
-QPushButton#KofiButton {
+QPushButton#CryptoButton {
     background-color: #181F24; color: #29ABE0;
     border: 1px solid #264555; border-radius: 8px;
     font-weight: 700; padding: 7px 12px;
 }
-QPushButton#KofiButton:hover { background-color: #1D262D; border-color: #2F5F77; }
+QPushButton#CryptoButton:hover { background-color: #1D262D; border-color: #2F5F77; }
+QPushButton#CryptoButton:disabled {
+    background-color: #141A1F; color: #607D8A; border-color: #263740;
+}
 QPushButton#GithubButton {
     background-color: #151B23; color: #F0F6FC;
     border: 1px solid #3D444D; border-radius: 8px;
@@ -1813,29 +1816,23 @@ QLabel#supportPopupNote { color: #8A94A3; font-size: 12px; font-weight: 600; }
 QWidget#supporterLegend { background: transparent; }
 QWidget#supporterLegend QLabel {
     color: #8A94A3;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     background: transparent;
 }
 /* Match the platform colours used by supporter names. The parent-qualified
    selectors deliberately outrank the muted legend default above. */
 QWidget#supporterLegend QLabel#supporterLegendPatreon { color: #FF6F61; }
-QWidget#supporterLegend QLabel#supporterLegendKofi { color: #29ABE0; }
-QFrame#supporterLegendSeparator {
-    background-color: #2A3542;
-    border: none;
-}
+QWidget#supporterLegend QLabel#supporterLegendDirect { color: #29ABE0; }
 /* Список саппортеров. Имена приходят из supporters.json в репозитории —
    `app.supporters.load_supporters`. Пустой случай и есть отгружаемый: без
    списка карточка выглядит ровно как раньше. */
 QWidget#supporterList { background: transparent; }
-QLabel#supporterName { color: #B9C2CE; font-size: 11.5px; background: transparent; }
-/* Три состояния, различаются платформой, а не суммой. Патреон и пак — один и
-   тот же красный, потому что деньги одинаковые; ромбик остаётся только у
-   подписки, потому что она продолжается. Ko-fi — свой синий, тот же, что у
-   кнопки Ko-fi выше: это «другое место», а не «другой уровень». Четвёртого
-   состояния быть не должно — карточка благодарности, а не прайс-лист. */
-QLabel#supporterNamePatreon { color: #FF6F61; font-size: 11.5px; font-weight: 700; background: transparent; }
-QLabel#supporterNamePack { color: #FF6F61; font-size: 11.5px; font-weight: 700; background: transparent; }
-QLabel#supporterNameKofi { color: #29ABE0; font-size: 11.5px; font-weight: 700; background: transparent; }
+QWidget#supporterNameRow { background: transparent; }
+QLabel#supporterName { color: #B9C2CE; font-size: 12.5px; background: transparent; }
+/* Цвет означает только источник поддержки, а не сумму или ранг. Значки рядом
+   с именем независимо показывают Founder, Extra support и Active sub. Direct
+   объединяет крипту, прямые переводы и другие способы вне Patreon. */
+QLabel#supporterNamePatreon { color: #FF6F61; font-size: 12.5px; font-weight: 700; background: transparent; }
+QLabel#supporterNameDirect { color: #29ABE0; font-size: 12.5px; font-weight: 700; background: transparent; }
 QFrame#supportPopupRule { background-color: #1B222B; border: none; }

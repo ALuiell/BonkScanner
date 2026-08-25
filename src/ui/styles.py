@@ -261,7 +261,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     background: #2B1D20;
                     border: 1px solid #6A393F;
                 }
-                QPushButton#KofiButton {
+                QPushButton#CryptoButton {
                     background: #181F24;
                     color: #29ABE0;
                     font-weight: 700;
@@ -270,9 +270,14 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     border: 1px solid #264555;
                     border-radius: 10px;
                 }
-                QPushButton#KofiButton:hover {
+                QPushButton#CryptoButton:hover {
                     background: #1D262D;
                     border: 1px solid #2F5F77;
+                }
+                QPushButton#CryptoButton:disabled {
+                    background: #141A1F;
+                    color: #607D8A;
+                    border: 1px solid #263740;
                 }
                 QPushButton#GithubButton {
                     background: #151B23;

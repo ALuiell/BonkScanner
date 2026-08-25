@@ -33,7 +33,15 @@ from PySide6.QtCore import (
     Qt,
     QTimer,
 )
-from PySide6.QtGui import QColor, QFont, QFontMetricsF, QIcon, QPainter, QPen
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -52,7 +60,16 @@ from ui.shared import _clear_layout, resource_path
 FOOTER_HEIGHT = 28
 
 PATREON_ICON_PATH = "media/patreon_logo.svg"
-KOFI_ICON_PATH = "media/kofi_logo.svg"
+CRYPTO_ICON_PATH = "media/crypto_coins.svg"
+
+# The selected HTML mock-up used 15 px badges.  Keep that exact logical size;
+# scaling them down to 14 px made the fine 16-unit SVG strokes noticeably soft.
+SUPPORT_BADGE_ICON_SIZE = 15
+SUPPORT_BADGE_DEFINITIONS = (
+    ("founder", "media/support_badge_founder.svg", "Founder"),
+    ("extrasupport", "media/support_badge_extra.svg", "Extra support"),
+    ("activesub", "media/support_badge_active.svg", "Active sub"),
+)
 
 FOOTER_HOVER_IN_MS = 180
 FOOTER_HOVER_OUT_MS = 140
@@ -433,13 +450,124 @@ def _link(
     return button
 
 
-class SupportPopup(QFrame):
-    """The two donation platforms, with one line of context.
+class _TintedSupportBadgeIcon(QLabel):
+    """A monochrome SVG painted in the exact colour of another label."""
 
-    A popup rather than a link straight to Patreon, because there are two
-    platforms and picking one for the user is a decision nobody asked us to
-    make. It provides the brief context a bare link lacks, and the same shape
-    grows into the supporters list later without moving.
+    def __init__(
+        self,
+        icon_path: str,
+        color_source: QLabel,
+        parent: QWidget,
+    ) -> None:
+        super().__init__(parent)
+        self._svg_icon = QIcon(resource_path(icon_path))
+        self._color_source = color_source
+        self._rendered_color = QColor()
+        self._rendered_dpr = 0.0
+        self._tinted_pixmap = QPixmap()
+        self.setFixedSize(SUPPORT_BADGE_ICON_SIZE, SUPPORT_BADGE_ICON_SIZE)
+
+    def _refresh_tint(self) -> None:
+        color = self._color_source.palette().color(
+            self._color_source.foregroundRole()
+        )
+        dpr = self.devicePixelRatioF()
+        if (
+            not self._tinted_pixmap.isNull()
+            and color.rgba() == self._rendered_color.rgba()
+            and abs(dpr - self._rendered_dpr) < 0.001
+        ):
+            return
+
+        size = QSize(SUPPORT_BADGE_ICON_SIZE, SUPPORT_BADGE_ICON_SIZE)
+        # Request the SVG at the screen's physical resolution.  A plain
+        # ``pixmap(size)`` is a 1x raster which Qt then stretches on common
+        # 125%/150% Windows scaling, blurring these very small outlines.
+        source = self._svg_icon.pixmap(size, dpr)
+        tinted = QPixmap(source.size())
+        tinted.setDevicePixelRatio(source.devicePixelRatio())
+        tinted.fill(Qt.transparent)
+        painter = QPainter(tinted)
+        painter.drawPixmap(0, 0, source)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(tinted.rect(), color)
+        painter.end()
+        self._tinted_pixmap = tinted
+        self._rendered_color = QColor(color)
+        self._rendered_dpr = dpr
+
+    def paintEvent(self, _event) -> None:
+        self._refresh_tint()
+        painter = QPainter(self)
+        painter.drawPixmap(0, 0, self._tinted_pixmap)
+
+
+def _support_badge_icon(
+    badge_key: str,
+    icon_path: str,
+    tooltip: str,
+    color_source: QLabel,
+    parent: QWidget,
+    *,
+    object_name: str = "supporterBadgeIcon",
+) -> QLabel:
+    """Build a badge that inherits the colour of its caption or supporter."""
+    icon = _TintedSupportBadgeIcon(icon_path, color_source, parent)
+    icon.setObjectName(object_name)
+    icon.setProperty("badge", badge_key)
+    icon.setToolTip(tooltip)
+    return icon
+
+
+class _SupporterNameRow(QWidget):
+    """One supporter name with zero or more real icons, not font glyphs."""
+
+    def __init__(
+        self,
+        name: str,
+        name_object: str,
+        badges: tuple[str, ...],
+        parent: QWidget,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("supporterNameRow")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self.name_label = QLabel(name, self)
+        self.name_label.setObjectName(name_object)
+        self.name_label.setTextFormat(Qt.PlainText)
+        self.name_label.setToolTip(name)
+
+        badge_definitions = {
+            key: (icon_path, caption)
+            for key, icon_path, caption in SUPPORT_BADGE_DEFINITIONS
+        }
+        for badge_key in badges:
+            icon_path, caption = badge_definitions[badge_key]
+            layout.addWidget(
+                _support_badge_icon(
+                    badge_key,
+                    icon_path,
+                    caption,
+                    self.name_label,
+                    self,
+                    object_name="supporterNameBadgeIcon",
+                ),
+                0,
+                Qt.AlignVCenter,
+            )
+        layout.addWidget(self.name_label, 1, Qt.AlignVCenter)
+
+
+class SupportPopup(QFrame):
+    """The support route, with one line of context.
+
+    A popup rather than a link straight to Patreon because it provides the
+    brief context a bare link lacks, and the same shape grows into the
+    supporters list later without moving.
 
     `Qt.Popup` gives the dismiss-on-outside-click behaviour for free. The
     translucent top level wrapping an inner card is what lets the card have
@@ -462,7 +590,7 @@ class SupportPopup(QFrame):
         card = QFrame(self)
         card.setObjectName("supportPopupCard")
         # The wider card gives the support message room to breathe instead of
-        # leaving it as a dense caption above the two platform buttons.
+        # leaving it as a dense caption above the platform buttons.
         card.setFixedWidth(self.NARROW_WIDTH)
         outer.addWidget(card)
 
@@ -481,39 +609,71 @@ class SupportPopup(QFrame):
         self._title = title
         self._note = note
 
-        # A compact legend for the two independent signals used by the list:
-        # colour says where someone supported, while the symbols say what they
-        # have done. Kept on one quiet line so the popup remains a thank-you
-        # card, not a second settings panel.
+        # Two deliberately separate signals: colour says where someone
+        # supported, while the symbols say what they have done. Two compact
+        # rows keep that distinction visible; a single line reads like one
+        # mixed list of tiers.
         self._legend = QWidget(card)
         self._legend.setObjectName("supporterLegend")
-        legend_row = QHBoxLayout(self._legend)
-        legend_row.setContentsMargins(0, 2, 0, 2)
-        legend_row.setSpacing(7)
+        legend_layout = QVBoxLayout(self._legend)
+        legend_layout.setContentsMargins(0, 2, 0, 2)
+        legend_layout.setSpacing(1)
+
+        source_row = QHBoxLayout()
+        source_row.setSpacing(7)
+        source_heading = QLabel("Source:", self._legend)
+        source_heading.setObjectName("supporterLegendSourceHeading")
+        source_heading.setTextFormat(Qt.PlainText)
+        source_row.addWidget(source_heading, 0, Qt.AlignVCenter)
         for object_name, caption in (
             ("supporterLegendPatreon", "●  Patreon"),
-            ("supporterLegendKofi", "●  Ko-fi"),
+            ("supporterLegendDirect", "●  Direct"),
         ):
             label = QLabel(caption, self._legend)
             label.setObjectName(object_name)
             label.setTextFormat(Qt.PlainText)
-            legend_row.addWidget(label, 0, Qt.AlignVCenter)
+            source_row.addWidget(label, 0, Qt.AlignVCenter)
+        source_row.addStretch(1)
+        legend_layout.addLayout(source_row)
 
-        legend_separator = QFrame(self._legend)
-        legend_separator.setObjectName("supporterLegendSeparator")
-        legend_separator.setFixedSize(1, 15)
-        legend_row.addWidget(legend_separator, 0, Qt.AlignVCenter)
-
-        for object_name, caption in (
-            ("supporterLegendFounder", "★  Founder"),
-            ("supporterLegendPack", "■  Supporter Pack"),
-            ("supporterLegendSub", "♦  Active sub"),
+        badge_row = QHBoxLayout()
+        badge_row.setSpacing(7)
+        badge_heading = QLabel("Badges:", self._legend)
+        badge_heading.setObjectName("supporterLegendBadgesHeading")
+        badge_heading.setTextFormat(Qt.PlainText)
+        badge_row.addWidget(badge_heading, 0, Qt.AlignVCenter)
+        for object_name, (badge_key, icon_path, caption) in zip(
+            (
+                "supporterLegendFounder",
+                "supporterLegendExtraSupport",
+                "supporterLegendSub",
+            ),
+            SUPPORT_BADGE_DEFINITIONS,
         ):
-            label = QLabel(caption, self._legend)
+            item = QWidget(self._legend)
+            item.setObjectName(f"{object_name}Item")
+            item_layout = QHBoxLayout(item)
+            item_layout.setContentsMargins(0, 0, 0, 0)
+            item_layout.setSpacing(4)
+            label = QLabel(caption, item)
             label.setObjectName(object_name)
             label.setTextFormat(Qt.PlainText)
-            legend_row.addWidget(label, 0, Qt.AlignVCenter)
-        legend_row.addStretch(1)
+            item_layout.addWidget(
+                _support_badge_icon(
+                    badge_key,
+                    icon_path,
+                    caption,
+                    label,
+                    item,
+                    object_name=f"{object_name}Icon",
+                ),
+                0,
+                Qt.AlignVCenter,
+            )
+            item_layout.addWidget(label, 0, Qt.AlignVCenter)
+            badge_row.addWidget(item, 0, Qt.AlignVCenter)
+        badge_row.addStretch(1)
+        legend_layout.addLayout(badge_row)
         self._legend.setVisible(False)
         body.addWidget(self._legend)
 
@@ -545,20 +705,22 @@ class SupportPopup(QFrame):
 
         buttons = QHBoxLayout()
         buttons.setSpacing(7)
-        # Same object names as the settings card's buttons, so both places take
-        # their brand colours from the one set of rules in the QSS rather than
-        # drifting apart. `KOFI_SUPPORT_URL` currently points at a Ko-fi *shop*
-        # item rather than the donation page -- the caption says only "Ko-fi"
-        # for that reason, and changing the URL is a separate decision.
+        # The same object names as the settings card's buttons keep both support
+        # routes in one set of QSS rules instead of letting the two places drift.
         self.patreon_btn = QPushButton("Patreon", card)
         self.patreon_btn.setObjectName("PatreonButton")
         self.patreon_btn.setIcon(QIcon(resource_path(PATREON_ICON_PATH)))
+        self.patreon_btn.setIconSize(QSize(18, 18))
         self.patreon_btn.clicked.connect(self._open_patreon)
-        self.kofi_btn = QPushButton("Ko-fi", card)
-        self.kofi_btn.setObjectName("KofiButton")
-        self.kofi_btn.setIcon(QIcon(resource_path(KOFI_ICON_PATH)))
-        self.kofi_btn.clicked.connect(self._open_kofi)
-        for button in (self.patreon_btn, self.kofi_btn):
+        self.crypto_btn = QPushButton("Crypto", card)
+        self.crypto_btn.setObjectName("CryptoButton")
+        self.crypto_btn.setIcon(QIcon(resource_path(CRYPTO_ICON_PATH)))
+        self.crypto_btn.setIconSize(QSize(18, 18))
+        self.crypto_btn.clicked.connect(self._open_crypto)
+        self.crypto_btn.setEnabled(bool(config.CRYPTO_SUPPORT_URL))
+        if not config.CRYPTO_SUPPORT_URL:
+            self.crypto_btn.setToolTip("Crypto support page is coming soon.")
+        for button in (self.patreon_btn, self.crypto_btn):
             button.setCursor(Qt.PointingHandCursor)
             buttons.addWidget(button, 1)
         body.addLayout(buttons)
@@ -568,99 +730,110 @@ class SupportPopup(QFrame):
     #: wide one by two columns of display name, which are user-supplied text and
     #: can be any length -- they ellipsise rather than widen the card further.
     NARROW_WIDTH = 320
-    WIDE_WIDTH = 440
+    WIDE_WIDTH = 560
     DEFAULT_NOTE = "If it helps your runs, you can throw a little fuel its way."
     #: Names past this are not listed; the count in the caption still includes
     #: them. A popup is not a page, and a scroll bar inside one is a worse
     #: answer than "and 40 others".
     MAX_LISTED = 24
 
-    #: How a `tier` value is drawn: `(object name, marker, sort rank)`.
+    #: How a `source` value is drawn: `(object name, sort rank)`.
     #:
-    #: A diamond and Patreon red identify the only ongoing state; a square and
-    #: the same red identify a one-time pack; Ko-fi blue reads as "a different
-    #: place" rather than "a different amount". Permanent badges are composed
-    #: separately, so a founder who owns a pack and has an active subscription
-    #: can carry all three markers without becoming three people in the count.
-    #:
-    #: Keys are normalised by `_tier_key`, so `"Ko-Fi"` and `"ko_fi"` both land.
-    TIER_STYLES = {
-        "patreon": ("supporterNamePatreon", "♦  ", 0),
-        "pack": ("supporterNamePack", "■  ", 1),
-        "kofi": ("supporterNameKofi", "", 2),
+    #: The colour is deliberately only provenance, never amount or rank.
+    #: Patreon keeps its brand accent. Direct uses the former support blue for
+    #: crypto, transfers, gifts, or any later off-platform support.
+    SOURCE_STYLES = {
+        "patreon": ("supporterNamePatreon", 0),
+        "direct": ("supporterNameDirect", 1),
     }
-    #: Permanent, stackable acknowledgements. Tuple order is display order;
-    #: input order in a hand-edited JSON file cannot make the markers jump.
-    BADGE_MARKERS = (
-        ("founder", "★"),
-        ("pack", "■"),
-    )
-    #: An unrecognised but non-empty tier. It is marked rather than dropped to
-    #: grey: `supporters.json` is edited by hand in a browser, and a typo in the
-    #: tier of someone who is *known to have paid* should cost them a diamond,
-    #: not their place among the people being thanked.
-    UNKNOWN_TIER_STYLE = ("supporterNamePack", "", 1)
-    #: No tier at all -- a bare `"Name"` string. Deliberately unmarked.
-    PLAIN_STYLE = ("supporterName", "", 3)
+    #: Compatibility for the live `supporters.json` used by builds released
+    #: before source and badges became independent.  The remote file can change
+    #: between application releases, so a rollout must work in either order.
+    LEGACY_TIER_MIGRATIONS = {
+        "patreon": ("patreon", ("active_sub",)),
+        "pack": ("patreon", ("extra_support",)),
+    }
+    BADGE_ALIASES = {"pack": "extrasupport"}
+    #: Stackable acknowledgements. Tuple order is display order; input order in
+    #: a hand-edited JSON file cannot make the icons jump. Founder and extra
+    #: support are permanent; active-sub is the one live status.
+    BADGE_DEFINITIONS = SUPPORT_BADGE_DEFINITIONS
+    #: Unknown provenance stays neutral rather than borrowing Direct's colour.
+    #: A source typo costs the platform colour, never badges supplied separately.
+    UNKNOWN_SOURCE_STYLE = ("supporterName", 2)
+    #: No source at all -- a bare `"Name"` string. Deliberately unmarked.
+    PLAIN_STYLE = ("supporterName", 3)
 
     @staticmethod
-    def _tier_key(tier) -> str:
-        """`"Ko-fi"`, `"ko_fi"` and `" KOFI "` are all `kofi`."""
+    def _support_key(value) -> str:
+        """Normalise hand-written source and badge keys."""
         return "".join(
             character
-            for character in str(tier or "").lower()
+            for character in str(value or "").lower()
             if character.isalnum()
         )
 
     @classmethod
-    def _supporter_prefix(cls, badges, tier_marker: str) -> str:
-        """Compose known permanent badges and the current tier marker once."""
-        badge_keys = (
-            {cls._tier_key(badge) for badge in badges}
-            if isinstance(badges, (list, tuple))
-            else set()
+    def _supporter_badges(cls, badges) -> tuple[str, ...]:
+        """Return known badge keys in one stable order, without duplicates."""
+        badge_keys = set()
+        if isinstance(badges, (list, tuple)):
+            for badge in badges:
+                key = cls._support_key(badge)
+                badge_keys.add(cls.BADGE_ALIASES.get(key, key))
+        return tuple(
+            key
+            for key, _icon_path, _caption in cls.BADGE_DEFINITIONS
+            if key in badge_keys
         )
-        markers = [
-            marker for key, marker in cls.BADGE_MARKERS if key in badge_keys
-        ]
-        current_marker = tier_marker.strip()
-        if current_marker and current_marker not in markers:
-            markers.append(current_marker)
-        return "".join(f"{marker}  " for marker in markers)
 
     def set_supporters(self, supporters=()) -> None:
-        """Show these people, or go back to being the plain two-button card.
+        """Show these people, or go back to being the plain support card.
 
         **The empty case is the shipping case and must stay unremarkable.**
         The list is fetched, so every copy of the application starts here and a
         good number of them stay: no network, no names published yet, an older
         build. What the card looks like with no list is what those people see --
-        a title, one line, two buttons. No heading over a blank space, no
+        a title, one line, support routes. No heading over a blank space, no
         "0 supporters", no rule with nothing above it. An empty card reads as a
         broken feature; a card that never mentions the list reads as nothing at
         all, which is correct.
 
         Accepts plain names or mappings, so `supporters.json` needs no shape
-        negotiation: `"Nyxaria"` and `{"name": "Nyxaria", "tier": "patreon"}`
-        both work. See `TIER_STYLES` for what each tier looks like.
+        negotiation: `"Nyxaria"` and
+        `{"name": "Nyxaria", "source": "patreon"}` both work.
         """
         people = []
         for entry in supporters or ():
             if isinstance(entry, dict):
                 name = str(entry.get("name") or "").strip()
-                key = self._tier_key(entry.get("tier"))
-                style = (
-                    self.PLAIN_STYLE
-                    if not key
-                    else self.TIER_STYLES.get(key, self.UNKNOWN_TIER_STYLE)
-                )
+                source_key = self._support_key(entry.get("source"))
+                legacy_badges = ()
+                if not source_key:
+                    tier_key = self._support_key(entry.get("tier"))
+                    migration = self.LEGACY_TIER_MIGRATIONS.get(tier_key)
+                    if migration is not None:
+                        source_key, legacy_badges = migration
+                    elif tier_key:
+                        source_key = tier_key
+                if source_key in self.SOURCE_STYLES:
+                    style = self.SOURCE_STYLES[source_key]
+                elif source_key:
+                    style = self.UNKNOWN_SOURCE_STYLE
+                else:
+                    style = self.PLAIN_STYLE
                 badges = entry.get("badges")
+                if legacy_badges:
+                    supplied_badges = (
+                        tuple(badges) if isinstance(badges, (list, tuple)) else ()
+                    )
+                    badges = (*supplied_badges, *legacy_badges)
             else:
                 name = str(entry or "").strip()
                 style = self.PLAIN_STYLE
                 badges = ()
             if name:
-                people.append((name, style, self._supporter_prefix(badges, style[1])))
+                people.append((name, style, self._supporter_badges(badges)))
 
         _clear_layout(self._names_grid)
         self._legend.setVisible(bool(people))
@@ -680,11 +853,11 @@ class SupportPopup(QFrame):
             if count == 1
             else f"{count} people support BonkScanner"
         )
-        # Grouped by tier, and inside a group the order they arrived in. Not
+        # Grouped by source, and inside a group the order they arrived in. Not
         # alphabetical: a list someone maintains by hand has an order, and
         # re-sorting it throws away whatever they meant by it. `sort` is stable,
         # so the file's order survives within each group.
-        people.sort(key=lambda person: person[1][2])
+        people.sort(key=lambda person: person[1][1])
         listed = people[: self.MAX_LISTED]
         hidden = len(people) - len(listed)
         self._note.setText(
@@ -692,17 +865,19 @@ class SupportPopup(QFrame):
         )
 
         rows = (len(listed) + 1) // 2
-        for index, (name, (object_name, _tier_marker, _rank), prefix) in enumerate(
+        for index, (name, (object_name, _rank), badges) in enumerate(
             listed
         ):
-            label = QLabel(prefix + name, self._names_host)
-            label.setObjectName(object_name)
+            row = _SupporterNameRow(
+                name,
+                object_name,
+                badges,
+                self._names_host,
+            )
             # Elided rather than wrapped, and the grid column carries the width:
             # a display name is whatever its owner typed, and one long one must
             # not be allowed to widen the popup or reflow the column beside it.
-            label.setTextFormat(Qt.PlainText)
-            label.setToolTip(name)
-            self._names_grid.addWidget(label, index % rows, index // rows)
+            self._names_grid.addWidget(row, index % rows, index // rows)
         self._names_grid.setColumnStretch(0, 1)
         self._names_grid.setColumnStretch(1, 1)
         self._reanchor()
@@ -738,8 +913,10 @@ class SupportPopup(QFrame):
         webbrowser.open(config.PATREON_SUPPORT_URL)
         self.close()
 
-    def _open_kofi(self) -> None:
-        webbrowser.open(config.KOFI_SUPPORT_URL)
+    def _open_crypto(self) -> None:
+        if not config.CRYPTO_SUPPORT_URL:
+            return
+        webbrowser.open(config.CRYPTO_SUPPORT_URL)
         self.close()
 
     def show_above(self, anchor: QWidget) -> None:

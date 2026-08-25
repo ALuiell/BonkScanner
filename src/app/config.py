@@ -372,12 +372,9 @@ LEGACY_TWITCH_SHRINES_TEMPLATES = {
 
 
 PATREON_SUPPORT_URL = "https://www.patreon.com/cw/ALuiel"
-# The profile, not the shop item it used to be. `/s/34dc062a82` is a
-# pay-what-you-want listing and did work, but a button captioned "Ko-fi"
-# under the words "if it is useful to you" opening a product page reads as
-# a purchase rather than a tip -- and the footer popup put those two things
-# side by side, which the settings card never did.
-KOFI_SUPPORT_URL = "https://ko-fi.com/aluiel"
+# Filled when the standalone crypto support page is published. The UI keeps
+# the route visible but disabled until then, rather than opening a placeholder.
+CRYPTO_SUPPORT_URL = ""
 GITHUB_REPOSITORY_URL = "https://github.com/ALuiell/BonkScanner/releases"
 DISCORD_SUPPORT_URL = "https://discord.gg/dYkcrMCJWM"
 
