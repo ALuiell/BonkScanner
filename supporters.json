@@ -43,6 +43,8 @@
     "при следующем запуске приложения."
   ],
   "supporters": [
-    {"name": "PrestoOmento", "source": "patreon", "tier": "patreon", "badges": ["founder", "pack", "extra_support", "active_sub"]}
+    {"name": "PrestoOmento", "source": "patreon", "tier": "patreon", "badges": ["founder", "pack", "extra_support", "active_sub"]},
+    {"name": "Moop", "source": "patreon", "badges": ["founder", "extra_support"]},
+    {"name": "Jubilee", "source": "direct", "badges": ["founder", "extra_support"]}
   ]
 }
