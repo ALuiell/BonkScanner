@@ -68,6 +68,11 @@ class MegabonkApp:
         self._is_shutting_down = False
         self._close_in_progress = False
         self._background_threads = set()
+        # Reuse one Settings dialog for the application's lifetime. Repeatedly
+        # destroying and rebuilding its large child-widget tree can leave a
+        # delayed Shiboken deletion pointing at an address Qt has already
+        # reused for a widget in the next dialog.
+        self._settings_dialog = None
 
         self.setWindowTitle(f"BonkScanner v{CURRENT_VERSION}")
         self.resize(1320, 830)
@@ -637,8 +642,23 @@ class MegabonkApp:
     # `SettingsDialog.save -> refresh_player_stats_timeline_ui`. `master=self`
     # here still means the application.
     def open_settings_dialog(self) -> None:
+        dialog = getattr(self, "_settings_dialog", None)
+        if dialog is not None:
+            if dialog.isVisible():
+                dialog.raise_()
+                dialog.activateWindow()
+                return
+            dialog.reload_from_config()
+            dialog.open()
+            return
+
         dialog = SettingsDialog(self.window, master=self)
-        dialog.exec()
+        self._settings_dialog = dialog
+        dialog.destroyed.connect(self._settings_dialog_destroyed)
+        dialog.open()
+
+    def _settings_dialog_destroyed(self, _object=None) -> None:
+        self._settings_dialog = None
 
     def open_help_dialog(self) -> None:
         dialog = HelpDialog(self.window)

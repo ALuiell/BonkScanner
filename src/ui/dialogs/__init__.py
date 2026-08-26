@@ -1567,6 +1567,32 @@ class SettingsDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         dialog_footer(self, primary=self.save_btn, secondary=cancel_btn)
 
+    def reload_from_config(self) -> None:
+        """Discard unsaved edits before reopening the reusable dialog."""
+        self.hotkey_entry.setText(str(config.HOTKEY))
+        self.reset_hotkey_entry.setText(str(config.RESET_HOTKEY))
+        self.record_hotkey_entry.setText(
+            str(getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"))
+        )
+        self.overlay_edit_hotkey_entry.setText(
+            str(getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9") or "f9")
+        )
+        reset_hold_duration = round(float(config.RESET_HOLD_DURATION), 2)
+        self.reset_hold_duration_entry.setValue(reset_hold_duration)
+        self._initial_reset_hold_duration = reset_hold_duration
+        self.record_interval_entry.setValue(
+            int(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30))
+        )
+        self.stop_scanning_on_player_movement_var.setChecked(
+            bool(getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True))
+        )
+        self.auto_start_recording_var.setChecked(
+            bool(getattr(config, "AUTO_START_RECORDING", False))
+        )
+        self.show_obs_reminder_on_start_scanner_var.setChecked(
+            bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
+        )
+
     def open_patreon_support_page(self):
         webbrowser.open(PATREON_SUPPORT_URL)
 
