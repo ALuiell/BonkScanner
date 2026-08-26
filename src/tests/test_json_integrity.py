@@ -25,13 +25,14 @@ class ConfigJsonIntegrityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "config.json"
             with patch.object(config, "config_path", str(path)):
-                config.save_config(
+                result = config.save_config(
                     {
                         "finite": 1.5,
                         "unknowns": [float("nan"), float("inf"), float("-inf")],
                     }
                 )
 
+            self.assertTrue(result.success)
             text = path.read_text(encoding="utf-8")
             payload = json.loads(
                 text,
@@ -50,10 +51,22 @@ class ConfigJsonIntegrityTests(unittest.TestCase):
             path.write_text(original, encoding="utf-8")
 
             with patch.object(config, "config_path", str(path)):
-                config.save_config({"unsupported": object()})
+                result = config.save_config({"unsupported": object()})
 
+            self.assertFalse(result.success)
+            self.assertIn("could not save", result.reason)
             self.assertEqual(path.read_text(encoding="utf-8"), original)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def test_write_that_cannot_be_read_back_is_reported_as_a_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "config.json"
+            with patch.object(config, "config_path", str(path)):
+                with patch.object(config, "_atomic_write_text"):
+                    result = config.save_config({"value": 1})
+
+            self.assertFalse(result.success)
+            self.assertIn("could not save", result.reason)
 
     def test_load_config_maps_legacy_non_finite_numbers_to_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

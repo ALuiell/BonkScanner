@@ -686,6 +686,9 @@ class MegabonkApp:
             return
         config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
         config.user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"] = True
+        config.user_config["AUTO_REROLL_SETUP_GUIDE_VERSION"] = (
+            config.AUTO_REROLL_SETUP_GUIDE_VERSION
+        )
         config.save_config(config.user_config)
         dialog.deleteLater()
 

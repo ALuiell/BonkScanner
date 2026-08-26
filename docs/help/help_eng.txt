@@ -216,8 +216,9 @@ Main settings:
 - `Reset Hotkey` - keyboard restart hotkey.
 - `Record Hotkey` - starts or stops live stats recording.
 - `In-Game Overlay Edit Hotkey` - enters or exits overlay Layout Mode.
-- `Reset Hold Duration (s)` - keyboard reset hold time in the app. This setting also syncs and verifies the game's `quick_reset_time` value. If the game config cannot be found or updated, Settings explains the cause and keeps the dialog open so you can retry. After a successful change, restart the game so the new timing fully applies.
-- Advanced: `RESET_HOLD_SAFETY_MARGIN` in the BonkScanner config controls how much longer the app holds the reset key than the game's `quick_reset_time`. The default is `0.05`; values from `0.00` to `1.00` are accepted. Restart BonkScanner after editing it manually.
+- `Reset Hold Duration (s)` - keyboard reset hold time in the app. Close Megabonk before changing Reset Speed; the game reads the synchronized value on its next start.
+- `Safety Margin (s)` - advanced tolerance added above Megabonk's own `quick_reset_time`. Lower is faster but less tolerant. The default is `0.05`; values from `0.00` to `1.00` are accepted. The effective scanner minimum is the game's `0.01` minimum plus this margin; there is no separate `0.10` floor.
+- `Game quick reset` - read-only preview of the exact `quick_reset_time` BonkScanner will write. Every Settings save verifies the scanner config and synchronizes and verifies the game config, even if Reset Hold did not change. On failure, Settings stays open, preserves the last known-good runtime values, and shows the exact reason.
 - `Snapshot Interval (s)` - how often recording saves a new snapshot.
 - `Check for Updates` - checks for a newer packaged build when that updater flow is available.
 

@@ -54,6 +54,10 @@ from app import config
 from gui_app import MegabonkApp
 
 config.save_config = lambda *_args, **_kwargs: None
+# These tests exercise focus inside the main window, not the versioned setup
+# guide. The production default deliberately opens that modal again for this
+# release, so acknowledge it only inside the isolated subprocess.
+config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
 app = MegabonkApp()
 qt = QApplication.instance()
 app.window.show()

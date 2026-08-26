@@ -25,22 +25,31 @@ class FirstLaunchGuideConfigTests(unittest.TestCase):
             )
         )
 
-    def test_an_existing_config_predating_the_guide_is_not_interrupted(self) -> None:
-        self.assertTrue(
+    def test_an_existing_config_predating_the_current_guide_sees_it_again(self) -> None:
+        self.assertFalse(
             config.resolve_auto_reroll_setup_guide_acknowledged(
                 None, config_existed=True
             )
         )
 
-    def test_an_explicit_pending_or_acknowledged_state_wins(self) -> None:
+    def test_only_an_acknowledgement_for_the_current_version_wins(self) -> None:
         self.assertFalse(
             config.resolve_auto_reroll_setup_guide_acknowledged(
                 False, config_existed=True
             )
         )
+        self.assertFalse(
+            config.resolve_auto_reroll_setup_guide_acknowledged(
+                True,
+                config_existed=True,
+                saved_version=config.AUTO_REROLL_SETUP_GUIDE_VERSION - 1,
+            )
+        )
         self.assertTrue(
             config.resolve_auto_reroll_setup_guide_acknowledged(
-                True, config_existed=False
+                True,
+                config_existed=False,
+                saved_version=config.AUTO_REROLL_SETUP_GUIDE_VERSION,
             )
         )
 
@@ -77,10 +86,17 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
         self.assertIn("Quick Reset", text)
         self.assertIn("Skip Portal Animation", text)
         self.assertIn("Super Quick Resets", text)
-        self.assertIn("0.10 s", text)
-        self.assertIn("0.05-second safety margin", text)
-        self.assertIn("RESET_HOLD_SAFETY_MARGIN", text)
-        self.assertIn("0.07", text)
+        margin = config.RESET_HOLD_SAFETY_MARGIN
+        minimum_hold = config.minimum_reset_hold_duration(margin)
+        minimum_game_value = config.reset_hold_duration_to_game_value(
+            minimum_hold,
+            safety_margin=margin,
+        )
+        self.assertIn(f"{minimum_hold:.2f} s", text)
+        self.assertIn(f"{margin:.2f}-second safety margin", text)
+        self.assertIn(f"{minimum_game_value:.2f} s", text)
+        self.assertIn("Safety Margin", text)
+        self.assertIn("both config files", text)
         self.assertIn("automatic adjustment", text)
         self.assertIn("Megabonk's game config", text)
         self.assertIn("%USERPROFILE%", text)
@@ -126,6 +142,10 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
                 self.assertTrue(config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED)
                 self.assertTrue(
                     config.user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"]
+                )
+                self.assertEqual(
+                    config.user_config["AUTO_REROLL_SETUP_GUIDE_VERSION"],
+                    config.AUTO_REROLL_SETUP_GUIDE_VERSION,
                 )
                 save_config.assert_called_once_with(config.user_config)
 

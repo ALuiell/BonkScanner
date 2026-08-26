@@ -295,14 +295,17 @@ The main `Settings` dialog currently includes:
 - `Auto-start recording`
 - `Show OBS reminder on Start Scanner`
 - `Reset Hold Duration (s)`
+- `Safety Margin (s)` (advanced)
+- derived Megabonk `quick_reset_time` preview
 - `Snapshot Interval (s)`
 - `Check for Updates`
 
 Notes:
 - `Reset Hotkey` and `Reset Hold Duration` control the community restart path;
-- the app syncs and verifies the game's `quick_reset_time` value when reset hold duration changes;
-- advanced users can override the default `0.05` reset safety margin with `RESET_HOLD_SAFETY_MARGIN` in the BonkScanner config (`0.00` to `1.00`; restart the app after editing);
-- if the game config is missing or the value cannot be verified, Settings stays open and explains how to retry;
+- close Megabonk before changing Reset Speed; the game reads this value on its next start;
+- `Safety Margin` is editable in Settings (`0.00` to `1.00`, default `0.05`). The effective scanner minimum is Megabonk's `0.01` minimum plus the selected margin; there is no separate `0.10` scanner floor;
+- every Settings save verifies the scanner config and synchronizes and verifies the game's `quick_reset_time`, even when the reset field itself did not change, so hand-edited drift is repaired;
+- if either config cannot be saved or verified, Settings stays open, keeps the last known-good runtime values, and shows the exact reason;
 - global hotkeys and keyboard-driven restart may require Administrator privileges on Windows.
 
 ## Auto-Update Behavior

@@ -67,6 +67,95 @@ class GameResetTimeConfigTests(unittest.TestCase):
             self.assertIn("expected 0.20", result.reason)
             self.assertIn("found 0.05", result.reason)
 
+    def test_read_game_quick_reset_time_reports_the_raw_game_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            self._write_game_config(game_config_path, quick_reset_time=0.037)
+
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                result = config.read_game_quick_reset_time()
+
+            self.assertTrue(result.success)
+            self.assertEqual(result.value, 0.04)
+
+
+class VerifiedSettingsSaveTests(unittest.TestCase):
+    def test_success_updates_and_verifies_both_real_config_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            scanner_path = os.path.join(temp_dir, "scanner.json")
+            game_path = os.path.join(temp_dir, "game.json")
+            previous = {"RESET_HOLD_DURATION": 0.07}
+            candidate = {
+                "RESET_HOLD_DURATION": 0.03,
+                "RESET_HOLD_SAFETY_MARGIN": 0.02,
+            }
+            with open(scanner_path, "w", encoding="utf-8") as handle:
+                json.dump(previous, handle)
+            with open(game_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": 0.05}}, handle)
+
+            with patch.object(config, "config_path", scanner_path):
+                with patch.object(config, "user_config", previous):
+                    with patch.object(config, "get_game_config_path", return_value=game_path):
+                        result = config.save_settings_with_game_reset(
+                            candidate,
+                            0.01,
+                            sync_game=True,
+                        )
+
+            self.assertTrue(result.success)
+            with open(scanner_path, "r", encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle), candidate)
+            with open(game_path, "r", encoding="utf-8") as handle:
+                saved_game = json.load(handle)
+            self.assertEqual(saved_game["cfGameSettings"]["quick_reset_time"], 0.01)
+
+    def test_game_failure_rolls_back_the_scanner_config(self) -> None:
+        previous = dict(config.user_config)
+        candidate = {**previous, "RESET_HOLD_DURATION": 0.03}
+        game_failure = config.GameConfigUpdateResult(False, "game write failed")
+
+        with patch.object(
+            config,
+            "save_config",
+            side_effect=[config.ConfigSaveResult(True), config.ConfigSaveResult(True)],
+        ) as save_config:
+            with patch.object(
+                config,
+                "update_game_reset_time",
+                return_value=game_failure,
+            ):
+                result = config.save_settings_with_game_reset(
+                    candidate,
+                    0.01,
+                    sync_game=True,
+                )
+
+        self.assertFalse(result.success)
+        self.assertIn("game write failed", result.reason)
+        self.assertIn("rolled back", result.reason)
+        self.assertEqual(save_config.call_args_list[0].args[0], candidate)
+        self.assertEqual(save_config.call_args_list[1].args[0], previous)
+
+    def test_scanner_failure_does_not_touch_the_game_config(self) -> None:
+        failure = config.ConfigSaveResult(False, "scanner write failed")
+        with patch.object(
+            config,
+            "save_config",
+            side_effect=[failure, config.ConfigSaveResult(True)],
+        ):
+            with patch.object(config, "update_game_reset_time") as update_game_reset_time:
+                result = config.save_settings_with_game_reset(
+                    {"RESET_HOLD_DURATION": 0.03},
+                    0.01,
+                    sync_game=True,
+                )
+
+        self.assertFalse(result.success)
+        self.assertIn("scanner write failed", result.reason)
+        self.assertIn("previous BonkScanner config was restored", result.reason)
+        update_game_reset_time.assert_not_called()
+
 
 class PlayerMovementGuardConfigTests(unittest.TestCase):
     def test_missing_setting_defaults_to_disabled(self) -> None:
@@ -123,7 +212,7 @@ class ResetHoldDurationFloorTests(unittest.TestCase):
 
     def test_values_below_the_supported_settings_minimum_are_raised(self) -> None:
         duration, raised_from = config.resolve_reset_hold_duration(0.01, None)
-        self.assertEqual(duration, config.MIN_RESET_HOLD_DURATION)
+        self.assertEqual(duration, config.minimum_reset_hold_duration())
         self.assertIsNone(raised_from)
 
     def test_missing_stored_value_takes_the_game_floor(self) -> None:
@@ -216,30 +305,24 @@ class ResetHoldSafetyMarginConfigTests(unittest.TestCase):
 
 
 class MinimumResetHoldDurationConfigTests(unittest.TestCase):
-    def test_valid_values_are_rounded_to_two_decimals(self) -> None:
-        self.assertEqual(config.normalize_min_reset_hold_duration("0.034"), 0.03)
-        self.assertEqual(config.normalize_min_reset_hold_duration(0.01), 0.01)
-        self.assertEqual(config.normalize_min_reset_hold_duration(10.0), 10.0)
+    def test_minimum_is_the_game_floor_plus_the_selected_margin(self) -> None:
+        self.assertEqual(config.minimum_reset_hold_duration(0.0), 0.01)
+        self.assertEqual(config.minimum_reset_hold_duration(0.02), 0.03)
+        self.assertEqual(config.minimum_reset_hold_duration(0.05), 0.06)
 
-    def test_invalid_values_fall_back_to_the_safe_default(self) -> None:
-        for value in (0.0, -0.01, 10.01, "invalid", float("nan"), float("inf")):
-            with self.subTest(value=value):
-                self.assertEqual(
-                    config.normalize_min_reset_hold_duration(value),
-                    config.DEFAULT_MIN_RESET_HOLD_DURATION,
-                )
+    def test_the_obsolete_absolute_minimum_is_removed_from_saved_config(self) -> None:
+        self.assertNotIn("MIN_RESET_HOLD_DURATION", config.user_config)
 
-    def test_custom_minimum_allows_a_short_game_aligned_hold(self) -> None:
+    def test_short_game_aligned_hold_uses_only_the_dynamic_minimum(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             game_config_path = os.path.join(temp_dir, "config.json")
             with open(game_config_path, "w", encoding="utf-8") as handle:
                 json.dump({"cfGameSettings": {"quick_reset_time": 0.01}}, handle)
 
-            with patch.object(config, "MIN_RESET_HOLD_DURATION", 0.01):
-                with patch.object(config, "RESET_HOLD_SAFETY_MARGIN", 0.02):
-                    with patch.object(config, "get_game_config_path", return_value=game_config_path):
-                        game_floor = config.get_game_reset_time()
-                    duration, raised_from = config.resolve_reset_hold_duration(0.03, game_floor)
+            with patch.object(config, "RESET_HOLD_SAFETY_MARGIN", 0.02):
+                with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                    game_floor = config.get_game_reset_time()
+                duration, raised_from = config.resolve_reset_hold_duration(0.03, game_floor)
 
             self.assertAlmostEqual(duration, 0.03, places=6)
             self.assertIsNone(raised_from)
@@ -254,6 +337,8 @@ class RefreshResetHoldDurationTests(unittest.TestCase):
             config.GAME_RESET_HOLD_FLOOR,
             config.RESET_HOLD_DURATION_RAISED_FROM,
         )
+        self._had_saved_user_duration = "RESET_HOLD_DURATION" in config.user_config
+        self._saved_user_duration = config.user_config.get("RESET_HOLD_DURATION")
 
     def tearDown(self) -> None:
         (
@@ -261,6 +346,10 @@ class RefreshResetHoldDurationTests(unittest.TestCase):
             config.GAME_RESET_HOLD_FLOOR,
             config.RESET_HOLD_DURATION_RAISED_FROM,
         ) = self._saved
+        if self._had_saved_user_duration:
+            config.user_config["RESET_HOLD_DURATION"] = self._saved_user_duration
+        else:
+            config.user_config.pop("RESET_HOLD_DURATION", None)
 
     def _refresh_against(self, quick_reset_time: float, current_hold: float):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -278,7 +367,11 @@ class RefreshResetHoldDurationTests(unittest.TestCase):
         raised_from = self._refresh_against(quick_reset_time=1.0, current_hold=0.25)
 
         self.assertEqual(raised_from, 0.25)
-        self.assertAlmostEqual(config.RESET_HOLD_DURATION, 1.05, places=6)
+        self.assertAlmostEqual(
+            config.RESET_HOLD_DURATION,
+            1.0 + config.RESET_HOLD_SAFETY_MARGIN,
+            places=6,
+        )
 
     def test_an_unchanged_threshold_reports_nothing(self) -> None:
         """Runs on every scan start -- it must not log once per scan."""
@@ -310,7 +403,10 @@ class RefreshResetHoldDurationTests(unittest.TestCase):
                     config.refresh_reset_hold_duration()
 
         save_config.assert_called_once()
-        self.assertEqual(config.user_config["RESET_HOLD_DURATION"], 1.05)
+        self.assertEqual(
+            config.user_config["RESET_HOLD_DURATION"],
+            round(1.0 + config.RESET_HOLD_SAFETY_MARGIN, 2),
+        )
 
     def test_no_correction_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

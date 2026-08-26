@@ -721,7 +721,14 @@ class Scanner:
                 if self._scan_abort_requested():
                     continue
                 is_first_scan = False
-                last_state = self.client.get_map_generation_state()
+                # `wait_for_map_ready` captured this state in the same strict
+                # sample that confirmed the stats. Re-reading through the
+                # optional UI projection can turn a transient memory error into
+                # an empty baseline, after which teardown stats look like a new
+                # map on the next cycle.
+                last_state = getattr(self.client, "last_ready_state", None)
+                if last_state is None:
+                    last_state = self.client.get_map_generation_state()
                 last_stats = raw_stats
                 stats = adapt_map_stats(raw_stats)
                 eval_context = {
@@ -787,9 +794,17 @@ class Scanner:
                 # headline threw that away and made the bug unreportable.
                 self.log("[-] Map took too long to load.", tag="warning")
                 self.log(f"    {exc}", tag="warning")
-                self.log("[*] Restarting run to recover...", tag="warning")
-                if self._run_control.wait_for_game_window_focus(process_name):
-                    self.reroll_map()
+                self.log(
+                    "[*] Retrying the current map without restarting so it cannot be skipped...",
+                    tag="warning",
+                )
+                # A timeout is ambiguous: the reset may have failed, or a new
+                # map may already be loaded while one memory field is briefly
+                # unreadable. Treat the current map as a first scan again. If
+                # it is the old map, it is harmlessly re-evaluated before the
+                # next reset; if it is new, it gets the evaluation the timeout
+                # could not complete.
+                is_first_scan = True
                 last_state = None
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:

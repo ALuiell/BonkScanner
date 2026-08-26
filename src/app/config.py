@@ -3,6 +3,7 @@ import math
 import shutil
 import colorama
 import threading
+from copy import deepcopy
 from uuid import uuid4
 from dataclasses import dataclass
 
@@ -385,6 +386,25 @@ class GameConfigUpdateResult:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class GameConfigReadResult:
+    success: bool
+    value: float | None = None
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class ConfigSaveResult:
+    success: bool
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class SettingsSaveResult:
+    success: bool
+    reason: str = ""
+
+
 def get_game_config_path() -> str | None:
     user_profile = os.environ.get('USERPROFILE', '')
     if not user_profile:
@@ -413,6 +433,36 @@ def load_game_config() -> dict | None:
         return None
 
 
+def read_game_quick_reset_time() -> GameConfigReadResult:
+    game_config_path = get_game_config_path()
+    if not game_config_path or not os.path.exists(game_config_path):
+        return GameConfigReadResult(
+            False,
+            reason="The Megabonk config file was not found. Launch the game once, close it, and try again.",
+        )
+    data = load_game_config()
+    if data is None:
+        return GameConfigReadResult(
+            False,
+            reason="The Megabonk config file could not be read or contains invalid JSON.",
+        )
+    settings = data.get("cfGameSettings")
+    value = settings.get("quick_reset_time") if isinstance(settings, dict) else None
+    try:
+        parsed = round(float(value), 2)
+    except (TypeError, ValueError, OverflowError):
+        return GameConfigReadResult(
+            False,
+            reason="The Megabonk config does not contain a valid quick_reset_time value.",
+        )
+    if not math.isfinite(parsed):
+        return GameConfigReadResult(
+            False,
+            reason="The Megabonk quick_reset_time value is not finite.",
+        )
+    return GameConfigReadResult(True, value=parsed)
+
+
 def save_game_config(data: dict) -> bool:
     try:
         game_config_path = get_game_config_path()
@@ -437,30 +487,39 @@ def save_game_config(data: dict) -> bool:
 #: (`reset_hold_duration_to_game_value`) -- they are one pair and must not drift
 #: apart. Advanced users may override the shared value in BonkScanner's config.
 DEFAULT_RESET_HOLD_SAFETY_MARGIN = 0.05
-DEFAULT_MIN_RESET_HOLD_DURATION = 0.10
-LOWEST_RESET_HOLD_DURATION = 0.01
+MIN_GAME_QUICK_RESET_TIME = 0.01
 MAX_RESET_HOLD_DURATION = 10.00
-MIN_RESET_HOLD_DURATION = DEFAULT_MIN_RESET_HOLD_DURATION
 MAX_RESET_HOLD_SAFETY_MARGIN = 1.00
 RESET_HOLD_SAFETY_MARGIN = DEFAULT_RESET_HOLD_SAFETY_MARGIN
 
 
 def get_game_reset_time() -> float | None:
     """The game's `quick_reset_time`, plus the safety margin. None if unreadable."""
-    try:
-        data = load_game_config()
-        if data is not None:
-            quick_reset_time = data.get("cfGameSettings", {}).get("quick_reset_time")
-            if quick_reset_time is not None:
-                return float(quick_reset_time) + RESET_HOLD_SAFETY_MARGIN
-    except Exception:
-        pass
-    return None
+    result = read_game_quick_reset_time()
+    if not result.success or result.value is None:
+        return None
+    return round(result.value + RESET_HOLD_SAFETY_MARGIN, 2)
 
 
-def reset_hold_duration_to_game_value(hold_duration: float) -> float:
+def reset_hold_duration_to_game_value(
+    hold_duration: float,
+    *,
+    safety_margin: float | None = None,
+) -> float:
     """Strip the margin back off, for writing into the game's own config."""
-    return max(0.01, round(hold_duration - RESET_HOLD_SAFETY_MARGIN, 2))
+    margin = (
+        RESET_HOLD_SAFETY_MARGIN
+        if safety_margin is None
+        else normalize_reset_hold_safety_margin(safety_margin)
+    )
+    return max(
+        MIN_GAME_QUICK_RESET_TIME,
+        round(float(hold_duration) - margin, 2),
+    )
+
+
+def _restore_game_config(data: dict) -> bool:
+    return save_game_config(data) and load_game_config() == data
 
 def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
     """Write and read back quick_reset_time so the UI never reports a false success."""
@@ -478,6 +537,7 @@ def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
             "The game config file could not be read. It may be locked or contain invalid JSON.",
         )
 
+    original_data = deepcopy(data)
     settings = data.get("cfGameSettings")
     if not isinstance(settings, dict):
         settings = {}
@@ -498,9 +558,11 @@ def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
 
     verified_data = load_game_config()
     if verified_data is None:
+        rollback_succeeded = _restore_game_config(original_data)
         return GameConfigUpdateResult(
             False,
-            "The game config was written but could not be read back for verification.",
+            "The game config was written but could not be read back for verification."
+            + (" The previous file was restored." if rollback_succeeded else " Restoring the previous file also failed."),
         )
 
     verified_settings = verified_data.get("cfGameSettings")
@@ -512,17 +574,21 @@ def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
     try:
         actual_value = round(float(actual_value), 2)
     except (TypeError, ValueError, OverflowError):
+        rollback_succeeded = _restore_game_config(original_data)
         return GameConfigUpdateResult(
             False,
-            "The saved game config does not contain a valid quick_reset_time value.",
+            "The saved game config does not contain a valid quick_reset_time value."
+            + (" The previous file was restored." if rollback_succeeded else " Restoring the previous file also failed."),
         )
 
     if actual_value != expected_value:
+        rollback_succeeded = _restore_game_config(original_data)
         return GameConfigUpdateResult(
             False,
             (
                 "The game config did not keep the requested quick_reset_time value "
                 f"(expected {expected_value:.2f}, found {actual_value:.2f})."
+                + (" The previous file was restored." if rollback_succeeded else " Restoring the previous file also failed.")
             ),
         )
 
@@ -545,7 +611,7 @@ def load_config():
 
 
 def _atomic_write_text(path, payload):
-    temp_path = f"{path}.tmp"
+    temp_path = f"{path}.{uuid4().hex}.tmp"
     try:
         with open(temp_path, "w", encoding="utf-8") as file:
             file.write(payload)
@@ -560,15 +626,63 @@ def _atomic_write_text(path, payload):
             pass
 
 
-def save_config(cfg_dict):
+def save_config(cfg_dict) -> ConfigSaveResult:
     with config_lock:
         try:
+            payload = dumps_strict_json(cfg_dict, indent=4)
             _atomic_write_text(
                 config_path,
-                dumps_strict_json(cfg_dict, indent=4),
+                payload,
             )
-        except Exception:
-            pass
+            with open(config_path, "r", encoding="utf-8") as file:
+                saved_payload = file.read()
+            if saved_payload != payload:
+                return ConfigSaveResult(
+                    False,
+                    "BonkScanner wrote config.json, but its contents could not be verified.",
+                )
+            return ConfigSaveResult(True)
+        except Exception as exc:
+            return ConfigSaveResult(
+                False,
+                f"BonkScanner could not save config.json: {exc}",
+            )
+
+
+def save_settings_with_game_reset(
+    candidate_config: dict,
+    game_value: float,
+    *,
+    sync_game: bool,
+) -> SettingsSaveResult:
+    """Persist Settings as one verified operation, rolling back on failure."""
+    previous_scanner_config = deepcopy(user_config)
+    scanner_result = save_config(candidate_config)
+    if not scanner_result.success:
+        # A replace may have succeeded even when the subsequent readback failed.
+        # Restore the last known-good scanner payload before reporting failure.
+        rollback_result = save_config(previous_scanner_config)
+        rollback_text = (
+            " The previous BonkScanner config was restored."
+            if rollback_result.success
+            else f" Restoring the previous BonkScanner config also failed: {rollback_result.reason}"
+        )
+        return SettingsSaveResult(False, scanner_result.reason + rollback_text)
+
+    if not sync_game:
+        return SettingsSaveResult(True)
+
+    game_result = update_game_reset_time(game_value)
+    if game_result.success:
+        return SettingsSaveResult(True)
+
+    rollback_result = save_config(previous_scanner_config)
+    rollback_text = (
+        " BonkScanner config changes were rolled back."
+        if rollback_result.success
+        else f" BonkScanner config rollback also failed: {rollback_result.reason}"
+    )
+    return SettingsSaveResult(False, game_result.reason + rollback_text)
 
 
 def get_local_appdata_dir() -> str | None:
@@ -659,14 +773,6 @@ def coerce_float(value, default=0.0):
     return parsed
 
 
-def normalize_min_reset_hold_duration(value) -> float:
-    """Return the configurable absolute floor for scanner key holds."""
-    parsed = coerce_float(value, DEFAULT_MIN_RESET_HOLD_DURATION)
-    if not LOWEST_RESET_HOLD_DURATION <= parsed <= MAX_RESET_HOLD_DURATION:
-        return DEFAULT_MIN_RESET_HOLD_DURATION
-    return round(parsed, 2)
-
-
 def normalize_reset_hold_safety_margin(value) -> float:
     """Return a finite two-decimal safety margin from the advanced config key."""
     parsed = coerce_float(value, DEFAULT_RESET_HOLD_SAFETY_MARGIN)
@@ -675,26 +781,37 @@ def normalize_reset_hold_safety_margin(value) -> float:
     return round(parsed, 2)
 
 
-MIN_RESET_HOLD_DURATION = normalize_min_reset_hold_duration(
-    user_config.get("MIN_RESET_HOLD_DURATION")
-)
-user_config["MIN_RESET_HOLD_DURATION"] = MIN_RESET_HOLD_DURATION
-
 RESET_HOLD_SAFETY_MARGIN = normalize_reset_hold_safety_margin(
     user_config.get("RESET_HOLD_SAFETY_MARGIN")
 )
 user_config["RESET_HOLD_SAFETY_MARGIN"] = RESET_HOLD_SAFETY_MARGIN
+# The old absolute scanner floor is obsolete. The only meaningful minimum is
+# the game's 0.01-second threshold plus the selected safety margin.
+user_config.pop("MIN_RESET_HOLD_DURATION", None)
+
+
+def minimum_reset_hold_duration(safety_margin: float | None = None) -> float:
+    margin = (
+        RESET_HOLD_SAFETY_MARGIN
+        if safety_margin is None
+        else normalize_reset_hold_safety_margin(safety_margin)
+    )
+    return round(MIN_GAME_QUICK_RESET_TIME + margin, 2)
 
 
 def resolve_auto_reroll_setup_guide_acknowledged(
     saved_value,
     *,
     config_existed: bool,
+    saved_version=None,
+    current_version: int = 2,
 ) -> bool:
-    """Distinguish a new install from an existing config predating the guide."""
-    if isinstance(saved_value, bool):
-        return saved_value
-    return bool(config_existed)
+    """Require every install to acknowledge the current guide revision once."""
+    del config_existed
+    return (
+        saved_value is True
+        and coerce_nonnegative_int(saved_version, 0) >= int(current_version)
+    )
 
 
 def resolve_stop_scanning_on_player_movement(saved_value) -> bool:
@@ -702,14 +819,16 @@ def resolve_stop_scanning_on_player_movement(saved_value) -> bool:
     return saved_value if isinstance(saved_value, bool) else False
 
 
-# A missing key means two different things. With no config file it is a genuine
-# first launch; in an existing install it predates the guide and must not be
-# interrupted by an upgrade. Persisting the resolved value also keeps a first-
-# launch dismissal via X/Esc pending when some other startup setting is saved.
+# Version 2 documents the editable margin, the derived Megabonk value and the
+# requirement to close the game before saving. Every existing installation has
+# version 0/1 and therefore sees it once, even if the old guide was acknowledged.
+AUTO_REROLL_SETUP_GUIDE_VERSION = 2
 AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = (
     resolve_auto_reroll_setup_guide_acknowledged(
         user_config.get("AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"),
         config_existed=CONFIG_FILE_EXISTED_AT_STARTUP,
+        saved_version=user_config.get("AUTO_REROLL_SETUP_GUIDE_VERSION"),
+        current_version=AUTO_REROLL_SETUP_GUIDE_VERSION,
     )
 )
 user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"] = (
@@ -1293,7 +1412,7 @@ def resolve_reset_hold_duration(
     else:
         duration = DEFAULT_RESET_HOLD_DURATION
 
-    duration = max(MIN_RESET_HOLD_DURATION, duration)
+    duration = max(minimum_reset_hold_duration(), duration)
 
     if game_floor is not None and round(duration, 2) < round(game_floor, 2):
         return game_floor, round(duration, 2)

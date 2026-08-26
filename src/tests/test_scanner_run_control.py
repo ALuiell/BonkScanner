@@ -838,6 +838,60 @@ class BackgroundLoopTests(unittest.TestCase):
         # method out on the app double.
         self.assertEqual(client.get_map_stats_calls, 0)
 
+    def test_readiness_timeout_retries_current_map_before_any_restart(self) -> None:
+        restart_calls: list[str] = []
+        evaluations: list[dict[str, int]] = []
+        scanner, run_control = build_pair(
+            provider=SimpleNamespace(
+                restart_run=lambda: restart_calls.append("restart"),
+            ),
+        )
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.wait_calls = 0
+
+            def wait_for_map_ready(self, **_kwargs):
+                self.wait_calls += 1
+                if self.wait_calls == 1:
+                    raise TimeoutError("new map stats were temporarily unreadable")
+                return {"Moais": 4}
+
+            def get_map_generation_state(self):
+                return object()
+
+            def close(self):
+                pass
+
+        client = FakeClient()
+        scanner.client = client
+        scanner.scan_event.set()
+        scanner.is_running = True
+        scanner.is_ready_to_start = True
+        run_control.is_game_window_active = lambda _process_name: True
+        run_control.wait_for_game_window_focus = lambda _process_name: True
+        run_control.handle_confirmed_target_window = (
+            lambda _process_name: scanner.stop_event.set() or True
+        )
+
+        def evaluate(stats, _active, context=None):
+            del context
+            evaluations.append(stats)
+            return {"name": "Recovered target", "color": "GREEN"}
+
+        with patch.object(gui_scanner, "adapt_map_stats", lambda raw: raw), patch.object(
+            gui_scanner,
+            "evaluate_candidate",
+            evaluate,
+        ):
+            scanner.background_loop()
+
+        self.assertEqual(client.wait_calls, 2)
+        self.assertEqual(evaluations, [{"Moais": 4}])
+        self.assertEqual(restart_calls, [])
+        messages = [str(message) for message, _tag in scanner.calls["log"]]
+        self.assertTrue(any("without restarting" in message for message in messages))
+
     def test_player_movement_interrupts_map_readiness_wait(self) -> None:
         observed: dict[str, bool] = {}
         restart_calls: list[str] = []

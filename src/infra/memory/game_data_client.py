@@ -76,6 +76,7 @@ class GameDataClient:
     MUSIC_CONTROLLER_CURRENT_TRACK_OFFSET = 0x48
     DICT_ENTRIES_OFFSET = 0x18
     DICT_COUNT_OFFSET = 0x20
+    DICT_VERSION_OFFSET = 0x2C
     ENTRY_BASE_OFFSET = 0x20
     ENTRY_SIZE = 0x18
     ENTRY_KEY_OFFSET = 0x8
@@ -102,6 +103,8 @@ class GameDataClient:
     # participate in map-ready normalization.
     OPTIONAL_READY_STATS = frozenset({MapStat.BALD_HEADS})
     EXPECTED_READY_STATS = frozenset(LABEL_TO_STAT.values()) - OPTIONAL_READY_STATS
+    READY_POLL_INTERVAL = 0.01
+    READY_STATS_STABILITY_DURATION = 0.025
 
     def __init__(
         self,
@@ -117,6 +120,8 @@ class GameDataClient:
         self._owns_memory = memory is None
         self.memory: MemoryReader = memory or ProcessMemory(process_name)
         self._cached_static_fields: dict[int, int] = {}
+        self._last_activity_revision: tuple[int, int, int] | None = None
+        self.last_ready_state: MapGenerationState | None = None
 
     def close(self) -> None:
         if self._owns_memory and hasattr(self.memory, "close"):
@@ -128,42 +133,48 @@ class GameDataClient:
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
-    def get_map_generation_state(self) -> MapGenerationState:
-        map_generation_static_fields = self._read_static_fields(
+    def get_map_generation_state(self, *, strict: bool = False) -> MapGenerationState:
+        read_static_fields = (
+            self._read_static_fields_strict if strict else self._read_static_fields
+        )
+        map_generation_static_fields = read_static_fields(
             self.MAP_GENERATION_CONTROLLER_TYPE_INFO_OFFSET,
         )
-        map_controller_static_fields = self._read_static_fields(
+        map_controller_static_fields = read_static_fields(
             self.MAP_CONTROLLER_TYPE_INFO_OFFSET,
         )
 
         if not map_generation_static_fields and not map_controller_static_fields:
             return MapGenerationState()
 
-        is_generating = self._read_bool(
+        read_bool = self._read_bool_strict if strict else self._read_bool
+        read_i32 = self._read_i32_strict if strict else self._read_i32_optional
+        read_ptr = self._read_ptr_strict if strict else self._read_ptr_optional
+        is_generating = read_bool(
             map_generation_static_fields,
             self.MAP_GENERATION_IS_GENERATING_OFFSET,
         )
-        map_seed = self._read_i32_optional(
+        map_seed = read_i32(
             map_generation_static_fields,
             self.MAP_GENERATION_MAP_SEED_OFFSET,
         )
-        current_map_ptr = self._read_ptr_optional(
+        current_map_ptr = read_ptr(
             map_controller_static_fields,
             self.MAP_CONTROLLER_CURRENT_MAP_OFFSET,
         )
-        current_stage_ptr = self._read_ptr_optional(
+        current_stage_ptr = read_ptr(
             map_controller_static_fields,
             self.MAP_CONTROLLER_CURRENT_STAGE_OFFSET,
         )
-        is_resetting = self._read_bool(
+        is_resetting = read_bool(
             map_controller_static_fields,
             self.MAP_CONTROLLER_RESETING_OFFSET,
         )
-        stage_index = self._read_i32_optional(
+        stage_index = read_i32(
             map_controller_static_fields,
             self.MAP_CONTROLLER_INDEX_OFFSET,
         )
-        is_final_boss_stage = self._read_bool(
+        is_final_boss_stage = read_bool(
             map_controller_static_fields,
             self.MAP_CONTROLLER_IS_FINAL_BOSS_STAGE_OFFSET,
         )
@@ -406,9 +417,11 @@ class GameDataClient:
         previous_stats: dict[MapStat, StatValue] | None = None,
         require_change: bool = True,
         timeout: float = 10.0,
-        poll_interval: float = 0.05,
+        poll_interval: float = READY_POLL_INTERVAL,
+        stats_stability_duration: float = READY_STATS_STABILITY_DURATION,
         abort_condition: Callable[[], bool] | None = None,
     ) -> dict[MapStat, StatValue]:
+        self.last_ready_state = None
         deadline = time.monotonic() + timeout
         generation_seen = False
         map_change_seen = False
@@ -434,9 +447,13 @@ class GameDataClient:
         baseline_stats = self._normalize_ready_stats(previous_stats) if previous_stats is not None else None
         stable_stats: dict[MapStat, StatValue] | None = None
         ready_raw_stats: dict[MapStat, StatValue] | None = None
+        stable_activity_revision: tuple[int, int, int] | None = None
+        stable_stats_since: float | None = None
         stable_stats_seen = False
-        last_stats_count = 0
-        zero_defaulted_stats: set[MapStat] = set(self.EXPECTED_READY_STATS)
+        last_stats_count = len(previous_stats) if previous_stats is not None else 0
+        zero_defaulted_stats: set[MapStat] = self.EXPECTED_READY_STATS.difference(
+            previous_stats.keys() if previous_stats is not None else ()
+        )
         last_state = MapGenerationState()
         last_error: Exception | None = None
 
@@ -445,7 +462,11 @@ class GameDataClient:
                 raise InterruptedError("Wait aborted by user.")
 
             try:
-                last_state = self.get_map_generation_state()
+                # Readiness must fail closed. The general state projection uses
+                # optional fields because UI readers prefer UNKNOWN/defaults,
+                # but turning a failed `isGenerating` read into False here can
+                # confirm a map while the dictionary is still being rebuilt.
+                last_state = self.get_map_generation_state(strict=True)
                 generation_seen = generation_seen or last_state.is_generating
                 map_change_seen = map_change_seen or generation_seen
 
@@ -468,43 +489,81 @@ class GameDataClient:
                 ):
                     map_change_seen = True
 
-                stats = self.get_map_stats()
-                ready_stats = self._normalize_ready_stats(stats)
-                last_stats_count = len(stats)
-                zero_defaulted_stats = self.EXPECTED_READY_STATS.difference(stats.keys())
-                if baseline_stats is None:
-                    baseline_stats = ready_stats
-                elif ready_stats != baseline_stats and not has_baseline_identity:
-                    # Stats are a last-resort map identity only. During a real
-                    # restart the old map is torn down before `is_generating`
-                    # flips and before the seed changes; Chests/Pots maxima can
-                    # therefore shrink through several stable snapshots while
-                    # every score-relevant value still belongs to the old map.
-                    # Treating that teardown as a completed map change logs the
-                    # old map twice and immediately sends a second restart.
-                    # When a seed or pointer baseline exists, wait for that
-                    # identity (or the observed generation cycle) instead.
-                    map_change_seen = True
-
-                if (
-                    (not require_change or generation_seen or map_change_seen)
-                    and not last_state.is_generating
+                lifecycle_ready = (
+                    not last_state.is_generating
                     and not last_state.is_resetting
                     and last_state.has_loaded_map
-                    and self._is_ready_stats(stats)
-                ):
-                    if ready_stats == stable_stats and ready_raw_stats is not None:
-                        return ready_raw_stats
-                    stable_stats = ready_stats
-                    ready_raw_stats = stats
-                    stable_stats_seen = True
-                else:
+                )
+                change_ready = not require_change or generation_seen or map_change_seen
+
+                # State reads are much cheaper than walking the interactables
+                # dictionary. Stay in the fast phase until the generation
+                # lifecycle can plausibly represent the new map. Without a
+                # seed/pointer baseline, stats remain the last-resort identity.
+                if not lifecycle_ready or (not change_ready and has_baseline_identity):
                     stable_stats = None
                     ready_raw_stats = None
+                    stable_activity_revision = None
+                    stable_stats_since = None
+                else:
+                    stats = self.get_map_stats()
+                    activity_revision = getattr(self, "_last_activity_revision", None)
+                    ready_stats = self._normalize_ready_stats(stats)
+                    # Map identity and snapshot stability have different rules.
+                    # Bald Heads is optional across maps, so it must not be the
+                    # only evidence that a restart completed. Once lifecycle or
+                    # another identity proves the new map, however, every stat
+                    # we will return to the evaluator must settle. Comparing the
+                    # complete snapshot prevents an early Bald Heads value from
+                    # being kept while later samples already contain its final
+                    # value.
+                    stability_stats = dict(stats)
+                    last_stats_count = len(stats)
+                    zero_defaulted_stats = self.EXPECTED_READY_STATS.difference(stats.keys())
+                    if baseline_stats is None:
+                        baseline_stats = ready_stats
+                    elif ready_stats != baseline_stats and not has_baseline_identity:
+                        # Stats are a last-resort map identity only. During a real
+                        # restart the old map is torn down before `is_generating`
+                        # flips and before the seed changes; Chests/Pots maxima can
+                        # therefore shrink through several stable snapshots while
+                        # every score-relevant value still belongs to the old map.
+                        # Treating that teardown as a completed map change logs the
+                        # old map twice and immediately sends a second restart.
+                        # When a seed or pointer baseline exists, wait for that
+                        # identity (or the observed generation cycle) instead.
+                        map_change_seen = True
+                        change_ready = True
+
+                    if change_ready and self._is_ready_stats(stats):
+                        observed_at = time.monotonic()
+                        if (
+                            stability_stats != stable_stats
+                            or activity_revision != stable_activity_revision
+                            or ready_raw_stats is None
+                        ):
+                            stable_stats = stability_stats
+                            ready_raw_stats = stats
+                            stable_activity_revision = activity_revision
+                            stable_stats_since = observed_at
+                            stable_stats_seen = True
+                        elif (
+                            stable_stats_since is not None
+                            and observed_at - stable_stats_since >= stats_stability_duration
+                        ):
+                            self.last_ready_state = last_state
+                            return ready_raw_stats
+                    else:
+                        stable_stats = None
+                        ready_raw_stats = None
+                        stable_activity_revision = None
+                        stable_stats_since = None
             except MemoryReadError as exc:
                 last_error = exc
                 stable_stats = None
                 ready_raw_stats = None
+                stable_activity_revision = None
+                stable_stats_since = None
 
             time.sleep(poll_interval)
 
@@ -528,6 +587,7 @@ class GameDataClient:
         }
 
     def get_map_activity_values(self) -> dict[str, StatValue]:
+        self._last_activity_revision = None
         activities: dict[str, StatValue] = {}
         type_info_address = self.memory.module_offset(
             self.module_name,
@@ -548,35 +608,58 @@ class GameDataClient:
         entries = self.memory.read_ptr(interactables_dict + self.DICT_ENTRIES_OFFSET)
         count = self.memory.read_i32(interactables_dict + self.DICT_COUNT_OFFSET)
 
-        if not entries:
-            return activities
-
         if count < 0 or count > self.MAX_DICT_ENTRIES:
             raise MemoryReadError(f"Interactables dictionary count is invalid: {count}")
+        if not entries:
+            if count:
+                raise MemoryReadError(
+                    f"Interactables dictionary has {count} entries but a null entries array."
+                )
+            return activities
+
+        # Mono's Dictionary increments `_version` on Clear/Add. Live traces
+        # confirm that it advances for both halves of a restart. Reading the
+        # structural revision on both sides prevents a mixed snapshot when the
+        # game mutates the dictionary during our traversal.
+        version = self.memory.read_i32(
+            interactables_dict + self.DICT_VERSION_OFFSET
+        )
 
         for index in range(count):
             interactables_entry = entries + self.ENTRY_BASE_OFFSET + (index * self.ENTRY_SIZE)
 
-            try:
-                key_ptr = self.memory.read_ptr(interactables_entry + self.ENTRY_KEY_OFFSET)
-                value_ptr = self.memory.read_ptr(interactables_entry + self.ENTRY_VALUE_OFFSET)
-            except MemoryReadError:
-                continue
+            key_ptr = self.memory.read_ptr(interactables_entry + self.ENTRY_KEY_OFFSET)
+            value_ptr = self.memory.read_ptr(interactables_entry + self.ENTRY_VALUE_OFFSET)
 
             if not key_ptr or not value_ptr:
                 continue
 
             label = self.memory.read_mono_string(key_ptr)
             if not label:
-                continue
+                raise MemoryReadError(
+                    f"Interactables dictionary label is unreadable at 0x{key_ptr:X}."
+                )
 
-            try:
-                max_value = self.memory.read_i32(value_ptr + self.CONTAINER_MAX_OFFSET)
-                current_value = self.memory.read_i32(value_ptr + self.CONTAINER_CURRENT_OFFSET)
-            except MemoryReadError:
-                continue
+            max_value = self.memory.read_i32(value_ptr + self.CONTAINER_MAX_OFFSET)
+            current_value = self.memory.read_i32(value_ptr + self.CONTAINER_CURRENT_OFFSET)
 
             activities[label] = StatValue(current=current_value, max=max_value)
+
+        entries_after = self.memory.read_ptr(
+            interactables_dict + self.DICT_ENTRIES_OFFSET
+        )
+        count_after = self.memory.read_i32(
+            interactables_dict + self.DICT_COUNT_OFFSET
+        )
+        version_after = self.memory.read_i32(
+            interactables_dict + self.DICT_VERSION_OFFSET
+        )
+        revision = (entries, count, version)
+        if (entries_after, count_after, version_after) != revision:
+            raise MemoryReadError(
+                "Interactables dictionary changed while its snapshot was being read."
+            )
+        self._last_activity_revision = revision
 
         return activities
 
@@ -589,6 +672,20 @@ class GameDataClient:
             return self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
         except MemoryReadError:
             return 0
+
+    def _read_static_fields_strict(self, type_info_offset: int) -> int:
+        type_info_address = self.memory.module_offset(self.module_name, type_info_offset)
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError(
+                f"Type info is not initialized at module offset 0x{type_info_offset:X}."
+            )
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError(
+                f"Static fields are not initialized for module offset 0x{type_info_offset:X}."
+            )
+        return static_fields
 
     def _read_static_fields_cached(self, type_info_offset: int) -> int:
         cached = self._cached_static_fields.get(type_info_offset, 0)
@@ -607,6 +704,11 @@ class GameDataClient:
         except MemoryReadError:
             return False
 
+    def _read_bool_strict(self, base_address: int, offset: int) -> bool:
+        if not base_address:
+            raise MemoryReadError(f"Cannot read bool at null base + 0x{offset:X}.")
+        return self.memory.read_u8(base_address + offset) != 0
+
     def _read_i32_optional(self, base_address: int, offset: int) -> int | None:
         if not base_address:
             return None
@@ -614,6 +716,11 @@ class GameDataClient:
             return self.memory.read_i32(base_address + offset)
         except MemoryReadError:
             return None
+
+    def _read_i32_strict(self, base_address: int, offset: int) -> int:
+        if not base_address:
+            raise MemoryReadError(f"Cannot read i32 at null base + 0x{offset:X}.")
+        return self.memory.read_i32(base_address + offset)
 
     def _read_float_optional(self, base_address: int, offset: int) -> float | None:
         if not base_address:
@@ -630,6 +737,11 @@ class GameDataClient:
             return self.memory.read_ptr(base_address + offset)
         except MemoryReadError:
             return 0
+
+    def _read_ptr_strict(self, base_address: int, offset: int) -> int:
+        if not base_address:
+            raise MemoryReadError(f"Cannot read pointer at null base + 0x{offset:X}.")
+        return self.memory.read_ptr(base_address + offset)
 
     def _is_ready_stats(self, stats: dict[MapStat, StatValue]) -> bool:
         return bool(stats)
