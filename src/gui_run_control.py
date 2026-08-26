@@ -215,7 +215,10 @@ class RunControl:
 
     def get_game_process_id(self) -> int | None:
         process_id = self.attached_game_process_id()
-        if process_id is not None:
+        if (
+            process_id is not None
+            and self._process_id_matches_name(process_id, config.PROCESS_NAME)
+        ):
             return process_id
         return self.find_game_process_id(config.PROCESS_NAME)
 

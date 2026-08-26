@@ -1190,6 +1190,67 @@ class GuiRunControlTests(unittest.TestCase):
         app._run_control = SimpleNamespace(get_game_process_id=lambda: None)
         self.assertFalse(MegabonkApp.is_game_running(app))
 
+    def test_game_process_id_keeps_a_live_attached_process(self) -> None:
+        run_control = gui_run_control.RunControl.__new__(gui_run_control.RunControl)
+
+        with patch.object(
+            run_control,
+            "attached_game_process_id",
+            return_value=1234,
+        ), patch.object(
+            run_control,
+            "_process_id_matches_name",
+            return_value=True,
+        ) as matches_name, patch.object(
+            run_control,
+            "find_game_process_id",
+        ) as find_process:
+            self.assertEqual(run_control.get_game_process_id(), 1234)
+
+        matches_name.assert_called_once_with(1234, config.PROCESS_NAME)
+        find_process.assert_not_called()
+
+    def test_game_process_id_rejects_a_stale_attached_process(self) -> None:
+        run_control = gui_run_control.RunControl.__new__(gui_run_control.RunControl)
+
+        with patch.object(
+            run_control,
+            "attached_game_process_id",
+            return_value=1234,
+        ), patch.object(
+            run_control,
+            "_process_id_matches_name",
+            return_value=False,
+        ) as matches_name, patch.object(
+            run_control,
+            "find_game_process_id",
+            return_value=None,
+        ) as find_process:
+            self.assertIsNone(run_control.get_game_process_id())
+
+        matches_name.assert_called_once_with(1234, config.PROCESS_NAME)
+        find_process.assert_called_once_with(config.PROCESS_NAME)
+
+    def test_game_process_id_finds_current_process_after_stale_attachment(self) -> None:
+        run_control = gui_run_control.RunControl.__new__(gui_run_control.RunControl)
+
+        with patch.object(
+            run_control,
+            "attached_game_process_id",
+            return_value=1234,
+        ), patch.object(
+            run_control,
+            "_process_id_matches_name",
+            return_value=False,
+        ), patch.object(
+            run_control,
+            "find_game_process_id",
+            return_value=5678,
+        ) as find_process:
+            self.assertEqual(run_control.get_game_process_id(), 5678)
+
+        find_process.assert_called_once_with(config.PROCESS_NAME)
+
     def test_settings_save_keeps_dialog_open_when_game_reset_time_cannot_be_applied(self) -> None:
         original_duration = config.RESET_HOLD_DURATION
         original_user_config = deepcopy(config.user_config)
