@@ -126,7 +126,9 @@ class MapMarkerLayer(QWidget):
                 float(icon_size),
             )
 
-            painter.setPen(QPen(QColor(3, 8, 15, 225), max(2, icon_size // 11)))
+            outline = QColor(action.outline_color)
+            outline.setAlpha(225)
+            painter.setPen(QPen(outline, max(2, icon_size // 11)))
             fill = QColor(action.color)
             fill.setAlpha(232)
             painter.setBrush(fill)
@@ -187,7 +189,9 @@ class MapMarkerLayer(QWidget):
                 swatch_size,
                 swatch_size,
             )
-            painter.setPen(QPen(QColor(2, 6, 12, 220), 1.2))
+            outline = QColor(action.outline_color)
+            outline.setAlpha(220)
+            painter.setPen(QPen(outline, 1.2))
             painter.setBrush(QColor(action.color))
             painter.drawEllipse(swatch)
 

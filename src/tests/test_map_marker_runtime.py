@@ -163,10 +163,6 @@ class MapMarkerProjectionTests(unittest.TestCase):
             MAP_MARKER_ACTION_BY_ID["microwave_white"].icon_name,
             "microwave_dark",
         )
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["shady_guy_white"].icon_name,
-            "shady_guy_dark",
-        )
         self.assertEqual(MAP_MARKER_ACTION_BY_ID["moai"].icon_name, "moai_dark")
         self.assertEqual(
             MAP_MARKER_ACTION_BY_ID["balance_shrine"].icon_name,
@@ -188,6 +184,23 @@ class MapMarkerProjectionTests(unittest.TestCase):
             MAP_MARKER_ACTION_BY_ID["balance_shrine"].settings_icon_name,
             "balance_shrine",
         )
+
+    def test_shady_guy_uses_colored_fills_with_white_outlines(self) -> None:
+        expected_colors = {
+            "white": "#9AD8A6",
+            "blue": "#48A9FF",
+            "purple": "#B378FF",
+            "gold": "#F5C84B",
+        }
+        for rarity_id, expected_color in expected_colors.items():
+            action = MAP_MARKER_ACTION_BY_ID[f"shady_guy_{rarity_id}"]
+            self.assertEqual(action.color, expected_color)
+            self.assertEqual(action.outline_color, "#FFFFFF")
+            self.assertEqual(action.icon_name, "shady_guy")
+
+        microwave = MAP_MARKER_ACTION_BY_ID["microwave_white"]
+        self.assertEqual(microwave.color, "#F2F2E9")
+        self.assertEqual(microwave.outline_color, "#03080F")
 
     def test_complete_palette_fits_small_full_map_at_large_scale(self) -> None:
         viewport = MapViewport(20.0, 30.0, 800.0, 800.0)

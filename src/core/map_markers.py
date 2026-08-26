@@ -20,6 +20,7 @@ class MapMarkerAction:
     variant: str | None
     icon_name: str
     color: str
+    outline_color: str = "#03080F"
     manual_only: bool = False
 
     @property
@@ -108,6 +109,7 @@ _RARITIES = (
     ("gold", "Gold", "#F5C84B"),
 )
 _RARITY_IDS = tuple(rarity_id for rarity_id, _label, _color in _RARITIES)
+_SHADY_GUY_BASE_COLOR = "#9AD8A6"
 
 
 MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
@@ -126,8 +128,9 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         family="shady_guy",
         label="Shady Guy",
         variant=rarity_label,
-        icon_name="shady_guy_dark" if rarity_id == "white" else "shady_guy",
-        color=color,
+        icon_name="shady_guy",
+        color=_SHADY_GUY_BASE_COLOR if rarity_id == "white" else color,
+        outline_color="#FFFFFF",
     )
     for rarity_id, rarity_label, color in _RARITIES
 ) + (
