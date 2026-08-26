@@ -733,11 +733,88 @@ class MapMarkerLifecycleTests(unittest.TestCase):
             653.3333 + point[1] * (4.0 / 3.0),
             0.0,
         )
+        client._read_ui_screen_bounds = lambda _native: (
+            0.0,
+            0.0,
+            2560.0,
+            1440.0,
+        )
         viewport = client._read_viewport(full_map, 2560, 1440, 1.25)
         self.assertAlmostEqual(viewport.left, 26.6666, places=3)
         self.assertAlmostEqual(viewport.top, 229.3334, places=3)
         self.assertAlmostEqual(viewport.width, 800.0, places=3)
         self.assertAlmostEqual(viewport.height, 800.0, places=3)
+
+    def test_full_hd_ui_is_scaled_to_a_1440p_client_before_qt_conversion(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        full_map = 0x700000
+        transform = 0x710000
+        native = 0x720000
+        memory.ptrs[full_map + client.FULL_MAP_DISPLAY_TRANSFORM_OFFSET] = transform
+        memory.ptrs[transform + client.MANAGED_NATIVE_OFFSET] = native
+        memory.blobs[native + client.RECT_TRANSFORM_RECT_OFFSET] = struct.pack(
+            "<4f", 0.0, -375.0, 750.0, 750.0
+        )
+
+        # Live 1920x1080-on-2560x1440 capture: the game's UI coordinates stop
+        # at 1920x1080 while the borderless Win32 client remains 2560x1440.
+        client._transform_point = lambda _transform, point: (
+            25.0 + point[0],
+            490.0 + point[1],
+            0.0,
+        )
+        client._read_ui_screen_bounds = lambda _native: (
+            0.0,
+            0.0,
+            1920.0,
+            1080.0,
+        )
+
+        viewport = client._read_viewport(full_map, 2560, 1440, 1.25)
+
+        self.assertAlmostEqual(viewport.left, 26.6667, places=3)
+        self.assertAlmostEqual(viewport.top, 229.3333, places=3)
+        self.assertAlmostEqual(viewport.width, 800.0, places=3)
+        self.assertAlmostEqual(viewport.height, 800.0, places=3)
+
+    def test_viewport_updates_when_game_resolution_changes_at_runtime(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        full_map = 0x700000
+        transform = 0x710000
+        native = 0x720000
+        memory.ptrs[full_map + client.FULL_MAP_DISPLAY_TRANSFORM_OFFSET] = transform
+        memory.ptrs[transform + client.MANAGED_NATIVE_OFFSET] = native
+        memory.blobs[native + client.RECT_TRANSFORM_RECT_OFFSET] = struct.pack(
+            "<4f", 0.0, -375.0, 750.0, 750.0
+        )
+        layout = {
+            "origin_x": 33.3333,
+            "origin_y": 653.3333,
+            "scale": 4.0 / 3.0,
+            "screen": (0.0, 0.0, 2560.0, 1440.0),
+        }
+        client._transform_point = lambda _transform, point: (
+            layout["origin_x"] + point[0] * layout["scale"],
+            layout["origin_y"] + point[1] * layout["scale"],
+            0.0,
+        )
+        client._read_ui_screen_bounds = lambda _native: layout["screen"]
+
+        native_1440p = client._read_viewport(full_map, 2560, 1440, 1.25)
+        layout.update(
+            origin_x=25.0,
+            origin_y=490.0,
+            scale=1.0,
+            screen=(0.0, 0.0, 1920.0, 1080.0),
+        )
+        upscaled_1080p = client._read_viewport(full_map, 2560, 1440, 1.25)
+
+        self.assertAlmostEqual(upscaled_1080p.left, native_1440p.left, places=3)
+        self.assertAlmostEqual(upscaled_1080p.top, native_1440p.top, places=3)
+        self.assertAlmostEqual(upscaled_1080p.width, native_1440p.width, places=3)
+        self.assertAlmostEqual(upscaled_1080p.height, native_1440p.height, places=3)
 
     def test_full_map_viewport_tracks_layout_changes_for_same_map_and_window(self) -> None:
         memory = FakeLifecycleMemory()
@@ -755,6 +832,12 @@ class MapMarkerLifecycleTests(unittest.TestCase):
             layout["left"] + point[0] * layout["scale"],
             layout["bottom"] + point[1] * layout["scale"],
             0.0,
+        )
+        client._read_ui_screen_bounds = lambda _native: (
+            0.0,
+            0.0,
+            2560.0,
+            1440.0,
         )
 
         tab_viewport = client._read_viewport(full_map, 2560, 1440, 1.0)
@@ -779,6 +862,12 @@ class MapMarkerLifecycleTests(unittest.TestCase):
             680.0 + point[1] * (4.0 / 3.0),
             0.0,
         )
+        client._read_ui_screen_bounds = lambda _native: (
+            0.0,
+            0.0,
+            2560.0,
+            1440.0,
+        )
 
         viewport = client._read_viewport(full_map, 2560, 1440, 1.25)
 
@@ -786,6 +875,42 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         self.assertAlmostEqual(viewport.top, 133.3333, places=3)
         self.assertAlmostEqual(viewport.width, 938.6667, places=3)
         self.assertAlmostEqual(viewport.height, 949.3333, places=3)
+
+    def test_ui_screen_bounds_use_the_topmost_transform_in_hierarchy(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        native = 0x720000
+        access = 0x730000
+        parents = 0x740000
+        native_transforms = 0x750000
+        root_native = 0x760000
+        middle_native = 0x770000
+
+        memory.ptrs[native + client.NATIVE_TRANSFORM_ACCESS_OFFSET] = access
+        memory.i32s[native + client.NATIVE_TRANSFORM_INDEX_OFFSET] = 2
+        memory.ptrs[access + client.TRANSFORM_ACCESS_COUNTS_OFFSET] = (3 << 32) | 3
+        memory.ptrs[access + client.TRANSFORM_ACCESS_PARENTS_OFFSET] = parents
+        memory.ptrs[
+            access + client.TRANSFORM_ACCESS_NATIVE_TRANSFORMS_OFFSET
+        ] = native_transforms
+        memory.i32s[parents] = -1
+        memory.i32s[parents + 4] = 0
+        memory.i32s[parents + 8] = 1
+        memory.ptrs[native_transforms] = root_native
+        memory.ptrs[native_transforms + 8] = middle_native
+        memory.ptrs[native_transforms + 16] = native
+
+        self.assertEqual(client._root_native_transform(native), root_native)
+
+    def test_viewport_rejects_an_invalid_ui_screen_surface(self) -> None:
+        with self.assertRaisesRegex(MemoryReadError, "coordinate spaces are invalid"):
+            MapMarkerMemoryClient._map_viewport_to_qt(
+                (25.0, 115.0, 775.0, 865.0),
+                (0.0, 0.0, 0.0, 1080.0),
+                client_width=2560,
+                client_height=1440,
+                display_scale=1.25,
+            )
 
     def test_pause_map_render_is_selected_only_for_current_pause_map(self) -> None:
         memory = FakeLifecycleMemory()

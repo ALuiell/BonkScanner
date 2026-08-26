@@ -8,8 +8,9 @@ turning a stale read into a plausible marker position.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import struct
-from typing import Any
+from typing import Any, Callable
 
 from core.map_markers import MapViewport, action_id_for_interactable
 from infra.memory.reader import MemoryReadError, ProcessMemory
@@ -477,33 +478,28 @@ class MapMarkerMemoryClient:
                 full_map + self.FULL_MAP_DISPLAY_TRANSFORM_OFFSET
             )
             native = self.memory.read_ptr(transform + self.MANAGED_NATIVE_OFFSET)
-        x, y, width, height = struct.unpack(
-            "<4f",
-            self.memory.read_bytes(native + self.RECT_TRANSFORM_RECT_OFFSET, 16),
+        map_bounds = self._read_rect_transform_bounds(
+            native,
+            point_reader=(
+                (lambda point: self._transform_point_native(native, point))
+                if not transform
+                else (lambda point: self._transform_point(transform, point))
+            ),
         )
-        point_reader = (
-            (lambda point: self._transform_point_native(native, point))
-            if not transform
-            else (lambda point: self._transform_point(transform, point))
-        )
-        corners = tuple(
-            point_reader(point)
-            for point in (
-                (x, y, 0.0),
-                (x, y + height, 0.0),
-                (x + width, y + height, 0.0),
-                (x + width, y, 0.0),
-            )
-        )
-        left = min(point[0] for point in corners)
-        right = max(point[0] for point in corners)
-        unity_bottom = min(point[1] for point in corners)
-        unity_top = max(point[1] for point in corners)
-        viewport = MapViewport(
-            left=left / display_scale,
-            top=(float(client_height) - unity_top) / display_scale,
-            width=(right - left) / display_scale,
-            height=(unity_top - unity_bottom) / display_scale,
+        # A borderless Unity window keeps the native-size Win32 client while it
+        # renders the UI in the selected in-game resolution.  Dividing Unity
+        # coordinates only by Qt's device-pixel ratio therefore works by
+        # accident when both resolutions match and shifts/shrinks the markers
+        # at 1080p on a 1440p monitor.  The topmost RectTransform in this same
+        # hierarchy is the live GameUI surface, so normalize through its actual
+        # bounds before entering Qt logical pixels.
+        screen_bounds = self._read_ui_screen_bounds(native)
+        viewport = self._map_viewport_to_qt(
+            map_bounds,
+            screen_bounds,
+            client_width=client_width,
+            client_height=client_height,
+            display_scale=display_scale,
         )
         if viewport.width <= 0.0 or viewport.height <= 0.0:
             raise MemoryReadError(f"Full Map viewport is invalid: {viewport}")
@@ -515,6 +511,146 @@ class MapMarkerMemoryClient:
             viewport,
         )
         return viewport
+
+    def _read_rect_transform_bounds(
+        self,
+        native: int,
+        *,
+        point_reader: Callable[
+            [tuple[float, float, float]], tuple[float, float, float]
+        ] | None = None,
+    ) -> tuple[float, float, float, float]:
+        if not native:
+            raise MemoryReadError("RectTransform native object is unavailable.")
+        x, y, width, height = struct.unpack(
+            "<4f",
+            self.memory.read_bytes(native + self.RECT_TRANSFORM_RECT_OFFSET, 16),
+        )
+        if point_reader is None:
+            point_reader = lambda point: self._transform_point_native(native, point)
+        corners = tuple(
+            point_reader(point)
+            for point in (
+                (x, y, 0.0),
+                (x, y + height, 0.0),
+                (x + width, y + height, 0.0),
+                (x + width, y, 0.0),
+            )
+        )
+        coordinates = tuple(
+            float(value) for point in corners for value in point[:2]
+        )
+        if not all(math.isfinite(value) for value in coordinates):
+            raise MemoryReadError("RectTransform bounds contain non-finite values.")
+        left = min(point[0] for point in corners)
+        right = max(point[0] for point in corners)
+        bottom = min(point[1] for point in corners)
+        top = max(point[1] for point in corners)
+        if right <= left or top <= bottom:
+            raise MemoryReadError(
+                "RectTransform bounds are empty: "
+                f"left={left}, bottom={bottom}, right={right}, top={top}."
+            )
+        return left, bottom, right, top
+
+    def _read_ui_screen_bounds(
+        self, native: int
+    ) -> tuple[float, float, float, float]:
+        return self._read_rect_transform_bounds(
+            self._root_native_transform(native)
+        )
+
+    def _root_native_transform(self, native: int) -> int:
+        access = self.memory.read_ptr(native + self.NATIVE_TRANSFORM_ACCESS_OFFSET)
+        index = self.memory.read_i32(native + self.NATIVE_TRANSFORM_INDEX_OFFSET)
+        packed_counts = self.memory.read_ptr(
+            access + self.TRANSFORM_ACCESS_COUNTS_OFFSET
+        )
+        capacity = packed_counts & 0xFFFFFFFF
+        count = (packed_counts >> 32) & 0xFFFFFFFF
+        if not (0 <= index < count <= capacity <= self.MAX_NATIVE_TRANSFORMS):
+            raise MemoryReadError(
+                "UI TransformAccess count is invalid: "
+                f"index={index}, count={count}, capacity={capacity}."
+            )
+        parents = self.memory.read_ptr(
+            access + self.TRANSFORM_ACCESS_PARENTS_OFFSET
+        )
+        native_transforms = self.memory.read_ptr(
+            access + self.TRANSFORM_ACCESS_NATIVE_TRANSFORMS_OFFSET
+        )
+        if not parents or not native_transforms:
+            raise MemoryReadError("UI Transform hierarchy is unavailable.")
+
+        root_index = index
+        depth = 0
+        while True:
+            if depth >= self.MAX_TRANSFORM_DEPTH:
+                raise MemoryReadError("UI Transform hierarchy exceeded safe depth.")
+            parent = self.memory.read_i32(parents + root_index * 4)
+            if parent == -1:
+                break
+            if not 0 <= parent < count:
+                raise MemoryReadError(
+                    f"UI Transform parent index is invalid: {parent}."
+                )
+            root_index = parent
+            depth += 1
+
+        root_native = self.memory.read_ptr(native_transforms + root_index * 8)
+        if not root_native:
+            raise MemoryReadError("UI root RectTransform is unavailable.")
+        return root_native
+
+    @staticmethod
+    def _map_viewport_to_qt(
+        map_bounds: tuple[float, float, float, float],
+        screen_bounds: tuple[float, float, float, float],
+        *,
+        client_width: int,
+        client_height: int,
+        display_scale: float,
+    ) -> MapViewport:
+        map_left, map_bottom, map_right, map_top = map_bounds
+        screen_left, screen_bottom, screen_right, screen_top = screen_bounds
+        screen_width = screen_right - screen_left
+        screen_height = screen_top - screen_bottom
+        scale = float(display_scale)
+        values = (
+            map_left,
+            map_bottom,
+            map_right,
+            map_top,
+            screen_left,
+            screen_bottom,
+            screen_right,
+            screen_top,
+            screen_width,
+            screen_height,
+            scale,
+        )
+        if (
+            not all(math.isfinite(float(value)) for value in values)
+            or screen_width <= 0.0
+            or screen_height <= 0.0
+            or int(client_width) <= 0
+            or int(client_height) <= 0
+            or scale <= 0.0
+        ):
+            raise MemoryReadError(
+                "Full Map coordinate spaces are invalid: "
+                f"map={map_bounds}, screen={screen_bounds}, "
+                f"client=({client_width}, {client_height}), scale={display_scale}."
+            )
+
+        logical_width = float(client_width) / scale
+        logical_height = float(client_height) / scale
+        return MapViewport(
+            left=(map_left - screen_left) / screen_width * logical_width,
+            top=(screen_top - map_top) / screen_height * logical_height,
+            width=(map_right - map_left) / screen_width * logical_width,
+            height=(map_top - map_bottom) / screen_height * logical_height,
+        )
 
     def _resolve_pause_map_render_native_transform(self) -> int:
         type_info = self.memory.read_ptr(
