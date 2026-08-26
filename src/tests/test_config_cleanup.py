@@ -525,5 +525,31 @@ class FastTrackerIntervalConfigTests(unittest.TestCase):
         )
 
 
+class RecordingSnapshotIntervalConfigTests(unittest.TestCase):
+    def test_recording_snapshot_interval_preserves_minimum_bound(self) -> None:
+        self.assertEqual(
+            config.resolve_player_stats_record_interval_seconds(
+                {"PLAYER_STATS_RECORD_INTERVAL_SECONDS": 1}
+            ),
+            config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+        )
+
+    def test_recording_snapshot_interval_preserves_larger_value(self) -> None:
+        self.assertEqual(
+            config.resolve_player_stats_record_interval_seconds(
+                {"PLAYER_STATS_RECORD_INTERVAL_SECONDS": 60}
+            ),
+            60,
+        )
+
+    def test_invalid_recording_snapshot_interval_uses_default(self) -> None:
+        self.assertEqual(
+            config.resolve_player_stats_record_interval_seconds(
+                {"PLAYER_STATS_RECORD_INTERVAL_SECONDS": "invalid"}
+            ),
+            config.DEFAULT_PLAYER_STATS_RECORD_INTERVAL_SECONDS,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

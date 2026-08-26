@@ -139,6 +139,16 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
                 self.assertEqual(dialog.hotkey_entry.text(), str(config.HOTKEY))
                 dialog.reject()
 
+    def test_snapshot_interval_control_uses_full_read_minimum(self) -> None:
+        self.owner.open_settings_dialog()
+        dialog = self.owner._settings_dialog
+
+        self.assertIsNotNone(dialog)
+        self.assertEqual(
+            dialog.record_interval_entry.minimum(),
+            config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

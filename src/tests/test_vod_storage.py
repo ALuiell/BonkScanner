@@ -208,6 +208,23 @@ class VodStorageTests(unittest.TestCase):
         self.assertEqual(recorder.vods_dir, RECORDINGS_DIR)
         self.assertNotEqual(recorder.vods_dir, LEGACY_VODS_DIR)
 
+    def test_recorder_enforces_minimum_snapshot_interval(self) -> None:
+        recorder = VodRecorder(interval_seconds=1)
+
+        self.assertEqual(
+            recorder.interval_seconds,
+            vod_storage.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+        )
+
+        recorder.interval_seconds = 5
+        self.assertEqual(
+            recorder.interval_seconds,
+            vod_storage.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+        )
+
+        recorder.interval_seconds = 60
+        self.assertEqual(recorder.interval_seconds, 60)
+
     def test_recorder_writes_loads_and_renames_vod(self) -> None:
         now = 1000.0
         with tempfile.TemporaryDirectory() as temp_dir:

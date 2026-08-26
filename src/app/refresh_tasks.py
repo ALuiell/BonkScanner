@@ -111,6 +111,7 @@ from core import run_summary
 from app.player_stats_view import player_stats_view
 from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.vod_capture import vod_capture
+from core.settings import FULL_PLAYER_SNAPSHOT_INTERVAL_SECONDS
 from projections import formatting
 
 if TYPE_CHECKING:
@@ -120,7 +121,7 @@ if TYPE_CHECKING:
 # The two refresh cadences, moved here from gui_styles.py in step 17a: this
 # module is what turns them into RefreshTask intervals, and is the only consumer
 # of both.
-PLAYER_STATS_REFRESH_MS = 10_000
+PLAYER_STATS_REFRESH_MS = FULL_PLAYER_SNAPSHOT_INTERVAL_SECONDS * 1_000
 # The recording lifecycle used to inherit the 10 s snapshot cadence above; it is
 # its own decision (step 8b) because it decides run boundaries, and a boundary
 # noticed a whole interval late mis-attributes that interval's kills to the wrong

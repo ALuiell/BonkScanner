@@ -1019,6 +1019,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_settings_save_updates_community_settings_and_applies_run_control_mode(self) -> None:
         master = FakeSettingsMaster()
+        master.player_stats_vod_recorder = SimpleNamespace(interval_seconds=60)
         vod_capture(master).player_stats_auto_recording_suppressed = True
         accepted: list[bool] = []
         dialog = types.SimpleNamespace(
@@ -1032,7 +1033,9 @@ class GuiRunControlTests(unittest.TestCase):
             _initial_reset_hold_duration=self.PREVIOUS_HOLD_DURATION,
             reset_hold_safety_margin_entry=FakeEntry("0.02"),
             _initial_reset_hold_safety_margin=0.05,
-            record_interval_entry=FakeEntry("60"),
+            # A hand-built/legacy control can bypass QSpinBox's UI range. The
+            # save boundary still has to enforce the honest 10 s minimum.
+            record_interval_entry=FakeEntry("1"),
             master=master,
             parent=lambda: None,
             accept=lambda: accepted.append(True),
@@ -1071,10 +1074,21 @@ class GuiRunControlTests(unittest.TestCase):
         saved_candidate, saved_game_value = save_settings.call_args.args
         self.assertEqual(saved_candidate["RESET_HOLD_DURATION"], 0.25)
         self.assertEqual(saved_candidate["RESET_HOLD_SAFETY_MARGIN"], 0.02)
+        self.assertEqual(
+            saved_candidate["PLAYER_STATS_RECORD_INTERVAL_SECONDS"],
+            config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+        )
         self.assertEqual(saved_game_value, 0.23)
         self.assertTrue(save_settings.call_args.kwargs["sync_game"])
         self.assertEqual(config.RESET_HOLD_SAFETY_MARGIN, 0.02)
-        self.assertEqual(config.PLAYER_STATS_RECORD_INTERVAL_SECONDS, 60)
+        self.assertEqual(
+            config.PLAYER_STATS_RECORD_INTERVAL_SECONDS,
+            config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+        )
+        self.assertEqual(
+            master.player_stats_vod_recorder.interval_seconds,
+            config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+        )
         self.assertEqual(accepted, [True])
         notice.exec.assert_called_once_with()
 

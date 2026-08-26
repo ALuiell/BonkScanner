@@ -1512,13 +1512,26 @@ class SettingsDialog(QDialog):
         )
 
         self.record_interval_entry = QSpinBox()
-        self.record_interval_entry.setRange(1, 3600)
+        self.record_interval_entry.setRange(
+            config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+            3600,
+        )
         self.record_interval_entry.setSingleStep(5)
         self.record_interval_entry.setValue(
-            int(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30))
+            int(
+                getattr(
+                    config,
+                    "PLAYER_STATS_RECORD_INTERVAL_SECONDS",
+                    config.DEFAULT_PLAYER_STATS_RECORD_INTERVAL_SECONDS,
+                )
+            )
         )
         self.record_interval_entry.setSuffix(" s")
         self.record_interval_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
+        self.record_interval_entry.setToolTip(
+            "Recording snapshots use the full player-state read, which runs every "
+            f"{config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS} seconds."
+        )
 
         layout.addWidget(_settings_group_label("Timing"))
         reset_hold_note = QLabel(
@@ -1676,7 +1689,13 @@ class SettingsDialog(QDialog):
         self._initial_reset_hold_duration = reset_hold_duration
         self._initial_reset_hold_safety_margin = reset_hold_safety_margin
         self.record_interval_entry.setValue(
-            int(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30))
+            int(
+                getattr(
+                    config,
+                    "PLAYER_STATS_RECORD_INTERVAL_SECONDS",
+                    config.DEFAULT_PLAYER_STATS_RECORD_INTERVAL_SECONDS,
+                )
+            )
         )
         self.stop_scanning_on_player_movement_var.setChecked(
             bool(getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True))
@@ -1795,7 +1814,10 @@ class SettingsDialog(QDialog):
             return
 
         try:
-            new_interval = max(1, int(_read_numeric(self.record_interval_entry)))
+            new_interval = max(
+                config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+                int(_read_numeric(self.record_interval_entry)),
+            )
         except (TypeError, ValueError, OverflowError):
             QMessageBox.warning(
                 self,

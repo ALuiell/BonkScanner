@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from core.build_progression import PROGRESS_TARGETS
 from core.json_safety import dumps_strict_json, load_legacy_json
 from core.map_markers import normalize_map_marker_settings
+from core.settings import MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS
 from infra import paths
 
 colorama.init(autoreset=True)
@@ -1474,10 +1475,28 @@ HOTKEY_GAME_KEY_WHITELIST = normalize_hotkey_game_key_whitelist(
 )
 PLAYER_STATS_RECORD_HOTKEY = user_config.get("PLAYER_STATS_RECORD_HOTKEY", "f8")
 IN_GAME_OVERLAY_EDIT_HOTKEY = user_config.get("IN_GAME_OVERLAY_EDIT_HOTKEY", "f9")
-PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
-    user_config.get("PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
-    30,
-) or 30
+DEFAULT_PLAYER_STATS_RECORD_INTERVAL_SECONDS = 30
+
+
+def resolve_player_stats_record_interval_seconds(config_data: dict) -> int:
+    """Return an interval the fixed full-snapshot cadence can deliver."""
+    parsed = coerce_nonnegative_int(
+        config_data.get(
+            "PLAYER_STATS_RECORD_INTERVAL_SECONDS",
+            DEFAULT_PLAYER_STATS_RECORD_INTERVAL_SECONDS,
+        ),
+        DEFAULT_PLAYER_STATS_RECORD_INTERVAL_SECONDS,
+    )
+    if parsed == 0:
+        parsed = DEFAULT_PLAYER_STATS_RECORD_INTERVAL_SECONDS
+    return max(MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS, parsed)
+
+
+PLAYER_STATS_RECORD_INTERVAL_SECONDS = resolve_player_stats_record_interval_seconds(
+    user_config
+)
+
+
 def resolve_fast_tracker_interval_ms(config_data: dict) -> int:
     """Read the renamed fast-refresh interval, accepting the legacy config key."""
     legacy_value = config_data.get("CHAOS_TOME_TRACKER_INTERVAL_MS", 500)

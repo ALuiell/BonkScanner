@@ -18,7 +18,11 @@ from core.character_passives import (
     CharacterPassiveSnapshot,
     CharacterPassiveStatus,
 )
-from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT, RecordingSettings
+from core.settings import (
+    DEFAULT_MINIMUM_SNAPSHOT_COUNT,
+    MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+    RecordingSettings,
+)
 from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, ChargeShrineSnapshot, ChargeShrineStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
@@ -300,7 +304,7 @@ class VodRecorder:
         clock=time.monotonic,
     ) -> None:
         self.vods_dir = vods_dir or RECORDINGS_DIR
-        self.interval_seconds = max(1, int(interval_seconds))
+        self.interval_seconds = interval_seconds
         self.clock = clock
         self.path: Path | None = None
         self.name = ""
@@ -313,6 +317,17 @@ class VodRecorder:
         self._automatic_name_prefix = "Run"
         self._created_at: datetime | None = None
         self._max_mob_kills: int | None = None
+
+    @property
+    def interval_seconds(self) -> int:
+        return self._interval_seconds
+
+    @interval_seconds.setter
+    def interval_seconds(self, value: int) -> None:
+        self._interval_seconds = max(
+            MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+            int(value),
+        )
 
     def start(
         self,

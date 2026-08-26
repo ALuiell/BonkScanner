@@ -12,6 +12,13 @@ from __future__ import annotations
 from typing import Any, Callable, Protocol
 
 
+#: Full player-state reads run on this fixed cadence. Recording snapshots are
+#: emitted only from that pass, so accepting a shorter recording interval would
+#: promise a capture frequency the application cannot deliver.
+FULL_PLAYER_SNAPSHOT_INTERVAL_SECONDS = 10
+MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS = FULL_PLAYER_SNAPSHOT_INTERVAL_SECONDS
+
+
 class OverlaySettings(Protocol):
     def read(self) -> dict[str, Any]:
         """The current overlay settings. Callers must not mutate the result."""

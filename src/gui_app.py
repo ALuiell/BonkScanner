@@ -235,7 +235,11 @@ class MegabonkApp:
             stale_after_seconds=max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5),
             overlay_host=config.OVERLAY.get("host", "127.0.0.1"),
             overlay_port=int(config.OVERLAY.get("port", 17845)),
-            vod_interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
+            vod_interval_seconds=getattr(
+                config,
+                "PLAYER_STATS_RECORD_INTERVAL_SECONDS",
+                config.DEFAULT_PLAYER_STATS_RECORD_INTERVAL_SECONDS,
+            ),
         )
         # Aliases, not copies: the coordinator owns these, the mixins still reach
         # them through the shared `self`. Step 12 removes the aliases.
