@@ -1513,7 +1513,7 @@ class SettingsDialog(QDialog):
 
         self.record_interval_entry = QSpinBox()
         self.record_interval_entry.setRange(
-            config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+            0,
             3600,
         )
         self.record_interval_entry.setSingleStep(5)
@@ -1530,7 +1530,11 @@ class SettingsDialog(QDialog):
         self.record_interval_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
         self.record_interval_entry.setToolTip(
             "Recording snapshots use the full player-state read, which runs every "
-            f"{config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS} seconds."
+            f"{config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS} seconds. Lower input "
+            "is corrected to that minimum."
+        )
+        self.record_interval_entry.editingFinished.connect(
+            self._normalize_record_interval_entry
         )
 
         layout.addWidget(_settings_group_label("Timing"))
@@ -1707,6 +1711,14 @@ class SettingsDialog(QDialog):
             bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
         )
         self._refresh_reset_timing_preview()
+
+    def _normalize_record_interval_entry(self) -> None:
+        self.record_interval_entry.setValue(
+            max(
+                config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
+                self.record_interval_entry.value(),
+            )
+        )
 
     def _detect_game_running(self) -> tuple[bool, str]:
         detector = getattr(self.master, "is_game_running", None)

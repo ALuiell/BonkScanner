@@ -7,6 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 import gui_app
@@ -139,13 +140,24 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
                 self.assertEqual(dialog.hotkey_entry.text(), str(config.HOTKEY))
                 dialog.reject()
 
-    def test_snapshot_interval_control_uses_full_read_minimum(self) -> None:
+    def test_snapshot_interval_control_accepts_then_clamps_subminimum_input(self) -> None:
         self.owner.open_settings_dialog()
         dialog = self.owner._settings_dialog
 
         self.assertIsNotNone(dialog)
+        dialog.record_interval_entry.setFocus()
+        dialog.record_interval_entry.lineEdit().selectAll()
+        QTest.keyClicks(dialog.record_interval_entry, "5")
+
+        # Keeping the editor's technical range at 10 rejects the single-digit
+        # intermediate text and can merge it with the old value (for example,
+        # 5 + 0 -> 50). Let the user finish typing, then apply the real minimum.
+        self.assertEqual(dialog.record_interval_entry.lineEdit().text(), "5 s")
+        self.assertEqual(dialog.record_interval_entry.value(), 5)
+        dialog.record_interval_entry.editingFinished.emit()
+
         self.assertEqual(
-            dialog.record_interval_entry.minimum(),
+            dialog.record_interval_entry.value(),
             config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
         )
 
