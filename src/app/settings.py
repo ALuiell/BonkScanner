@@ -34,8 +34,12 @@ class ConfigRecordingSettings:
         return config.user_config.get(self._INDEX_KEY, {})
 
     def write_metadata_index(self, payload: dict[str, Any]) -> None:
-        config.user_config[self._INDEX_KEY] = payload
-        config.save_config(config.user_config)
+        # The index refresh runs on its own worker thread. Mutate and persist
+        # under the same lock used by the Settings transaction so neither side
+        # can snapshot or overwrite a half-applied update from the other.
+        with config.config_lock:
+            config.user_config[self._INDEX_KEY] = payload
+            config.save_config(config.user_config)
 
     #: Unlike `_INDEX_KEY` this one is new, so it gets an ordinary name.
     _MINIMUM_SNAPSHOT_COUNT_KEY = "recordings_minimum_snapshot_count"

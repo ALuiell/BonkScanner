@@ -1855,6 +1855,12 @@ class SettingsDialog(QDialog):
         timing_changed = (
             new_duration != initial_duration or new_margin != initial_margin
         )
+        if not timing_changed:
+            # The dialog may have stayed open while scanner startup re-read the
+            # game's threshold and raised the live timing. Preserve that newer
+            # value instead of treating the stale fields as edits.
+            new_duration = round(float(config.RESET_HOLD_DURATION), 2)
+            new_margin = round(float(config.RESET_HOLD_SAFETY_MARGIN), 2)
         game_value = config.reset_hold_duration_to_game_value(
             new_duration,
             safety_margin=new_margin,
@@ -1876,25 +1882,27 @@ class SettingsDialog(QDialog):
             GameResetTimeNoticeDialog(self, saved=False, reason=reason).exec()
             return
 
-        candidate_config = deepcopy(config.user_config)
-        candidate_config["HOTKEY"] = new_hotkey
-        candidate_config["RESET_HOTKEY"] = new_reset_hotkey
-        candidate_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
-        candidate_config["IN_GAME_OVERLAY_EDIT_HOTKEY"] = new_overlay_edit_hotkey
-        candidate_config["AUTO_START_RECORDING"] = auto_start_recording
-        candidate_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = (
-            show_obs_reminder_on_start_scanner
-        )
-        candidate_config["STOP_SCANNING_ON_PLAYER_MOVEMENT"] = (
-            stop_scanning_on_player_movement
-        )
-        candidate_config["RESET_HOLD_DURATION"] = new_duration
-        candidate_config["RESET_HOLD_SAFETY_MARGIN"] = new_margin
-        candidate_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = new_interval
+        settings_updates = {
+            "HOTKEY": new_hotkey,
+            "RESET_HOTKEY": new_reset_hotkey,
+            "PLAYER_STATS_RECORD_HOTKEY": new_record_hotkey,
+            "IN_GAME_OVERLAY_EDIT_HOTKEY": new_overlay_edit_hotkey,
+            "AUTO_START_RECORDING": auto_start_recording,
+            "SHOW_OBS_REMINDER_ON_START_SCANNER": show_obs_reminder_on_start_scanner,
+            "STOP_SCANNING_ON_PLAYER_MOVEMENT": stop_scanning_on_player_movement,
+            "PLAYER_STATS_RECORD_INTERVAL_SECONDS": new_interval,
+        }
+        if timing_changed:
+            settings_updates.update(
+                {
+                    "RESET_HOLD_DURATION": new_duration,
+                    "RESET_HOLD_SAFETY_MARGIN": new_margin,
+                }
+            )
 
         save_result = config.save_settings_with_game_reset(
-            candidate_config,
-            game_value,
+            settings_updates,
+            game_value if timing_changed else None,
             # When the game is closed, always write and read back its value. This
             # both repairs hand-edited drift and closes the old false-success gap
             # where an unchanged UI field meant the game file was never checked.
@@ -1908,10 +1916,10 @@ class SettingsDialog(QDialog):
             ).exec()
             return
 
-        # Disk first, runtime second. A failed save leaves the running scanner on
-        # the last known-good settings instead of applying values it cannot keep.
-        config.user_config.clear()
-        config.user_config.update(candidate_config)
+        # The config transaction already committed these keys to the runtime
+        # mapping. Keep this idempotent update for isolated dialog tests that
+        # replace the transaction with a success double.
+        config.user_config.update(settings_updates)
 
         config.HOTKEY = new_hotkey
         config.RESET_HOTKEY = new_reset_hotkey
@@ -1920,11 +1928,18 @@ class SettingsDialog(QDialog):
         config.AUTO_START_RECORDING = auto_start_recording
         config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
         config.STOP_SCANNING_ON_PLAYER_MOVEMENT = stop_scanning_on_player_movement
-        config.RESET_HOLD_DURATION = new_duration
-        config.RESET_HOLD_SAFETY_MARGIN = new_margin
+        if timing_changed:
+            config.RESET_HOLD_DURATION = new_duration
+            config.RESET_HOLD_SAFETY_MARGIN = new_margin
         config.PLAYER_STATS_RECORD_INTERVAL_SECONDS = new_interval
-        self._initial_reset_hold_duration = new_duration
-        self._initial_reset_hold_safety_margin = new_margin
+        effective_duration = round(float(config.RESET_HOLD_DURATION), 2)
+        effective_margin = round(float(config.RESET_HOLD_SAFETY_MARGIN), 2)
+        effective_game_value = config.reset_hold_duration_to_game_value(
+            effective_duration,
+            safety_margin=effective_margin,
+        )
+        self._initial_reset_hold_duration = effective_duration
+        self._initial_reset_hold_safety_margin = effective_margin
         if auto_start_recording:
             # Was `hasattr(self.master, ...)` + a direct assignment. The service
             # always has the flag, so the guard is gone -- and with it the
@@ -1974,9 +1989,9 @@ class SettingsDialog(QDialog):
             GameResetTimeNoticeDialog(
                 self.parent(),
                 saved=True,
-                scanner_hold=new_duration,
-                game_value=game_value,
-                margin=new_margin,
+                scanner_hold=effective_duration,
+                game_value=effective_game_value,
+                margin=effective_margin,
             ).exec()
 
 

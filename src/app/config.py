@@ -651,39 +651,71 @@ def save_config(cfg_dict) -> ConfigSaveResult:
 
 
 def save_settings_with_game_reset(
-    candidate_config: dict,
-    game_value: float,
+    settings_updates: dict,
+    game_value: float | None,
     *,
     sync_game: bool,
 ) -> SettingsSaveResult:
-    """Persist Settings as one verified operation, rolling back on failure."""
-    previous_scanner_config = deepcopy(user_config)
-    scanner_result = save_config(candidate_config)
-    if not scanner_result.success:
-        # A replace may have succeeded even when the subsequent readback failed.
-        # Restore the last known-good scanner payload before reporting failure.
-        rollback_result = save_config(previous_scanner_config)
-        rollback_text = (
-            " The previous BonkScanner config was restored."
-            if rollback_result.success
-            else f" Restoring the previous BonkScanner config also failed: {rollback_result.reason}"
-        )
-        return SettingsSaveResult(False, scanner_result.reason + rollback_text)
+    """Persist Settings as one verified operation, rolling back on failure.
 
-    if not sync_game:
+    ``settings_updates`` contains only keys owned by the Settings dialog. The
+    merge happens under the same lock as save/rollback/runtime commit so a VOD
+    index or another background writer cannot be replaced by the dialog's old
+    full-config snapshot.
+    """
+    with config_lock:
+        previous_scanner_config = deepcopy(user_config)
+        candidate_config = deepcopy(user_config)
+        candidate_config.update(deepcopy(settings_updates))
+        resolved_game_value = game_value
+        if sync_game and resolved_game_value is None:
+            # Timing fields are intentionally absent when the dialog did not
+            # edit them. Resolve from the live config while holding config_lock
+            # so a scanner-start floor refresh cannot be paired with a stale
+            # game value from an already-open Settings dialog.
+            resolved_game_value = reset_hold_duration_to_game_value(
+                float(
+                    candidate_config.get(
+                        "RESET_HOLD_DURATION",
+                        RESET_HOLD_DURATION,
+                    )
+                ),
+                safety_margin=float(
+                    candidate_config.get(
+                        "RESET_HOLD_SAFETY_MARGIN",
+                        RESET_HOLD_SAFETY_MARGIN,
+                    )
+                ),
+            )
+
+        scanner_result = save_config(candidate_config)
+        if not scanner_result.success:
+            # A replace may have succeeded even when the subsequent readback failed.
+            # Restore the last known-good scanner payload before reporting failure.
+            rollback_result = save_config(previous_scanner_config)
+            rollback_text = (
+                " The previous BonkScanner config was restored."
+                if rollback_result.success
+                else f" Restoring the previous BonkScanner config also failed: {rollback_result.reason}"
+            )
+            return SettingsSaveResult(False, scanner_result.reason + rollback_text)
+
+        if sync_game:
+            assert resolved_game_value is not None
+            game_result = update_game_reset_time(resolved_game_value)
+            if not game_result.success:
+                rollback_result = save_config(previous_scanner_config)
+                rollback_text = (
+                    " BonkScanner config changes were rolled back."
+                    if rollback_result.success
+                    else f" BonkScanner config rollback also failed: {rollback_result.reason}"
+                )
+                return SettingsSaveResult(False, game_result.reason + rollback_text)
+
+        # Update only Settings-owned keys; background writers own the rest of
+        # this shared mapping and may have committed while the dialog was open.
+        user_config.update(deepcopy(settings_updates))
         return SettingsSaveResult(True)
-
-    game_result = update_game_reset_time(game_value)
-    if game_result.success:
-        return SettingsSaveResult(True)
-
-    rollback_result = save_config(previous_scanner_config)
-    rollback_text = (
-        " BonkScanner config changes were rolled back."
-        if rollback_result.success
-        else f" BonkScanner config rollback also failed: {rollback_result.reason}"
-    )
-    return SettingsSaveResult(False, game_result.reason + rollback_text)
 
 
 def get_local_appdata_dir() -> str | None:
@@ -1445,18 +1477,19 @@ def refresh_reset_hold_duration() -> float | None:
     """
     global GAME_RESET_HOLD_FLOOR, RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM
 
-    GAME_RESET_HOLD_FLOOR = get_game_reset_time()
-    # Resolve against the live value, not the stored one: they agree (both the
-    # dialog and import write both), and the live one is what the next reroll
-    # will actually hold for.
-    RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM = resolve_reset_hold_duration(
-        RESET_HOLD_DURATION,
-        GAME_RESET_HOLD_FLOOR,
-    )
-    if RESET_HOLD_DURATION_RAISED_FROM is not None:
-        user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
-        save_config(user_config)
-    return RESET_HOLD_DURATION_RAISED_FROM
+    with config_lock:
+        GAME_RESET_HOLD_FLOOR = get_game_reset_time()
+        # Resolve against the live value, not the stored one: they agree (both
+        # the dialog and import write both), and the live one is what the next
+        # reroll will actually hold for.
+        RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM = resolve_reset_hold_duration(
+            RESET_HOLD_DURATION,
+            GAME_RESET_HOLD_FLOOR,
+        )
+        if RESET_HOLD_DURATION_RAISED_FROM is not None:
+            user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
+            save_config(user_config)
+        return RESET_HOLD_DURATION_RAISED_FROM
 
 
 def reset_hold_duration_notice(raised_from: float | None) -> str | None:

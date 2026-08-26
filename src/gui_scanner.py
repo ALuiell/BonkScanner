@@ -571,8 +571,12 @@ class Scanner:
 
     def log_reroll_stats(self):
         self.session_rerolls += 1
-        config.TOTAL_REROLLS += 1
-        config.user_config["TOTAL_REROLLS"] = config.TOTAL_REROLLS
+        # Settings save/rollback also touches the shared config mapping. Keep
+        # the counter mutation inside its transaction lock so neither update
+        # can be based on a stale snapshot of the other.
+        with config.config_lock:
+            config.TOTAL_REROLLS += 1
+            config.user_config["TOTAL_REROLLS"] = config.TOTAL_REROLLS
         self._total_rerolls_dirty = True
         self._flush_total_rerolls()
 

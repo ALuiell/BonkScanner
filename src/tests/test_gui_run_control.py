@@ -1301,10 +1301,6 @@ class GuiRunControlTests(unittest.TestCase):
     def test_unchanged_reset_values_are_still_verified_and_game_drift_is_repaired(self) -> None:
         duration = round(float(config.RESET_HOLD_DURATION), 2)
         margin = round(float(config.RESET_HOLD_SAFETY_MARGIN), 2)
-        desired_game_value = config.reset_hold_duration_to_game_value(
-            duration,
-            safety_margin=margin,
-        )
         dialog = types.SimpleNamespace(
             hotkey_entry=FakeEntry(config.HOTKEY),
             reset_hotkey_entry=FakeEntry(config.RESET_HOTKEY),
@@ -1341,7 +1337,7 @@ class GuiRunControlTests(unittest.TestCase):
                 ):
                     SettingsDialog.save(dialog)
 
-        self.assertEqual(save_settings.call_args.args[1], desired_game_value)
+        self.assertIsNone(save_settings.call_args.args[1])
         self.assertTrue(save_settings.call_args.kwargs["sync_game"])
         notice.exec.assert_called_once_with()
 
@@ -1384,6 +1380,73 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertTrue(save_settings.call_args.kwargs["sync_game"])
         notice_cls.assert_not_called()
+
+    def test_stale_open_dialog_preserves_scanner_refreshed_reset_timing(self) -> None:
+        stale_duration = 0.10
+        stale_margin = 0.05
+        refreshed_duration = 0.30
+        refreshed_game_value = 0.25
+        dialog = types.SimpleNamespace(
+            hotkey_entry=FakeEntry(config.HOTKEY),
+            reset_hotkey_entry=FakeEntry(config.RESET_HOTKEY),
+            record_hotkey_entry=FakeEntry(config.PLAYER_STATS_RECORD_HOTKEY),
+            auto_start_recording_var=FakeCheckbox(config.AUTO_START_RECORDING),
+            show_obs_reminder_on_start_scanner_var=FakeCheckbox(
+                config.SHOW_OBS_REMINDER_ON_START_SCANNER
+            ),
+            reset_hold_duration_entry=FakeEntry(str(stale_duration)),
+            _initial_reset_hold_duration=stale_duration,
+            reset_hold_safety_margin_entry=FakeEntry(str(stale_margin)),
+            _initial_reset_hold_safety_margin=stale_margin,
+            record_interval_entry=FakeEntry("60"),
+            master=FakeSettingsMaster(),
+            parent=lambda: None,
+            accept=lambda: None,
+        )
+
+        with patch.object(
+            config,
+            "RESET_HOLD_DURATION",
+            refreshed_duration,
+        ), patch.object(
+            config,
+            "RESET_HOLD_SAFETY_MARGIN",
+            stale_margin,
+        ), patch.dict(
+            config.user_config,
+            {
+                "RESET_HOLD_DURATION": refreshed_duration,
+                "RESET_HOLD_SAFETY_MARGIN": stale_margin,
+            },
+        ), patch.object(
+            config,
+            "read_game_quick_reset_time",
+            return_value=config.GameConfigReadResult(
+                True,
+                value=refreshed_game_value,
+            ),
+        ), patch.object(
+            config,
+            "save_settings_with_game_reset",
+            return_value=config.SettingsSaveResult(True),
+        ) as save_settings, patch.object(
+            gui_dialogs,
+            "GameResetTimeNoticeDialog",
+        ) as notice_cls:
+            SettingsDialog.save(dialog)
+
+            settings_updates = save_settings.call_args.args[0]
+            self.assertNotIn("RESET_HOLD_DURATION", settings_updates)
+            self.assertNotIn("RESET_HOLD_SAFETY_MARGIN", settings_updates)
+            self.assertIsNone(save_settings.call_args.args[1])
+            self.assertTrue(save_settings.call_args.kwargs["sync_game"])
+            self.assertEqual(config.RESET_HOLD_DURATION, refreshed_duration)
+            self.assertEqual(
+                config.user_config["RESET_HOLD_DURATION"],
+                refreshed_duration,
+            )
+            self.assertEqual(dialog._initial_reset_hold_duration, refreshed_duration)
+            notice_cls.assert_not_called()
 
     def test_twitch_command_settings_save_persists_commands_announcement_interval(self) -> None:
         accepted: list[bool] = []

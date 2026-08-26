@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -80,6 +81,34 @@ class GameResetTimeConfigTests(unittest.TestCase):
 
 
 class VerifiedSettingsSaveTests(unittest.TestCase):
+    def test_unchanged_timing_is_derived_from_live_config_under_the_lock(self) -> None:
+        live_config = {
+            "HOTKEY": "f6",
+            "RESET_HOLD_DURATION": 0.30,
+            "RESET_HOLD_SAFETY_MARGIN": 0.05,
+        }
+
+        with patch.object(config, "user_config", live_config), patch.object(
+            config,
+            "save_config",
+            return_value=config.ConfigSaveResult(True),
+        ) as save_config, patch.object(
+            config,
+            "update_game_reset_time",
+            return_value=config.GameConfigUpdateResult(True),
+        ) as update_game_reset_time:
+            result = config.save_settings_with_game_reset(
+                {"HOTKEY": "f7"},
+                None,
+                sync_game=True,
+            )
+
+        self.assertTrue(result.success)
+        self.assertEqual(live_config["RESET_HOLD_DURATION"], 0.30)
+        self.assertEqual(live_config["RESET_HOLD_SAFETY_MARGIN"], 0.05)
+        self.assertEqual(save_config.call_args.args[0]["RESET_HOLD_DURATION"], 0.30)
+        update_game_reset_time.assert_called_once_with(0.25)
+
     def test_success_updates_and_verifies_both_real_config_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             scanner_path = os.path.join(temp_dir, "scanner.json")
@@ -155,6 +184,54 @@ class VerifiedSettingsSaveTests(unittest.TestCase):
         self.assertIn("scanner write failed", result.reason)
         self.assertIn("previous BonkScanner config was restored", result.reason)
         update_game_reset_time.assert_not_called()
+
+    def test_background_config_update_waits_and_survives_settings_commit(self) -> None:
+        live_config = {
+            "HOTKEY": "f6",
+            "_VOD_METADATA_INDEX": {"version": 1},
+        }
+        writer_attempted = threading.Event()
+        writer_finished = threading.Event()
+        writer_threads: list[threading.Thread] = []
+        save_calls = 0
+
+        def save_config(_payload: dict) -> config.ConfigSaveResult:
+            nonlocal save_calls
+            save_calls += 1
+            if save_calls == 1:
+                def background_write() -> None:
+                    writer_attempted.set()
+                    with config.config_lock:
+                        config.user_config["_VOD_METADATA_INDEX"] = {"version": 2}
+                    writer_finished.set()
+
+                worker = threading.Thread(target=background_write)
+                writer_threads.append(worker)
+                worker.start()
+                self.assertTrue(writer_attempted.wait(1.0))
+                self.assertFalse(writer_finished.is_set())
+            return config.ConfigSaveResult(True)
+
+        with patch.object(config, "user_config", live_config), patch.object(
+            config,
+            "save_config",
+            side_effect=save_config,
+        ):
+            result = config.save_settings_with_game_reset(
+                {"HOTKEY": "f7"},
+                0.01,
+                sync_game=False,
+            )
+            for worker in writer_threads:
+                worker.join(1.0)
+
+            self.assertTrue(result.success)
+            self.assertTrue(writer_finished.is_set())
+            self.assertEqual(config.user_config["HOTKEY"], "f7")
+            self.assertEqual(
+                config.user_config["_VOD_METADATA_INDEX"],
+                {"version": 2},
+            )
 
 
 class PlayerMovementGuardConfigTests(unittest.TestCase):
