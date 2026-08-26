@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 
-CURRENT_VERSION = "3.1.0"
+CURRENT_VERSION = "3.1.1"
 _VERSION_RE = re.compile(r"^[vV]?(\d+)\.(\d+)\.(\d+)$")
 
 
