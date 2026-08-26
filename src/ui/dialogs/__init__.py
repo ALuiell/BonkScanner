@@ -1054,7 +1054,7 @@ class ObsRecordingReminderDialog(QDialog):
 
 
 class AutoRerollSetupGuideDialog(QDialog):
-    """One-time setup guide shown only to genuinely new installations."""
+    """Versioned setup guide shown after meaningful Auto-Reroll changes."""
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -1090,11 +1090,15 @@ class AutoRerollSetupGuideDialog(QDialog):
         layout.addWidget(
             dialog_card(
                 "<b>Reset speed</b><br><br>"
+                "The old <b>0.10 s minimum has been removed</b>. Reset Hold Duration "
+                "can now be set below 0.10 s to make restarts faster.<br><br>"
                 "Reset Hold Duration controls how long BonkScanner holds the reset key. "
-                "The Settings window now shows the corresponding Megabonk value and "
-                "lets you adjust the safety margin.<br><br>"
+                "Safety Margin is the extra hold time between Megabonk's reset threshold "
+                "and the moment BonkScanner releases the key. Lowering the margin lets "
+                "you use a shorter scanner hold; BonkScanner calculates and synchronizes "
+                "the corresponding Megabonk value automatically.<br><br>"
                 f"With the current <b>{margin:.2f}-second safety margin</b>, the lowest "
-                f"reliable scanner hold is <b>{minimum_hold:.2f} s</b>."
+                f"available scanner hold is <b>{minimum_hold:.2f} s</b>."
                 f"<br><br><b>BonkScanner:</b> {minimum_hold:.2f} s &nbsp;&rarr;&nbsp; "
                 f"<b>Megabonk:</b> {minimum_game_value:.2f} s"
                 "<br><br>Close Megabonk before saving Reset Speed. BonkScanner verifies "
@@ -1103,7 +1107,11 @@ class AutoRerollSetupGuideDialog(QDialog):
         )
         layout.addWidget(
             dialog_danger_card(
-                "<b>Troubleshooting</b><br><br>"
+                "<b>Experimental tuning</b><br><br>"
+                "Values below 0.10 s can improve restart speed, but very low Reset Hold "
+                "Duration or Safety Margin values may release R before the game reliably "
+                "registers the reset. The best minimum can vary with game performance and "
+                "system timing.<br><br>"
                 "If Auto-Reroll presses R but the run does not restart, check Reset "
                 "Hold Duration and Safety Margin in BonkScanner Settings first.<br><br>"
                 "Before Auto-Reroll starts, BonkScanner compares the configured hold "
