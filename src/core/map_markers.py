@@ -109,7 +109,7 @@ _RARITIES = (
     ("gold", "Gold", "#F5C84B"),
 )
 _RARITY_IDS = tuple(rarity_id for rarity_id, _label, _color in _RARITIES)
-_SHADY_GUY_BASE_COLOR = "#9AD8A6"
+_SHADY_GUY_BASE_COLOR = "#3A925F"
 
 
 MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(

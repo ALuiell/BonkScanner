@@ -187,7 +187,7 @@ class MapMarkerProjectionTests(unittest.TestCase):
 
     def test_shady_guy_uses_colored_fills_with_white_outlines(self) -> None:
         expected_colors = {
-            "white": "#9AD8A6",
+            "white": "#3A925F",
             "blue": "#48A9FF",
             "purple": "#B378FF",
             "gold": "#F5C84B",
