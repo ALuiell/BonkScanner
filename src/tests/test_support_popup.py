@@ -13,6 +13,7 @@ import src  # noqa: F401  -- puts src/ on the path, as the other tests do
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PySide6.QtCore import QPoint, QSize
 from PySide6.QtGui import QPalette
@@ -619,6 +620,80 @@ class SupportersLoadTests(unittest.TestCase):
 
         update_prompt.start_supporters_load(None)
         update_prompt.start_supporters_load(object())
+
+    def test_load_refreshes_every_ten_minutes_without_duplicate_loops(self):
+        class Footer:
+            def __init__(self) -> None:
+                self.received = []
+
+            def set_supporters(self, supporters) -> None:
+                self.received.append(list(supporters))
+
+        class App:
+            def __init__(self) -> None:
+                self.footer = Footer()
+                self.scheduled = []
+                self._is_shutting_down = False
+
+            def after(self, delay_ms, callback) -> None:
+                if delay_ms == 0:
+                    callback()
+                else:
+                    self.scheduled.append((delay_ms, callback))
+
+        app = App()
+        workers = []
+        loads = []
+
+        class Worker:
+            @staticmethod
+            def is_alive() -> bool:
+                return False
+
+        def load(report) -> None:
+            loads.append(len(loads) + 1)
+            report([f"supporter {loads[-1]}"])
+
+        def start_inline(_app, *, target, args=(), kwargs=None, name):
+            self.assertEqual(name, "BonkSupportersLoad")
+            target(*args, **(kwargs or {}))
+            worker = Worker()
+            workers.append(worker)
+            _app.__dict__.setdefault("_background_threads", set()).add(worker)
+            return worker
+
+        with (
+            patch.object(update_prompt, "load_supporters", side_effect=load),
+            patch.object(
+                update_prompt,
+                "_start_registered_thread",
+                side_effect=start_inline,
+            ),
+        ):
+            first_worker = update_prompt.start_supporters_load(app)
+            self.assertIs(first_worker, workers[0])
+            self.assertIsNone(update_prompt.start_supporters_load(app))
+            self.assertEqual(loads, [1])
+            self.assertEqual(app.footer.received, [["supporter 1"]])
+            self.assertEqual(len(app.scheduled), 1)
+
+            delay_ms, refresh = app.scheduled.pop()
+            self.assertEqual(
+                delay_ms,
+                update_prompt.SUPPORTERS_REFRESH_INTERVAL_MS,
+            )
+            second_worker = refresh()
+            self.assertIs(second_worker, workers[1])
+            self.assertEqual(loads, [1, 2])
+            self.assertEqual(app.footer.received[-1], ["supporter 2"])
+            self.assertNotIn(first_worker, app._background_threads)
+            self.assertIn(second_worker, app._background_threads)
+
+            _delay_ms, refresh = app.scheduled.pop()
+            app._is_shutting_down = True
+            self.assertIsNone(refresh())
+            self.assertEqual(loads, [1, 2])
+            self.assertEqual(app.scheduled, [])
 
     def test_clean_supporters_drops_what_the_popup_cannot_draw(self):
         self.assertEqual(

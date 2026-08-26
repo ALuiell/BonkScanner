@@ -13,6 +13,11 @@ from app.update_flow import (
 from ui.dialogs.update_dialog import show_update_dialog
 
 
+SUPPORTERS_REFRESH_INTERVAL_MS = 10 * 60 * 1000
+_SUPPORTERS_REFRESH_STARTED_KEY = "_supporters_refresh_started"
+_SUPPORTERS_REFRESH_THREAD_KEY = "_supporters_refresh_thread"
+
+
 def _start_registered_thread(app_instance, *, target, args=(), kwargs=None, name: str):
     thread = threading.Thread(
         target=target,
@@ -202,18 +207,65 @@ def start_update_check(app_instance, *, force_check: bool):
 
 
 def start_supporters_load(app_instance):
-    """Fill the footer supporters list off the GUI thread."""
+    """Fill the footer off the GUI thread now and refresh it every ten minutes."""
     footer = getattr(app_instance, "footer", None) if app_instance else None
     after = getattr(app_instance, "after", None) if app_instance else None
     if footer is None or after is None:
         return None
 
-    def report_to_footer(supporters: list) -> None:
-        after(0, lambda: footer.set_supporters(supporters))
+    state = getattr(app_instance, "__dict__", None)
+    if not isinstance(state, dict) or state.get(_SUPPORTERS_REFRESH_STARTED_KEY):
+        return None
+    state[_SUPPORTERS_REFRESH_STARTED_KEY] = True
 
-    return _start_registered_thread(
-        app_instance,
-        target=load_supporters,
-        args=(report_to_footer,),
-        name="BonkSupportersLoad",
-    )
+    def is_shutting_down() -> bool:
+        return bool(state.get("_is_shutting_down", False))
+
+    def schedule(delay_ms: int, callback) -> bool:
+        if is_shutting_down():
+            return False
+        try:
+            after(delay_ms, callback)
+        except RuntimeError:
+            # Qt can tear the invoker down between the shutdown check and emit.
+            return False
+        return True
+
+    def report_to_footer(supporters: list) -> None:
+        if is_shutting_down():
+            return
+
+        def apply() -> None:
+            if not is_shutting_down():
+                footer.set_supporters(supporters)
+
+        schedule(0, apply)
+
+    def refresh_worker() -> None:
+        try:
+            load_supporters(report_to_footer)
+        finally:
+            schedule(SUPPORTERS_REFRESH_INTERVAL_MS, refresh)
+
+    def refresh():
+        if is_shutting_down():
+            return None
+        previous = state.get(_SUPPORTERS_REFRESH_THREAD_KEY)
+        registry = state.get("_background_threads")
+        is_alive = getattr(previous, "is_alive", None)
+        if isinstance(registry, set) and callable(is_alive) and not is_alive():
+            registry.discard(previous)
+
+        worker = _start_registered_thread(
+            app_instance,
+            target=refresh_worker,
+            name="BonkSupportersLoad",
+        )
+        state[_SUPPORTERS_REFRESH_THREAD_KEY] = worker
+        return worker
+
+    try:
+        return refresh()
+    except Exception:
+        state.pop(_SUPPORTERS_REFRESH_STARTED_KEY, None)
+        raise

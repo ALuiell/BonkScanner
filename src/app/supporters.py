@@ -28,8 +28,7 @@ def load_supporters(report: ReportCallback) -> None:
     simply empty because nobody has subscribed yet: none of them call `report`,
     so the footer keeps the plain `♥ Support` card it ships with. There is no
     state between "no list" and "a list" -- no error to show, no empty heading,
-    no `♥ 0 supporters` -- and nothing to retry, since the next launch asks
-    again.
+    no `♥ 0 supporters`. The periodic footer refresh asks again later.
 
     Runs on whatever thread the caller provides, so a `report` that touches
     widgets has to hop threads itself. `start_supporters_load` does.

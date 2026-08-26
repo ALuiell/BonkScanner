@@ -1044,7 +1044,8 @@ class FooterView:
         """Hand the strip a list of supporters, or take it away again.
 
         Called from `ui.dialogs.update_prompt.start_supporters_load`, on the GUI
-        thread, once a launch, and only when there is something to show --
+        thread, after each successful background refresh and only when there is
+        something to show --
         `app.supporters.load_supporters` stays silent on every failure and on
         the empty list, so this is not the path that decides what an absent list
         looks like. `SupportPopup.set_supporters` is.
