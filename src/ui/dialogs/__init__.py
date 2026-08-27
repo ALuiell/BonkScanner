@@ -102,6 +102,34 @@ PATREON_ICON_PATH = "media/patreon_logo.svg"
 CRYPTO_ICON_PATH = "media/crypto_coins.svg"
 GITHUB_ICON_PATH = "media/github_logo.svg"
 DISCORD_ICON_PATH = "media/discord_logo.svg"
+_MISSING_CONFIG_VALUE = object()
+
+
+def _save_current_config_error() -> str | None:
+    """Return a verified persistence error instead of leaking it through Qt."""
+    try:
+        result = config.save_config(config.user_config)
+    except Exception as exc:
+        return str(exc)
+    if getattr(result, "success", True) is False:
+        return str(getattr(result, "reason", "") or "unknown error")
+    return None
+
+
+def _restore_config_key(key: str, previous) -> None:
+    if previous is _MISSING_CONFIG_VALUE:
+        config.user_config.pop(key, None)
+    else:
+        config.user_config[key] = previous
+
+
+def _config_rollback_message(error: str) -> str:
+    """Try to put the verified on-disk file back after runtime rollback."""
+    rollback_error = _save_current_config_error()
+    if rollback_error is None:
+        return f"{error} The previous configuration was restored."
+    return f"{error} Restoring the previous configuration also failed: {rollback_error}"
+
 
 class TemplateFormFrame(QWidget):
     def __init__(self, parent=None, template_data=None):
@@ -455,7 +483,10 @@ class TemplateManagerDialog(QDialog):
         def _scroll() -> None:
             self.scroll.verticalScrollBar().setValue(card.y())
 
-        QTimer.singleShot(0, _scroll)
+        # The card owns the deferred geometry read. Closing the manager before
+        # the event loop turns must cancel it instead of calling a deleted
+        # scrollbar/card wrapper.
+        QTimer.singleShot(0, card, _scroll)
 
     def save_template(self, template_id: int, form: TemplateFormFrame):
         payload = form.get_payload()
@@ -472,8 +503,17 @@ class TemplateManagerDialog(QDialog):
             return
 
         payload["id"] = template.get("id")
-        if callable(self.on_save) and not self.on_save(template, payload):
-            return
+        if callable(self.on_save):
+            try:
+                if not self.on_save(template, payload):
+                    return
+            except Exception as exc:
+                QMessageBox.warning(
+                    self,
+                    "Could Not Save Template",
+                    str(exc),
+                )
+                return
 
         for index, existing in enumerate(self.templates):
             if int(existing.get("id", 0)) == template_id:
@@ -783,9 +823,22 @@ class ScoresSettingsDialog(QDialog):
                 scores_system["multipliers"],
             )
 
+        previous_scores = config.SCORES_SYSTEM
+        previous_config = config.user_config.get(
+            "SCORES_SYSTEM", _MISSING_CONFIG_VALUE
+        )
         config.SCORES_SYSTEM = scores_system
         config.user_config["SCORES_SYSTEM"] = scores_system
-        config.save_config(config.user_config)
+        error = _save_current_config_error()
+        if error is not None:
+            config.SCORES_SYSTEM = previous_scores
+            _restore_config_key("SCORES_SYSTEM", previous_config)
+            QMessageBox.warning(
+                self,
+                "Could Not Save Settings",
+                _config_rollback_message(error),
+            )
+            return
         self.accept()
 
 
@@ -845,9 +898,22 @@ class DeleteDialog(QDialog):
             return
         # Restored rows are intentionally inactive: restoring appearance should
         # not change what a running scanner accepts without an explicit check.
+        previous_templates = config.TEMPLATES
+        previous_config = config.user_config.get(
+            "TEMPLATES", _MISSING_CONFIG_VALUE
+        )
         config.TEMPLATES = list(config.TEMPLATES) + missing
         config.user_config["TEMPLATES"] = config.TEMPLATES
-        config.save_config(config.user_config)
+        error = _save_current_config_error()
+        if error is not None:
+            config.TEMPLATES = previous_templates
+            _restore_config_key("TEMPLATES", previous_config)
+            QMessageBox.warning(
+                self,
+                "Could Not Restore Templates",
+                _config_rollback_message(error),
+            )
+            return
         self.accept()
 
     def delete(self):
@@ -855,6 +921,14 @@ class DeleteDialog(QDialog):
         if not to_delete:
             self.reject()
             return
+        previous_templates = config.TEMPLATES
+        previous_active = config.ACTIVE_TEMPLATES
+        previous_templates_config = config.user_config.get(
+            "TEMPLATES", _MISSING_CONFIG_VALUE
+        )
+        previous_active_config = config.user_config.get(
+            "ACTIVE_TEMPLATES", _MISSING_CONFIG_VALUE
+        )
         config.TEMPLATES = [t for t in config.TEMPLATES if t.get("id") not in to_delete]
         config.user_config["TEMPLATES"] = config.TEMPLATES
         config.ACTIVE_TEMPLATES = [
@@ -862,7 +936,18 @@ class DeleteDialog(QDialog):
             if name in {template["name"] for template in config.TEMPLATES}
         ]
         config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
-        config.save_config(config.user_config)
+        error = _save_current_config_error()
+        if error is not None:
+            config.TEMPLATES = previous_templates
+            config.ACTIVE_TEMPLATES = previous_active
+            _restore_config_key("TEMPLATES", previous_templates_config)
+            _restore_config_key("ACTIVE_TEMPLATES", previous_active_config)
+            QMessageBox.warning(
+                self,
+                "Could Not Delete Templates",
+                _config_rollback_message(error),
+            )
+            return
         self.accept()
 
 

@@ -1319,6 +1319,7 @@ def _build_templates_panel(app):
         no_custom_templates_message=lambda parent: QMessageBox.information(
             parent, "No Custom Templates", "There are no custom templates to delete."
         ),
+        report_error=app.log,
     )
     view.build()
     return view

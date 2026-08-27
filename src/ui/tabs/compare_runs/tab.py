@@ -628,15 +628,19 @@ class CompareRunsTab:
         previous = config.user_config.get(key, missing)
         config.user_config[key] = value
         try:
-            config.save_config(config.user_config)
+            result = config.save_config(config.user_config)
         except Exception as exc:
-            if previous is missing:
-                config.user_config.pop(key, None)
-            else:
-                config.user_config[key] = previous
-            self._log(f"Could not save {label}: {exc}", tag="warning")
-            return False
-        return True
+            reason = str(exc)
+        else:
+            if getattr(result, "success", True) is not False:
+                return True
+            reason = str(getattr(result, "reason", "") or "unknown error")
+        if previous is missing:
+            config.user_config.pop(key, None)
+        else:
+            config.user_config[key] = previous
+        self._log(f"Could not save {label}: {reason}", tag="warning")
+        return False
 
     def invalidate_compare_runs_list(self) -> None:
         """Drop the painted-list signature. `VodLibrary`'s invalidate hook.

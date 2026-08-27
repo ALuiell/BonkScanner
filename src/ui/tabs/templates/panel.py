@@ -50,6 +50,7 @@ the app.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Callable
 
 from PySide6.QtCore import (
@@ -94,6 +95,7 @@ _SCORE_TIER_ROW_HEIGHT = 40
 _TEMPLATE_PANEL_MIN_WIDTH = 360
 _TEMPLATE_PANEL_MAX_WIDTH = 450
 _LIVE_REORDER_DURATION_MS = 140
+_MISSING = object()
 
 
 class _ElidedLabel(QLabel):
@@ -342,13 +344,22 @@ class _TemplateRow(QFrame):
         try:
             action = drag.exec(Qt.MoveAction)
         finally:
-            self._set_dragging(False)
+            try:
+                self._set_dragging(False)
+            except RuntimeError:
+                # QDrag runs a nested event loop. Closing the application from
+                # that loop can delete the row before exec() returns.
+                return
             if surface is not None:
-                ordered_ids = surface.finish_live_drag(
-                    action == Qt.MoveAction and surface.drop_accepted
-                )
-                if ordered_ids is not None:
-                    surface.persist_order(ordered_ids)
+                try:
+                    ordered_ids = surface.finish_live_drag(
+                        action == Qt.MoveAction and surface.drop_accepted
+                    )
+                    if ordered_ids is not None:
+                        surface.persist_order(ordered_ids)
+                except RuntimeError:
+                    # The containing page was deleted in the same nested loop.
+                    pass
 
     def _set_dragging(self, dragging: bool) -> None:
         self._dragging = bool(dragging)
@@ -804,6 +815,7 @@ class TemplatesPanel:
         scores_settings_dialog,
         scores_help_dialog,
         no_custom_templates_message,
+        report_error: Callable[..., None] | None = None,
     ) -> None:
         self._left_tabview = left_tabview
         self._window = window
@@ -814,6 +826,7 @@ class TemplatesPanel:
         self._scores_settings_dialog = scores_settings_dialog
         self._scores_help_dialog = scores_help_dialog
         self._no_custom_templates_message = no_custom_templates_message
+        self._report_error = report_error or (lambda _message, **_kwargs: None)
 
         self._tab_templates = None
         self._tab_scores = None
@@ -986,6 +999,79 @@ class TemplatesPanel:
 
     # -- templates tab ------------------------------------------------------
 
+    def _persist_current_config(self, label: str) -> bool:
+        """Persist a prepared change and contain both result/exception failures."""
+        try:
+            result = config.save_config(config.user_config)
+        except Exception as exc:
+            reason = str(exc)
+        else:
+            if getattr(result, "success", True) is not False:
+                return True
+            reason = str(getattr(result, "reason", "") or "unknown error")
+        try:
+            self._report_error(
+                f"Could not save {label}: {reason}",
+                tag="warning",
+            )
+        except Exception:
+            # Error reporting is itself a Qt/app boundary. Persistence has
+            # already failed; never turn the fallback into a second exception.
+            pass
+        return False
+
+    @staticmethod
+    def _restore_user_config_key(key: str, previous) -> None:
+        if previous is _MISSING:
+            config.user_config.pop(key, None)
+        else:
+            config.user_config[key] = previous
+
+    def _sync_filters_safely(self) -> None:
+        try:
+            self._sync_filters(announce=True)
+        except Exception as exc:
+            try:
+                self._report_error(
+                    f"Could not refresh active filters: {exc}", tag="warning"
+                )
+            except Exception:
+                pass
+
+    def _persist_restored_config(self, label: str) -> None:
+        """Best-effort disk rollback after a failed verified save."""
+        try:
+            result = config.save_config(config.user_config)
+        except Exception as exc:
+            reason = str(exc)
+        else:
+            if getattr(result, "success", True) is not False:
+                return
+            reason = str(getattr(result, "reason", "") or "unknown error")
+        try:
+            self._report_error(
+                f"Could not restore previous {label}: {reason}", tag="warning"
+            )
+        except Exception:
+            pass
+
+    def _exec_and_delete(self, dialog) -> int:
+        try:
+            try:
+                return dialog.exec()
+            except Exception as exc:
+                try:
+                    self._report_error(
+                        f"Could not open dialog: {exc}", tag="warning"
+                    )
+                except Exception:
+                    pass
+                return QDialog.Rejected
+        finally:
+            delete_later = getattr(dialog, "deleteLater", None)
+            if callable(delete_later):
+                delete_later()
+
     def refresh_templates(self) -> None:
         _clear_layout(self._template_layout)
         self._checkboxes.clear()
@@ -1001,7 +1087,7 @@ class TemplatesPanel:
         self._template_layout.addStretch(1)
         if self._preferred_width_changed is not None:
             self._preferred_width_changed(self.preferred_width())
-        self._sync_filters(announce=True)
+        self._sync_filters_safely()
 
     def save_template_order(self, ordered_ids: list[int]) -> bool:
         """Persist one complete drag result; active selections stay untouched."""
@@ -1017,9 +1103,20 @@ class TemplatesPanel:
             return False
 
         by_id = {int(template.get("id", 0)): template for template in templates}
-        config.TEMPLATES = [by_id[template_id] for template_id in normalized]
+        reordered = [by_id[template_id] for template_id in normalized]
+        previous_templates = config.TEMPLATES
+        previous_config = config.user_config.get("TEMPLATES", _MISSING)
+        config.TEMPLATES = reordered
         config.user_config["TEMPLATES"] = config.TEMPLATES
-        config.save_config(config.user_config)
+        if not self._persist_current_config("template order"):
+            config.TEMPLATES = previous_templates
+            self._restore_user_config_key("TEMPLATES", previous_config)
+            self._persist_restored_config("template order")
+            # A live drag already moved the widgets. Rebuild from the restored
+            # runtime order so UI and scanner cannot disagree after disk I/O.
+            if self._template_layout is not None:
+                self.refresh_templates()
+            return False
         surface_order = (
             [row.template_id for row in self._template_surface.rows()]
             if self._template_surface is not None
@@ -1036,22 +1133,47 @@ class TemplatesPanel:
                 for template in config.TEMPLATES
                 if template["name"] in self._checkboxes
             }
-            self._sync_filters(announce=True)
+            self._sync_filters_safely()
         return True
 
     def save_checkbox_state(self, *_args) -> None:
         selected = self.selected_template_names()
+        previous_active = config.ACTIVE_TEMPLATES
+        previous_config = config.user_config.get("ACTIVE_TEMPLATES", _MISSING)
         config.ACTIVE_TEMPLATES = selected
         config.user_config["ACTIVE_TEMPLATES"] = selected
-        config.save_config(config.user_config)
+        if not self._persist_current_config("active templates"):
+            config.ACTIVE_TEMPLATES = previous_active
+            self._restore_user_config_key("ACTIVE_TEMPLATES", previous_config)
+            self._persist_restored_config("active templates")
+            previous_names = set(previous_active)
+            for name, checkbox in self._checkboxes.items():
+                blocker = getattr(checkbox, "blockSignals", None)
+                setter = getattr(checkbox, "setChecked", None)
+                if callable(blocker):
+                    blocker(True)
+                try:
+                    if callable(setter):
+                        setter(name in previous_names)
+                finally:
+                    if callable(blocker):
+                        blocker(False)
+            return
 
-        self._sync_filters(announce=True)
+        self._sync_filters_safely()
 
     def add_template_dialog(self) -> None:
         dialog = self._template_dialog(self._window())
-        if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
+        try:
+            accepted = dialog.exec() == QDialog.Accepted
+            result_payload = getattr(dialog, "result_payload", None)
+        finally:
+            delete_later = getattr(dialog, "deleteLater", None)
+            if callable(delete_later):
+                delete_later()
+        if not accepted or result_payload is None:
             return
-        payload = dialog.result_payload
+        payload = dict(result_payload)
         builtin_max = max(
             [template.get("id", 0) for template in config.DEFAULT_TEMPLATES] + [0]
         )
@@ -1059,23 +1181,47 @@ class TemplatesPanel:
             [template.get("id", 0) for template in config.TEMPLATES] + [builtin_max]
         ) + 1
         payload["id"] = next_id
+        previous_templates = config.TEMPLATES
+        previous_config = config.user_config.get("TEMPLATES", _MISSING)
         config.TEMPLATES = list(config.TEMPLATES) + [payload]
         config.user_config["TEMPLATES"] = config.TEMPLATES
-        config.save_config(config.user_config)
+        if not self._persist_current_config("new template"):
+            config.TEMPLATES = previous_templates
+            self._restore_user_config_key("TEMPLATES", previous_config)
+            self._persist_restored_config("templates")
+            return
         self.refresh_templates()
 
     def apply_template_edit(self, original_template: dict, updated_template: dict) -> bool:
         for index, template in enumerate(config.TEMPLATES):
             if template.get("id") == original_template.get("id"):
                 updated_template["id"] = original_template.get("id")
-                config.TEMPLATES[index] = updated_template
+                previous_templates = config.TEMPLATES
+                previous_active = config.ACTIVE_TEMPLATES
+                previous_templates_config = config.user_config.get("TEMPLATES", _MISSING)
+                previous_active_config = config.user_config.get(
+                    "ACTIVE_TEMPLATES", _MISSING
+                )
+                edited_templates = list(config.TEMPLATES)
+                edited_templates[index] = updated_template
+                config.TEMPLATES = edited_templates
                 config.user_config["TEMPLATES"] = config.TEMPLATES
                 config.ACTIVE_TEMPLATES = [
                     updated_template["name"] if name == original_template["name"] else name
                     for name in config.ACTIVE_TEMPLATES
                 ]
                 config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
-                config.save_config(config.user_config)
+                if not self._persist_current_config("template changes"):
+                    config.TEMPLATES = previous_templates
+                    config.ACTIVE_TEMPLATES = previous_active
+                    self._restore_user_config_key(
+                        "TEMPLATES", previous_templates_config
+                    )
+                    self._restore_user_config_key(
+                        "ACTIVE_TEMPLATES", previous_active_config
+                    )
+                    self._persist_restored_config("templates")
+                    return False
                 self.refresh_templates()
                 return True
         return False
@@ -1084,11 +1230,11 @@ class TemplatesPanel:
         dialog = self._template_manager_dialog(
             self._window(), config.TEMPLATES, self.apply_template_edit
         )
-        dialog.exec()
+        self._exec_and_delete(dialog)
 
     def del_template_dialog(self) -> None:
         dialog = self._delete_dialog(self._window(), list(config.TEMPLATES))
-        if dialog.exec() == QDialog.Accepted:
+        if self._exec_and_delete(dialog) == QDialog.Accepted:
             self.refresh_templates()
 
     # -- scores tab ---------------------------------------------------------
@@ -1119,10 +1265,25 @@ class TemplatesPanel:
             return
         active_tiers = [tier for tier, cb in self._scores_checkboxes.items() if cb.isChecked()]
         if active_tiers != config.SCORES_SYSTEM.get("active_tiers", []):
-            config.SCORES_SYSTEM["active_tiers"] = active_tiers
+            previous_scores = config.SCORES_SYSTEM
+            previous_config = config.user_config.get("SCORES_SYSTEM", _MISSING)
+            updated_scores = deepcopy(config.SCORES_SYSTEM)
+            updated_scores["active_tiers"] = active_tiers
+            config.SCORES_SYSTEM = updated_scores
             config.user_config["SCORES_SYSTEM"] = config.SCORES_SYSTEM
-            config.save_config(config.user_config)
-            self._sync_filters(announce=True)
+            if not self._persist_current_config("active score tiers"):
+                config.SCORES_SYSTEM = previous_scores
+                self._restore_user_config_key("SCORES_SYSTEM", previous_config)
+                self._persist_restored_config("score settings")
+                previous_tiers = set(previous_scores.get("active_tiers", []))
+                for tier, checkbox in self._scores_checkboxes.items():
+                    checkbox.blockSignals(True)
+                    try:
+                        checkbox.setChecked(tier in previous_tiers)
+                    finally:
+                        checkbox.blockSignals(False)
+            else:
+                self._sync_filters_safely()
 
         if hasattr(self._scores_desc_label, "refresh_from_config"):
             self._scores_desc_label.refresh_from_config()
@@ -1131,12 +1292,13 @@ class TemplatesPanel:
 
     def open_scores_settings_dialog(self) -> None:
         dialog = self._scores_settings_dialog(self._window())
-        if dialog.exec() == QDialog.Accepted:
+        if self._exec_and_delete(dialog) == QDialog.Accepted:
             self.refresh_scores_templates_list()
             self.refresh_scores_ui()
 
     def open_scores_help_dialog(self) -> None:
-        self._scores_help_dialog(self._window()).exec()
+        dialog = self._scores_help_dialog(self._window())
+        self._exec_and_delete(dialog)
 
 
 # -- module-level, for the reason `ui/tabs/compare_runs/tab.py` states: a free

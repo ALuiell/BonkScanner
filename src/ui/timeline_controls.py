@@ -154,7 +154,7 @@ def configured_timeline_series_slots() -> tuple[tuple[str, ...], ...]:
     return scrubber_model.DEFAULT_SLOTS
 
 
-def save_timeline_series_slots(slots) -> None:
+def save_timeline_series_slots(slots):
     """Persist one slot selection for both timelines and older app builds."""
     from app import config
 
@@ -168,7 +168,7 @@ def save_timeline_series_slots(slots) -> None:
         LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY,
     ):
         config.user_config[key] = serialized
-    config.save_config(config.user_config)
+    return config.save_config(config.user_config)
 
 
 class TimelineSeriesSlots:
@@ -205,7 +205,11 @@ class TimelineSeriesSlots:
         previous = self._slots
         self._slots = normalized
         try:
-            save_timeline_series_slots(self._slots)
+            result = save_timeline_series_slots(self._slots)
+            if getattr(result, "success", True) is False:
+                raise OSError(
+                    str(getattr(result, "reason", "") or "config save failed")
+                )
         except Exception:
             # Do not publish a value the shared service could not persist. In
             # particular, Recordings and Compare Runs must not split into two
@@ -281,14 +285,14 @@ def configured_timeline_caps() -> tuple[str, ...]:
     return tuple(key for key in TIMELINE_CAP_KEYS if key in wanted)
 
 
-def save_timeline_caps(keys) -> None:
+def save_timeline_caps(keys):
     from app import config
 
     wanted = {str(key) for key in keys}
     config.user_config[TIMELINE_CAPS_CONFIG_KEY] = [
         key for key in TIMELINE_CAP_KEYS if key in wanted
     ]
-    config.save_config(config.user_config)
+    return config.save_config(config.user_config)
 
 
 def build_timeline_cap_checkboxes(on_changed) -> dict:

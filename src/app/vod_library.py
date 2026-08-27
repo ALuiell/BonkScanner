@@ -114,9 +114,9 @@ def recording_sort_mode() -> str:
     return normalize_recording_sort_mode(config.user_config.get(RECORDING_SORT_CONFIG_KEY))
 
 
-def set_recording_sort_mode(mode: str) -> None:
+def set_recording_sort_mode(mode: str):
     config.user_config[RECORDING_SORT_CONFIG_KEY] = normalize_recording_sort_mode(mode)
-    config.save_config(config.user_config)
+    return config.save_config(config.user_config)
 
 
 #: Where the Recordings tab remembers its library drawer -- whether it is open,
@@ -136,9 +136,9 @@ def recording_library_open() -> bool:
     return bool(config.user_config.get(RECORDING_LIBRARY_OPEN_CONFIG_KEY, False))
 
 
-def set_recording_library_open(is_open: bool) -> None:
+def set_recording_library_open(is_open: bool):
     config.user_config[RECORDING_LIBRARY_OPEN_CONFIG_KEY] = bool(is_open)
-    config.save_config(config.user_config)
+    return config.save_config(config.user_config)
 
 
 def recording_library_width() -> int | None:
@@ -155,12 +155,12 @@ def recording_library_width() -> int | None:
     return width if width > 0 else None
 
 
-def set_recording_library_width(width: int) -> None:
+def set_recording_library_width(width: int):
     config.user_config[RECORDING_LIBRARY_WIDTH_CONFIG_KEY] = max(0, int(width))
-    config.save_config(config.user_config)
+    return config.save_config(config.user_config)
 
 
-def set_minimum_snapshot_count(value: int) -> None:
+def set_minimum_snapshot_count(value: int):
     """Persist the auto-filter threshold through the recording settings.
 
     Here rather than in ``infra.vod_storage`` beside its reader, because the
@@ -173,7 +173,8 @@ def set_minimum_snapshot_count(value: int) -> None:
         return
     writer = getattr(settings, "write_minimum_snapshot_count", None)
     if callable(writer):
-        writer(max(0, int(value)))
+        return writer(max(0, int(value)))
+    return None
 
 
 class VodLibrary:

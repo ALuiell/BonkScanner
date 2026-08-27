@@ -66,6 +66,18 @@ def test_failed_slot_persistence_rolls_back_the_shared_value() -> None:
     assert observed == []
 
 
+def test_unsuccessful_slot_save_result_rolls_back_the_shared_value() -> None:
+    shared = TimelineSeriesSlots(slots=(("Damage",), (), (), ()))
+
+    with patch(
+        "ui.timeline_controls.save_timeline_series_slots",
+        return_value=config.ConfigSaveResult(False, "verification failed"),
+    ), pytest.raises(OSError, match="verification failed"):
+        shared.set_slot(0, ("Luck",))
+
+    assert shared.slots[0] == ("Damage",)
+
+
 def test_broken_slot_subscriber_does_not_starve_the_next_tab() -> None:
     shared = TimelineSeriesSlots(slots=(("Damage",), (), (), ()))
     observed = []

@@ -588,10 +588,17 @@ class RecordingsTab:
     def _save_recording_preference(self, label: str, writer) -> bool:
         """Keep config I/O failures inside their Qt signal/timer boundary."""
         try:
-            writer()
+            result = writer()
         except Exception as exc:
             self._log(
                 f"Could not save {label}: {exc}",
+                tag="warning",
+            )
+            return False
+        if getattr(result, "success", True) is False:
+            reason = str(getattr(result, "reason", "") or "unknown error")
+            self._log(
+                f"Could not save {label}: {reason}",
                 tag="warning",
             )
             return False
@@ -1785,9 +1792,9 @@ class RecordingsTab:
         self._scrubber.set_pin(self._compare_start_index)
 
     def _save_stats_expanded_preference(self, expanded: bool) -> None:
-        def save() -> None:
+        def save():
             config.user_config[LIVE_STATS_EXPANDED_CONFIG_KEY] = bool(expanded)
-            config.save_config(config.user_config)
+            return config.save_config(config.user_config)
 
         self._save_recording_preference("recording stats layout", save)
 

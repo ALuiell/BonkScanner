@@ -34,10 +34,14 @@ class RecordingDialog:
         self.result = result
         self.result_payload = result_payload
         self.exec_calls = 0
+        self.delete_later_calls = 0
 
     def exec(self):
         self.exec_calls += 1
         return self.result
+
+    def deleteLater(self) -> None:
+        self.delete_later_calls += 1
 
 
 def _refuse(name):
@@ -48,7 +52,7 @@ def _refuse(name):
 
 
 def build_templates_panel(**overrides) -> TemplatesPanel:
-    """A real `TemplatesPanel` with its nine collaborators faked.
+    """A real `TemplatesPanel` with its ten collaborators faked.
 
     Every dialog factory defaults to one that *fails* rather than one that
     returns a harmless stub. A test asserting "cancelling writes no config" is
@@ -70,6 +74,7 @@ def build_templates_panel(**overrides) -> TemplatesPanel:
         "scores_settings_dialog": _refuse("ScoresSettingsDialog"),
         "scores_help_dialog": _refuse("ScoresHelpDialog"),
         "no_custom_templates_message": _refuse("the no-custom-templates message"),
+        "report_error": None,
     }
     unknown = set(overrides) - set(defaults)
     assert not unknown, f"not TemplatesPanel constructor arguments: {sorted(unknown)}"

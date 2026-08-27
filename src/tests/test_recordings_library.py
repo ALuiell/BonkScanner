@@ -289,6 +289,23 @@ class RecordingPreferenceTests(unittest.TestCase):
         self.assertIn("disk full", messages[0][0])
         self.assertEqual("warning", messages[0][1]["tag"])
 
+    def test_unsuccessful_config_result_is_reported(self) -> None:
+        from app import config
+
+        messages = []
+        tab = SimpleNamespace(
+            _log=lambda message, **kwargs: messages.append((message, kwargs))
+        )
+
+        saved = RecordingsTab._save_recording_preference(
+            tab,
+            "recording sort order",
+            lambda: config.ConfigSaveResult(False, "verification failed"),
+        )
+
+        self.assertFalse(saved)
+        self.assertIn("verification failed", messages[0][0])
+
 
 if __name__ == "__main__":
     unittest.main()

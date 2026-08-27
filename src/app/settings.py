@@ -55,9 +55,9 @@ class ConfigRecordingSettings:
         # choice, it is a corrupt config.
         return max(0, value)
 
-    def write_minimum_snapshot_count(self, value: int) -> None:
+    def write_minimum_snapshot_count(self, value: int):
         config.user_config[self._MINIMUM_SNAPSHOT_COUNT_KEY] = max(0, int(value))
-        config.save_config(config.user_config)
+        return config.save_config(config.user_config)
 
 
 class ConfigBuildProgressionSettings:

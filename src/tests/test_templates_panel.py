@@ -33,9 +33,18 @@ from ui.tabs.templates.panel import _ScoresOverview
 class FakeCheckbox:
     def __init__(self, checked: bool) -> None:
         self._checked = checked
+        self._signals_blocked = False
 
     def isChecked(self) -> bool:
         return self._checked
+
+    def setChecked(self, checked: bool) -> None:
+        self._checked = bool(checked)
+
+    def blockSignals(self, blocked: bool) -> bool:
+        previous = self._signals_blocked
+        self._signals_blocked = bool(blocked)
+        return previous
 
 
 class FakeLayout:
@@ -230,6 +239,103 @@ class ScoresTests(unittest.TestCase):
         self.assertEqual(len(rendered), 1)
         self.assertIn("Light, Perfect", rendered[0])
 
+
+class PersistenceFailureTests(unittest.TestCase):
+    def test_active_template_failure_rolls_back_runtime_and_checkbox(self) -> None:
+        messages = []
+        panel = build_templates_panel(
+            report_error=lambda message, **kwargs: messages.append((message, kwargs))
+        )
+        panel._checkboxes = {
+            "Alpha": FakeCheckbox(False),
+            "Beta": FakeCheckbox(True),
+        }
+        previous = ["Alpha"]
+
+        with patch.object(config, "ACTIVE_TEMPLATES", previous), patch.dict(
+            config.user_config, {"ACTIVE_TEMPLATES": previous}, clear=False
+        ), patch.object(
+            config,
+            "save_config",
+            return_value=config.ConfigSaveResult(False, "disk full"),
+        ):
+            panel.save_checkbox_state()
+
+            self.assertIs(config.ACTIVE_TEMPLATES, previous)
+            self.assertEqual(previous, config.user_config["ACTIVE_TEMPLATES"])
+            self.assertTrue(panel._checkboxes["Alpha"].isChecked())
+            self.assertFalse(panel._checkboxes["Beta"].isChecked())
+
+        self.assertIn("disk full", messages[0][0])
+        self.assertEqual("warning", messages[0][1]["tag"])
+
+    def test_template_order_failure_restores_runtime_order(self) -> None:
+        messages = []
+        panel = build_templates_panel(
+            report_error=lambda message, **kwargs: messages.append((message, kwargs))
+        )
+        templates = [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]
+
+        with patch.object(config, "TEMPLATES", templates), patch.dict(
+            config.user_config, {"TEMPLATES": templates}, clear=False
+        ), patch.object(
+            config,
+            "save_config",
+            return_value=config.ConfigSaveResult(False, "readback failed"),
+        ):
+            changed = panel.save_template_order([2, 1])
+
+            self.assertFalse(changed)
+            self.assertIs(config.TEMPLATES, templates)
+            self.assertIs(config.user_config["TEMPLATES"], templates)
+
+        self.assertIn("readback failed", messages[0][0])
+
+    def test_active_tier_failure_restores_scores_and_checkboxes(self) -> None:
+        messages = []
+        panel = build_templates_panel(
+            report_error=lambda message, **kwargs: messages.append((message, kwargs))
+        )
+        previous = deepcopy(config.SCORES_SYSTEM)
+        previous["active_tiers"] = ["Good"]
+        panel._scores_desc_label = SimpleNamespace(setHtml=lambda _html: None)
+        panel._scores_checkboxes = {
+            tier: FakeCheckbox(tier == "Light")
+            for tier in ("Light", "Good", "Perfect", "Perfect+")
+        }
+
+        with patch.object(config, "SCORES_SYSTEM", previous), patch.dict(
+            config.user_config, {"SCORES_SYSTEM": previous}, clear=False
+        ), patch.object(
+            config,
+            "save_config",
+            return_value=config.ConfigSaveResult(False, "config unavailable"),
+        ):
+            panel.refresh_scores_ui()
+
+            self.assertIs(config.SCORES_SYSTEM, previous)
+            self.assertTrue(panel._scores_checkboxes["Good"].isChecked())
+            self.assertFalse(panel._scores_checkboxes["Light"].isChecked())
+
+        self.assertIn("config unavailable", messages[0][0])
+
+    def test_filter_refresh_failure_does_not_escape_checkbox_signal(self) -> None:
+        messages = []
+        panel = build_templates_panel(
+            sync_filters=lambda **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("stats page deleted")
+            ),
+            report_error=lambda message, **kwargs: messages.append((message, kwargs)),
+        )
+        panel._checkboxes = {"Alpha": FakeCheckbox(True)}
+
+        with patch.object(config, "ACTIVE_TEMPLATES", []), patch.object(
+            config, "save_config", return_value=config.ConfigSaveResult(True)
+        ):
+            panel.save_checkbox_state()
+
+        self.assertIn("stats page deleted", messages[0][0])
+
     def test_refresh_scores_ui_is_a_no_op_before_the_label_exists(self) -> None:
         panel, _filters = _panel_with_filters()
         panel._scores_desc_label = None
@@ -324,6 +430,7 @@ class DialogTests(unittest.TestCase):
 
         self.assertEqual(calls, [(window, templates, panel.apply_template_edit)])
         self.assertEqual(dialog.exec_calls, 1)
+        self.assertEqual(dialog.delete_later_calls, 1)
         self.assertEqual(opened, [])
 
     def test_a_cancelled_add_writes_no_config(self) -> None:
@@ -336,6 +443,7 @@ class DialogTests(unittest.TestCase):
             panel.add_template_dialog()
         save_config.assert_not_called()
         self.assertEqual(dialog.exec_calls, 1)
+        self.assertEqual(dialog.delete_later_calls, 1)
 
     def test_an_accepted_add_with_no_payload_writes_no_config(self) -> None:
         """`Accepted` and `result_payload is None` is a real path, not a typo."""
@@ -347,6 +455,7 @@ class DialogTests(unittest.TestCase):
         with patch.object(config, "save_config") as save_config:
             panel.add_template_dialog()
         save_config.assert_not_called()
+        self.assertEqual(dialog.delete_later_calls, 1)
 
     def test_add_after_deleting_everything_keeps_custom_ids_outside_builtin_range(self) -> None:
         from PySide6.QtWidgets import QDialog
@@ -379,6 +488,7 @@ class DialogTests(unittest.TestCase):
             panel.del_template_dialog()
 
         self.assertEqual(dialog.exec_calls, 1)
+        self.assertEqual(dialog.delete_later_calls, 1)
         # `refresh_templates` would have added the stretch.
         self.assertEqual(panel._template_layout.stretches, 0)
 
@@ -398,6 +508,7 @@ class DialogTests(unittest.TestCase):
 
         self.assertEqual(received, [templates])
         self.assertEqual(dialog.exec_calls, 1)
+        self.assertEqual(dialog.delete_later_calls, 1)
 
     def test_a_cancelled_scores_settings_dialog_does_not_repaint(self) -> None:
         from PySide6.QtWidgets import QDialog
@@ -410,6 +521,7 @@ class DialogTests(unittest.TestCase):
         panel.open_scores_settings_dialog()
 
         self.assertEqual(dialog.exec_calls, 1)
+        self.assertEqual(dialog.delete_later_calls, 1)
         self.assertEqual(rendered, [])
 
     def test_scores_help_opens_from_the_scores_panel(self) -> None:
@@ -430,6 +542,7 @@ class DialogTests(unittest.TestCase):
 
         self.assertEqual(received, [parent])
         self.assertEqual(dialog.exec_calls, 1)
+        self.assertEqual(dialog.delete_later_calls, 1)
 
 
 class TemplateEditTests(unittest.TestCase):
@@ -504,7 +617,7 @@ class TemplateOrderTests(unittest.TestCase):
 
 
 class PortTests(unittest.TestCase):
-    def test_the_constructor_takes_exactly_its_nine_collaborators(self) -> None:
+    def test_the_constructor_takes_only_its_explicit_collaborators(self) -> None:
         """A silently-absorbed dependency is what `object.__new__` was retired for."""
         from ui.tabs.templates import TemplatesPanel
 

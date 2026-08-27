@@ -137,6 +137,26 @@ class CompareRunsLifecycleTests(unittest.TestCase):
         self.assertIn("disk full", messages[0][0])
         self.assertEqual("warning", messages[0][1]["tag"])
 
+    def test_unsuccessful_config_result_also_rolls_back(self) -> None:
+        messages = []
+        view = build_compare_runs_tab(
+            log=lambda message, **kwargs: messages.append((message, kwargs))
+        )
+        user_config = {"compare_test": "old"}
+
+        with patch.object(config, "user_config", user_config), patch.object(
+            config,
+            "save_config",
+            return_value=config.ConfigSaveResult(False, "verification failed"),
+        ):
+            saved = view._save_compare_run_config_value(
+                "compact timeline state", "compare_test", "new"
+            )
+
+        self.assertFalse(saved)
+        self.assertEqual("old", user_config["compare_test"])
+        self.assertIn("verification failed", messages[0][0])
+
     def test_series_persistence_failure_does_not_escape_the_menu_slot(self) -> None:
         messages = []
         view = build_compare_runs_tab(
