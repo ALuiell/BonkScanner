@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from app import config
 from ui.canvas_preview import CanvasPreview, PreviewWidget
-from ui.dialogs.tracked_items import TrackedItemsDialog
+from ui.dialogs.tracked_items import show_tracked_items_dialog
 from ui.dialogs.build_progression import show_build_progression_manager
 from ui.module_tile import ModuleTile
 from ui.run_toggle import OVERLAY_SERVER_CAPTIONS
@@ -41,7 +41,7 @@ from ui.tab_hero import STATE_DANGER, STATE_OFF, STATE_OK, STATE_WARN, TabHero
 from projections.tracked_items import uses_session_tracked_items
 from core.tracker.live_run import TrackedItemRule
 from app.coordinator import AppCoordinator
-from app.tracked_item_settings import TrackedItemSettings, combine_rules
+from app.tracked_item_settings import SESSION, TrackedItemSettings, combine_rules
 from projections.obs import build_overlay_state
 from core.stats.types import PLAYER_STAT_GROUPS
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
@@ -1118,18 +1118,11 @@ class Overlay:
         What stays here is the wiring, not the screen: this component holds the
         tracker and the two refresh ports `TrackedItemSettings` needs.
         """
-        dialog = TrackedItemsDialog(
+        show_tracked_items_dialog(
             self._tracked_item_settings(),
             target_key="session",
             parent=self.tab_stats,
         )
-        try:
-            dialog.exec()
-        finally:
-            try:
-                self.refresh_session_tracked_item_stats_ui()
-            finally:
-                dialog.deleteLater()
 
     def _tracked_item_settings(self) -> TrackedItemSettings:
         return TrackedItemSettings(
@@ -1155,13 +1148,23 @@ class Overlay:
             self.session_stats.session_tracked_item_stat_rows()
         )
 
-    def save_session_tracked_items_from_ui(self) -> None:
-        config.SESSION_TRACKED_ITEMS = config.normalize_session_tracked_items_config(config.SESSION_TRACKED_ITEMS)
-        config.user_config["SESSION_TRACKED_ITEMS"] = config.SESSION_TRACKED_ITEMS
-        config.save_config(config.user_config)
-        if self.live_run_tracker is not None:
-            self.live_run_tracker.set_tracked_item_rules(self._combined_tracked_item_rules())
-        self.refresh_session_tracked_item_stats_ui()
+    def save_session_tracked_items_from_ui(self) -> bool:
+        """Compatibility entry point; use the same verified writer as the dialog."""
+        try:
+            normalized = config.normalize_session_tracked_items_config(
+                config.SESSION_TRACKED_ITEMS
+            )
+            self._tracked_item_settings().set_rules(
+                SESSION,
+                normalized.get("tracked_items") or (),
+            )
+        except Exception as exc:
+            self._log(
+                f"Could not save Session Stats tracked items: {exc}",
+                tag="warning",
+            )
+            return False
+        return True
 
     def update_overlay_state_from_tracker(self) -> None:
         if self.overlay_state_store is None:

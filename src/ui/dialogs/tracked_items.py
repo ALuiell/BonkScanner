@@ -35,6 +35,7 @@ serve all three without knowing which config it is editing.
 
 from __future__ import annotations
 
+from html import escape
 from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt, Signal
@@ -63,6 +64,7 @@ from ui.dialogs.shell import (
     DIALOG_TALL,
     DIALOG_WIDE,
     dialog_body,
+    dialog_danger_card,
     dialog_footer,
 )
 from ui.segmented_toggle import ROLE_GO, SegmentedToggle
@@ -552,6 +554,11 @@ class TrackedItemsDialog(QDialog):
         source_layout.addWidget(self._summary, 1)
         layout.addWidget(self._source_row)
 
+        self._status_card = dialog_danger_card("")
+        self._status_label = self._status_card.findChild(QLabel, "dialogCardText")
+        self._status_card.hide()
+        layout.addWidget(self._status_card)
+
         self._picker = TrackedItemPicker(
             rules=lambda: self._settings.rules(self._target),
             make_rule=lambda names, mode: self._settings.make_rule(
@@ -623,18 +630,57 @@ class TrackedItemsDialog(QDialog):
     def _on_target(self, key: str) -> None:
         from app.tracked_item_settings import TARGETS_BY_KEY
 
+        self._clear_status()
         self._target = TARGETS_BY_KEY.get(key, self._target)
         self._target_toggle.set_active(self._target.key)
         self._picker.reset()
         self._refresh()
 
     def _on_source(self, source: str) -> None:
-        self._settings.set_source(self._target, source)
-        self._refresh()
+        self._apply_settings_change(
+            lambda: self._settings.set_source(self._target, source)
+        )
 
     def _on_rules_changed(self, rules) -> None:
-        self._settings.set_rules(self._target, rules)
-        self._refresh()
+        self._apply_settings_change(
+            lambda: self._settings.set_rules(self._target, rules)
+        )
+
+    def _apply_settings_change(self, change: Callable[[], None]) -> None:
+        from app.tracked_item_settings import TrackedItemPublishError
+
+        title = ""
+        message = ""
+        try:
+            change()
+        except TrackedItemPublishError as exc:
+            title = "Saved with warnings"
+            message = str(exc) or "Live views could not all be refreshed."
+        except Exception as exc:
+            title = "Changes were not saved"
+            message = str(exc) or type(exc).__name__
+
+        try:
+            self._refresh()
+        except Exception as exc:
+            if not message:
+                title = "Tracked Items could not refresh"
+                message = str(exc) or type(exc).__name__
+
+        if message:
+            self._show_status(title, message)
+        else:
+            self._clear_status()
+
+    def _show_status(self, title: str, message: str) -> None:
+        safe_title = escape(str(title))
+        safe_message = escape(str(message)).replace("\n", "<br>")
+        self._status_label.setText(f"<b>{safe_title}</b><br>{safe_message}")
+        self._status_card.show()
+
+    def _clear_status(self) -> None:
+        self._status_label.clear()
+        self._status_card.hide()
 
     def _confirm_clear(self) -> None:
         confirmed = QMessageBox.question(
@@ -645,8 +691,14 @@ class TrackedItemsDialog(QDialog):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if confirmed == QMessageBox.Yes:
+        if confirmed != QMessageBox.Yes:
+            return
+        try:
             self._picker.clear_rules()
+        except RuntimeError:
+            # The application can close while QMessageBox runs its nested loop.
+            # In that case the parent dialog and picker are already gone.
+            pass
 
     # -- rendering ------------------------------------------------------------
 
@@ -700,6 +752,48 @@ class TrackedItemsDialog(QDialog):
 
     def is_mirroring(self) -> bool:
         return self._stack.currentIndex() == 1
+
+
+def _release_dialog(dialog) -> None:
+    if dialog is None:
+        return
+    delete_later = getattr(dialog, "deleteLater", None)
+    if not callable(delete_later):
+        return
+    try:
+        delete_later()
+    except RuntimeError:
+        pass
+
+
+def show_tracked_items_dialog(
+    settings,
+    *,
+    target_key: str = "session",
+    parent=None,
+) -> bool:
+    """Run the one-shot editor without retaining a closed child on its parent."""
+    dialog = None
+    try:
+        dialog = TrackedItemsDialog(
+            settings,
+            target_key=target_key,
+            parent=parent,
+        )
+        dialog.exec()
+        return True
+    except Exception as exc:
+        try:
+            QMessageBox.warning(
+                parent,
+                "Tracked Items Error",
+                str(exc) or "Tracked Items could not be opened.",
+            )
+        except Exception:
+            pass
+        return False
+    finally:
+        _release_dialog(dialog)
 
 
 def _rules(count: int) -> str:

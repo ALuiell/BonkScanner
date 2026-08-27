@@ -27,6 +27,7 @@ always republishes. What a caller supplies is *which list* and *what rules*.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -87,6 +88,11 @@ TARGETS_BY_KEY = {target.key: target for target in TARGETS}
 
 SOURCE_OWN = "custom"
 SOURCE_SESSION = "session"
+_MISSING_CONFIG_VALUE = object()
+
+
+class TrackedItemPublishError(RuntimeError):
+    """The config is saved, but one or more live consumers did not refresh."""
 
 
 def combine_rules(rules_from_config: Callable[[dict], tuple]) -> tuple:
@@ -132,7 +138,7 @@ class TrackedItemSettings:
         combined_rules: Callable[[], tuple],
         refresh_session_rows: Callable[[], None],
         refresh_snapshot: Callable[[], None],
-        save: Callable[[], None] = None,
+        save: Callable[[], Any] | None = None,
     ) -> None:
         self._tracker = tracker
         self._combined_rules = combined_rules
@@ -178,38 +184,117 @@ class TrackedItemSettings:
     # -- writing ----------------------------------------------------------
 
     def set_rules(self, target: TrackedItemTarget, rules) -> None:
-        container = _config_dict(target)
-        container["tracked_items"] = config.normalize_tracked_item_rules_config(
+        normalized = config.normalize_tracked_item_rules_config(
             [dict(rule) for rule in rules], []
         )
-        self._persist(target)
+        self._update(
+            target,
+            lambda container: container.__setitem__("tracked_items", normalized),
+        )
 
     def set_source(self, target: TrackedItemTarget, source: str) -> None:
         if not target.can_mirror:
             return
-        container = _config_dict(target)
-        container["tracked_items_source"] = config.normalize_tracked_items_source(
+        normalized = config.normalize_tracked_items_source(
             source, default=SOURCE_OWN
         )
-        self._persist(target)
+        self._update(
+            target,
+            lambda container: container.__setitem__(
+                "tracked_items_source", normalized
+            ),
+        )
 
-    def _persist(self, target: TrackedItemTarget) -> None:
+    def _save_error(self) -> str | None:
+        try:
+            result = self._save()
+        except Exception as exc:
+            return str(exc) or type(exc).__name__
+        if getattr(result, "success", True) is False:
+            return str(getattr(result, "reason", "") or "unknown error")
+        return None
+
+    @staticmethod
+    def _restore_runtime(target: TrackedItemTarget, previous) -> None:
+        if previous is _MISSING_CONFIG_VALUE:
+            try:
+                delattr(config, target.config_key)
+            except AttributeError:
+                pass
+            return
+        setattr(config, target.config_key, previous)
+
+    @staticmethod
+    def _restore_saved(target: TrackedItemTarget, previous) -> None:
+        if previous is _MISSING_CONFIG_VALUE:
+            config.user_config.pop(target.config_key, None)
+        else:
+            config.user_config[target.config_key] = previous
+
+    def _update(
+        self,
+        target: TrackedItemTarget,
+        mutate: Callable[[dict[str, Any]], None],
+    ) -> None:
         """Write the file, then tell everything that counts or renders rules.
 
         All four steps, every time, for every target. Doing three of them is how
         a rule ends up saved but uncounted, which is the shape of both bugs this
         module replaced.
         """
-        container = _config_dict(target)
-        setattr(config, target.config_key, container)
-        config.user_config[target.config_key] = container
-        self._save()
+        with config.config_lock:
+            previous_runtime = getattr(
+                config, target.config_key, _MISSING_CONFIG_VALUE
+            )
+            previous_saved = config.user_config.get(
+                target.config_key, _MISSING_CONFIG_VALUE
+            )
+            base = previous_runtime if isinstance(previous_runtime, dict) else {}
+            candidate = deepcopy(base)
+            mutate(candidate)
+            setattr(config, target.config_key, candidate)
+            config.user_config[target.config_key] = candidate
 
-        tracker = self._tracker()
-        if tracker is not None:
-            tracker.set_tracked_item_rules(self._combined_rules())
-        self._refresh_session_rows()
-        self._refresh_snapshot()
+            save_error = self._save_error()
+            if save_error is not None:
+                self._restore_runtime(target, previous_runtime)
+                self._restore_saved(target, previous_saved)
+                rollback_error = self._save_error()
+                if rollback_error is None:
+                    rollback_note = " The previous configuration was restored."
+                else:
+                    rollback_note = (
+                        " Restoring the previous configuration also failed: "
+                        f"{rollback_error}"
+                    )
+                raise OSError(
+                    f"Could not save {target.caption} tracked items: {save_error}."
+                    + rollback_note
+                )
+
+        failures: list[str] = []
+
+        def attempt(label: str, callback: Callable[[], None]) -> None:
+            try:
+                callback()
+            except Exception as exc:
+                detail = str(exc) or type(exc).__name__
+                failures.append(f"{label}: {detail}")
+
+        def refresh_tracker() -> None:
+            tracker = self._tracker()
+            if tracker is not None:
+                tracker.set_tracked_item_rules(self._combined_rules())
+
+        attempt("tracker", refresh_tracker)
+        attempt("Session Stats rows", self._refresh_session_rows)
+        attempt("session snapshot", self._refresh_snapshot)
+        if failures:
+            raise TrackedItemPublishError(
+                "Tracked item settings were saved, but live views could not all "
+                "be refreshed. Restart BonkScanner before relying on them. "
+                + "; ".join(failures)
+            )
 
 
 def _config_dict(target: TrackedItemTarget) -> dict:

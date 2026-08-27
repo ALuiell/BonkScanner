@@ -21,7 +21,9 @@ from __future__ import annotations
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 import unittest
+from copy import deepcopy
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from app import config
 from app.tracked_item_settings import (
@@ -31,6 +33,7 @@ from app.tracked_item_settings import (
     SOURCE_SESSION,
     TWITCH,
     TrackedItemSettings,
+    TrackedItemPublishError,
     combine_rules,
     rule_id,
 )
@@ -43,6 +46,9 @@ def _rule(item_names, mode="map_1_only"):
         "item_names": list(item_names),
         "mode": mode,
     }
+
+
+_MISSING = object()
 
 
 class _Recorder:
@@ -77,15 +83,25 @@ class TrackedItemSettingsTests(unittest.TestCase):
             "OVERLAY": config.OVERLAY,
             "TWITCH_BOT": config.TWITCH_BOT,
         }
+        self._saved_user_config = {
+            name: config.user_config.get(name, _MISSING) for name in self._saved
+        }
         config.SESSION_TRACKED_ITEMS = {"tracked_items": []}
         config.OVERLAY = {"tracked_items": [], "tracked_items_source": SOURCE_OWN}
         config.TWITCH_BOT = {"tracked_items": [], "tracked_items_source": SOURCE_OWN}
+        for name in self._saved:
+            config.user_config[name] = getattr(config, name)
         self.recorder = _Recorder()
         self.settings = self.recorder.settings()
 
     def tearDown(self) -> None:
         for name, value in self._saved.items():
             setattr(config, name, value)
+        for name, value in self._saved_user_config.items():
+            if value is _MISSING:
+                config.user_config.pop(name, None)
+            else:
+                config.user_config[name] = value
 
     def test_writing_any_list_republishes_every_rule(self) -> None:
         """All three targets, because the bug was in exactly one of them.
@@ -165,6 +181,76 @@ class TrackedItemSettingsTests(unittest.TestCase):
         self.settings.set_rules(OVERLAY, [_rule(["Anvil"])])
 
         self.assertEqual(len(config.OVERLAY["tracked_items"]), 1)
+
+    def test_failed_save_result_restores_runtime_and_saved_config(self) -> None:
+        previous_runtime = {
+            "tracked_items": [_rule(["Clover"])],
+            "tracked_items_source": SOURCE_OWN,
+        }
+        previous_saved = deepcopy(previous_runtime)
+        config.OVERLAY = previous_runtime
+        config.user_config["OVERLAY"] = previous_saved
+        save = MagicMock(
+            side_effect=[
+                config.ConfigSaveResult(False, "disk full"),
+                config.ConfigSaveResult(True),
+            ]
+        )
+        settings = TrackedItemSettings(
+            tracker=lambda: MagicMock(),
+            combined_rules=lambda: (),
+            refresh_session_rows=MagicMock(),
+            refresh_snapshot=MagicMock(),
+            save=save,
+        )
+
+        with self.assertRaisesRegex(OSError, "disk full"):
+            settings.set_rules(OVERLAY, [_rule(["Anvil"])])
+
+        self.assertIs(config.OVERLAY, previous_runtime)
+        self.assertIs(config.user_config["OVERLAY"], previous_saved)
+        self.assertEqual(2, save.call_count)
+
+    def test_save_exception_without_text_is_still_a_failure(self) -> None:
+        previous = config.TWITCH_BOT
+        save = MagicMock(
+            side_effect=[OSError(), config.ConfigSaveResult(True)]
+        )
+        settings = TrackedItemSettings(
+            tracker=lambda: None,
+            combined_rules=lambda: (),
+            refresh_session_rows=MagicMock(),
+            refresh_snapshot=MagicMock(),
+            save=save,
+        )
+
+        with self.assertRaisesRegex(OSError, "OSError"):
+            settings.set_source(TWITCH, SOURCE_SESSION)
+
+        self.assertIs(config.TWITCH_BOT, previous)
+
+    def test_all_live_consumers_are_attempted_after_one_refresh_fails(self) -> None:
+        rows = MagicMock()
+        snapshot = MagicMock()
+        tracker = MagicMock()
+        tracker.set_tracked_item_rules.side_effect = RuntimeError("tracker stopped")
+        settings = TrackedItemSettings(
+            tracker=lambda: tracker,
+            combined_rules=lambda: ("combined",),
+            refresh_session_rows=rows,
+            refresh_snapshot=snapshot,
+            save=lambda: config.ConfigSaveResult(True),
+        )
+
+        with self.assertRaisesRegex(TrackedItemPublishError, "tracker stopped"):
+            settings.set_rules(SESSION, [_rule(["Anvil"])])
+
+        self.assertEqual(
+            [rule["item_names"] for rule in config.SESSION_TRACKED_ITEMS["tracked_items"]],
+            [["Anvil"]],
+        )
+        rows.assert_called_once_with()
+        snapshot.assert_called_once_with()
 
 
 class RuleIdentityTests(unittest.TestCase):
