@@ -105,7 +105,7 @@ from ui.tabs.player_stats.summary_cards import (
 )
 from projections import formatting
 from projections.build_progression import build_progression_payload
-from ui.dialogs.build_progression import BuildProgressionHelpDialog
+from ui.dialogs.build_progression import show_build_progression_help
 
 
 LIVE_STATS_EXPANDED_CONFIG_KEY = "LIVE_STATS_EXPANDED"
@@ -1364,7 +1364,7 @@ class LiveStatsTab:
         build_actions.addWidget(build_eyebrow)
         build_actions.addStretch(1)
         build_help = QPushButton("How it works")
-        build_help.clicked.connect(lambda: BuildProgressionHelpDialog(self._root).exec())
+        build_help.clicked.connect(lambda: show_build_progression_help(self._root))
         build_configure = QPushButton("Configure")
         build_configure.setObjectName("primary")
         build_configure.clicked.connect(self._open_build_progression_settings)

@@ -1327,11 +1327,10 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
 
 
 def _open_build_progression_for_app(app: Any) -> None:
-    from ui.dialogs.build_progression import BuildProgressionManagerDialog
+    from ui.dialogs.build_progression import show_build_progression_manager
 
-    dialog = BuildProgressionManagerDialog(
+    show_build_progression_manager(
         app.coordinator.build_progression_settings,
         app.coordinator.build_progression_service,
         getattr(app, "window", None),
     )
-    dialog.exec()

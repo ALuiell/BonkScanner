@@ -12,6 +12,9 @@ from app import config
 from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT
 
 
+_MISSING_CONFIG_VALUE = object()
+
+
 class ConfigOverlaySettings:
     def read(self) -> dict[str, Any]:
         return config.OVERLAY or {}
@@ -68,7 +71,49 @@ class ConfigBuildProgressionSettings:
     def write(self, payload: dict[str, Any]) -> dict[str, Any]:
         normalized = config.normalize_build_progression_config(payload)
         with config.config_lock:
+            previous_runtime = config.BUILD_PROGRESSION
+            previous_saved = config.user_config.get(
+                "BUILD_PROGRESSION",
+                _MISSING_CONFIG_VALUE,
+            )
             config.BUILD_PROGRESSION = normalized
             config.user_config["BUILD_PROGRESSION"] = deepcopy(normalized)
-            config.save_config(config.user_config)
+            try:
+                save_result = config.save_config(config.user_config)
+            except Exception as exc:
+                save_error = str(exc) or type(exc).__name__
+            else:
+                save_error = (
+                    str(getattr(save_result, "reason", "") or "unknown error")
+                    if getattr(save_result, "success", True) is False
+                    else ""
+                )
+            if save_error:
+                config.BUILD_PROGRESSION = previous_runtime
+                if previous_saved is _MISSING_CONFIG_VALUE:
+                    config.user_config.pop("BUILD_PROGRESSION", None)
+                else:
+                    config.user_config["BUILD_PROGRESSION"] = previous_saved
+                try:
+                    rollback_result = config.save_config(config.user_config)
+                except Exception as exc:
+                    rollback_error = str(exc) or type(exc).__name__
+                else:
+                    rollback_error = (
+                        str(
+                            getattr(rollback_result, "reason", "")
+                            or "unknown error"
+                        )
+                        if getattr(rollback_result, "success", True) is False
+                        else ""
+                    )
+                rollback_note = (
+                    " The previous config was restored."
+                    if not rollback_error
+                    else f" Restoring the previous config also failed: {rollback_error}"
+                )
+                raise OSError(
+                    f"BonkScanner could not save Build Progression: {save_error}."
+                    + rollback_note
+                )
         return deepcopy(normalized)

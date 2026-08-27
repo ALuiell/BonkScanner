@@ -154,13 +154,30 @@ class BuildProgressionConfirmDialog(QDialog):
         self.accept()
 
 
+def _release_dialog(dialog) -> None:
+    """Release a modal even if its parent died inside the nested event loop."""
+    if dialog is None:
+        return
+    delete_later = getattr(dialog, "deleteLater", None)
+    if not callable(delete_later):
+        return
+    try:
+        delete_later()
+    except RuntimeError:
+        pass
+
+
 def _show_notice(parent, title: str, message: str, *, danger: bool = False) -> None:
-    BuildProgressionNoticeDialog(
+    dialog = BuildProgressionNoticeDialog(
         parent,
         title=title,
         message=message,
         danger=danger,
-    ).exec()
+    )
+    try:
+        dialog.exec()
+    finally:
+        _release_dialog(dialog)
 
 
 def _ask_confirmation(
@@ -178,8 +195,11 @@ def _ask_confirmation(
         confirm_text=confirm_text,
         destructive=destructive,
     )
-    dialog.exec()
-    return dialog.confirmed
+    try:
+        dialog.exec()
+        return dialog.confirmed
+    finally:
+        _release_dialog(dialog)
 
 
 class BuildProgressionHelpDialog(QDialog):
@@ -301,6 +321,14 @@ class BuildProgressionHelpDialog(QDialog):
         dialog_footer(self, primary=close_button)
 
 
+def show_build_progression_help(parent=None) -> None:
+    dialog = BuildProgressionHelpDialog(parent)
+    try:
+        dialog.exec()
+    finally:
+        _release_dialog(dialog)
+
+
 class BuildProgressionManagerDialog(QDialog):
     """A lightweight hub; each card opens the existing full build editor."""
 
@@ -312,6 +340,7 @@ class BuildProgressionManagerDialog(QDialog):
         self._settings = settings
         self._service = service
         self._library = config.normalize_build_progression_config(settings.read())
+        self._persisted_library = deepcopy(self._library)
         self.card_widgets: dict[str, dict[str, QWidget]] = {}
         self.changed = False
 
@@ -374,14 +403,42 @@ class BuildProgressionManagerDialog(QDialog):
             if str(build.get("id")) != str(exclude_id)
         ]
 
-    def _persist(self, *, refresh_service: bool) -> None:
-        self._library = self._settings.write(self._library)
-        if refresh_service:
-            self._service.replace_definition(
-                definition_from_config(active_build_from_config(self._library))
+    def _persist(self, *, refresh_service: bool) -> bool:
+        try:
+            saved = self._settings.write(deepcopy(self._library))
+            if not isinstance(saved, dict):
+                raise TypeError("The settings writer returned an invalid build library.")
+            self._library = config.normalize_build_progression_config(saved)
+        except Exception as exc:
+            self._library = deepcopy(self._persisted_library)
+            self._refresh_cards()
+            _show_notice(
+                self,
+                "Build Progression Not Saved",
+                str(exc) or "The build library could not be saved.",
+                danger=True,
             )
+            return False
+        self._persisted_library = deepcopy(self._library)
         self.changed = True
+        # Refresh before a service error can open another nested modal. The
+        # application may close from that nested event loop and destroy this
+        # manager, so no QWidget must be touched after the warning returns.
         self._refresh_cards()
+        if refresh_service:
+            try:
+                self._service.replace_definition(
+                    definition_from_config(active_build_from_config(self._library))
+                )
+            except Exception as exc:
+                _show_notice(
+                    self,
+                    "Build Saved with Warnings",
+                    "The build was saved, but live surfaces could not be refreshed. "
+                    f"Restart BonkScanner before relying on it.\n\n{exc}",
+                    danger=True,
+                )
+        return True
 
     def _refresh_cards(self) -> None:
         _clear_layout(self.cards_layout)
@@ -529,14 +586,28 @@ class BuildProgressionManagerDialog(QDialog):
 
     def _open_editor(self, build: dict, *, create: bool) -> None:
         build_id = str(build.get("id") or "")
-        dialog = BuildProgressionDialog(
-            build,
-            existing_names=self._existing_names(exclude_id=None if create else build_id),
-            parent=self,
-        )
-        if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
+        dialog = None
+        try:
+            dialog = BuildProgressionDialog(
+                build,
+                existing_names=self._existing_names(
+                    exclude_id=None if create else build_id
+                ),
+                parent=self,
+            )
+            if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
+                return
+            result = deepcopy(dialog.result_payload)
+        except Exception as exc:
+            _show_notice(
+                self,
+                "Build Editor Error",
+                str(exc) or "The build editor could not be opened.",
+                danger=True,
+            )
             return
-        result = dialog.result_payload
+        finally:
+            _release_dialog(dialog)
         if create:
             self._builds().append(result)
             became_active = not self._library.get("active_build_id")
@@ -629,7 +700,8 @@ class BuildProgressionManagerDialog(QDialog):
         self._builds().append(build)
         if became_active:
             self._library["active_build_id"] = build["id"]
-        self._persist(refresh_service=became_active)
+        if not self._persist(refresh_service=became_active):
+            return
         _show_notice(
             self,
             "Build Imported",
@@ -686,6 +758,28 @@ class BuildProgressionManagerDialog(QDialog):
         )
 
 
+def show_build_progression_manager(settings, service, parent=None) -> bool:
+    """Run the one-shot library manager and release all of its child dialogs."""
+    dialog = None
+    try:
+        dialog = BuildProgressionManagerDialog(settings, service, parent)
+        dialog.exec()
+        return bool(dialog.changed)
+    except Exception as exc:
+        try:
+            _show_notice(
+                parent,
+                "Build Progression Error",
+                str(exc) or "Build Progression could not be opened.",
+                danger=True,
+            )
+        except Exception:
+            pass
+        return False
+    finally:
+        _release_dialog(dialog)
+
+
 class BuildProgressionDialog(QDialog):
     def __init__(self, build=None, *, existing_names=(), parent=None) -> None:
         super().__init__(parent)
@@ -722,7 +816,7 @@ class BuildProgressionDialog(QDialog):
         self.deadlines_enabled.setChecked(bool(self._draft.get("deadlines_enabled", True)))
         general.addWidget(self.deadlines_enabled, 1, 1)
         help_btn = QPushButton("How it works")
-        help_btn.clicked.connect(lambda: BuildProgressionHelpDialog(self).exec())
+        help_btn.clicked.connect(lambda: show_build_progression_help(self))
         general.addWidget(help_btn, 1, 2)
         general.setColumnStretch(1, 1)
         general_outer.addLayout(general)
