@@ -53,6 +53,7 @@ this step exists to avoid.
 
 from __future__ import annotations
 
+import threading
 from typing import Callable
 
 from app import config
@@ -77,6 +78,28 @@ class TemplateRuntimeFilters:
         self.active_templates: list[str] = []
         self.template_stats: dict[str, dict] = {}
         self._active_mode: str | None = None
+        # Scanner writes reroll histories in its worker while the templates UI
+        # may synchronize the active profiles.  Session Stats consumes copies
+        # made under this same boundary instead of iterating live dictionaries.
+        self._state_lock = threading.RLock()
+
+    @property
+    def state_lock(self) -> threading.RLock:
+        return self._state_lock
+
+    def snapshot(self) -> tuple[list[str], dict[str, dict]]:
+        """Return detached active names and per-profile history state."""
+        with self._state_lock:
+            copied_stats: dict[str, dict] = {}
+            for name, raw in self.template_stats.items():
+                if not isinstance(raw, dict):
+                    continue
+                copied = dict(raw)
+                history = raw.get("history")
+                if isinstance(history, (list, tuple)):
+                    copied["history"] = list(history)
+                copied_stats[str(name)] = copied
+            return list(self.active_templates), copied_stats
 
     def selected_template_names(self) -> list[str]:
         """The checked templates, whichever mode is active."""
@@ -98,19 +121,22 @@ class TemplateRuntimeFilters:
         change" comparison below mean anything -- reordering those two is the
         kind of silent rewrite step 21's notes warn about.
         """
-        active_mode = str(config.EVALUATION_MODE)
-        previous_mode = self._active_mode
         active_names = self.active_profile_names()
-        previous_names = list(self.template_stats.keys())
+        active_mode = str(config.EVALUATION_MODE)
+        with self._state_lock:
+            previous_mode = self._active_mode
+            previous_names = list(self.template_stats.keys())
 
-        if config.EVALUATION_MODE == "templates":
-            self.active_templates = list(active_names)
+            if config.EVALUATION_MODE == "templates":
+                self.active_templates = list(active_names)
 
-        existing_stats = self.template_stats
-        for name in active_names:
-            existing_stats.setdefault(name, {"rerolls_since_last": 0, "history": []})
-        self.template_stats = existing_stats
-        self._active_mode = active_mode
+            existing_stats = self.template_stats
+            for name in active_names:
+                existing_stats.setdefault(
+                    name, {"rerolls_since_last": 0, "history": []}
+                )
+            self.template_stats = existing_stats
+            self._active_mode = active_mode
 
         self._refresh_stats()
 

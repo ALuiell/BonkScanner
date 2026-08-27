@@ -136,6 +136,8 @@ class Scanner:
         # ask "has the tab been built yet", and that question is still real.
         self._stats_view = None
         self.stats_avg_layout = None
+        self._stats_refresh_active = False
+        self._stats_refresh_pending = False
 
     # The scan client is `AppCoordinator`'s (step 12b) and `MegabonkApp`
     # exposes the same one (step 25a). This reads and writes the same field on
@@ -157,11 +159,13 @@ class Scanner:
     # this file honest about who holds the value.
     @property
     def active_templates(self):
-        return self._filters.active_templates
+        with self._filters.state_lock:
+            return list(self._filters.active_templates)
 
     @active_templates.setter
     def active_templates(self, value) -> None:
-        self._filters.active_templates = value
+        with self._filters.state_lock:
+            self._filters.active_templates = value
 
     @property
     def template_stats(self):
@@ -169,7 +173,17 @@ class Scanner:
 
     @template_stats.setter
     def template_stats(self, value) -> None:
-        self._filters.template_stats = value
+        with self._filters.state_lock:
+            self._filters.template_stats = value
+
+    def snapshot_template_stats(self) -> dict[str, dict]:
+        """Detached history state for SessionStats and UI projections."""
+        _active, stats = self._filters.snapshot()
+        return stats
+
+    def session_rerolls_snapshot(self) -> int:
+        with self._filters.state_lock:
+            return int(self.session_rerolls)
 
     def is_scanning(self) -> bool:
         return self.scanner_thread is not None and self.scanner_thread.is_alive()
@@ -285,11 +299,14 @@ class Scanner:
 
         elapsed = 0
         rpm = 0.0
-        if self.is_scanning() and self.session_start_time:
-            elapsed = int(time.time() - self.session_start_time)
+        with self._filters.state_lock:
+            session_start_time = self.session_start_time
+            session_rerolls = self.session_rerolls
+        if self.is_scanning() and session_start_time:
+            elapsed = int(time.time() - session_start_time)
             td = datetime.timedelta(seconds=elapsed)
-            if elapsed > 0 and self.session_rerolls > 0:
-                rpm = (self.session_rerolls / elapsed) * 60
+            if elapsed > 0 and session_rerolls > 0:
+                rpm = (session_rerolls / elapsed) * 60
             if self._stats_view is not None:
                 self._stats_view.set_session_clock(elapsed_text=str(td), rpm=rpm)
 
@@ -491,10 +508,17 @@ class Scanner:
                 return
             if not config.user_config.get("SKIP_REROLL_WARNING", False):
                 dialog = self._reroll_warning_dialog()
-                dialog.exec()
-                if not dialog.result:
+                try:
+                    dialog.exec()
+                    accepted = bool(dialog.result)
+                    dont_show_again = bool(dialog.dont_show_again)
+                finally:
+                    delete_later = getattr(dialog, "deleteLater", None)
+                    if callable(delete_later):
+                        delete_later()
+                if not accepted:
                     return
-                if dialog.dont_show_again:
+                if dont_show_again:
                     config.user_config["SKIP_REROLL_WARNING"] = True
                     config.save_config(config.user_config)
 
@@ -504,13 +528,18 @@ class Scanner:
             ):
                 self.obs_recording_reminder_shown = True
                 dialog = self._obs_reminder_dialog()
-                dialog.exec()
+                try:
+                    dialog.exec()
+                finally:
+                    delete_later = getattr(dialog, "deleteLater", None)
+                    if callable(delete_later):
+                        delete_later()
 
             self.log(f"\n[*] Starting auto-reroll monitor in {config.EVALUATION_MODE.upper()} mode...")
 
             if config.EVALUATION_MODE == "templates":
-                self.active_templates = self._filters.selected_template_names()
-                if not self.active_templates:
+                active_templates = self._filters.selected_template_names()
+                if not active_templates:
                     self.log("[-] Error: You must select at least one template!", tag="error")
                     return
                 # Renamed off `template_color_tag` when that became the shared
@@ -522,24 +551,34 @@ class Scanner:
                             return template_color_tag(template)
                     return DEFAULT_TEMPLATE_COLOR
 
-                self._log_colored_names("[*] Active profiles: ", self.active_templates, _color_tag_for_profile)
-                self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in self.active_templates}
+                self._log_colored_names("[*] Active profiles: ", active_templates, _color_tag_for_profile)
+                with self._filters.state_lock:
+                    self._filters.active_templates = list(active_templates)
+                    self._filters.template_stats = {
+                        name: {"rerolls_since_last": 0, "history": []}
+                        for name in active_templates
+                    }
             else:
                 active_tiers = config.SCORES_SYSTEM.get("active_tiers", [])
                 if not active_tiers:
                     self.log("[-] Error: No active tiers selected in Scores mode!", tag="error")
                     return
                 self._log_colored_names("[*] Active Tiers: ", active_tiers, self._score_tier_color_tag)
-                self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in active_tiers}
+                with self._filters.state_lock:
+                    self._filters.template_stats = {
+                        name: {"rerolls_since_last": 0, "history": []}
+                        for name in active_tiers
+                    }
 
             self._sync_reset_hold_duration()
 
-            self.session_start_time = time.time()
-            self.session_rerolls = 0
-            self.best_map_stats = None
-            self.best_map_score = -1
-            self.worst_map_stats = None
-            self.worst_map_score = float("inf")
+            with self._filters.state_lock:
+                self.session_start_time = time.time()
+                self.session_rerolls = 0
+                self.best_map_stats = None
+                self.best_map_score = -1
+                self.worst_map_stats = None
+                self.worst_map_score = float("inf")
             self.refresh_stats_ui()
 
             self.is_running = False
@@ -547,6 +586,9 @@ class Scanner:
             self.pause_reason = None
             self.scan_event.clear()
             self.stop_event.clear()
+            # Finish the shared filter transition before the worker can mutate
+            # its histories.  Starting first created a narrow setup/UI race.
+            self._filters.sync()
             self.scanner_thread = threading.Thread(
                 target=self.background_loop,
                 name="BonkScannerWorker",
@@ -562,7 +604,6 @@ class Scanner:
                 self.scan_event.clear()
                 self.log(f"[-] Could not start scanner worker: {exc}", tag="error")
                 return
-            self._filters.sync()
         except Exception as exc:
             worker = self.scanner_thread
             if worker is not None and worker.is_alive():
@@ -602,6 +643,23 @@ class Scanner:
         self.update_status_ui()
 
     def refresh_stats_ui(self):
+        """Render one coherent Session Stats frame on the Qt thread."""
+        if self._is_shutting_down() or self._stats_refresh_active:
+            return
+        self._stats_refresh_active = True
+        try:
+            self._refresh_stats_ui_once()
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            log_runtime_event("session_stats.refresh.failed", error=detail)
+            self.log(
+                f"[!] Session Stats refresh skipped after an internal error: {detail}",
+                tag="warning",
+            )
+        finally:
+            self._stats_refresh_active = False
+
+    def _refresh_stats_ui_once(self):
         # Both were `hasattr`-guarded on the shared namespace, for app doubles
         # that carried neither. They are ports now and always present; each one
         # already answers "no owner" internally on the app side, which is where
@@ -610,20 +668,33 @@ class Scanner:
         view = self._stats_view
         if view is None:
             return
+        with self._filters.state_lock:
+            session_rerolls = int(self.session_rerolls)
+            best_stats = (
+                dict(self.best_map_stats)
+                if isinstance(self.best_map_stats, dict)
+                else self.best_map_stats
+            )
+            worst_stats = (
+                dict(self.worst_map_stats)
+                if isinstance(self.worst_map_stats, dict)
+                else self.worst_map_stats
+            )
+            active_templates, template_stats = self._filters.snapshot()
         view.set_counters(
-            rerolls=self.session_rerolls,
-            seeds_found=self._session_seed_count(),
+            rerolls=session_rerolls,
+            seeds_found=self._session_seed_count(template_stats),
             all_time_rerolls=config.TOTAL_REROLLS,
         )
         self._refresh_session_tracked_item_stats_ui()
         view.set_map_highlights(
-            best_stats=self.best_map_stats,
-            worst_stats=self.worst_map_stats,
-            active_templates=self.active_templates,
+            best_stats=best_stats,
+            worst_stats=worst_stats,
+            active_templates=active_templates,
         )
-        view.set_average_rows(self._average_reroll_rows())
+        view.set_average_rows(self._average_reroll_rows(template_stats))
 
-    def _session_seed_count(self) -> int:
+    def _session_seed_count(self, template_stats=None) -> int:
         """How many seeds the session has found.
 
         Read off `template_stats` the same way `SessionStats.found_seed_count`
@@ -632,7 +703,9 @@ class Scanner:
         stats snapshot has been refreshed yet this tick.
         """
         total = 0
-        for data in self.template_stats.values():
+        if template_stats is None:
+            template_stats = self.snapshot_template_stats()
+        for data in template_stats.values():
             if not isinstance(data, dict):
                 continue
             history = data.get("history")
@@ -640,7 +713,7 @@ class Scanner:
                 total += len(history)
         return total
 
-    def _average_reroll_rows(self) -> list[tuple]:
+    def _average_reroll_rows(self, template_stats=None) -> list[tuple]:
         """`(name, colour, average, found)` per active target, ready to render.
 
         The colour rule is the one the old labels used: a template's own colour
@@ -648,7 +721,9 @@ class Scanner:
         because both sources are `config`, which the view does not read.
         """
         rows = []
-        for name, data in self.template_stats.items():
+        if template_stats is None:
+            template_stats = self.snapshot_template_stats()
+        for name, data in template_stats.items():
             color_tag = "BLUE"
             if config.EVALUATION_MODE == "templates":
                 for template in config.TEMPLATES:
@@ -670,7 +745,11 @@ class Scanner:
         return rows
 
     def log_reroll_stats(self):
-        self.session_rerolls += 1
+        with self._filters.state_lock:
+            self.session_rerolls += 1
+            session_rerolls = self.session_rerolls
+            for name in list(self.template_stats):
+                self.template_stats[name]["rerolls_since_last"] += 1
         # Settings save/rollback also touches the shared config mapping. Keep
         # the counter mutation inside its transaction lock so neither update
         # can be based on a stale snapshot of the other.
@@ -680,37 +759,61 @@ class Scanner:
         self._total_rerolls_dirty = True
         self._flush_total_rerolls()
 
-        for name in list(self.template_stats):
-            self.template_stats[name]["rerolls_since_last"] += 1
-
         # Integrations read this thread-safe session snapshot instead of UI
         # state, so it must be updated independently of the throttled repaint.
         self._refresh_session_stats_snapshot()
 
-        if self.session_rerolls % 5 == 0:
-            self._schedule(0, self.refresh_stats_ui)
+        if session_rerolls % 5 == 0:
+            self._request_stats_refresh()
 
     def log_target_found(self, template_name: str):
-        if template_name in self.template_stats:
-            data = self.template_stats[template_name]
-            attempts = data["rerolls_since_last"] if data["rerolls_since_last"] > 0 else 1
-            data["history"].append(attempts)
-            data["rerolls_since_last"] = 0
-        self._schedule(0, self.refresh_stats_ui)
+        with self._filters.state_lock:
+            if template_name in self.template_stats:
+                data = self.template_stats[template_name]
+                attempts = data["rerolls_since_last"] if data["rerolls_since_last"] > 0 else 1
+                data["history"].append(attempts)
+                data["rerolls_since_last"] = 0
+        self._request_stats_refresh()
 
     def check_best_map(self, stats: dict):
         score = calculate_map_score(stats)
-        if score > self.best_map_score:
-            self.best_map_score = score
-            self.best_map_stats = stats
-            self._schedule(0, self.refresh_stats_ui)
+        changed = False
+        with self._filters.state_lock:
+            if score > self.best_map_score:
+                self.best_map_score = score
+                self.best_map_stats = stats
+                changed = True
+        if changed:
+            self._request_stats_refresh()
 
     def check_worst_map(self, stats: dict):
         score = calculate_map_score(stats)
-        if score < self.worst_map_score:
-            self.worst_map_score = score
-            self.worst_map_stats = stats
-            self._schedule(0, self.refresh_stats_ui)
+        changed = False
+        with self._filters.state_lock:
+            if score < self.worst_map_score:
+                self.worst_map_score = score
+                self.worst_map_stats = stats
+                changed = True
+        if changed:
+            self._request_stats_refresh()
+
+    def _request_stats_refresh(self) -> None:
+        """Coalesce worker publications into one queued Qt repaint."""
+        with self._filters.state_lock:
+            if self._stats_refresh_pending:
+                return
+            self._stats_refresh_pending = True
+        try:
+            self._schedule(0, self._run_scheduled_stats_refresh)
+        except Exception:
+            with self._filters.state_lock:
+                self._stats_refresh_pending = False
+            raise
+
+    def _run_scheduled_stats_refresh(self) -> None:
+        with self._filters.state_lock:
+            self._stats_refresh_pending = False
+        self.refresh_stats_ui()
 
     def reroll_map(self) -> bool:
         if self._run_control.run_control_provider is None:

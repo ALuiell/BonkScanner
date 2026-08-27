@@ -138,6 +138,24 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(filters.template_stats["Gamma"], {"rerolls_since_last": 0, "history": []})
         self.assertEqual(filters.template_stats["Beta"], {"rerolls_since_last": 1, "history": [4]})
 
+    def test_snapshot_detaches_names_rows_and_histories(self) -> None:
+        filters = build_template_filters()
+        filters.active_templates = ["Alpha"]
+        filters.template_stats = {
+            "Alpha": {"rerolls_since_last": 2, "history": [3, 5]}
+        }
+
+        names, stats = filters.snapshot()
+        names.append("Beta")
+        stats["Alpha"]["rerolls_since_last"] = 99
+        stats["Alpha"]["history"].append(8)
+
+        self.assertEqual(filters.active_templates, ["Alpha"])
+        self.assertEqual(
+            filters.template_stats["Alpha"],
+            {"rerolls_since_last": 2, "history": [3, 5]},
+        )
+
     def test_scores_mode_uses_the_active_tiers_and_leaves_active_templates_alone(self) -> None:
         filters = build_template_filters(selected_template_names=lambda: ["Alpha"])
         filters.active_templates = ["Alpha"]

@@ -28,7 +28,7 @@ import threading
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
@@ -667,9 +667,13 @@ class ScanLifecycleTests(unittest.TestCase):
         self.assertTrue(scanner.scanner_thread.started)
 
     def test_toggle_main_loop_aborts_when_the_reroll_warning_is_declined(self) -> None:
+        delete_later = MagicMock()
         scanner = build_scanner(
             reroll_warning_dialog=lambda: SimpleNamespace(
-                exec=lambda: 0, result=False, dont_show_again=False
+                exec=lambda: 0,
+                result=False,
+                dont_show_again=False,
+                deleteLater=delete_later,
             ),
         )
 
@@ -678,6 +682,7 @@ class ScanLifecycleTests(unittest.TestCase):
                 scanner.toggle_main_loop()
 
         self.assertIsNone(scanner.scanner_thread)
+        delete_later.assert_called_once_with()
 
     def test_hotkey_starts_scanning_inside_running_monitor(self) -> None:
         scanner = build_scanner()
@@ -924,6 +929,28 @@ class BackgroundLoopTests(unittest.TestCase):
         scanner.background_loop()
 
         self.assertIsNone(scanner.scanner_thread)
+
+    def test_session_stats_failure_does_not_abort_scanner_start(self) -> None:
+        scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        scanner._stats_view = SimpleNamespace(
+            set_counters=MagicMock(side_effect=RuntimeError("deleted stats label"))
+        )
+
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}), \
+                patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False), \
+                patch.object(config, "EVALUATION_MODE", "templates"), \
+                patch.object(threading, "Thread", FakeThread), \
+                patch.object(gui_scanner, "log_runtime_event") as runtime_log:
+            scanner.toggle_main_loop()
+
+        self.assertTrue(scanner.scanner_thread.started)
+        self.assertTrue(
+            any(
+                "Session Stats refresh skipped" in str(message)
+                for message, _tag in scanner.calls["log"]
+            )
+        )
+        self.assertGreaterEqual(runtime_log.call_count, 1)
         self.assertFalse(scanner._stop_pending)
 
     def test_client_construction_failure_cannot_strand_a_dead_worker(self) -> None:
@@ -1352,6 +1379,58 @@ class SessionStatsTests(unittest.TestCase):
 
                 scanner._flush_total_rerolls(force=True)
                 save_config.assert_called_once_with(config.user_config)
+
+    def test_refresh_uses_one_detached_template_frame(self) -> None:
+        scanner = build_scanner()
+        scanner.session_rerolls = 8
+        scanner.active_templates = ["Alpha"]
+        scanner.template_stats = {
+            "Alpha": {"rerolls_since_last": 3, "history": [2, 4]}
+        }
+        delivered = {}
+
+        class View:
+            def set_counters(self, **values):
+                delivered["counters"] = values
+                # Simulate the worker publishing a new profile after the UI
+                # frame was captured but before the later setters run.
+                scanner.active_templates = ["Beta"]
+                scanner.template_stats = {
+                    "Beta": {"rerolls_since_last": 0, "history": [99]}
+                }
+
+            def set_map_highlights(self, **values):
+                delivered["active_templates"] = values["active_templates"]
+
+            def set_average_rows(self, rows):
+                delivered["averages"] = rows
+
+        scanner._stats_view = View()
+        with patch.object(config, "EVALUATION_MODE", "templates"), patch.object(
+            config,
+            "TEMPLATES",
+            [{"name": "Alpha", "color": "BLUE"}],
+        ):
+            scanner.refresh_stats_ui()
+
+        self.assertEqual(delivered["counters"]["seeds_found"], 2)
+        self.assertEqual(delivered["active_templates"], ["Alpha"])
+        self.assertEqual(delivered["averages"][0][0], "Alpha")
+        self.assertEqual(delivered["averages"][0][2:], (3.0, 2))
+
+    def test_worker_stats_refresh_requests_are_coalesced(self) -> None:
+        scheduled = []
+        scanner = build_scanner(
+            schedule=lambda delay_ms, callback: scheduled.append((delay_ms, callback))
+        )
+
+        scanner._request_stats_refresh()
+        scanner._request_stats_refresh()
+
+        self.assertEqual(len(scheduled), 1)
+        self.assertTrue(scanner._stats_refresh_pending)
+        scheduled[0][1]()
+        self.assertFalse(scanner._stats_refresh_pending)
 
     # `build_session_stats_tab` is deliberately **not** called from this suite.
     # Step 23 measured what happens: a test that builds real Qt widgets after

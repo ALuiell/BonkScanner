@@ -259,8 +259,8 @@ class MegabonkApp:
         )
         self._session_stats = SessionStats(
             self.live_run_tracker,
-            template_stats=lambda: self.template_stats,
-            rerolls=lambda: self._scanner.session_rerolls,
+            template_stats=self._scanner.snapshot_template_stats,
+            rerolls=self._scanner.session_rerolls_snapshot,
             snapshot_tracked_item_config=session_command_tracked_item_config,
         )
         self._overlay = build_overlay(self, self.coordinator, self._session_stats)

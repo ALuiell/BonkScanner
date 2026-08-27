@@ -1127,7 +1127,10 @@ class Overlay:
         try:
             dialog.exec()
         finally:
-            self.refresh_session_tracked_item_stats_ui()
+            try:
+                self.refresh_session_tracked_item_stats_ui()
+            finally:
+                dialog.deleteLater()
 
     def _tracked_item_settings(self) -> TrackedItemSettings:
         return TrackedItemSettings(

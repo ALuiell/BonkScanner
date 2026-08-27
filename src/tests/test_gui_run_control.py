@@ -6381,6 +6381,18 @@ class GuiRunControlTests(unittest.TestCase):
         # Four seeds found across the two templates, two of them matched.
         self.assertAlmostEqual(row["percent"], 50.0)
 
+    def test_session_tracked_items_dialog_is_deleted_after_exec(self) -> None:
+        component = build_overlay_test_component()
+        component.refresh_session_tracked_item_stats_ui = MagicMock()
+        dialog = SimpleNamespace(exec=MagicMock(), deleteLater=MagicMock())
+
+        with patch.object(gui_overlay, "TrackedItemsDialog", return_value=dialog):
+            component.open_session_tracked_item_settings_dialog()
+
+        dialog.exec.assert_called_once_with()
+        dialog.deleteLater.assert_called_once_with()
+        component.refresh_session_tracked_item_stats_ui.assert_called_once_with()
+
     def test_apply_in_game_overlay_settings_stops_without_restarting_overlay(self) -> None:
         overlay = build_in_game_overlay_test_component()
         overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
