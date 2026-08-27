@@ -666,25 +666,71 @@ class MegabonkApp:
     def open_settings_dialog(self) -> None:
         dialog = getattr(self, "_settings_dialog", None)
         if dialog is not None:
-            if dialog.isVisible():
-                dialog.raise_()
-                dialog.activateWindow()
+            try:
+                if dialog.isVisible():
+                    dialog.raise_()
+                    dialog.activateWindow()
+                    return
+                dialog.reload_from_config()
+                dialog.open()
                 return
-            dialog.reload_from_config()
+            except Exception as exc:
+                # A closed native handle or a failed reload must not stay cached
+                # and fail every later Settings click.
+                if self._settings_dialog is dialog:
+                    self._settings_dialog = None
+                try:
+                    dialog.deleteLater()
+                except RuntimeError:
+                    pass
+                self._log_dialog_failure("Settings", exc)
+
+        dialog = None
+        try:
+            dialog = SettingsDialog(self.window, master=self)
+            self._settings_dialog = dialog
+            dialog.destroyed.connect(
+                lambda *_args, expected=dialog: (
+                    self._settings_dialog_destroyed(expected)
+                )
+            )
             dialog.open()
-            return
+        except Exception as exc:
+            if self._settings_dialog is dialog:
+                self._settings_dialog = None
+            if dialog is not None:
+                try:
+                    dialog.deleteLater()
+                except RuntimeError:
+                    pass
+            self._log_dialog_failure("Settings", exc)
 
-        dialog = SettingsDialog(self.window, master=self)
-        self._settings_dialog = dialog
-        dialog.destroyed.connect(self._settings_dialog_destroyed)
-        dialog.open()
-
-    def _settings_dialog_destroyed(self, _object=None) -> None:
-        self._settings_dialog = None
+    def _settings_dialog_destroyed(self, expected=None) -> None:
+        if expected is None or self._settings_dialog is expected:
+            self._settings_dialog = None
 
     def open_help_dialog(self) -> None:
-        dialog = HelpDialog(self.window)
-        dialog.exec()
+        dialog = None
+        try:
+            dialog = HelpDialog(self.window)
+            dialog.exec()
+        except Exception as exc:
+            self._log_dialog_failure("Help", exc)
+        finally:
+            if dialog is not None:
+                try:
+                    dialog.deleteLater()
+                except RuntimeError:
+                    pass
+
+    def _log_dialog_failure(self, name: str, exc: Exception) -> None:
+        try:
+            self.log(
+                f"[!] {name} dialog could not be opened: {type(exc).__name__}: {exc}",
+                tag="error",
+            )
+        except Exception:
+            pass
 
     def _show_auto_reroll_setup_guide(self) -> None:
         if config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED or getattr(

@@ -52,6 +52,8 @@ class UpdateDialog(QDialog):
         self._busy = False
         self._allow_close = False
         self._prepared: PreparedUpdate | None = None
+        self._installer_scheduled = False
+        self._installer_launched = False
 
         self.setWindowTitle("BonkScanner Update")
         layout = dialog_body(
@@ -141,7 +143,8 @@ class UpdateDialog(QDialog):
     def reject(self) -> None:
         if self._busy and not self._allow_close:
             return
-        self.decision = "later"
+        if not self._installer_launched:
+            self.decision = "later"
         super().reject()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt API
@@ -164,6 +167,8 @@ class UpdateDialog(QDialog):
         self._busy = True
         self._allow_close = False
         self._prepared = None
+        self._installer_scheduled = False
+        self._installer_launched = False
         self.progress_panel.show()
         self.progress_status.setText("Downloading update…")
         self.progress_detail.setText("Connecting securely to GitHub…")
@@ -183,6 +188,8 @@ class UpdateDialog(QDialog):
             self._on_download_failed(str(exc))
 
     def _on_progress(self, downloaded: int, total: int) -> None:
+        if not self._busy or self._installer_scheduled:
+            return
         total = max(1, int(total))
         downloaded = max(0, min(int(downloaded), total))
         percentage = max(0, min(100, int(downloaded * 100 / total)))
@@ -195,6 +202,12 @@ class UpdateDialog(QDialog):
             self._set_progress_state("verifying")
 
     def _on_download_ready(self, prepared: PreparedUpdate) -> None:
+        if not self._busy or self._installer_scheduled:
+            return
+        if not isinstance(prepared, PreparedUpdate):
+            self._on_download_failed("The updater returned an invalid prepared update.")
+            return
+        self._installer_scheduled = True
         self._prepared = prepared
         self.progress_bar.setValue(100)
         self.progress_status.setText("Verified — restarting BonkScanner…")
@@ -203,15 +216,21 @@ class UpdateDialog(QDialog):
         )
         self.update_button.setText("Restarting…")
         self._set_progress_state("verified")
-        QTimer.singleShot(700, self._launch_installer)
+        # Give Qt a context object so deleting the modal during application
+        # shutdown cancels the callback instead of invoking a dead wrapper.
+        QTimer.singleShot(700, self, self._launch_installer)
 
     def _launch_installer(self) -> None:
+        if not self._busy or self._installer_launched:
+            return
         if self._prepared is None:
             self._on_download_failed("The verified update is no longer available.")
             return
+        self._installer_launched = True
         try:
             self._install_update(self._prepared)
         except Exception as exc:
+            self._installer_launched = False
             self._on_download_failed(str(exc))
             return
         # The parent application now follows its normal shutdown path. Its close
@@ -219,9 +238,15 @@ class UpdateDialog(QDialog):
         self._allow_close = True
 
     def _on_download_failed(self, message: str) -> None:
+        if self._installer_launched:
+            # A completed worker must not be able to re-lock the modal after
+            # the helper was launched and clean application shutdown was queued.
+            return
         self._busy = False
         self._allow_close = False
         self._prepared = None
+        self._installer_scheduled = False
+        self._installer_launched = False
         self.progress_panel.show()
         self.progress_status.setText("Update could not be installed")
         self.progress_detail.setText(message or "Unknown updater error.")
@@ -246,8 +271,14 @@ def show_update_dialog(
         start_download=start_download,
         install_update=install_update,
     )
-    dialog.exec()
-    return dialog.decision
+    try:
+        dialog.exec()
+        return dialog.decision
+    finally:
+        # The update surface is created for one modal session. Explicit
+        # deferred deletion prevents closed child dialogs accumulating on the
+        # main window and also cancels context-bound timers.
+        dialog.deleteLater()
 
 
 def _format_bytes(value: int) -> str:

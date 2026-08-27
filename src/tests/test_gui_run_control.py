@@ -1148,6 +1148,58 @@ class GuiRunControlTests(unittest.TestCase):
         )
         self.assertEqual(accepted, [True])
         notice.exec.assert_called_once_with()
+        notice.deleteLater.assert_called_once_with()
+
+    def test_settings_save_contains_live_refresh_failure_after_persistence(self) -> None:
+        master = FakeSettingsMaster()
+        master.player_stats_vod_recorder = SimpleNamespace(interval_seconds=60)
+
+        def fail_hotkeys() -> None:
+            raise RuntimeError("hotkey backend unavailable")
+
+        master.setup_hotkeys = fail_hotkeys
+        duration = round(float(config.RESET_HOLD_DURATION), 2)
+        margin = round(float(config.RESET_HOLD_SAFETY_MARGIN), 2)
+        game_value = config.reset_hold_duration_to_game_value(
+            duration,
+            safety_margin=margin,
+        )
+        accepted: list[bool] = []
+        dialog = types.SimpleNamespace(
+            hotkey_entry=FakeEntry(config.HOTKEY),
+            reset_hotkey_entry=FakeEntry(config.RESET_HOTKEY),
+            record_hotkey_entry=FakeEntry(config.PLAYER_STATS_RECORD_HOTKEY),
+            auto_start_recording_var=FakeCheckbox(False),
+            show_obs_reminder_on_start_scanner_var=FakeCheckbox(False),
+            stop_scanning_on_player_movement_var=FakeCheckbox(True),
+            reset_hold_duration_entry=FakeEntry(str(duration)),
+            _initial_reset_hold_duration=duration,
+            reset_hold_safety_margin_entry=FakeEntry(str(margin)),
+            _initial_reset_hold_safety_margin=margin,
+            record_interval_entry=FakeEntry("60"),
+            master=master,
+            accept=lambda: accepted.append(True),
+        )
+
+        with (
+            patch.object(
+                config,
+                "read_game_quick_reset_time",
+                return_value=config.GameConfigReadResult(True, value=game_value),
+            ),
+            patch.object(
+                config,
+                "save_settings_with_game_reset",
+                return_value=config.SettingsSaveResult(True),
+            ),
+            patch.object(gui_dialogs.QMessageBox, "warning") as warning,
+        ):
+            SettingsDialog.save(dialog)
+
+        self.assertEqual(accepted, [True])
+        self.assertIn("update_status_ui", master.events)
+        warning.assert_called_once()
+        self.assertIn("hotkey backend unavailable", warning.call_args.args[2])
 
     def test_settings_save_blocks_reset_changes_while_game_is_running(self) -> None:
         master = FakeSettingsMaster()
@@ -1190,6 +1242,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(notice_cls.call_args.kwargs["saved"])
         self.assertIn("currently running", notice_cls.call_args.kwargs["reason"])
         notice.exec.assert_called_once_with()
+        notice.deleteLater.assert_called_once_with()
 
     def test_settings_save_reports_exact_verified_reset_values(self) -> None:
         master = FakeSettingsMaster()
@@ -1238,6 +1291,7 @@ class GuiRunControlTests(unittest.TestCase):
             margin=0.02,
         )
         notice.exec.assert_called_once_with()
+        notice.deleteLater.assert_called_once_with()
 
     def test_app_reports_game_running_through_run_control(self) -> None:
         app = SimpleNamespace()
@@ -1354,6 +1408,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(accepted, [])
         notice_cls.assert_called_once_with(dialog, saved=False, reason=failure.reason)
         notice.exec.assert_called_once_with()
+        notice.deleteLater.assert_called_once_with()
 
     def test_unchanged_reset_values_are_still_verified_and_game_drift_is_repaired(self) -> None:
         duration = round(float(config.RESET_HOLD_DURATION), 2)
@@ -1397,6 +1452,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIsNone(save_settings.call_args.args[1])
         self.assertTrue(save_settings.call_args.kwargs["sync_game"])
         notice.exec.assert_called_once_with()
+        notice.deleteLater.assert_called_once_with()
 
     def test_aligned_unchanged_reset_values_save_without_a_notice(self) -> None:
         duration = round(float(config.RESET_HOLD_DURATION), 2)

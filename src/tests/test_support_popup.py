@@ -13,17 +13,18 @@ import src  # noqa: F401  -- puts src/ on the path, as the other tests do
 import json
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import QPoint, QSize
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QWidget
 
 from app import supporters as supporters_flow
 from app import config
 from infra import updater
 from ui.dialogs import update_prompt
-from ui.footer import SUPPORT_BADGE_ICON_SIZE, SupportPopup
+from ui.footer import FOOTER_HEIGHT, SUPPORT_BADGE_ICON_SIZE, FooterView, SupportPopup
 from ui.shared import resource_path
 from ui.styles import build_qt_app_stylesheet
 
@@ -106,6 +107,42 @@ class SupportPopupTests(unittest.TestCase):
             buttons["CryptoButton"].isEnabled(),
             bool(config.CRYPTO_SUPPORT_URL),
         )
+
+    def test_failed_browser_request_keeps_the_popup_open(self):
+        open_url = MagicMock(return_value=False)
+        popup = SupportPopup(open_url=open_url)
+        popup.close = MagicMock()
+        self.addCleanup(popup.deleteLater)
+
+        popup._open_patreon()
+
+        open_url.assert_called_once_with(config.PATREON_SUPPORT_URL)
+        popup.close.assert_not_called()
+
+    def test_footer_drops_a_popup_wrapper_that_was_deleted(self):
+        frame = QFrame()
+        frame.setFixedHeight(FOOTER_HEIGHT)
+        update_button = QPushButton()
+        update_separator = QFrame()
+        support_button = QPushButton()
+        self.addCleanup(frame.deleteLater)
+        self.addCleanup(update_button.deleteLater)
+        self.addCleanup(update_separator.deleteLater)
+        self.addCleanup(support_button.deleteLater)
+        view = FooterView(
+            app=SimpleNamespace(),
+            frame=frame,
+            update_btn=update_button,
+            update_separator=update_separator,
+            support_btn=support_button,
+        )
+        view._popup = SimpleNamespace(
+            set_supporters=MagicMock(side_effect=RuntimeError("deleted"))
+        )
+
+        view.set_supporters(["Someone"])
+
+        self.assertIsNone(view._popup)
 
     def test_blank_and_malformed_entries_do_not_become_rows(self):
         self.popup.set_supporters(

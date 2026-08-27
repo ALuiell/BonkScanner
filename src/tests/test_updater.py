@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import src  # noqa: F401
 from PySide6.QtWidgets import QApplication, QFrame, QLabel
@@ -330,6 +330,61 @@ class UpdateDialogWidgetTests(unittest.TestCase):
         self.assertEqual(100, dialog.progress_bar.value())
         self.assertIn("Verified", dialog.progress_status.text())
         single_shot.assert_called_once()
+        self.assertIs(single_shot.call_args.args[1], dialog)
+
+    def test_duplicate_ready_signal_schedules_only_one_installer(self) -> None:
+        dialog, callbacks, _installed = self._dialog()
+        dialog._begin_download()
+        prepared = PreparedUpdate(
+            version="3.2.1",
+            exe_path="BonkScanner.exe",
+            new_exe_path="BonkScanner.new.exe",
+            installer_path="update.bat",
+            downloaded_size=100,
+            sha256="a" * 64,
+        )
+
+        with patch.object(update_dialog.QTimer, "singleShot") as single_shot:
+            callbacks["ready"](prepared)
+            callbacks["ready"](prepared)
+            self.app.processEvents()
+
+        single_shot.assert_called_once()
+
+    def test_late_failure_cannot_relock_dialog_after_installer_launch(self) -> None:
+        dialog, callbacks, installed = self._dialog()
+        dialog._begin_download()
+        prepared = PreparedUpdate(
+            version="3.2.1",
+            exe_path="BonkScanner.exe",
+            new_exe_path="BonkScanner.new.exe",
+            installer_path="update.bat",
+            downloaded_size=100,
+            sha256="a" * 64,
+        )
+        with patch.object(update_dialog.QTimer, "singleShot"):
+            callbacks["ready"](prepared)
+            self.app.processEvents()
+        dialog._launch_installer()
+
+        callbacks["failed"]("late worker error")
+        self.app.processEvents()
+
+        self.assertEqual([prepared], installed)
+        self.assertTrue(dialog._allow_close)
+        self.assertIn("Verified", dialog.progress_status.text())
+        dialog.reject()
+        self.assertEqual("update", dialog.decision)
+
+    def test_invalid_ready_payload_becomes_retryable_failure(self) -> None:
+        dialog, callbacks, _installed = self._dialog()
+        dialog._begin_download()
+
+        callbacks["ready"](object())
+        self.app.processEvents()
+
+        self.assertEqual("Retry download", dialog.update_button.text())
+        self.assertIn("invalid prepared update", dialog.progress_detail.text())
 
     def test_failed_download_becomes_retry_without_closing(self) -> None:
         dialog, callbacks, _installed = self._dialog()
@@ -351,6 +406,21 @@ class UpdateDialogWidgetTests(unittest.TestCase):
         later, _callbacks, _installed = self._dialog()
         later.reject()
         self.assertEqual("later", later.decision)
+
+    def test_show_update_dialog_always_deletes_the_transient(self) -> None:
+        dialog = MagicMock()
+        dialog.decision = "later"
+        with patch.object(update_dialog, "UpdateDialog", return_value=dialog):
+            decision = update_dialog.show_update_dialog(
+                None,
+                ReleaseInfo("3.2.1", "notes", DOWNLOAD_URL, 100, "a" * 64),
+                start_download=MagicMock(),
+                install_update=MagicMock(),
+            )
+
+        self.assertEqual("later", decision)
+        dialog.exec.assert_called_once_with()
+        dialog.deleteLater.assert_called_once_with()
 
 
 if __name__ == "__main__":

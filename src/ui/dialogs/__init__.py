@@ -123,6 +123,19 @@ def _restore_config_key(key: str, previous) -> None:
         config.user_config[key] = previous
 
 
+def _exec_transient_dialog(dialog) -> int:
+    """Run a one-shot modal and always release its QObject afterwards."""
+    try:
+        return dialog.exec()
+    finally:
+        delete_later = getattr(dialog, "deleteLater", None)
+        if callable(delete_later):
+            try:
+                delete_later()
+            except RuntimeError:
+                pass
+
+
 def _config_rollback_message(error: str) -> str:
     """Try to put the verified on-disk file back after runtime rollback."""
     rollback_error = _save_current_config_error()
@@ -1752,6 +1765,15 @@ class SettingsDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         dialog_footer(self, primary=self.save_btn, secondary=cancel_btn)
 
+    @staticmethod
+    def _show_game_reset_notice(parent, **kwargs) -> None:
+        try:
+            _exec_transient_dialog(GameResetTimeNoticeDialog(parent, **kwargs))
+        except Exception:
+            # This is a result notice, not part of the persistence transaction.
+            # A native dialog teardown race must not escape the Save click.
+            pass
+
     def reload_from_config(self) -> None:
         """Discard unsaved edits before reopening the reusable dialog."""
         self.hotkey_entry.setText(str(config.HOTKEY))
@@ -1831,7 +1853,10 @@ class SettingsDialog(QDialog):
         self.reset_game_value_label.setText(f"{game_value:.2f} s")
 
         game_running, detection_error = self._detect_game_running()
-        game_read = config.read_game_quick_reset_time()
+        try:
+            game_read = config.read_game_quick_reset_time()
+        except Exception as exc:
+            game_read = config.GameConfigReadResult(False, reason=str(exc))
         if detection_error:
             status = detection_error
         elif game_running:
@@ -1848,17 +1873,32 @@ class SettingsDialog(QDialog):
         self.reset_timing_status_label.setText(status)
 
     def open_patreon_support_page(self):
-        webbrowser.open(PATREON_SUPPORT_URL)
+        self._open_external_page(PATREON_SUPPORT_URL)
 
     def open_crypto_support_page(self):
         if CRYPTO_SUPPORT_URL:
-            webbrowser.open(CRYPTO_SUPPORT_URL)
+            self._open_external_page(CRYPTO_SUPPORT_URL)
 
     def open_github_repository_page(self):
-        webbrowser.open(GITHUB_REPOSITORY_URL)
+        self._open_external_page(GITHUB_REPOSITORY_URL)
 
     def open_discord_support_page(self):
-        webbrowser.open(DISCORD_SUPPORT_URL)
+        self._open_external_page(DISCORD_SUPPORT_URL)
+
+    def _open_external_page(self, url: str) -> None:
+        try:
+            opened = webbrowser.open(url)
+        except Exception as exc:
+            opened = False
+            reason = str(exc)
+        else:
+            reason = "Windows did not accept the browser request."
+        if not opened:
+            QMessageBox.warning(
+                self,
+                "Could Not Open Link",
+                f"BonkScanner could not open this page.\n\n{reason}",
+            )
 
     def save(self):
         new_hotkey = _read_text(self.hotkey_entry).strip()
@@ -1950,7 +1990,10 @@ class SettingsDialog(QDialog):
             new_duration,
             safety_margin=new_margin,
         )
-        game_read = config.read_game_quick_reset_time()
+        try:
+            game_read = config.read_game_quick_reset_time()
+        except Exception as exc:
+            game_read = config.GameConfigReadResult(False, reason=str(exc))
         game_matches = (
             game_read.success
             and game_read.value is not None
@@ -1964,7 +2007,11 @@ class SettingsDialog(QDialog):
                 "Speed so it cannot overwrite config.json and so the scanner and game "
                 "cannot start with different reset values."
             )
-            GameResetTimeNoticeDialog(self, saved=False, reason=reason).exec()
+            SettingsDialog._show_game_reset_notice(
+                self,
+                saved=False,
+                reason=reason,
+            )
             return
 
         settings_updates = {
@@ -1985,20 +2032,23 @@ class SettingsDialog(QDialog):
                 }
             )
 
-        save_result = config.save_settings_with_game_reset(
-            settings_updates,
-            game_value if timing_changed else None,
-            # When the game is closed, always write and read back its value. This
-            # both repairs hand-edited drift and closes the old false-success gap
-            # where an unchanged UI field meant the game file was never checked.
-            sync_game=not game_running,
-        )
+        try:
+            save_result = config.save_settings_with_game_reset(
+                settings_updates,
+                game_value if timing_changed else None,
+                # When the game is closed, always write and read back its value. This
+                # both repairs hand-edited drift and closes the old false-success gap
+                # where an unchanged UI field meant the game file was never checked.
+                sync_game=not game_running,
+            )
+        except Exception as exc:
+            save_result = config.SettingsSaveResult(False, reason=str(exc))
         if not save_result.success:
-            GameResetTimeNoticeDialog(
+            SettingsDialog._show_game_reset_notice(
                 self,
                 saved=False,
                 reason=save_result.reason or "The settings change could not be verified.",
-            ).exec()
+            )
             return
 
         # The config transaction already committed these keys to the runtime
@@ -2025,41 +2075,90 @@ class SettingsDialog(QDialog):
         )
         self._initial_reset_hold_duration = effective_duration
         self._initial_reset_hold_safety_margin = effective_margin
+        runtime_errors: list[str] = []
+
+        def apply_runtime_step(name: str, callback) -> None:
+            try:
+                callback()
+            except Exception as exc:
+                runtime_errors.append(f"{name}: {type(exc).__name__}: {exc}")
+
         if auto_start_recording:
             # Was `hasattr(self.master, ...)` + a direct assignment. The service
             # always has the flag, so the guard is gone -- and with it the
             # step-19 failure shape where a `hasattr` goes quietly false and
             # re-enabling auto-start silently stops clearing a suppression.
-            vod_capture(self.master).clear_auto_recording_suppression()
+            apply_runtime_step(
+                "recording auto-start",
+                lambda: vod_capture(self.master).clear_auto_recording_suppression(),
+            )
 
-        if hasattr(self.master, "player_stats_vod_recorder") and self.master.player_stats_vod_recorder is not None:
-            self.master.player_stats_vod_recorder.interval_seconds = new_interval
+        def update_recorder_interval() -> None:
+            recorder = getattr(self.master, "player_stats_vod_recorder", None)
+            if recorder is not None:
+                recorder.interval_seconds = new_interval
 
-        if hasattr(self.master, "setup_hotkeys"):
-            self.master.setup_hotkeys()
+        apply_runtime_step("recording interval", update_recorder_interval)
+
+        if callable(getattr(self.master, "setup_hotkeys", None)):
+            apply_runtime_step("hotkeys", self.master.setup_hotkeys)
             # Through the port, not the shared namespace: once `LiveStatsTab`
             # left `MegabonkApp`'s MRO this `hasattr` would have gone quietly
             # false and the timeline would have stopped refreshing after a
             # settings save -- no exception, green suite. The guard stays
             # because the suite drives this dialog with stand-in masters.
-            timeline = player_stats_view(self.master)
-            if hasattr(timeline, "refresh_player_stats_timeline_ui"):
-                timeline.refresh_player_stats_timeline_ui(update_slider=False)
-            self.master.update_status_ui()
+            def refresh_timeline() -> None:
+                timeline = player_stats_view(self.master)
+                refresh = getattr(timeline, "refresh_player_stats_timeline_ui", None)
+                if callable(refresh):
+                    refresh(update_slider=False)
+
+            apply_runtime_step("player timeline", refresh_timeline)
+            apply_runtime_step("status", lambda: self.master.update_status_ui())
             # The OBS reminder is edited here *and* on the OBS Overlay tab. This
             # dialog is modal and rebuilt per open, so it never shows a stale
             # value -- but the tab's checkbox is long-lived and has no way to
             # learn that this save happened. Unguarded and through the named
             # port on purpose: see `OverlayView.refresh_scanner_reminder_ui`.
-            overlay_view(self.master).refresh_scanner_reminder_ui()
+            apply_runtime_step(
+                "OBS reminder",
+                lambda: overlay_view(self.master).refresh_scanner_reminder_ui(),
+            )
             # Same shape, for the same reason: the In-Game Overlay tab shows
             # this hotkey in a field *and* in the tip that is now the only place
             # explaining how to enter layout mode. A stale tip there tells the
             # user to press a key that no longer does anything.
-            self.master.refresh_in_game_overlay_hotkey_ui()
-            if hasattr(self.master, "apply_run_control_mode"):
-                self.master.apply_run_control_mode()
-            self.master.log("[*] Settings saved and applied successfully!", tag="success")
+            apply_runtime_step(
+                "in-game overlay hotkey",
+                lambda: self.master.refresh_in_game_overlay_hotkey_ui(),
+            )
+            apply_mode = getattr(self.master, "apply_run_control_mode", None)
+            if callable(apply_mode):
+                apply_runtime_step("run control", apply_mode)
+            apply_runtime_step(
+                "success log",
+                lambda: self.master.log(
+                    "[*] Settings saved and applied successfully!",
+                    tag="success",
+                ),
+            )
+
+        if runtime_errors:
+            try:
+                self.master.log(
+                    "[!] Settings were saved, but some live updates failed: "
+                    + "; ".join(runtime_errors),
+                    tag="warning",
+                )
+            except Exception:
+                pass
+            QMessageBox.warning(
+                self,
+                "Settings Saved with Warnings",
+                "The settings were saved, but some live parts could not be refreshed. "
+                "Restart BonkScanner before relying on the new values.\n\n"
+                + "\n".join(runtime_errors),
+            )
 
         # `self.accept()`, unguarded. This was `if hasattr(self, "accept") ...
         # elif hasattr(self, "destroy"): self.destroy()`, and the `elif` was the
@@ -2071,13 +2170,15 @@ class SettingsDialog(QDialog):
         # `QDialog` now, so the branch that only the fakes could take is gone.
         self.accept()
         if timing_changed or needs_game_sync:
-            GameResetTimeNoticeDialog(
-                self.parent(),
+            parent_method = getattr(self, "parent", None)
+            notice_parent = parent_method() if callable(parent_method) else None
+            SettingsDialog._show_game_reset_notice(
+                notice_parent,
                 saved=True,
                 scanner_hold=effective_duration,
                 game_value=effective_game_value,
                 margin=effective_margin,
-            ).exec()
+            )
 
 
 class TwitchCommandSettingsDialog(QDialog):

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import src  # noqa: F401
 
+from app import config
 from app.update_flow import UpdateCheckResult
 from infra.updater import PreparedUpdate, ReleaseInfo
 from ui.dialogs import update_prompt
@@ -55,6 +56,20 @@ def available_result() -> UpdateCheckResult:
 
 
 class UpdatePromptTests(unittest.TestCase):
+    def test_registered_thread_removes_itself_after_completion(self) -> None:
+        app = FakeApp()
+        finished = threading.Event()
+
+        thread = update_prompt._start_registered_thread(
+            app,
+            target=finished.set,
+            name="TestRegisteredThread",
+        )
+        thread.join(timeout=3)
+
+        self.assertTrue(finished.is_set())
+        self.assertNotIn(thread, app.__dict__["_background_threads"])
+
     def test_previous_installer_failure_is_reported_in_the_app_log(self) -> None:
         app = FakeApp()
         with (
@@ -100,6 +115,54 @@ class UpdatePromptTests(unittest.TestCase):
         self.assertFalse(first.is_alive())
         self.assertEqual(1, check.call_count)
         self.assertFalse(app.__dict__["_update_session_active"])
+
+    def test_unexpected_check_exception_releases_the_update_session(self) -> None:
+        app = FakeApp()
+        with patch.object(
+            update_prompt,
+            "check_for_update",
+            side_effect=RuntimeError("probe exploded"),
+        ):
+            thread = update_prompt.start_update_check(app, force_check=True)
+            thread.join(timeout=3)
+
+        self.assertFalse(app.__dict__["_update_session_active"])
+        self.assertTrue(
+            any("probe exploded" in message for message, _tag in app.logs)
+        )
+        self.assertIn(("unknown", ""), app.footer.states)
+
+    def test_thread_start_failure_releases_the_update_session(self) -> None:
+        app = FakeApp()
+        with patch.object(
+            update_prompt,
+            "_start_registered_thread",
+            side_effect=RuntimeError("thread unavailable"),
+        ):
+            worker = update_prompt.start_update_check(app, force_check=True)
+
+        self.assertIsNone(worker)
+        self.assertFalse(app.__dict__["_update_session_active"])
+        self.assertTrue(
+            any("thread unavailable" in message for message, _tag in app.logs)
+        )
+
+    def test_failed_skip_save_is_reported_and_session_is_released(self) -> None:
+        app = FakeApp()
+        failure = config.SettingsSaveResult(False, "config is read-only")
+        with (
+            patch.object(update_prompt, "check_for_update", return_value=available_result()),
+            patch.object(update_prompt, "show_update_dialog", return_value="skip"),
+            patch.object(update_prompt, "skip_update_version", return_value=failure),
+        ):
+            thread = update_prompt.start_update_check(app, force_check=True)
+            thread.join(timeout=3)
+
+        self.assertFalse(app.__dict__["_update_session_active"])
+        self.assertTrue(
+            any("config is read-only" in message for message, _tag in app.logs)
+        )
+        self.assertIn(("available", "3.2.1"), app.footer.states)
 
     def test_verified_install_launches_helper_then_uses_clean_shutdown(self) -> None:
         app = FakeApp()

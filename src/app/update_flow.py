@@ -26,11 +26,10 @@ class UpdateCheckResult:
 
 def check_for_update(*, force_check: bool = False) -> UpdateCheckResult:
     """Compare the frozen application with GitHub and return a UI-neutral result."""
-    exe_path = updater.frozen_exe_path()
-    if exe_path is None:
-        return UpdateCheckResult(state="unavailable")
-
     try:
+        exe_path = updater.frozen_exe_path()
+        if exe_path is None:
+            return UpdateCheckResult(state="unavailable")
         release = updater.fetch_latest_release()
         latest_is_newer = parse_version(release.version) > parse_version(CURRENT_VERSION)
     except Exception as exc:
@@ -49,12 +48,17 @@ def check_for_update(*, force_check: bool = False) -> UpdateCheckResult:
     )
 
 
-def skip_update_version(version: str) -> None:
-    """Persist the explicit 'skip this version' choice."""
+def skip_update_version(version: str) -> config.SettingsSaveResult:
+    """Persist the explicit choice without changing runtime state on failure."""
     parse_version(version)
-    config.SKIPPED_UPDATE_VERSION = version
-    config.user_config["SKIPPED_UPDATE_VERSION"] = version
-    config.save_config(config.user_config)
+    result = config.save_settings_with_game_reset(
+        {"SKIPPED_UPDATE_VERSION": version},
+        None,
+        sync_game=False,
+    )
+    if result.success:
+        config.SKIPPED_UPDATE_VERSION = version
+    return result
 
 
 def prepare_update(

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import src  # noqa: F401
 
+from app import config
 from app import update_flow
 from infra.updater import ReleaseInfo
 
@@ -84,19 +85,53 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertEqual("unknown", result.state)
         self.assertIn("bad release", result.error)
 
+    def test_frozen_executable_probe_failure_becomes_unknown(self):
+        with patch.object(
+            update_flow.updater,
+            "frozen_exe_path",
+            side_effect=RuntimeError("bad executable probe"),
+        ):
+            result = update_flow.check_for_update()
+
+        self.assertEqual("unknown", result.state)
+        self.assertIn("bad executable probe", result.error)
+
     def test_skip_choice_is_persisted_explicitly(self):
         user_config = {}
         with (
             patch.object(update_flow.config, "SKIPPED_UPDATE_VERSION", ""),
             patch.object(update_flow.config, "user_config", user_config),
-            patch.object(update_flow.config, "save_config") as save,
+            patch.object(
+                update_flow.config,
+                "save_settings_with_game_reset",
+                return_value=config.SettingsSaveResult(True),
+            ) as save,
         ):
-            update_flow.skip_update_version("3.2.1")
+            result = update_flow.skip_update_version("3.2.1")
 
             self.assertEqual("3.2.1", update_flow.config.SKIPPED_UPDATE_VERSION)
+            self.assertTrue(result.success)
 
-        self.assertEqual("3.2.1", user_config["SKIPPED_UPDATE_VERSION"])
-        save.assert_called_once_with(user_config)
+        save.assert_called_once_with(
+            {"SKIPPED_UPDATE_VERSION": "3.2.1"},
+            None,
+            sync_game=False,
+        )
+
+    def test_failed_skip_persistence_keeps_runtime_value(self):
+        failure = config.SettingsSaveResult(False, "disk full")
+        with (
+            patch.object(update_flow.config, "SKIPPED_UPDATE_VERSION", "3.1.0"),
+            patch.object(
+                update_flow.config,
+                "save_settings_with_game_reset",
+                return_value=failure,
+            ),
+        ):
+            result = update_flow.skip_update_version("3.2.1")
+
+            self.assertIs(result, failure)
+            self.assertEqual("3.1.0", update_flow.config.SKIPPED_UPDATE_VERSION)
 
     def test_version_parser_accepts_v_prefix_and_rejects_prerelease_text(self):
         self.assertEqual((3, 2, 1), update_flow.parse_version("v3.2.1"))

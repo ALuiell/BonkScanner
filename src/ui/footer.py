@@ -594,8 +594,14 @@ class SupportPopup(QFrame):
     underneath them otherwise.
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        open_url=None,
+    ) -> None:
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self._open_url = open_url or self._open_browser_page
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName("supportPopup")
 
@@ -918,23 +924,39 @@ class SupportPopup(QFrame):
         height once there is something true to measure.
         """
         if self.isVisible() and self._anchor is not None:
-            self._place_above(self._anchor)
+            try:
+                self._place_above(self._anchor)
+            except RuntimeError:
+                self._anchor = None
+                return
             QTimer.singleShot(0, self, self._settle)
 
     def _settle(self) -> None:
         """Second half of `_reanchor`, once the layout has caught up."""
         if self.isVisible() and self._anchor is not None:
-            self._place_above(self._anchor)
+            try:
+                self._place_above(self._anchor)
+            except RuntimeError:
+                # The footer can disappear while this zero-delay placement is
+                # queued. Do not retain or dereference its deleted anchor.
+                self._anchor = None
+
+    @staticmethod
+    def _open_browser_page(url: str) -> bool:
+        try:
+            return bool(webbrowser.open(url))
+        except Exception:
+            return False
 
     def _open_patreon(self) -> None:
-        webbrowser.open(config.PATREON_SUPPORT_URL)
-        self.close()
+        if self._open_url(config.PATREON_SUPPORT_URL):
+            self.close()
 
     def _open_crypto(self) -> None:
         if not config.CRYPTO_SUPPORT_URL:
             return
-        webbrowser.open(config.CRYPTO_SUPPORT_URL)
-        self.close()
+        if self._open_url(config.CRYPTO_SUPPORT_URL):
+            self.close()
 
     def show_above(self, anchor: QWidget) -> None:
         """Open with the popup's bottom-right corner over `anchor`'s top-right."""
@@ -1079,17 +1101,64 @@ class FooterView:
             "♥  Support" if not count else f"♥  {count} supporters"
         )
         if self._popup is not None:
-            self._popup.set_supporters(self._supporters)
+            try:
+                self._popup.set_supporters(self._supporters)
+            except Exception:
+                self._popup = None
 
     def open_support_popup(self) -> None:
         # Built on the first click, not at launch: it is a dozen widgets nobody
         # has asked for yet, and the same discipline `LazyPage` applies to the
         # tabs. Kept afterwards, so clicking twice does not leak a second one.
-        if self._popup is None:
-            self._popup = SupportPopup(self.frame.window())
-            # Built late, so it has to be told what the view already knows.
-            self._popup.set_supporters(self._supporters)
-        self._popup.show_above(self._support_btn)
+        try:
+            if self._popup is None:
+                self._popup = SupportPopup(
+                    self.frame.window(),
+                    open_url=self.open_external_page,
+                )
+                popup = self._popup
+                popup.destroyed.connect(
+                    lambda *_args, expected=popup: self._popup_destroyed(expected)
+                )
+                # Built late, so it has to be told what the view already knows.
+                self._popup.set_supporters(self._supporters)
+            self._popup.show_above(self._support_btn)
+        except Exception as exc:
+            # A stale wrapper can survive until DeferredDelete is processed.
+            popup = self._popup
+            self._popup = None
+            if popup is not None:
+                try:
+                    popup.deleteLater()
+                except RuntimeError:
+                    pass
+            self._log_warning(
+                f"Support popup could not be opened: {type(exc).__name__}: {exc}"
+            )
+
+    def _popup_destroyed(self, expected=None) -> None:
+        if expected is None or self._popup is expected:
+            self._popup = None
+
+    def open_external_page(self, url: str) -> bool:
+        try:
+            opened = bool(webbrowser.open(url))
+        except Exception as exc:
+            opened = False
+            reason = f"{type(exc).__name__}: {exc}"
+        else:
+            reason = "Windows did not accept the browser request."
+        if not opened:
+            self._log_warning(f"Could not open browser link: {reason}")
+        return opened
+
+    def _log_warning(self, message: str) -> None:
+        log = getattr(self._app, "log", None)
+        if callable(log):
+            try:
+                log(f"[!] {message}", tag="warning")
+            except Exception:
+                pass
 
 
 def build_footer(app) -> QFrame:
@@ -1120,12 +1189,10 @@ def build_footer(app) -> QFrame:
     row.addStretch(1)
 
     github_btn = _link("GitHub", link_role="github")
-    github_btn.clicked.connect(lambda: webbrowser.open(config.GITHUB_REPOSITORY_URL))
     row.addWidget(github_btn, 0, Qt.AlignVCenter)
     row.addWidget(_separator(), 0, Qt.AlignVCenter)
 
     discord_btn = _link("Discord", link_role="discord")
-    discord_btn.clicked.connect(lambda: webbrowser.open(config.DISCORD_SUPPORT_URL))
     row.addWidget(discord_btn, 0, Qt.AlignVCenter)
     row.addWidget(_separator(), 0, Qt.AlignVCenter)
 
@@ -1140,6 +1207,12 @@ def build_footer(app) -> QFrame:
         update_btn=update_btn,
         update_separator=update_separator,
         support_btn=support_btn,
+    )
+    github_btn.clicked.connect(
+        lambda: app.footer.open_external_page(config.GITHUB_REPOSITORY_URL)
+    )
+    discord_btn.clicked.connect(
+        lambda: app.footer.open_external_page(config.DISCORD_SUPPORT_URL)
     )
     support_btn.clicked.connect(app.footer.open_support_popup)
     update_btn.clicked.connect(app.footer.check_for_updates)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -18,10 +18,16 @@ from gui_app import MegabonkApp
 class _SettingsOwner:
     open_settings_dialog = MegabonkApp.open_settings_dialog
     _settings_dialog_destroyed = MegabonkApp._settings_dialog_destroyed
+    open_help_dialog = MegabonkApp.open_help_dialog
+    _log_dialog_failure = MegabonkApp._log_dialog_failure
 
     def __init__(self) -> None:
         self.window = QWidget()
         self._settings_dialog = None
+        self.logs: list[tuple[str, str | None]] = []
+
+    def log(self, message: str, tag: str | None = None) -> None:
+        self.logs.append((message, tag))
 
 
 class _SettingsDialogProbe(QDialog):
@@ -117,6 +123,33 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
             self.assertEqual(len(_SettingsDialogProbe.instances), 1)
             self.assertEqual(dialog.reload_calls, 1)
             self.assertEqual(dialog.open_calls, 2)
+
+    def test_failed_reuse_is_replaced_without_old_destroyed_clearing_new(self) -> None:
+        with patch.object(gui_app, "SettingsDialog", _SettingsDialogProbe):
+            self.owner.open_settings_dialog()
+            first = self.owner._settings_dialog
+            first.reject()
+            first.reload_from_config = MagicMock(
+                side_effect=RuntimeError("native handle was deleted")
+            )
+            first.deleteLater = MagicMock()
+
+            self.owner.open_settings_dialog()
+            replacement = self.owner._settings_dialog
+            self.owner._settings_dialog_destroyed(first)
+
+        self.assertIsNot(replacement, first)
+        self.assertIs(self.owner._settings_dialog, replacement)
+        first.deleteLater.assert_called_once_with()
+        self.assertTrue(any("native handle was deleted" in text for text, _ in self.owner.logs))
+
+    def test_help_dialog_is_deleted_after_its_modal_session(self) -> None:
+        dialog = MagicMock()
+        with patch.object(gui_app, "HelpDialog", return_value=dialog):
+            self.owner.open_help_dialog()
+
+        dialog.exec.assert_called_once_with()
+        dialog.deleteLater.assert_called_once_with()
 
     def test_real_widgets_survive_repeated_save_and_cancel_cycles(self) -> None:
         with patch.object(config, "save_config"):
