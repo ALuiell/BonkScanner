@@ -104,6 +104,17 @@ class TwitchBotWorker(QThread):
         return self.run_tracker.runtime_snapshot()
 
     def run(self):
+        try:
+            self._run_bot_loop()
+        except Exception as exc:
+            if not self._stop_event.is_set():
+                self.log_message.emit(f"Bot exception: {exc}")
+                self.status_updated.emit(f"Error: {exc}")
+        finally:
+            self.running = False
+            self._close_socket()
+
+    def _run_bot_loop(self):
         # ``QThread.start()`` only schedules this method.  The window can close
         # and call ``stop()`` before the new native thread gets to its first
         # instruction.  Clearing the event here used to lose that cancellation:
@@ -131,11 +142,15 @@ class TwitchBotWorker(QThread):
 
             try:
                 raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock = raw_sock
                 raw_sock.settimeout(10.0)
                 context = ssl.create_default_context()
                 self.sock = context.wrap_socket(raw_sock, server_hostname="irc.chat.twitch.tv")
                 self.sock.connect(("irc.chat.twitch.tv", 6697))
                 self.sock.settimeout(None)
+
+                if self._stop_event.is_set() or not self.running:
+                    break
 
                 self._send(f"PASS oauth:{token}")
                 self._send(f"NICK {username}")
@@ -158,13 +173,17 @@ class TwitchBotWorker(QThread):
                     self._check_one_ring_announcement(target_channel)
                     self._check_commands_announcement(target_channel)
 
-                    self.sock.settimeout(0.5)
+                    sock = self.sock
+                    if sock is None:
+                        break
                     try:
-                        data = self.sock.recv(4096)
+                        sock.settimeout(0.5)
+                        data = sock.recv(4096)
                     except socket.timeout:
                         continue
                     except Exception as e:
-                        self.log_message.emit(f"Socket error: {e}")
+                        if not self._stop_event.is_set():
+                            self.log_message.emit(f"Socket error: {e}")
                         break
 
                     if not data:
@@ -183,15 +202,11 @@ class TwitchBotWorker(QThread):
                             traceback.print_exc()
 
             except Exception as e:
-                self.log_message.emit(f"Bot exception: {e}")
-                self.status_updated.emit(f"Error: {e}")
+                if not self._stop_event.is_set():
+                    self.log_message.emit(f"Bot exception: {e}")
+                    self.status_updated.emit(f"Error: {e}")
 
-            if self.sock:
-                try:
-                    self.sock.close()
-                except:
-                    pass
-            self.sock = None
+            self._close_socket()
 
             if self.running and not self._stop_event.is_set():
                 self.log_message.emit("Reconnecting in 2 seconds...")
@@ -209,12 +224,21 @@ class TwitchBotWorker(QThread):
     def stop(self):
         self.running = False
         self._stop_event.set()
-        if self.sock:
+        self._close_socket(shutdown=True)
+
+    def _close_socket(self, *, shutdown: bool = False) -> None:
+        sock, self.sock = self.sock, None
+        if sock is None:
+            return
+        if shutdown:
             try:
-                self.sock.shutdown(socket.SHUT_RDWR)
-                self.sock.close()
+                sock.shutdown(socket.SHUT_RDWR)
             except Exception:
                 pass
+        try:
+            sock.close()
+        except Exception:
+            pass
 
     def _send(self, msg: str):
         if self.sock:

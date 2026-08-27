@@ -165,4 +165,5 @@ def build_twitch_session(app, view, *, session_snapshot):
         command_settings_dialog=lambda: TwitchCommandSettingsDialog(app.window, master=app),
         prime_disabled_items=prime_disabled_items,
         refresh_player_stats=lambda: app.refresh_live_player_stats_now(),
+        marshal_to_ui=lambda callback: app.marshal_to_ui(callback),
     )

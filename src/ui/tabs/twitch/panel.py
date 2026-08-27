@@ -34,6 +34,7 @@ construction pass before any handler can fire -- rather than re-deriving it.
 
 from __future__ import annotations
 
+from html import escape
 from typing import Callable
 
 from PySide6.QtCore import QEvent, QObject, Qt
@@ -516,7 +517,7 @@ class TwitchTab:
         templates = config.TWITCH_BOT.get("templates", {}) or {}
         defaults = config.DEFAULT_TWITCH_BOT.get("templates", {}) or {}
         channel = str(config.TWITCH_BOT.get("target_channel") or "").strip()
-        viewer = channel or "viewer"
+        viewer = escape(channel or "viewer")
 
         lines = []
         for key in _PREVIEW_COMMANDS:
@@ -526,11 +527,12 @@ class TwitchTab:
             body = str(templates.get(key) or defaults.get(key) or "")
             if not body:
                 continue
+            preview_body = escape(_fill_sample_tags(body))
             lines.append(
                 f"<div style='color:#8A94A3; margin-top:8px'>{viewer}: "
                 f"<span style='color:#EDF1F5'>!{key}</span></div>"
                 f"<div style='color:#38BDF8'>BonkScanner: "
-                f"<span style='color:#EDF1F5'>{_fill_sample_tags(body)}</span></div>"
+                f"<span style='color:#EDF1F5'>{preview_body}</span></div>"
             )
 
         if not lines:

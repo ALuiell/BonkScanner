@@ -157,6 +157,18 @@ class TwitchSessionTests(unittest.TestCase):
         # that dialog is where the templates it renders get edited.
         self.assertIn(("refresh_chat_preview",), harness.tab.calls)
 
+    def test_closed_command_settings_dialog_is_scheduled_for_deletion(self) -> None:
+        calls = []
+        dialog = SimpleNamespace(
+            exec=lambda: calls.append("exec"),
+            deleteLater=lambda: calls.append("delete"),
+        )
+        harness = build_session(command_settings_dialog=lambda: dialog)
+
+        harness.session.open_command_settings()
+
+        self.assertEqual(calls, ["exec", "delete"])
+
     # -- auth -------------------------------------------------------------
 
     def test_auth_success_starts_bot_when_auto_connect_is_enabled(self) -> None:
@@ -449,7 +461,7 @@ class TwitchSessionTests(unittest.TestCase):
 
         self.assertEqual(len(harness.calls["bot_workers"]), 1)
 
-    def test_stop_waits_for_the_worker(self) -> None:
+    def test_interactive_stop_does_not_wait_on_the_gui_thread(self) -> None:
         harness = build_session()
         harness.session._start_bot_worker()
 
@@ -457,8 +469,70 @@ class TwitchSessionTests(unittest.TestCase):
 
         worker = harness.calls["bot_workers"][0]
         self.assertEqual(worker.stopped, 1)
-        self.assertEqual(worker.waited, [2000])
+        self.assertEqual(worker.waited, [])
         self.assertFalse(harness.session.is_bot_active())
+        self.assertIn(("show_bot_status", "Stopping..."), harness.tab.calls)
+
+    def test_worker_status_is_explicitly_marshaled_before_touching_the_view(self) -> None:
+        harness = build_session()
+        callbacks = []
+        harness.session._marshal_to_ui = lambda callback: callbacks.append(callback) or True
+        harness.session._start_bot_worker()
+        worker = harness.calls["bot_workers"][0]
+        harness.tab.calls.clear()
+
+        worker.status_updated.emit("Connected to #bonk")
+
+        self.assertEqual(harness.tab.calls, [])
+        self.assertEqual(len(callbacks), 1)
+        callbacks.pop()()
+        self.assertEqual(harness.tab.calls, [("show_bot_status", "Connected to #bonk")])
+
+    def test_queued_status_from_replaced_worker_is_dropped(self) -> None:
+        harness = build_session()
+        callbacks = []
+        harness.session._marshal_to_ui = lambda callback: callbacks.append(callback) or True
+        harness.session._start_bot_worker()
+        old_worker = harness.calls["bot_workers"][0]
+        harness.tab.calls.clear()
+
+        old_worker.status_updated.emit("Connected to stale channel")
+        harness.session._bot_worker = object()
+        callbacks.pop()()
+
+        self.assertEqual(harness.tab.calls, [])
+
+    def test_bot_qthread_start_failure_restores_stopped_ui(self) -> None:
+        harness = build_session()
+
+        class BrokenWorker:
+            def __init__(self) -> None:
+                from tests.support.twitch import FakeSignal
+
+                self.status_updated = FakeSignal()
+                self.log_message = FakeSignal()
+                self.finished = FakeSignal()
+                self.deleted = 0
+
+            def setObjectName(self, _name) -> None:
+                pass
+
+            def start(self) -> None:
+                raise RuntimeError("thread unavailable")
+
+            def deleteLater(self) -> None:
+                self.deleted += 1
+
+        worker = BrokenWorker()
+        harness.session._bot_worker_factory = lambda _tracker, _snapshot: worker
+
+        harness.session._start_bot_worker()
+
+        self.assertIsNone(harness.session._bot_worker)
+        self.assertEqual(worker.deleted, 1)
+        self.assertIn(("show_bot_stopped",), harness.tab.calls)
+        self.assertIn(("show_bot_status", "Error: thread unavailable"), harness.tab.calls)
+        self.assertEqual(harness.logs[-1][1], "error")
 
     def test_finished_bot_qthread_is_released(self) -> None:
         harness = build_session(tab=FakeTab(bot_status="Connected"))
@@ -471,6 +545,22 @@ class TwitchSessionTests(unittest.TestCase):
         self.assertIsNone(harness.session._bot_worker)
         self.assertEqual(worker.deleted, 1)
         self.assertIn(("show_bot_status", "Stopped"), harness.tab.calls)
+
+    def test_finished_worker_is_not_deleted_before_queued_cleanup(self) -> None:
+        harness = build_session(tab=FakeTab(bot_status="Connected"))
+        callbacks = []
+        harness.session._marshal_to_ui = lambda callback: callbacks.append(callback) or True
+        harness.session._start_bot_worker()
+        worker = harness.calls["bot_workers"][0]
+        worker.running = False
+
+        worker.finished.emit()
+
+        self.assertIs(harness.session._bot_worker, worker)
+        self.assertEqual(worker.deleted, 0)
+        callbacks.pop()()
+        self.assertIsNone(harness.session._bot_worker)
+        self.assertEqual(worker.deleted, 1)
 
     def test_shutdown_stops_and_waits_for_every_twitch_worker(self) -> None:
         harness = build_session()
@@ -492,6 +582,12 @@ class TwitchSessionTests(unittest.TestCase):
         self.assertEqual(bot.waited, [12000])
         self.assertEqual(validation.waited, [6000])
         self.assertEqual(revoke.waited, [6000])
+        self.assertIsNone(harness.session._auth_thread)
+        self.assertIsNone(harness.session._bot_worker)
+        self.assertIsNone(harness.session._validation_worker)
+        self.assertIsNone(harness.session._revoke_worker)
+        self.assertEqual(auth.deleted, 1)
+        self.assertEqual(bot.deleted, 1)
 
     def test_shutdown_extends_a_timed_out_worker_wait_before_window_teardown(self) -> None:
         harness = build_session()
@@ -822,6 +918,28 @@ class TwitchTabTests(unittest.TestCase):
         # An unbalanced brace is theirs to fix, not ours to swallow -- shown as
         # written rather than not shown at all.
         self.assertEqual("Broken: {oops", _fill_sample_tags("Broken: {oops"))
+
+    def test_chat_preview_escapes_twitch_plain_text_before_using_rich_text(self) -> None:
+        rendered = []
+        checked = SimpleNamespace(isChecked=lambda: True)
+        unchecked = SimpleNamespace(isChecked=lambda: False)
+        tab = self._tab(
+            _chat_preview=SimpleNamespace(setText=rendered.append),
+            _command_cbs={"build": checked, "items": unchecked, "weapons": unchecked},
+        )
+        twitch_config = {
+            "target_channel": "<viewer>",
+            "templates": {"build": "<b>{name}</b>"},
+        }
+
+        with patch.object(config, "TWITCH_BOT", twitch_config), patch.object(
+            config, "DEFAULT_TWITCH_BOT", {"templates": {}}
+        ):
+            tab.refresh_chat_preview()
+
+        self.assertIn("&lt;viewer&gt;", rendered[-1])
+        self.assertIn("&lt;b&gt;Community T2 build&lt;/b&gt;", rendered[-1])
+        self.assertNotIn("<viewer>", rendered[-1])
 
     def test_bot_status_maps_onto_badge_states(self) -> None:
         """The five branches the inline-styled label had, as badge states.

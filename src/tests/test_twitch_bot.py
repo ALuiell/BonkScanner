@@ -114,6 +114,24 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.assertTrue(self.bot._stop_event.is_set())
         self.bot.status_updated.emit.assert_not_called()
 
+    def test_unexpected_worker_failure_always_closes_socket_and_clears_running(self):
+        sock = MagicMock()
+        self.bot.sock = sock
+        self.bot.running = True
+        self.bot.log_message = MagicMock()
+        self.bot.status_updated = MagicMock()
+        self.bot._run_bot_loop = MagicMock(side_effect=RuntimeError("credential backend failed"))
+
+        self.bot.run()
+
+        self.assertFalse(self.bot.running)
+        self.assertIsNone(self.bot.sock)
+        sock.close.assert_called_once_with()
+        self.bot.log_message.emit.assert_called_once()
+        self.bot.status_updated.emit.assert_called_once_with(
+            "Error: credential backend failed"
+        )
+
     def test_byte_truncation(self):
         self.bot.sock = MagicMock()
         self.bot.log_message = MagicMock()
