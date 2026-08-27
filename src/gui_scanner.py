@@ -107,6 +107,8 @@ class Scanner:
         self.is_running = False
         self.is_ready_to_start = False
         self.pause_reason: str | None = None
+        self._start_pending = False
+        self._stop_pending = False
         self._restart_lock = threading.Lock()
         self.obs_recording_reminder_shown = False
 
@@ -224,15 +226,23 @@ class Scanner:
         flush is forced because the 15s throttle would otherwise drop a reroll
         count on the way out.
         """
+        self._start_pending = False
+        self._stop_pending = True
         self.stop_event.set()
         self.scan_event.set()
         self._flush_total_rerolls(force=True)
         worker = self.scanner_thread
-        if worker is None or worker is threading.current_thread():
+        if worker is None:
+            self._stop_pending = False
+            return
+        if worker is threading.current_thread():
             return
         is_alive = getattr(worker, "is_alive", None)
         join = getattr(worker, "join", None)
         if not callable(is_alive) or not callable(join) or not is_alive():
+            if self.scanner_thread is worker:
+                self.scanner_thread = None
+            self._stop_pending = False
             return
         started_at = time.monotonic()
         join(timeout=12.0)
@@ -250,6 +260,9 @@ class Scanner:
                 running=bool(is_alive()),
                 elapsed_ms=round((time.monotonic() - started_at) * 1000),
             )
+        if not is_alive() and self.scanner_thread is worker:
+            self.scanner_thread = None
+        self._stop_pending = False
 
     def _score_tier_color_tag(self, tier: str) -> str:
         colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
@@ -314,7 +327,31 @@ class Scanner:
         if status_label is None or toggle_btn is None:
             return
 
-        if self.is_scanning():
+        toggle_btn.setEnabled(not (self._start_pending or self._stop_pending))
+
+        if self._start_pending:
+            status_text = "STARTING"
+            status_label.setText(status_text)
+            _set_widget_style_role(status_label, "statusText", state="running")
+            _set_widget_style_role(
+                getattr(status_label, "_status_dot", None),
+                "statusDot",
+                state="running",
+            )
+            toggle_btn.setText("Start Scanner")
+            _set_widget_style_role(toggle_btn, "primary")
+        elif self._stop_pending:
+            status_text = "STOPPING"
+            status_label.setText(status_text)
+            _set_widget_style_role(status_label, "statusText", state="idle")
+            _set_widget_style_role(
+                getattr(status_label, "_status_dot", None),
+                "statusDot",
+                state="idle",
+            )
+            toggle_btn.setText("Stop Scanner")
+            _set_widget_style_role(toggle_btn, "stopScanner")
+        elif self.is_scanning():
             if self.is_running:
                 status_text = "RUNNING"
             elif self.pause_reason == "player_movement":
@@ -414,7 +451,34 @@ class Scanner:
             self.log(notice, tag="warning")
 
     def toggle_main_loop(self):
-        if not self.is_scanning():
+        """Queue a start or request a non-blocking interactive stop.
+
+        The Qt click handler must return before setup work or worker shutdown
+        can make the header appear frozen. Application shutdown still calls
+        :meth:`shutdown`, which performs the strict join required before the
+        interpreter exits.
+        """
+        if self._start_pending or self._stop_pending:
+            return
+        worker = self.scanner_thread
+        if worker is not None:
+            if worker.is_alive():
+                self.request_stop()
+            else:
+                # The worker can finish between its last queued repaint and
+                # this click. Treat the still-visible Stop action as cleanup,
+                # never as permission to start a replacement worker.
+                self._on_worker_finished(worker)
+            return
+
+        self._start_pending = True
+        self.update_status_ui()
+        self._schedule(0, self._start_monitor)
+
+    def _start_monitor(self) -> None:
+        try:
+            if self._is_shutting_down() or self._stop_pending:
+                return
             if (
                 getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True)
                 and not self._run_control.player_movement_guard_available
@@ -488,18 +552,54 @@ class Scanner:
                 name="BonkScannerWorker",
                 daemon=True,
             )
-            self.scanner_thread.start()
+            worker = self.scanner_thread
+            try:
+                worker.start()
+            except Exception as exc:
+                if self.scanner_thread is worker:
+                    self.scanner_thread = None
+                self.stop_event.set()
+                self.scan_event.clear()
+                self.log(f"[-] Could not start scanner worker: {exc}", tag="error")
+                return
             self._filters.sync()
-            self.update_status_ui()
-        else:
-            # The stop path is `shutdown()`'s two events plus the forced flush,
-            # so it is the same call: one definition of "release the worker".
-            self.shutdown()
+        except Exception as exc:
+            worker = self.scanner_thread
+            if worker is not None and worker.is_alive():
+                self._stop_pending = True
+                self.stop_event.set()
+                self.scan_event.set()
+            else:
+                self.scanner_thread = None
+                self.stop_event.set()
+                self.scan_event.clear()
             self.is_running = False
             self.is_ready_to_start = False
             self.pause_reason = None
-            self.log("\n[*] Stopping auto-reroll monitor...")
-            self._schedule(500, self.update_status_ui)
+            self.log(f"[-] Could not prepare scanner start: {exc}", tag="error")
+        finally:
+            self._start_pending = False
+            self.update_status_ui()
+
+    def request_stop(self) -> None:
+        """Signal the scan worker and return immediately to the Qt loop."""
+        if self._stop_pending:
+            return
+        worker = self.scanner_thread
+        if worker is None or not worker.is_alive():
+            self.scanner_thread = None
+            self.update_status_ui()
+            return
+
+        self._start_pending = False
+        self._stop_pending = True
+        self.stop_event.set()
+        self.scan_event.set()
+        self.is_running = False
+        self.is_ready_to_start = False
+        self.pause_reason = None
+        self.log("\n[*] Stopping auto-reroll monitor...")
+        self.update_status_ui()
 
     def refresh_stats_ui(self):
         # Both were `hasattr`-guarded on the shared namespace, for app doubles
@@ -658,6 +758,38 @@ class Scanner:
         return True
 
     def background_loop(self):
+        """Run the monitor and publish one cleanup transition on every exit."""
+        worker = threading.current_thread()
+        try:
+            self._run_background_loop()
+        except Exception as exc:
+            # Client construction happens before the loop's per-frame handler.
+            # A backend or dependency failure there must not strand the UI in
+            # WAITING with a dead thread object.
+            self.log(f"[-] Scanner worker stopped unexpectedly: {exc}", tag="error")
+        finally:
+            self.close_client()
+            self._flush_total_rerolls(force=True)
+            self.is_running = False
+            self.is_ready_to_start = False
+            self.pause_reason = None
+            self.scan_event.clear()
+            self._schedule(
+                0,
+                lambda finished_worker=worker: self._on_worker_finished(
+                    finished_worker
+                ),
+            )
+
+    def _on_worker_finished(self, worker) -> None:
+        """Finish the worker transition on the GUI thread."""
+        if self.scanner_thread is not worker:
+            return
+        self.scanner_thread = None
+        self._stop_pending = False
+        self.update_status_ui()
+
+    def _run_background_loop(self):
         process_name = config.PROCESS_NAME.strip()
         wait_state = None
         last_state = None
@@ -676,14 +808,14 @@ class Scanner:
                         self.log(f"[WAIT] Waiting for process '{process_name}'...", tag="warning")
                         wait_state = "process"
                         self._schedule(0, self.update_status_ui)
-                    time.sleep(1)
+                    self.stop_event.wait(1.0)
                     continue
                 except ModuleNotFoundError:
                     if wait_state != "module":
                         self.log("[WAIT] Game found. Waiting for it to finish loading...", tag="warning")
                         wait_state = "module"
                         self._schedule(0, self.update_status_ui)
-                    time.sleep(1)
+                    self.stop_event.wait(1.0)
                     continue
 
             was_waiting = not self.scan_event.is_set()
@@ -822,18 +954,10 @@ class Scanner:
                 last_state = None
                 last_stats = None
                 self._schedule(0, self.update_status_ui)
-                time.sleep(1)
+                self.stop_event.wait(1.0)
             except Exception as exc:
                 self.log(f"[-] Error during execution: {exc}", tag="error")
-                time.sleep(1)
-
-        self.close_client()
-        self._flush_total_rerolls(force=True)
-        self.is_running = False
-        self.is_ready_to_start = False
-        self.pause_reason = None
-        self.scan_event.clear()
-        self._schedule(0, self.update_status_ui)
+                self.stop_event.wait(1.0)
 
     # `on_closing` and `deferred_update_check` were defined here until step 25b.
     # Both are `MegabonkApp`'s now.

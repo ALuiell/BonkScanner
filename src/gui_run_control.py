@@ -203,7 +203,10 @@ class RunControl:
 
     def hotkey_toggle_in_game_overlay_edit(self):
         if self._toggle_overlay_edit is not None:
-            self._toggle_overlay_edit()
+            # The keyboard package invokes bindings on its hook thread. The
+            # overlay edit handler creates/shows Qt widgets, so it must cross
+            # the same GUI-thread scheduler as the scan and recording hotkeys.
+            self._schedule(0, self._toggle_overlay_edit)
 
     # `toggle_scan_event` was here. It is `Scanner.toggle_scan_event` now: it
     # writes `is_running` and `scan_event` and reads `scanner_thread` and

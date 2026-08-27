@@ -32,6 +32,7 @@ class FakeLabel:
     def __init__(self, text: str = "") -> None:
         self._text = text
         self.stylesheet = ""
+        self.enabled = True
 
     def setText(self, value) -> None:
         self._text = value
@@ -44,6 +45,9 @@ class FakeLabel:
 
     def setWordWrap(self, _value) -> None:
         pass
+
+    def setEnabled(self, value) -> None:
+        self.enabled = bool(value)
 
 
 class FakeLogBox:
@@ -194,8 +198,8 @@ def build_scanner(
     def record_schedule(delay_ms, callback):
         calls["scheduled"].append((delay_ms, getattr(callback, "__name__", "lambda")))
         # Delay 0 is "as soon as the Qt loop turns"; anything later is a
-        # deliberate deferral (`toggle_main_loop`'s 500ms repaint, the 1s
-        # session clock) and running it inline would recurse.
+        # deliberate deferral (for example the 1s session clock), and running
+        # it inline would recurse.
         if int(delay_ms) == 0:
             callback()
 

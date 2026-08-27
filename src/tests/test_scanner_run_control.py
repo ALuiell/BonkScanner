@@ -263,6 +263,7 @@ class HotkeyRegistrationTests(unittest.TestCase):
         run_control.hotkey_toggle_in_game_overlay_edit()
 
         self.assertEqual(toggles, ["edit"])
+        self.assertEqual(run_control.calls["scheduled"][-1][0], 0)
 
     def test_player_movement_bindings_follow_the_settings_checkbox(self) -> None:
         registered: list[list[tuple[str, bool]]] = []
@@ -420,13 +421,7 @@ class ScanLifecycleTests(unittest.TestCase):
         )
 
     def test_the_scan_worker_is_a_daemon_running_the_background_loop(self) -> None:
-        """Pinned because the daemon flag is the whole shutdown contract.
-
-        The worker is never joined; `stop_event` plus `scan_event` unblock it
-        and it exits on its own. A non-daemon worker would keep the process
-        alive after the window closed, and nothing else in the suite reads
-        this argument.
-        """
+        """Daemon is the fallback; application shutdown also joins the worker."""
         scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
         self._quiet(scanner)
 
@@ -438,6 +433,131 @@ class ScanLifecycleTests(unittest.TestCase):
 
         self.assertIs(scanner.scanner_thread.daemon, True)
         self.assertEqual(scanner.scanner_thread.target, scanner.background_loop)
+
+    def test_start_click_returns_in_starting_state_before_setup_runs(self) -> None:
+        callbacks = []
+        status = FakeLabel()
+        toggle = FakeLabel()
+        scanner = build_scanner(
+            selected_template_names=lambda: ["LIGHT"],
+            schedule=lambda delay_ms, callback: callbacks.append((delay_ms, callback)),
+            status_label=lambda: status,
+            toggle_btn=lambda: toggle,
+        )
+
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}), \
+                patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False), \
+                patch.object(config, "EVALUATION_MODE", "templates"), \
+                patch.object(threading, "Thread", FakeThread):
+            scanner.toggle_main_loop()
+
+            self.assertTrue(scanner._start_pending)
+            self.assertEqual(status.text(), "STARTING")
+            self.assertFalse(toggle.enabled)
+            self.assertIsNone(scanner.scanner_thread)
+            self.assertEqual(len(callbacks), 1)
+
+            # A second click during the transition cannot queue a second worker.
+            scanner.toggle_main_loop()
+            self.assertEqual(len(callbacks), 1)
+
+            delay_ms, callback = callbacks.pop()
+            self.assertEqual(delay_ms, 0)
+            callback()
+
+        self.assertFalse(scanner._start_pending)
+        self.assertTrue(scanner.scanner_thread.started)
+        self.assertTrue(toggle.enabled)
+        self.assertEqual(toggle.text(), "Stop Scanner")
+
+    def test_worker_start_failure_restores_idle_state(self) -> None:
+        class FailingThread(FakeThread):
+            def start(self) -> None:
+                raise RuntimeError("thread unavailable")
+
+        scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        self._quiet(scanner)
+
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}), \
+                patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False), \
+                patch.object(config, "EVALUATION_MODE", "templates"), \
+                patch.object(threading, "Thread", FailingThread):
+            scanner.toggle_main_loop()
+
+        self.assertIsNone(scanner.scanner_thread)
+        self.assertFalse(scanner._start_pending)
+        self.assertTrue(scanner.stop_event.is_set())
+        self.assertTrue(
+            any(
+                "Could not start scanner worker" in str(message)
+                for message, _tag in scanner.calls["log"]
+            )
+        )
+
+    def test_start_preparation_failure_is_contained_before_worker_creation(self) -> None:
+        scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        scanner.refresh_stats_ui = lambda: (_ for _ in ()).throw(
+            RuntimeError("session stats unavailable")
+        )
+
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}), \
+                patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False), \
+                patch.object(config, "EVALUATION_MODE", "templates"), \
+                patch.object(threading, "Thread", FakeThread):
+            scanner.toggle_main_loop()
+
+        self.assertIsNone(scanner.scanner_thread)
+        self.assertFalse(scanner._start_pending)
+        self.assertFalse(scanner.is_running)
+        self.assertTrue(
+            any(
+                "Could not prepare scanner start" in str(message)
+                for message, _tag in scanner.calls["log"]
+            )
+        )
+
+    def test_interactive_stop_never_joins_on_the_gui_thread(self) -> None:
+        class Worker:
+            def is_alive(self) -> bool:
+                return True
+
+            def join(self, *_args, **_kwargs) -> None:
+                raise AssertionError("interactive stop must not join")
+
+        status = FakeLabel()
+        toggle = FakeLabel()
+        scanner = build_scanner(
+            status_label=lambda: status,
+            toggle_btn=lambda: toggle,
+        )
+        worker = Worker()
+        scanner.scanner_thread = worker
+        scanner.is_running = True
+        scanner.scan_event.set()
+        scanner._total_rerolls_dirty = True
+
+        with patch.object(config, "save_config") as save_config:
+            scanner.toggle_main_loop()
+
+        self.assertIs(scanner.scanner_thread, worker)
+        self.assertTrue(scanner._stop_pending)
+        self.assertTrue(scanner.stop_event.is_set())
+        self.assertTrue(scanner.scan_event.is_set())
+        self.assertEqual(status.text(), "STOPPING")
+        self.assertFalse(toggle.enabled)
+        save_config.assert_not_called()
+
+    def test_click_on_a_stale_stop_state_cleans_up_instead_of_restarting(self) -> None:
+        scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        stale_worker = DeadThread()
+        scanner.scanner_thread = stale_worker
+
+        with patch.object(threading, "Thread") as thread_factory:
+            scanner.toggle_main_loop()
+
+        self.assertIsNone(scanner.scanner_thread)
+        self.assertFalse(scanner._start_pending)
+        thread_factory.assert_not_called()
 
     def test_toggle_main_loop_logs_scores_tiers_with_colors(self) -> None:
         scanner = build_scanner()
@@ -793,6 +913,40 @@ class BackgroundLoopTests(unittest.TestCase):
         self.assertFalse(scanner.scan_event.is_set())
         self.assertFalse(scanner.is_running)
         self.assertFalse(scanner.is_ready_to_start)
+
+    def test_background_loop_finalizer_clears_the_finished_worker(self) -> None:
+        scanner = build_scanner()
+        worker = threading.current_thread()
+        scanner.scanner_thread = worker
+        scanner._stop_pending = True
+        scanner.stop_event.set()
+
+        scanner.background_loop()
+
+        self.assertIsNone(scanner.scanner_thread)
+        self.assertFalse(scanner._stop_pending)
+
+    def test_client_construction_failure_cannot_strand_a_dead_worker(self) -> None:
+        scanner = build_scanner()
+        worker = threading.current_thread()
+        scanner.scanner_thread = worker
+
+        with patch.object(
+            gui_scanner,
+            "GameDataClient",
+            side_effect=RuntimeError("memory backend failed"),
+        ):
+            scanner.background_loop()
+
+        self.assertIsNone(scanner.scanner_thread)
+        self.assertFalse(scanner.is_running)
+        self.assertFalse(scanner.is_ready_to_start)
+        self.assertTrue(
+            any(
+                "Scanner worker stopped unexpectedly" in str(message)
+                for message, _tag in scanner.calls["log"]
+            )
+        )
 
     def test_background_loop_reuses_stable_snapshot_for_candidate(self) -> None:
         class FakeClient:
@@ -1218,6 +1372,11 @@ class SessionStatsTests(unittest.TestCase):
         scanner.update_status_ui()
         idle = (status.text(), toggle.text())
 
+        scanner._start_pending = True
+        scanner.update_status_ui()
+        starting = (status.text(), toggle.enabled)
+        scanner._start_pending = False
+
         scanner.scanner_thread = AliveThread()
         scanner.update_status_ui()
         waiting = status.text()
@@ -1228,11 +1387,17 @@ class SessionStatsTests(unittest.TestCase):
         scanner.update_status_ui()
         running = status.text()
 
+        scanner._stop_pending = True
+        scanner.update_status_ui()
+        stopping = (status.text(), toggle.enabled)
+
         self.assertEqual(idle[1], "Start Scanner")
         self.assertIn("IDLE", idle[0])
+        self.assertEqual(starting, ("STARTING", False))
         self.assertIn("WAITING FOR GAME", waiting)
         self.assertIn("ARMED", armed)
         self.assertIn("RUNNING", running)
+        self.assertEqual(stopping, ("STOPPING", False))
         self.assertEqual(toggle.text(), "Stop Scanner")
 
     def test_the_log_is_silent_without_an_invoker(self) -> None:
