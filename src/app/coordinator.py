@@ -36,8 +36,10 @@ class RefreshLoop:
     The GUI supplies only the mechanism: ``schedule`` is the thread hop
     (``MegabonkApp.after``) and ``tick`` is the per-tick body. The *policy* --
     the interval, the is-active gate, and the decision to reschedule -- lives
-    here. Step 12d replaces ``schedule`` with a real lifecycle; when it does,
-    neither ``tick`` nor this class changes.
+    here.  The explicit running flag is separate from the application's
+    ``is_active`` gate: replacing or shutting down the coordinator invalidates
+    callbacks that were already posted without relying on an external owner to
+    change state first.
     """
 
     def __init__(
@@ -52,21 +54,29 @@ class RefreshLoop:
         self._schedule = schedule
         self._is_active = is_active
         self._interval_ms = interval_ms
+        self._running = False
 
     def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
         self._step()
+
+    def stop(self) -> None:
+        """Make the current and every already-scheduled step a no-op."""
+        self._running = False
 
     def _step(self) -> None:
         # Mirrors the two ``_is_shutting_down`` checks the GUI timer used to make:
         # do not tick once stopped, and do not reschedule after the tick if a
         # stop landed while it ran. A tick that raises still reschedules (the
         # ``finally``), exactly as the old ``update_player_stats_timer`` did.
-        if not self._is_active():
+        if not self._running or not self._is_active():
             return
         try:
             self._tick()
         finally:
-            if self._is_active():
+            if self._running and self._is_active():
                 self._schedule(int(self._interval_ms()), self._step)
 
 
@@ -141,6 +151,9 @@ class AppCoordinator:
         (``schedule``) and the tick body, and the coordinator decides when to
         run and when to reschedule.
         """
+        previous = self.refresh_loop
+        if previous is not None:
+            previous.stop()
         self.refresh_loop = RefreshLoop(
             tick=tick,
             schedule=schedule,
@@ -181,10 +194,14 @@ class AppCoordinator:
         Called from ``MegabonkApp.on_closing``. Closing them here -- rather than
         through three scattered mixin methods -- is what "the coordinator owns the
         lifecycle" means once step 12b gave it the instances: it holds them, so it
-        closes them. The refresh loop needs no explicit stop -- its pending
-        ``after`` callback sees ``is_active`` go false at shutdown and does not
-        reschedule.
+        closes them. The refresh loop is stopped explicitly before client
+        teardown, so a callback already posted by the GUI becomes a no-op even
+        when the supplied ``is_active`` predicate has not changed yet.
         """
+        refresh_loop, self.refresh_loop = getattr(self, "refresh_loop", None), None
+        if refresh_loop is not None:
+            refresh_loop.stop()
+
         for attr in ("client", "player_stats_client", "player_stats_game_data_client"):
             instance = getattr(self, attr)
             if instance is None:

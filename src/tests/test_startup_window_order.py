@@ -18,6 +18,7 @@ class StartupWindowOrderTests(unittest.TestCase):
             """
             import os
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            import atexit
             import src
             from PySide6.QtWidgets import QApplication
             from app import config
@@ -26,6 +27,10 @@ class StartupWindowOrderTests(unittest.TestCase):
             config.save_config = lambda *_args, **_kwargs: None
             config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
             app = MegabonkApp()
+            # Keep an assertion failure from reaching interpreter teardown with
+            # live QThreads.  The explicit close below remains the path tested;
+            # this is only the subprocess's emergency cleanup.
+            atexit.register(app.on_closing)
             qt = QApplication.instance()
 
             assert app.window.width() == 1320
@@ -62,6 +67,11 @@ class StartupWindowOrderTests(unittest.TestCase):
             # Deferred helpers may now be created, but only behind a mapped main
             # window. In particular, the in-game overlay no longer exists during
             # MegabonkApp.__init__.
+            # The show event posts ``start_runtime``; that callback deliberately
+            # posts the native helper construction once more.  One pass was only
+            # enough while UiInvoker's AutoConnection ran after_idle inline.
+            qt.processEvents()
+            qt.processEvents()
             qt.processEvents()
             assert app.window.isVisible()
             overlay_window = app._in_game_overlay.in_game_overlay_window

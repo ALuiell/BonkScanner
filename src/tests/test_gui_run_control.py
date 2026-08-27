@@ -3274,6 +3274,57 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(ticks, [])
         self.assertEqual(schedule_calls, [])
 
+    def test_refresh_loop_start_is_idempotent(self) -> None:
+        ticks: list[int] = []
+        schedule_calls: list[tuple[int, object]] = []
+        loop = RefreshLoop(
+            tick=lambda: ticks.append(1),
+            schedule=lambda delay, callback: schedule_calls.append((delay, callback)),
+            is_active=lambda: True,
+            interval_ms=lambda: 500,
+        )
+
+        loop.start()
+        loop.start()
+
+        self.assertEqual(ticks, [1])
+        self.assertEqual(len(schedule_calls), 1)
+
+    def test_refresh_loop_stop_invalidates_an_already_scheduled_step(self) -> None:
+        ticks: list[int] = []
+        schedule_calls: list[tuple[int, object]] = []
+        loop = RefreshLoop(
+            tick=lambda: ticks.append(1),
+            schedule=lambda delay, callback: schedule_calls.append((delay, callback)),
+            is_active=lambda: True,
+            interval_ms=lambda: 500,
+        )
+        loop.start()
+        pending = schedule_calls[0][1]
+
+        loop.stop()
+        pending()
+
+        self.assertEqual(ticks, [1])
+        self.assertEqual(len(schedule_calls), 1)
+
+    def test_starting_a_replacement_refresh_loop_stops_the_previous_one(self) -> None:
+        coordinator = AppCoordinator.__new__(AppCoordinator)
+        previous = SimpleNamespace(stop=MagicMock())
+        coordinator.refresh_loop = previous
+        schedule_calls: list[tuple[int, object]] = []
+
+        replacement = coordinator.start_refresh_loop(
+            tick=lambda: None,
+            schedule=lambda delay, callback: schedule_calls.append((delay, callback)),
+            is_active=lambda: True,
+            interval_ms=lambda: 500,
+        )
+
+        previous.stop.assert_called_once_with()
+        self.assertIs(coordinator.refresh_loop, replacement)
+        self.assertEqual(len(schedule_calls), 1)
+
     def test_recording_lifecycle_keeps_its_own_cadence_under_the_500ms_driver(self) -> None:
         # The whole risk of collapsing the two timers: the recording lifecycle
         # used to be a 10 s timer's body, and the surviving driver runs 20x
@@ -6068,6 +6119,87 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(closed, ["coordinator"])
         self.assertEqual(destroyed, [True])
+
+    def test_on_closing_continues_after_a_shutdown_owner_fails(self) -> None:
+        calls: list[str] = []
+
+        class ShutdownHarness:
+            on_closing = MegabonkApp.on_closing
+            _run_shutdown_step = MegabonkApp._run_shutdown_step
+            _wait_for_background_threads = MegabonkApp._wait_for_background_threads
+
+        app = ShutdownHarness()
+        app._is_shutting_down = False
+        app._shutdown_errors = []
+        app._background_threads = set()
+        app._scanner = SimpleNamespace(
+            shutdown=lambda: (_ for _ in ()).throw(RuntimeError("scanner failed")),
+        )
+        app._run_control = SimpleNamespace(
+            stop_hotkeys=lambda: calls.append("hotkeys"),
+        )
+        app.coordinator = SimpleNamespace(
+            shutdown=lambda: calls.append("coordinator"),
+        )
+        app.shutdown_in_game_overlay = lambda: calls.append("in_game_overlay")
+        app.close_overlay_server = lambda: calls.append("overlay")
+        app.stop_twitch_bot = lambda: calls.append("twitch")
+        app.player_stats_vod_recorder = None
+        app.destroy = lambda: calls.append("destroy")
+
+        clean = app.on_closing()
+
+        self.assertFalse(clean)
+        self.assertEqual(
+            calls,
+            [
+                "in_game_overlay",
+                "coordinator",
+                "overlay",
+                "twitch",
+                "hotkeys",
+                "destroy",
+            ],
+        )
+        self.assertEqual(app._shutdown_errors[0][0], "scanner")
+
+    def test_late_constructor_failure_unwinds_a_started_twitch_session(self) -> None:
+        MegabonkApp._ensure_qt_application()
+        events: list[str] = []
+        session = SimpleNamespace(
+            start=lambda: events.append("start"),
+            shutdown=lambda: events.append("shutdown"),
+        )
+
+        def build_minimal_layout(app) -> None:
+            app._twitch_tab = object()
+
+        with patch.object(gui_app, "build_layout", side_effect=build_minimal_layout), patch.object(
+            gui_app,
+            "build_twitch_session",
+            return_value=session,
+        ), patch.object(
+            MegabonkApp,
+            "apply_overlay_autostart",
+            side_effect=RuntimeError("late startup failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "late startup failure"):
+                MegabonkApp()
+
+        self.assertEqual(events, ["start", "shutdown"])
+
+    def test_app_coordinator_shutdown_stops_the_refresh_loop(self) -> None:
+        coordinator = AppCoordinator.__new__(AppCoordinator)
+        loop = SimpleNamespace(stop=MagicMock())
+        coordinator.refresh_loop = loop
+        coordinator.client = None
+        coordinator.player_stats_client = None
+        coordinator.player_stats_game_data_client = None
+
+        coordinator.shutdown()
+
+        loop.stop.assert_called_once_with()
+        self.assertIsNone(coordinator.refresh_loop)
 
     def test_refresh_live_player_stats_now_parses_single_key(self) -> None:
         app = object.__new__(MegabonkApp)

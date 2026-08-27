@@ -791,10 +791,21 @@ class UiInvoker(QObject):
     call_now = Signal(object)
     call_later = Signal(int, object)
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.call_now.connect(self._execute_now)
-        self.call_later.connect(self._execute_later)
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        # Always cross an event-loop boundary, even when the sender already is
+        # the GUI thread.  ``after_idle`` and worker-result delivery both use
+        # this object; an AutoConnection would invoke the slot synchronously in
+        # the former case and make code advertised as deferred re-enter the
+        # half-finished UI operation that scheduled it.
+        self.call_now.connect(
+            self._execute_now,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self.call_later.connect(
+            self._execute_later,
+            Qt.ConnectionType.QueuedConnection,
+        )
 
     @Slot(object)
     def _execute_now(self, callback) -> None:
@@ -802,7 +813,10 @@ class UiInvoker(QObject):
 
     @Slot(int, object)
     def _execute_later(self, delay_ms: int, callback) -> None:
-        QTimer.singleShot(max(0, int(delay_ms)), callback)
+        # Bind the single-shot to this QObject.  Destroying the invoker with the
+        # main window then cancels delayed work instead of leaving a contextless
+        # functor able to fire into an already dismantled UI tree.
+        QTimer.singleShot(max(0, int(delay_ms)), self, callback)
 
 class _AppWindow(QMainWindow):
     def __init__(self, owner) -> None:

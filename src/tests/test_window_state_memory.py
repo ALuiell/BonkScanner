@@ -25,6 +25,7 @@ class _Owner:
     _restore_window_state = MegabonkApp._restore_window_state
 
     def __init__(self) -> None:
+        self._is_shutting_down = False
         self.window = _AppWindow(self)
 
     def _handle_window_shown(self) -> None:
@@ -79,6 +80,15 @@ class WindowStateMemoryTests(unittest.TestCase):
 
         owner.window.showMinimized()
         self._app.processEvents()
+
+        self.assertEqual(self._saved(), "maximized")
+
+    def test_shutdown_window_transitions_do_not_overwrite_the_remembered_choice(self) -> None:
+        owner = self._owner()
+        config.user_config[MegabonkApp._WINDOW_STATE_KEY] = "maximized"
+        owner._is_shutting_down = True
+
+        owner._handle_window_state_changed()
 
         self.assertEqual(self._saved(), "maximized")
 

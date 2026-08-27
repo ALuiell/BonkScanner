@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import src
 
 import unittest
 
 from pathlib import Path
+
+from PySide6.QtWidgets import QApplication, QWidget
 
 from ui import shared as gui_shared
 from ui.shared import build_template_payload, format_template_conditions
@@ -94,6 +100,31 @@ class GuiSharedTests(unittest.TestCase):
         text = format_template_conditions({"name": "RANGE", "moai": 2, "moai_max": 4})
 
         self.assertEqual(text, "M≥2, M≤4")
+
+
+class UiInvokerLifecycleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._app = QApplication.instance() or QApplication([])
+
+    def test_call_now_always_crosses_the_event_loop_boundary(self) -> None:
+        invoker = gui_shared.UiInvoker()
+        self.addCleanup(invoker.deleteLater)
+        events = ["before"]
+
+        invoker.call_now.emit(lambda: events.append("callback"))
+        events.append("after")
+
+        self.assertEqual(events, ["before", "after"])
+        self._app.processEvents()
+        self.assertEqual(events, ["before", "after", "callback"])
+
+    def test_invoker_can_be_owned_by_the_main_window(self) -> None:
+        window = QWidget()
+        self.addCleanup(window.deleteLater)
+        invoker = gui_shared.UiInvoker(window)
+
+        self.assertIs(invoker.parent(), window)
 
 
 if __name__ == "__main__":

@@ -20,11 +20,18 @@ def main():
 
     log_runtime_event("application.constructing")
     app = MegabonkApp()
-    app.protocol("WM_DELETE_WINDOW", app.on_closing)
-    log_runtime_event("application.mainloop_enter")
-    app.mainloop()
+    try:
+        app.protocol("WM_DELETE_WINDOW", app.on_closing)
+        log_runtime_event("application.mainloop_enter")
+        app.mainloop()
+    finally:
+        # A normal window close already runs this through ``closeEvent``.  The
+        # idempotent second call also covers QApplication.quit(), event-loop
+        # termination by the OS, and an exception escaping ``exec()``.
+        clean_shutdown = app.on_closing()
     log_runtime_event("application.mainloop_return")
-    mark_clean_exit()
+    if clean_shutdown is not False:
+        mark_clean_exit()
 
 if __name__ == "__main__":
     main()

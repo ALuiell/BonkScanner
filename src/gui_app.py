@@ -63,10 +63,11 @@ class MegabonkApp:
         self.window = _AppWindow(self)
         self._window_shown = False
         self._after_window_shown_callbacks = []
-        self._invoker = UiInvoker()
+        self._invoker = UiInvoker(self.window)
         self._close_protocol_handler = None
         self._is_shutting_down = False
         self._close_in_progress = False
+        self._shutdown_errors: list[tuple[str, str]] = []
         self._background_threads = set()
         # Reuse one Settings dialog for the application's lifetime. Repeatedly
         # destroying and rebuilding its large child-widget tree can leave a
@@ -304,38 +305,52 @@ class MegabonkApp:
             schedule=self.marshal_to_ui,
         )
 
-        build_layout(self)
-        self._twitch_session = build_twitch_session(
-            self,
-            self._twitch_tab,
-            session_snapshot=self._session_stats.snapshot,
-        )
-        self._twitch_session.start()
-        self.apply_overlay_autostart()
-        self._templates_panel.refresh_templates()
-        self._templates_panel.refresh_scores_templates_list()
-        self._templates_panel.refresh_scores_ui()
-        # After the three refreshes above, never before them: collapsing builds
-        # the rail's tiles from the panel's checkbox dicts, and those are empty
-        # until `refresh_templates`/`refresh_scores_templates_list` fill them.
-        # Restoring any earlier would come up with a rail of zero tiles.
-        if config.LEFT_RAIL_COLLAPSED:
-            self._left_rail.collapse(restoring=True)
-        self.setup_hotkeys()
-        self.update_timer()
-        self.coordinator.start_refresh_loop(
-            tick=self.update_player_stats_timer,
-            schedule=self.after,
-            is_active=lambda: not self._is_shutting_down,
-            interval_ms=lambda: int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)),
-        )
-        self.check_admin_rights()
-        self.log(f"[*] Welcome to BonkScanner v{CURRENT_VERSION}!", tag="success")
-        self.log(f"[*] Target Process: {config.PROCESS_NAME}")
-        self._log_reset_hold_duration_correction()
-        self.log("[*] Ready! Select templates and start the main process loop.")
-        self.apply_run_control_mode(detach_hooks=False)
-        self.after(1500, self.deferred_update_check)
+        # Everything below can start a runtime owner or post work to Qt.  If a
+        # later startup step fails, the constructor itself must unwind those
+        # owners; the assignment in ``main`` has not completed yet, so no caller
+        # has an application reference it could use for cleanup.
+        try:
+            build_layout(self)
+            self._twitch_session = build_twitch_session(
+                self,
+                self._twitch_tab,
+                session_snapshot=self._session_stats.snapshot,
+            )
+            self._twitch_session.start()
+            self.apply_overlay_autostart()
+            self._templates_panel.refresh_templates()
+            self._templates_panel.refresh_scores_templates_list()
+            self._templates_panel.refresh_scores_ui()
+            # After the three refreshes above, never before them: collapsing builds
+            # the rail's tiles from the panel's checkbox dicts, and those are empty
+            # until `refresh_templates`/`refresh_scores_templates_list` fill them.
+            # Restoring any earlier would come up with a rail of zero tiles.
+            if config.LEFT_RAIL_COLLAPSED:
+                self._left_rail.collapse(restoring=True)
+            self.setup_hotkeys()
+            self.update_timer()
+            self.coordinator.start_refresh_loop(
+                tick=self.update_player_stats_timer,
+                schedule=self.after,
+                is_active=lambda: not self._is_shutting_down,
+                interval_ms=lambda: int(
+                    getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)
+                ),
+            )
+            self.check_admin_rights()
+            self.log(f"[*] Welcome to BonkScanner v{CURRENT_VERSION}!", tag="success")
+            self.log(f"[*] Target Process: {config.PROCESS_NAME}")
+            self._log_reset_hold_duration_correction()
+            self.log("[*] Ready! Select templates and start the main process loop.")
+            self.apply_run_control_mode(detach_hooks=False)
+            self.after(1500, self.deferred_update_check)
+        except Exception as exc:
+            log_runtime_event(
+                "application.construction.failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            self.on_closing()
+            raise
 
     def _log_reset_hold_duration_correction(self) -> None:
         """Say so when the stored reset hold was below the game's threshold.
@@ -846,13 +861,13 @@ class MegabonkApp:
     # missing component internally, which is where that decision belongs.
     def on_closing(self):
         if getattr(self, "_is_shutting_down", False):
-            return
+            return not bool(self.__dict__.get("_shutdown_errors", ()))
         self._is_shutting_down = True
         log_runtime_event("application.shutdown.begin")
         # Stop the two GUI timers and close the parentless Qt.Tool window before
         # any blocking worker joins.  Nothing should be able to enqueue another
         # overlay paint while the rest of the object tree is being dismantled.
-        self.shutdown_in_game_overlay()
+        self._run_shutdown_step("in_game_overlay", self.shutdown_in_game_overlay)
         # `self._cancel_right_tab_transition()` stood here and is deleted
         # rather than moved. It was one of two methods on `GuiLayoutMixin`
         # whose entire body was `return None`, and it had been that since it
@@ -865,29 +880,61 @@ class MegabonkApp:
         # teardown order. The assertion is updated rather than dropped: the
         # remaining six steps are still asserted in order, and what the test
         # was pinning here was the position of a no-op.
-        self._scanner.shutdown()
+        self._run_shutdown_step("scanner", lambda: self._scanner.shutdown())
         # The coordinator owns the three memory clients (step 12b), so it closes
         # them (step 12c). App doubles built without a coordinator fall back to the
         # mixin close methods, preserving the shutdown order those tests assert.
-        coordinator = getattr(self, "coordinator", None)
+        coordinator = self.__dict__.get("coordinator")
         if coordinator is not None:
-            coordinator.shutdown()
+            self._run_shutdown_step("coordinator", coordinator.shutdown)
         else:
-            self._scanner.close_client()
-            player_stats_memory(self).close_player_stats_client()
-            player_stats_memory(self).close_player_stats_game_data_client()
-        self.close_overlay_server()
-        self.stop_twitch_bot()
-        self._wait_for_background_threads()
+            self._run_shutdown_step(
+                "scanner_client",
+                lambda: self._scanner.close_client(),
+            )
+            self._run_shutdown_step(
+                "player_stats_client",
+                lambda: player_stats_memory(self).close_player_stats_client(),
+            )
+            self._run_shutdown_step(
+                "player_stats_game_data_client",
+                lambda: player_stats_memory(self).close_player_stats_game_data_client(),
+            )
+        self._run_shutdown_step("overlay_server", self.close_overlay_server)
+        self._run_shutdown_step("twitch", self.stop_twitch_bot)
+        self._run_shutdown_step("background_threads", self._wait_for_background_threads)
         player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
         if player_stats_vod_recorder is not None:
-            if player_stats_vod_recorder.is_recording:
-                player_stats_vod_recorder.stop()
-            else:
-                player_stats_vod_recorder.close()
-        self._run_control.stop_hotkeys()
-        log_runtime_event("application.shutdown.resources_stopped")
-        self.destroy()
+            self._run_shutdown_step(
+                "vod_recorder",
+                lambda: (
+                    player_stats_vod_recorder.stop()
+                    if player_stats_vod_recorder.is_recording
+                    else player_stats_vod_recorder.close()
+                ),
+            )
+        self._run_shutdown_step("hotkeys", lambda: self._run_control.stop_hotkeys())
+        log_runtime_event(
+            "application.shutdown.resources_stopped",
+            errors=len(self.__dict__.get("_shutdown_errors", ())),
+        )
+        self._run_shutdown_step("window", self.destroy)
+        return not bool(self.__dict__.get("_shutdown_errors", ()))
+
+    def _run_shutdown_step(self, name: str, callback) -> bool:
+        """Run one teardown owner without letting it strand the remaining ones."""
+        try:
+            callback()
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            self.__dict__.setdefault("_shutdown_errors", []).append((name, detail))
+            log_runtime_event(
+                "application.shutdown.step_failed",
+                step=name,
+                error=detail,
+            )
+            return False
+        return True
 
     def _wait_for_background_threads(self) -> None:
         for thread in list(getattr(self, "_background_threads", ())):
@@ -967,6 +1014,8 @@ class MegabonkApp:
         return "normal"
 
     def _handle_window_state_changed(self) -> None:
+        if self.__dict__.get("_is_shutting_down", False):
+            return
         name = self._current_window_state_name()
         if not name or name == config.user_config.get(self._WINDOW_STATE_KEY):
             return
@@ -993,7 +1042,15 @@ class MegabonkApp:
         handler = self._close_protocol_handler or getattr(self, "on_closing", None)
         if callable(handler):
             event.ignore()
-            handler()
+            try:
+                handler()
+            finally:
+                # ``on_closing`` normally closes the window recursively through
+                # ``destroy``.  If that final close raises, do not leave the
+                # original close event ignored with the app permanently latched
+                # in its shutting-down state.
+                if self._close_in_progress or self._is_shutting_down:
+                    event.accept()
             return
         event.accept()
 
@@ -1040,6 +1097,8 @@ class MegabonkApp:
 
     def run_after_window_shown(self, callback) -> None:
         """Run native auxiliary-window setup only after the main window maps."""
+        if self.__dict__.get("_is_shutting_down", False):
+            return
         if self._window_shown:
             self.after(0, callback)
             return
