@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import src  # noqa: F401 -- test path bootstrap
 from PySide6.QtCore import QEvent, QPointF, Qt
@@ -165,6 +167,22 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
                 index = dialog.action_combo.findData(action_id)
                 self.assertGreaterEqual(index, 0)
                 self.assertFalse(dialog.action_combo.itemIcon(index).isNull())
+        finally:
+            dialog.close()
+
+    def test_nested_binding_dialog_is_deleted_after_exec(self) -> None:
+        editor = SimpleNamespace(
+            exec=MagicMock(return_value=MapMarkerBindingDialog.Accepted),
+            binding={"input": "f10", "action": "moai"},
+            deleteLater=MagicMock(),
+        )
+        dialog = MapMarkerSettingsDialog(
+            [], binding_dialog_factory=lambda _binding, _parent: editor
+        )
+        try:
+            dialog._open_editor(None)
+            self.assertEqual(dialog.bindings, [{"input": "f10", "action": "moai"}])
+            editor.deleteLater.assert_called_once_with()
         finally:
             dialog.close()
 

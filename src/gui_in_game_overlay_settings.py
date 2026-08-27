@@ -448,18 +448,21 @@ def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
         parent,
         automatic_discovery=bool(marker_cfg.get("automatic_discovery", False)),
     )
-    if dialog.exec() != QDialog.Accepted:
-        return
-    marker_cfg["hotkeys"] = dialog.bindings
-    marker_cfg["automatic_discovery"] = dialog.automatic_discovery
-    config.save_config(config.user_config)
-    refresh_map_marker_settings_summary(parent_mixin)
-    # Runtime registration is intentionally reached through the existing port;
-    # once the marker controller lands, a saved mouse/key assignment can become
-    # active without restarting the application.
-    rebind = getattr(parent_mixin, "_rebind_hotkeys", None)
-    if callable(rebind):
-        rebind()
+    try:
+        if dialog.exec() != QDialog.Accepted:
+            return
+        marker_cfg["hotkeys"] = dialog.bindings
+        marker_cfg["automatic_discovery"] = dialog.automatic_discovery
+        config.save_config(config.user_config)
+        refresh_map_marker_settings_summary(parent_mixin)
+        # Runtime registration is intentionally reached through the existing port;
+        # once the marker controller lands, a saved mouse/key assignment can become
+        # active without restarting the application.
+        rebind = getattr(parent_mixin, "_rebind_hotkeys", None)
+        if callable(rebind):
+            rebind()
+    finally:
+        dialog.deleteLater()
 
 
 class _IgoRowNameLabel(QLabel):

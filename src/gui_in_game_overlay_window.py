@@ -403,6 +403,15 @@ class LuckRarityBarWidget(QWidget):
             return
 
         painter = QPainter(self)
+        if not painter.isActive():
+            return
+        try:
+            self._paint_bar(painter)
+        finally:
+            if painter.isActive():
+                painter.end()
+
+    def _paint_bar(self, painter: QPainter) -> None:
         painter.setRenderHint(QPainter.Antialiasing)
 
         bounds = self.rect().adjusted(0, 0, -1, -1)

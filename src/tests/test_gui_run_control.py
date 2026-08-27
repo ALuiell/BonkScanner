@@ -6469,6 +6469,64 @@ class GuiRunControlTests(unittest.TestCase):
         window_factory.assert_not_called()
         self.assertIsNone(overlay.in_game_overlay_window)
 
+    def test_overlay_initialization_failure_is_contained_and_disables_runtime(self) -> None:
+        logs = []
+        overlay = build_in_game_overlay_test_component(
+            log=lambda message, **kwargs: logs.append((message, kwargs.get("tag")))
+        )
+        overlay_cfg = {"enabled": True, "auto_start": True, "widgets": {}}
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), patch.object(
+            gui_in_game_overlay,
+            "InGameOverlayWindow",
+            side_effect=RuntimeError("window construction failed"),
+        ), patch.object(gui_in_game_overlay, "log_runtime_event") as runtime_log:
+            overlay._init_in_game_overlay()
+
+        self.assertIsNone(overlay.in_game_overlay_window)
+        self.assertFalse(overlay_cfg["enabled"])
+        runtime_log.assert_called_once()
+        self.assertEqual(logs[0][1], "warning")
+        self.assertIn("window construction failed", logs[0][0])
+
+    def test_destroyed_old_overlay_window_does_not_clear_its_replacement(self) -> None:
+        callbacks = []
+        old_window = FakeInGameOverlayWindow()
+        old_window.destroyed = SimpleNamespace(connect=callbacks.append)
+        overlay = build_in_game_overlay_test_component()
+        overlay._update_igo_status_ui = MagicMock()
+        overlay_cfg = {"enabled": False, "auto_start": False, "widgets": {}}
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), patch.object(
+            gui_in_game_overlay, "InGameOverlayWindow", return_value=old_window
+        ):
+            overlay._init_in_game_overlay()
+
+        replacement = FakeInGameOverlayWindow()
+        overlay.in_game_overlay_window = replacement
+        callbacks[0](object())
+
+        self.assertIs(overlay.in_game_overlay_window, replacement)
+
+    def test_in_game_widget_settings_dialog_is_deleted_after_exec(self) -> None:
+        dialog = SimpleNamespace(exec=MagicMock(), deleteLater=MagicMock())
+        overlay = gui_in_game_overlay.InGameOverlay(
+            tracker=lambda: None,
+            is_scanning=lambda: False,
+            is_recording=lambda: False,
+            is_game_window_active=lambda _name: False,
+            find_game_window=None,
+            schedule=lambda callback: callback(),
+            schedule_idle=lambda _callback: None,
+            timer_factory=FakeOverlayTimer,
+            widget_settings_dialog=lambda _owner, _parent: dialog,
+        )
+
+        overlay._open_igo_widget_settings_dialog()
+
+        dialog.exec.assert_called_once_with()
+        dialog.deleteLater.assert_called_once_with()
+
     def test_map_marker_tick_does_not_reenter_itself(self) -> None:
         overlay = build_in_game_overlay_test_component()
         window = FakeInGameOverlayWindow(visible=True)
@@ -6587,6 +6645,75 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertNotEqual(worker_threads, [gui_thread])
         self.assertEqual(close_threads, worker_threads)
 
+    def test_interactive_map_marker_stop_does_not_wait_for_memory_poll(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        close_finished = threading.Event()
+        stale = gui_in_game_overlay.MapMarkerSnapshot(map_id=77, map_open=True)
+        tracker = SimpleNamespace(snapshot=gui_in_game_overlay.MapMarkerSnapshot())
+
+        def tick(**_kwargs):
+            started.set()
+            self.assertTrue(release.wait(timeout=2.0))
+            tracker.snapshot = stale
+            return stale
+
+        tracker.tick = tick
+        tracker.place_manual_marker = MagicMock(return_value=False)
+        tracker.close = close_finished.set
+        overlay = build_in_game_overlay_test_component(
+            map_marker_executor_factory=gui_in_game_overlay._build_map_marker_executor
+        )
+        overlay._map_marker_tracker = tracker
+        overlay._request_map_marker_sample(client_height=720)
+        self.assertTrue(started.wait(timeout=1.0))
+
+        began = time.perf_counter()
+        overlay._stop_map_marker_worker(wait=False)
+        elapsed = time.perf_counter() - began
+
+        self.assertLess(elapsed, 0.2)
+        self.assertFalse(close_finished.is_set())
+        release.set()
+        overlay._map_marker_future.result(timeout=2.0)
+        overlay._map_marker_close_future.result(timeout=2.0)
+        overlay._collect_map_marker_future()
+
+        self.assertTrue(close_finished.is_set())
+        self.assertEqual(
+            overlay._map_marker_latest_snapshot,
+            gui_in_game_overlay.MapMarkerSnapshot(),
+        )
+        overlay._shutdown_map_marker_worker()
+
+    def test_map_marker_restart_waits_for_serialized_close(self) -> None:
+        executor = ManualMapMarkerExecutor()
+        calls = []
+        old_snapshot = gui_in_game_overlay.MapMarkerSnapshot(map_id=1, map_open=True)
+        tracker = SimpleNamespace(snapshot=old_snapshot)
+        tracker.tick = lambda **kwargs: calls.append(("poll", kwargs["client_height"])) or old_snapshot
+        tracker.close = lambda: calls.append(("close", None))
+        tracker.place_manual_marker = MagicMock(return_value=False)
+        overlay = build_in_game_overlay_test_component(
+            map_marker_executor_factory=lambda: executor
+        )
+        overlay._map_marker_tracker = tracker
+
+        overlay._request_map_marker_sample(client_height=100)
+        overlay._stop_map_marker_worker(wait=False)
+        overlay._request_map_marker_sample(client_height=200)
+        self.assertEqual(len(executor.tasks), 2)
+
+        executor.run_next()
+        overlay._request_map_marker_sample(client_height=300)
+        self.assertEqual(len(executor.tasks), 1)
+        executor.run_next()
+        overlay._request_map_marker_sample(client_height=400)
+
+        self.assertEqual(calls, [("poll", 100), ("close", None)])
+        self.assertEqual(len(executor.tasks), 1)
+        self.assertEqual(overlay._map_marker_pending_poll, None)
+
     def test_map_marker_poll_is_latest_wins_without_worker_backlog(self) -> None:
         executor = ManualMapMarkerExecutor()
         calls = []
@@ -6672,6 +6799,40 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(overlay.in_game_overlay_window.hide_calls, 1)
         self.assertFalse(overlay.in_game_overlay_window.isVisible())
+
+    def test_overlay_fast_tick_does_not_reenter_itself(self) -> None:
+        overlay = build_in_game_overlay_test_component()
+        overlay._overlay_fast_tick_once = MagicMock(return_value=True)
+        overlay._overlay_fast_tick_active = True
+
+        self.assertFalse(overlay._overlay_fast_tick())
+
+        overlay._overlay_fast_tick_once.assert_not_called()
+
+    def test_overlay_fast_tick_failure_is_contained_and_stops_runtime(self) -> None:
+        logs = []
+        overlay = build_in_game_overlay_test_component(
+            log=lambda message, **kwargs: logs.append((message, kwargs.get("tag")))
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay._overlay_fast_tick_once = MagicMock(
+            side_effect=RuntimeError("deleted overlay widget")
+        )
+        overlay._update_igo_status_ui = MagicMock()
+        overlay_cfg = {"enabled": True, "widgets": {}}
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), patch.object(
+            gui_in_game_overlay, "log_runtime_event"
+        ) as runtime_log:
+            self.assertFalse(overlay._overlay_fast_tick())
+
+        self.assertFalse(overlay_cfg["enabled"])
+        self.assertEqual(overlay.overlay_fast_timer.stop_calls, 1)
+        self.assertEqual(overlay.map_marker_timer.stop_calls, 1)
+        self.assertFalse(overlay.in_game_overlay_window.isVisible())
+        runtime_log.assert_called_once()
+        self.assertEqual(logs[0][1], "warning")
+        self.assertIn("deleted overlay widget", logs[0][0])
 
     def test_overlay_fast_tick_syncs_geometry_before_showing_game_overlay(self) -> None:
         tracker = SimpleNamespace(

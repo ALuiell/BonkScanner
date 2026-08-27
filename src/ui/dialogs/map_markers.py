@@ -79,7 +79,7 @@ class InputBindingRecorder(QPushButton):
         self.style().polish(self)
         # The click that entered recording must finish before the mouse grab;
         # otherwise that same Left click would be interpreted as the binding.
-        QTimer.singleShot(0, self._grab_inputs)
+        QTimer.singleShot(0, self, self._grab_inputs)
 
     def _grab_inputs(self) -> None:
         if not self._recording or not self.isVisible():
@@ -419,29 +419,32 @@ class MapMarkerSettingsDialog(QDialog):
     def _open_editor(self, index: int | None) -> None:
         current = self._bindings[index] if index is not None else None
         dialog = self._binding_dialog_factory(current, self)
-        if dialog.exec() != QDialog.Accepted:
-            return
-        candidate = dialog.binding
-        duplicate = next(
-            (
-                row_index
-                for row_index, binding in enumerate(self._bindings)
-                if binding["input"] == candidate["input"] and row_index != index
-            ),
-            None,
-        )
-        if duplicate is not None:
-            QMessageBox.warning(
-                self,
-                "Hotkey Already Assigned",
-                f"{display_input_binding(candidate['input'])} already places another marker. Edit that row instead.",
+        try:
+            if dialog.exec() != QDialog.Accepted:
+                return
+            candidate = dialog.binding
+            duplicate = next(
+                (
+                    row_index
+                    for row_index, binding in enumerate(self._bindings)
+                    if binding["input"] == candidate["input"] and row_index != index
+                ),
+                None,
             )
-            return
-        if index is None:
-            self._bindings.append(candidate)
-        else:
-            self._bindings[index] = candidate
-        self._refresh_rows()
+            if duplicate is not None:
+                QMessageBox.warning(
+                    self,
+                    "Hotkey Already Assigned",
+                    f"{display_input_binding(candidate['input'])} already places another marker. Edit that row instead.",
+                )
+                return
+            if index is None:
+                self._bindings.append(candidate)
+            else:
+                self._bindings[index] = candidate
+            self._refresh_rows()
+        finally:
+            dialog.deleteLater()
 
     def _remove(self, index: int) -> None:
         if 0 <= index < len(self._bindings):

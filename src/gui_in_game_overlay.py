@@ -127,6 +127,9 @@ class InGameOverlay:
         self._map_marker_executor_factory = map_marker_executor_factory
         self._map_marker_executor: Executor | None = None
         self._map_marker_future: Future[MapMarkerSnapshot] | None = None
+        self._map_marker_future_generation = 0
+        self._map_marker_close_future: Future[Any] | None = None
+        self._map_marker_generation = 0
         self._map_marker_pending_poll: dict[str, Any] | None = None
         self._map_marker_pending_placements: deque[
             tuple[str, float, float, float]
@@ -168,6 +171,7 @@ class InGameOverlay:
         self.in_game_overlay_window: InGameOverlayWindow | None = None
         self._shutting_down = False
         self._map_marker_tick_active = False
+        self._overlay_fast_tick_active = False
 
         # The regular overlay no longer needs its old 10 s companion timer.
         # Map markers use a separate 25 ms timer because a nearby interactable
@@ -190,21 +194,47 @@ class InGameOverlay:
     def _init_in_game_overlay(self) -> None:
         if not self._runtime_available() or self.in_game_overlay_window is not None:
             return
-        window = InGameOverlayWindow(self)
-        window.destroyed.connect(self._on_in_game_overlay_window_destroyed)
-        self.in_game_overlay_window = window
+        window = None
+        try:
+            window = InGameOverlayWindow(self)
+            self.in_game_overlay_window = window
+            # Capture the exact wrapper.  The QObject passed by ``destroyed``
+            # is not guaranteed to be the same Python wrapper, and an old
+            # window must never clear a replacement created after it.
+            window.destroyed.connect(
+                lambda *_args, expected=window: (
+                    self._on_in_game_overlay_window_destroyed(expected)
+                )
+            )
 
-        # ``enabled`` is the current runtime state, not a second startup
-        # preference. A user can enable auto-start while the overlay is stopped,
-        # which persists ``auto_start=True`` beside ``enabled=False``. Requiring
-        # both values here made that perfectly valid combination skip startup.
-        # At process start the preference decides the initial runtime state.
-        auto_start = bool(config.IN_GAME_OVERLAY.get("auto_start", False))
-        config.IN_GAME_OVERLAY["enabled"] = auto_start
-        if auto_start:
-            self.start_in_game_overlay()
+            # ``enabled`` is the current runtime state, not a second startup
+            # preference. A user can enable auto-start while the overlay is stopped,
+            # which persists ``auto_start=True`` beside ``enabled=False``. Requiring
+            # both values here made that perfectly valid combination skip startup.
+            # At process start the preference decides the initial runtime state.
+            auto_start = bool(config.IN_GAME_OVERLAY.get("auto_start", False))
+            config.IN_GAME_OVERLAY["enabled"] = auto_start
+            if auto_start:
+                self.start_in_game_overlay()
 
-        self._update_igo_status_ui()
+            self._update_igo_status_ui()
+        except Exception as exc:
+            if self.in_game_overlay_window is window:
+                self.in_game_overlay_window = None
+            if window is not None:
+                try:
+                    window.parent_mixin = None
+                    window.close()
+                    window.deleteLater()
+                except Exception:
+                    pass
+            config.IN_GAME_OVERLAY["enabled"] = False
+            detail = f"{type(exc).__name__}: {exc}"
+            log_runtime_event("in_game_overlay.initialize.failed", error=detail)
+            self._log(
+                f"[!] In-game overlay could not be initialized: {detail}",
+                tag="warning",
+            )
 
     def start_in_game_overlay(self, *, initial_refresh: bool = True) -> None:
         if not self._runtime_available() or not self.in_game_overlay_window:
@@ -215,14 +245,39 @@ class InGameOverlay:
             self._overlay_fast_tick()
 
     def stop_in_game_overlay(self) -> None:
-        self.overlay_fast_timer.stop()
-        self.map_marker_timer.stop()
-        if self.in_game_overlay_window:
-            self.in_game_overlay_window.hide()
-        self._stop_map_marker_worker()
-        self._map_marker_hotkeys.reset()
-        self._set_map_marker_snapshot(MapMarkerSnapshot())
-        self._set_map_marker_palette(None)
+        # Stop is also used while a top-level Qt wrapper is being destroyed.
+        # One stale widget must not prevent the worker and hotkeys from being
+        # released, so every independent cleanup step gets its own guard.
+        cleanup_errors = []
+        for cleanup in (
+            self.overlay_fast_timer.stop,
+            self.map_marker_timer.stop,
+            (
+                self.in_game_overlay_window.hide
+                if self.in_game_overlay_window is not None
+                else None
+            ),
+            lambda: self._stop_map_marker_worker(wait=False),
+            self._map_marker_hotkeys.reset,
+            lambda: self._set_map_marker_snapshot(MapMarkerSnapshot()),
+            lambda: self._set_map_marker_palette(None),
+        ):
+            if cleanup is None:
+                continue
+            try:
+                cleanup()
+            except Exception as exc:
+                cleanup_errors.append(f"{type(exc).__name__}: {exc}")
+        if cleanup_errors:
+            log_runtime_event(
+                "in_game_overlay.stop_cleanup.failed",
+                errors=cleanup_errors,
+            )
+            self._log(
+                "[!] In-game overlay stopped with cleanup warnings: "
+                + "; ".join(cleanup_errors),
+                tag="warning",
+            )
 
     def shutdown(self) -> None:
         """Permanently stop callbacks and dispose the parentless tool window."""
@@ -239,9 +294,8 @@ class InGameOverlay:
         window.close()
         window.deleteLater()
 
-    def _on_in_game_overlay_window_destroyed(self, destroyed=None) -> None:
-        window = self.in_game_overlay_window
-        if window is None or destroyed is None or window is destroyed:
+    def _on_in_game_overlay_window_destroyed(self, expected=None) -> None:
+        if expected is None or self.in_game_overlay_window is expected:
             self.in_game_overlay_window = None
 
     def _runtime_available(self) -> bool:
@@ -426,7 +480,7 @@ class InGameOverlay:
             self.map_marker_timer.start()
             return
         self.map_marker_timer.stop()
-        self._stop_map_marker_worker()
+        self._stop_map_marker_worker(wait=False)
         self._map_marker_hotkeys.reset()
         self._set_map_marker_snapshot(MapMarkerSnapshot())
         self._set_map_marker_palette(None)
@@ -451,7 +505,7 @@ class InGameOverlay:
             # wrapper/read failure from being delivered repeatedly by Qt.
             self.map_marker_timer.stop()
             try:
-                self._stop_map_marker_worker()
+                self._stop_map_marker_worker(wait=False)
             except Exception:
                 pass
             try:
@@ -577,7 +631,12 @@ class InGameOverlay:
         return self._map_marker_latest_snapshot
 
     def _pump_map_marker_worker(self) -> None:
-        if self._map_marker_worker_shutdown or self._map_marker_future is not None:
+        self._collect_map_marker_close_future()
+        if (
+            self._map_marker_worker_shutdown
+            or self._map_marker_future is not None
+            or self._map_marker_close_future is not None
+        ):
             return
         executor = self._map_marker_executor
         if executor is None:
@@ -596,6 +655,7 @@ class InGameOverlay:
                 screen_y=screen_y,
                 scale=scale,
             )
+            self._map_marker_future_generation = self._map_marker_generation
             return
         request, self._map_marker_pending_poll = self._map_marker_pending_poll, None
         if request is None:
@@ -604,6 +664,7 @@ class InGameOverlay:
             self._map_marker_tracker.tick,
             **request,
         )
+        self._map_marker_future_generation = self._map_marker_generation
 
     def _place_map_marker_in_worker(
         self,
@@ -622,38 +683,102 @@ class InGameOverlay:
         return self._map_marker_tracker.snapshot
 
     def _collect_map_marker_future(self) -> None:
+        self._collect_map_marker_close_future()
         future = self._map_marker_future
         if future is None or not future.done():
             return
         self._map_marker_future = None
-        snapshot = future.result()
-        if isinstance(snapshot, MapMarkerSnapshot):
+        generation = self._map_marker_future_generation
+        try:
+            snapshot = future.result()
+        except Exception:
+            # A Stop invalidates the operation.  Its failure is stale too and
+            # must not disable a newly restarted marker runtime.
+            if generation != self._map_marker_generation:
+                return
+            raise
+        if (
+            generation == self._map_marker_generation
+            and isinstance(snapshot, MapMarkerSnapshot)
+        ):
             self._map_marker_latest_snapshot = snapshot
 
-    def _stop_map_marker_worker(self) -> None:
-        """Drain the sole memory operation, then close its client in that worker."""
+    def _collect_map_marker_close_future(self) -> None:
+        future = self._map_marker_close_future
+        if future is None or not future.done():
+            return
+        self._map_marker_close_future = None
+        try:
+            future.result()
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            log_runtime_event("in_game_overlay.map_marker_close.failed", error=detail)
+            self._log(
+                f"[!] Map Activity Markers cleanup failed: {detail}",
+                tag="warning",
+            )
+        finally:
+            self._map_marker_worker_active = False
+
+    def _stop_map_marker_worker(self, *, wait: bool = False) -> None:
+        """Invalidate pending work and queue client cleanup without blocking Qt.
+
+        The production executor has one worker, so ``close`` is serialized
+        behind an in-flight memory read.  Interactive Stop therefore returns
+        immediately, while terminal shutdown opts into draining both futures.
+        """
+        self._map_marker_generation += 1
         self._map_marker_pending_poll = None
         self._map_marker_pending_placements.clear()
-        future, self._map_marker_future = self._map_marker_future, None
+        self._map_marker_latest_snapshot = MapMarkerSnapshot()
+
+        executor = self._map_marker_executor
+        if (
+            self._map_marker_worker_active
+            and executor is not None
+            and self._map_marker_close_future is None
+        ):
+            try:
+                self._map_marker_close_future = executor.submit(
+                    self._map_marker_tracker.close
+                )
+            except Exception as exc:
+                self._map_marker_worker_active = False
+                detail = f"{type(exc).__name__}: {exc}"
+                log_runtime_event(
+                    "in_game_overlay.map_marker_close_submit.failed", error=detail
+                )
+                self._log(
+                    f"[!] Map Activity Markers cleanup could not start: {detail}",
+                    tag="warning",
+                )
+
+        # Inline executors complete during submit.  Collecting an already-done
+        # future is nonblocking and keeps deterministic tests and state tidy.
+        self._collect_map_marker_close_future()
+        if not wait:
+            return
+
+        future = self._map_marker_future
         if future is not None:
             try:
                 future.result()
             except Exception:
                 pass
-
-        executor = self._map_marker_executor
-        if self._map_marker_worker_active and executor is not None:
+            self._map_marker_future = None
+        close_future = self._map_marker_close_future
+        if close_future is not None:
             try:
-                executor.submit(self._map_marker_tracker.close).result()
+                close_future.result()
             except Exception:
                 pass
+            self._map_marker_close_future = None
         self._map_marker_worker_active = False
-        self._map_marker_latest_snapshot = MapMarkerSnapshot()
 
     def _shutdown_map_marker_worker(self) -> None:
         if self._map_marker_worker_shutdown:
             return
-        self._stop_map_marker_worker()
+        self._stop_map_marker_worker(wait=True)
         self._map_marker_worker_shutdown = True
         executor, self._map_marker_executor = self._map_marker_executor, None
         if executor is not None:
@@ -675,6 +800,40 @@ class InGameOverlay:
             setter(palette)
 
     def _overlay_fast_tick(self) -> bool:
+        # Modal dialogs run nested event loops; avoid updating a parentless
+        # transparent window while their widget graph is mid-transition.
+        if (
+            not self._runtime_available()
+            or self._overlay_fast_tick_active
+            or QApplication.activeModalWidget() is not None
+        ):
+            return False
+
+        self._overlay_fast_tick_active = True
+        try:
+            return self._overlay_fast_tick_once()
+        except Exception as exc:
+            config.IN_GAME_OVERLAY["enabled"] = False
+            try:
+                self.stop_in_game_overlay()
+            except Exception:
+                self.overlay_fast_timer.stop()
+                self.map_marker_timer.stop()
+            detail = f"{type(exc).__name__}: {exc}"
+            log_runtime_event("in_game_overlay.fast_tick.failed", error=detail)
+            self._log(
+                f"[!] In-game overlay stopped after an internal error: {detail}",
+                tag="warning",
+            )
+            try:
+                self._update_igo_status_ui()
+            except Exception:
+                pass
+            return False
+        finally:
+            self._overlay_fast_tick_active = False
+
+    def _overlay_fast_tick_once(self) -> bool:
         if not self._runtime_available() or not self.in_game_overlay_window:
             return False
 
@@ -1112,7 +1271,12 @@ class InGameOverlay:
 
     def _open_igo_widget_settings_dialog(self) -> None:
         dialog = self._widget_settings_dialog(self, self.tab_in_game_overlay)
-        dialog.exec()
+        try:
+            dialog.exec()
+        finally:
+            delete_later = getattr(dialog, "deleteLater", None)
+            if callable(delete_later):
+                delete_later()
 
     def _open_build_progression_dialog(self) -> None:
         self._open_build_progression_settings()
