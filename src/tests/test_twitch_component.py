@@ -398,6 +398,25 @@ class TwitchSessionTests(unittest.TestCase):
 
     # -- bot lifecycle ----------------------------------------------------
 
+    def test_starting_auth_twice_keeps_the_running_qthread(self) -> None:
+        harness = build_session()
+
+        harness.session.start_auth()
+        harness.session.start_auth()
+
+        self.assertEqual(len(harness.calls["auth_threads"]), 1)
+
+    def test_finished_auth_qthread_is_released(self) -> None:
+        harness = build_session()
+        harness.session.start_auth()
+        worker = harness.calls["auth_threads"][0]
+        worker.running = False
+
+        worker.finished.emit()
+
+        self.assertIsNone(harness.session._auth_thread)
+        self.assertEqual(worker.deleted, 1)
+
     def test_composition_root_passes_the_session_snapshot_callback(self) -> None:
         snapshot = lambda: {"rerolls": 1, "seeds_found": 1, "tracked_rows": ()}
         app = SimpleNamespace(window=None)
@@ -440,6 +459,18 @@ class TwitchSessionTests(unittest.TestCase):
         self.assertEqual(worker.stopped, 1)
         self.assertEqual(worker.waited, [2000])
         self.assertFalse(harness.session.is_bot_active())
+
+    def test_finished_bot_qthread_is_released(self) -> None:
+        harness = build_session(tab=FakeTab(bot_status="Connected"))
+        harness.session._start_bot_worker()
+        worker = harness.calls["bot_workers"][0]
+        worker.running = False
+
+        worker.finished.emit()
+
+        self.assertIsNone(harness.session._bot_worker)
+        self.assertEqual(worker.deleted, 1)
+        self.assertIn(("show_bot_status", "Stopped"), harness.tab.calls)
 
     def test_shutdown_stops_and_waits_for_every_twitch_worker(self) -> None:
         harness = build_session()

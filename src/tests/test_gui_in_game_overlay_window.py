@@ -83,6 +83,41 @@ class InGameOverlayWindowTests(unittest.TestCase):
         finally:
             layer.close()
 
+    def test_unchanged_marker_snapshot_does_not_repeat_native_visibility_work(self) -> None:
+        class CountingLayer(MapMarkerLayer):
+            def __init__(self) -> None:
+                self.visibility_calls = 0
+                self.raise_calls = 0
+                super().__init__()
+
+            def setVisible(self, visible: bool) -> None:
+                self.visibility_calls += 1
+                super().setVisible(visible)
+
+            def raise_(self) -> None:
+                self.raise_calls += 1
+                super().raise_()
+
+        layer = CountingLayer()
+        snapshot = MapMarkerSnapshot(
+            map_id=1,
+            map_open=True,
+            world_size=600,
+            viewport=MapViewport(20, 30, 600, 600),
+            markers=(WorldMapMarker("auto:1", "moai", 10, -20),),
+        )
+        try:
+            layer.set_snapshot(snapshot, scale=1.0)
+            first_visibility_calls = layer.visibility_calls
+            first_raise_calls = layer.raise_calls
+
+            layer.set_snapshot(snapshot, scale=1.0)
+
+            self.assertEqual(layer.visibility_calls, first_visibility_calls)
+            self.assertEqual(layer.raise_calls, first_raise_calls)
+        finally:
+            layer.close()
+
     def test_sync_geometry_repositions_save_button_in_edit_mode(self) -> None:
         screen_rect = QApplication.primaryScreen().availableGeometry()
         target_rect = QRect(
@@ -103,6 +138,7 @@ class InGameOverlayWindowTests(unittest.TestCase):
         with patch.object(config, "IN_GAME_OVERLAY", _test_overlay_config()):
             window = InGameOverlayWindow(parent_mixin)
             try:
+                self.assertIs(window._position_save_timer.parent(), window)
                 window.toggle_edit_mode(True)
                 self.assertIsNotNone(window.save_btn)
 

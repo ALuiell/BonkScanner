@@ -62,13 +62,15 @@ class MapMarkerLayer(QWidget):
     def set_snapshot(self, snapshot: MapMarkerSnapshot, *, scale: float) -> None:
         normalized_scale = max(0.5, min(float(scale), 3.0))
         changed = snapshot != self._snapshot or normalized_scale != self._scale
+        was_shown = not self.isHidden()
         self._snapshot = snapshot
         self._scale = normalized_scale
         if not snapshot.map_open:
             self._palette = None
         should_show = self._should_show()
-        self.setVisible(should_show)
-        if should_show:
+        if should_show != was_shown:
+            self.setVisible(should_show)
+        if should_show and (changed or not was_shown):
             self.raise_()
         if changed:
             self.update()
@@ -76,9 +78,11 @@ class MapMarkerLayer(QWidget):
     def set_palette(self, palette: MarkerPalette | None) -> None:
         if palette == self._palette:
             return
+        was_shown = not self.isHidden()
         self._palette = palette
         should_show = self._should_show()
-        self.setVisible(should_show)
+        if should_show != was_shown:
+            self.setVisible(should_show)
         if should_show:
             self.raise_()
         self.update()
@@ -97,6 +101,20 @@ class MapMarkerLayer(QWidget):
             return
 
         painter = QPainter(self)
+        if not painter.isActive():
+            return
+        try:
+            self._paint_snapshot(painter, snapshot, viewport)
+        finally:
+            if painter.isActive():
+                painter.end()
+
+    def _paint_snapshot(
+        self,
+        painter: QPainter,
+        snapshot: MapMarkerSnapshot,
+        viewport,
+    ) -> None:
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         painter.setClipRect(
@@ -151,8 +169,6 @@ class MapMarkerLayer(QWidget):
                 )
 
         self._paint_palette(painter)
-
-        painter.end()
 
     def _paint_palette(self, painter: QPainter) -> None:
         palette = self._palette
@@ -612,6 +628,9 @@ class InGameOverlayWindow(QWidget):
 
         self.map_marker_layer = MapMarkerLayer(self)
         self.map_marker_layer.setGeometry(self.rect())
+        self._position_save_timer = QTimer(self)
+        self._position_save_timer.setSingleShot(True)
+        self._position_save_timer.timeout.connect(self._position_save_btn)
 
         self.widgets: dict[str, DraggableOverlayWidget] = {}
         for widget_id in ("scanner", "recording", "kps", "powerups", "luck_rarity", "stats", "event_timer", "item_cooldowns", "build_progression"):
@@ -628,7 +647,7 @@ class InGameOverlayWindow(QWidget):
     def showEvent(self, event) -> None:
         self.sync_geometry_to_target()
         if self.edit_mode:
-            QTimer.singleShot(0, self._position_save_btn)
+            self._position_save_timer.start(0)
         super().showEvent(event)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
@@ -667,10 +686,15 @@ class InGameOverlayWindow(QWidget):
             widget.reclamp_to_parent()
 
     def paintEvent(self, event) -> None:
+        super().paintEvent(event)
         if self.edit_mode:
             painter = QPainter(self)
-            painter.fillRect(self.rect(), QColor(0, 0, 0, 50))
-        super().paintEvent(event)
+            if painter.isActive():
+                try:
+                    painter.fillRect(self.rect(), QColor(0, 0, 0, 50))
+                finally:
+                    if painter.isActive():
+                        painter.end()
 
     def toggle_edit_mode(self, enabled: bool) -> None:
         self.edit_mode = enabled

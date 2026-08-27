@@ -297,13 +297,11 @@ class MegabonkApp:
         # that tab called back into it to start the refresh. Neither tab names
         # the other now: both subscribe to this.
         #
-        # `schedule` re-reads `_invoker` on every result rather than capturing
-        # it, which is the same late-resolution rule step 20's services follow
-        # and the same guard the callback it replaces applied inline.
+        # Results are always marshalled through the UI invoker.  A worker that
+        # finishes after shutdown starts must drop its callback, never run it
+        # inline on the worker thread after Qt's object tree has begun teardown.
         self.vod_library = VodLibrary(
-            schedule=lambda callback: (
-                self.after(0, callback) if self._invoker is not None else callback()
-            ),
+            schedule=self.marshal_to_ui,
         )
 
         build_layout(self)
@@ -611,6 +609,11 @@ class MegabonkApp:
         if overlay is not None:
             overlay.stop_in_game_overlay()
 
+    def shutdown_in_game_overlay(self) -> None:
+        overlay = self.__dict__.get("_in_game_overlay")
+        if overlay is not None:
+            overlay.shutdown()
+
     # The overlay layout hotkey is edited in two places -- the In-Game Overlay
     # tab and the Settings dialog -- so whichever one saved has to tell the
     # other. The dialog calls this; the tab calls its own refresh directly.
@@ -846,6 +849,10 @@ class MegabonkApp:
             return
         self._is_shutting_down = True
         log_runtime_event("application.shutdown.begin")
+        # Stop the two GUI timers and close the parentless Qt.Tool window before
+        # any blocking worker joins.  Nothing should be able to enqueue another
+        # overlay paint while the rest of the object tree is being dismantled.
+        self.shutdown_in_game_overlay()
         # `self._cancel_right_tab_transition()` stood here and is deleted
         # rather than moved. It was one of two methods on `GuiLayoutMixin`
         # whose entire body was `return None`, and it had been that since it
@@ -870,7 +877,6 @@ class MegabonkApp:
             player_stats_memory(self).close_player_stats_client()
             player_stats_memory(self).close_player_stats_game_data_client()
         self.close_overlay_server()
-        self.stop_in_game_overlay()
         self.stop_twitch_bot()
         self._wait_for_background_threads()
         player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
@@ -992,12 +998,45 @@ class MegabonkApp:
         event.accept()
 
     def after(self, delay_ms: int, callback):
-        self._invoker.call_later.emit(int(delay_ms), callback)
+        if self.__dict__.get("_is_shutting_down", False):
+            return None
+        invoker = self.__dict__.get("_invoker")
+        if invoker is None:
+            return None
+
+        def run_if_alive() -> None:
+            if not self.__dict__.get("_is_shutting_down", False):
+                callback()
+
+        try:
+            invoker.call_later.emit(int(delay_ms), run_if_alive)
+        except RuntimeError:
+            # The C++ QObject can disappear between the state check and emit.
+            pass
         return None
 
     def after_idle(self, callback):
-        self._invoker.call_now.emit(callback)
+        self.marshal_to_ui(callback)
         return None
+
+    def marshal_to_ui(self, callback) -> bool:
+        """Queue a guarded UI callback, or drop it once teardown has begun."""
+        if self.__dict__.get("_is_shutting_down", False):
+            return False
+        invoker = self.__dict__.get("_invoker")
+        if invoker is None:
+            return False
+
+        def run_if_alive() -> None:
+            if not self.__dict__.get("_is_shutting_down", False):
+                callback()
+
+        try:
+            invoker.call_now.emit(run_if_alive)
+        except RuntimeError:
+            # The C++ QObject can disappear between the state check and emit.
+            return False
+        return True
 
     def run_after_window_shown(self, callback) -> None:
         """Run native auxiliary-window setup only after the main window maps."""

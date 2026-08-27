@@ -1351,9 +1351,7 @@ def _build_compare_runs_view(app, timeline_series_slots):
         tabview=app.tabview,
         vod_library=app.vod_library,
         is_active=app._tab_router.is_compare_runs_tab_active,
-        schedule=lambda callback: (
-            app.after(0, callback) if app._invoker is not None else callback()
-        ),
+        schedule=app.marshal_to_ui,
         timeline_series_slots=timeline_series_slots,
     )
     view.build()
@@ -1401,9 +1399,7 @@ def _build_recordings_view(app, timeline_series_slots):
         vod_recorder=lambda: app.player_stats_vod_recorder,
         is_active=app._tab_router.is_recordings_tab_active,
         log=app.log,
-        schedule=lambda callback: (
-            app.after(0, callback) if app._invoker is not None else callback()
-        ),
+        schedule=app.marshal_to_ui,
         timeline_series_slots=timeline_series_slots,
     )
     view.build()

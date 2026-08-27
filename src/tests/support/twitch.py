@@ -140,10 +140,12 @@ class FakeAuthThread:
     def __init__(self) -> None:
         self.auth_success = FakeSignal()
         self.auth_error = FakeSignal()
+        self.finished = FakeSignal()
         self.started = 0
         self.shutdowns = 0
         self.waited = []
         self.running = True
+        self.deleted = 0
 
     def start(self) -> None:
         self.started += 1
@@ -159,6 +161,9 @@ class FakeAuthThread:
         self.waited.append(ms)
         self.running = False
         return True
+
+    def deleteLater(self) -> None:
+        self.deleted += 1
 
 
 class FakeValidationWorker:
@@ -240,6 +245,7 @@ class FakeBotWorker:
         self.stopped = 0
         self.waited = []
         self.running = False
+        self.deleted = 0
 
     def isRunning(self) -> bool:
         return self.running
@@ -256,6 +262,9 @@ class FakeBotWorker:
         self.waited.append(ms)
         self.running = False
         return True
+
+    def deleteLater(self) -> None:
+        self.deleted += 1
 
 
 def _explodes(name):

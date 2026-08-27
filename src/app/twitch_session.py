@@ -169,12 +169,26 @@ class TwitchSession:
     def start_auth(self) -> None:
         if self._shutting_down:
             return
+        current = self._auth_thread
+        if current is not None and current.isRunning():
+            return
         self._view.show_authorizing()
-        self._auth_thread = self._auth_thread_factory()
-        self._name_worker(self._auth_thread, "TwitchAuthThread")
-        self._auth_thread.auth_success.connect(self.on_auth_success)
-        self._auth_thread.auth_error.connect(self.on_auth_error)
-        self._auth_thread.start()
+        worker = self._auth_thread_factory()
+        self._name_worker(worker, "TwitchAuthThread")
+        worker.auth_success.connect(self.on_auth_success)
+        worker.auth_error.connect(self.on_auth_error)
+        worker.finished.connect(
+            lambda finished_worker=worker: self._on_auth_worker_finished(
+                finished_worker
+            )
+        )
+        worker.finished.connect(worker.deleteLater)
+        self._auth_thread = worker
+        worker.start()
+
+    def _on_auth_worker_finished(self, worker) -> None:
+        if self._auth_thread is worker:
+            self._auth_thread = None
 
     def on_auth_success(self, username, token) -> None:
         if self._shutting_down:
@@ -253,8 +267,14 @@ class TwitchSession:
         self._name_worker(self._bot_worker, "TwitchBotWorker")
         self._bot_worker.status_updated.connect(self.on_bot_status)
         self._bot_worker.log_message.connect(self.on_bot_log)
-        self._bot_worker.finished.connect(self.on_bot_finished)
-        self._bot_worker.start()
+        worker = self._bot_worker
+        worker.finished.connect(
+            lambda finished_worker=worker: self._on_bot_worker_finished(
+                finished_worker
+            )
+        )
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
 
     def stop_bot(self) -> None:
         self._stop_bot(wait_ms=2_000)
@@ -389,6 +409,11 @@ class TwitchSession:
         self._view.show_bot_stopped()
         if "error" not in self._view.bot_status_text().lower():
             self._view.show_bot_status("Stopped")
+
+    def _on_bot_worker_finished(self, worker) -> None:
+        if self._bot_worker is worker:
+            self._bot_worker = None
+        self.on_bot_finished()
 
     # -- token validation -------------------------------------------------
 

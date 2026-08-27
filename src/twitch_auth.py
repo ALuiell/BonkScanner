@@ -238,6 +238,7 @@ class TwitchAuthThread(QThread):
         # separately so `run` never begins serving after that close.
         self._shutdown_requested = threading.Event()
         self._server_lock = threading.Lock()
+        self._timeout_timer_lock = threading.Lock()
 
     def run(self):
         try:
@@ -252,9 +253,13 @@ class TwitchAuthThread(QThread):
                     return
                 self.server = server
             
-            self.timeout_timer = threading.Timer(120.0, self._handle_timeout)
-            self.timeout_timer.daemon = True
-            self.timeout_timer.start()
+            timeout_timer = threading.Timer(120.0, self._handle_timeout)
+            timeout_timer.daemon = True
+            with self._timeout_timer_lock:
+                if self._shutdown_requested.is_set():
+                    return
+                self.timeout_timer = timeout_timer
+                timeout_timer.start()
 
             if self._shutdown_requested.is_set():
                 server.server_close()
@@ -285,6 +290,7 @@ class TwitchAuthThread(QThread):
             if not self._shutdown_requested.is_set():
                 self.auth_error.emit(str(e))
         finally:
+            self._cancel_timeout_timer()
             with self._server_lock:
                 server = self.server
                 self.server = None
@@ -295,12 +301,13 @@ class TwitchAuthThread(QThread):
                     pass
 
     def _handle_timeout(self):
+        if self._shutdown_requested.is_set():
+            return
         self.auth_error.emit("Authorization timed out after 2 minutes.")
         self._shutdown_server()
 
     def handle_token(self, access_token):
-        if self.timeout_timer:
-            self.timeout_timer.cancel()
+        self._cancel_timeout_timer()
             
         if not access_token:
             self.auth_error.emit("Received empty token.")
@@ -332,5 +339,13 @@ class TwitchAuthThread(QThread):
 
     def _shutdown_server(self):
         self._shutdown_requested.set()
-        if self.timeout_timer:
-            self.timeout_timer.cancel()
+        self._cancel_timeout_timer()
+
+    def _cancel_timeout_timer(self) -> None:
+        with self._timeout_timer_lock:
+            timer, self.timeout_timer = self.timeout_timer, None
+        if timer is None:
+            return
+        timer.cancel()
+        if timer is not threading.current_thread() and timer.is_alive():
+            timer.join(timeout=1.0)

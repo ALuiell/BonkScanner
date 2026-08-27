@@ -25,6 +25,18 @@ class TwitchAuthTests(unittest.TestCase):
 
         server.assert_not_called()
 
+    def test_timeout_timer_is_cancelled_and_joined_before_qthread_disposal(self) -> None:
+        thread = twitch_auth.TwitchAuthThread()
+        timer = MagicMock()
+        timer.is_alive.return_value = True
+        thread.timeout_timer = timer
+
+        thread._cancel_timeout_timer()
+
+        self.assertIsNone(thread.timeout_timer)
+        timer.cancel.assert_called_once_with()
+        timer.join.assert_called_once_with(timeout=1.0)
+
     def test_validate_token_parses_valid_response(self) -> None:
         response = MagicMock(status_code=200)
         response.json.return_value = {

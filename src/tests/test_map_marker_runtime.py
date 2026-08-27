@@ -219,6 +219,17 @@ class MapMarkerProjectionTests(unittest.TestCase):
 
 
 class MapMarkerTrackerTests(unittest.TestCase):
+    def test_close_clears_state_even_if_the_native_client_close_fails(self) -> None:
+        client = FakeMarkerClient([])
+        client.close = lambda: (_ for _ in ()).throw(OSError("stale handle"))
+        tracker = MapMarkerTracker("game", client_factory=lambda _name: client)
+        tracker._client = client
+
+        tracker.close()
+
+        self.assertIsNone(tracker._client)
+        self.assertEqual(tracker.snapshot, MapMarkerSnapshot())
+
     def setUp(self) -> None:
         self.viewport = MapViewport(0, 0, 600, 600)
 

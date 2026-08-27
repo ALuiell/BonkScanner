@@ -46,7 +46,12 @@ class MapMarkerTracker:
     def close(self) -> None:
         client, self._client = self._client, None
         if client is not None:
-            client.close()
+            try:
+                client.close()
+            except Exception:
+                # A stale/recycled process handle must not prevent the Qt
+                # overlay timer from being stopped during disable or shutdown.
+                pass
         self._next_automatic_scan_at = 0.0
         self._snapshot = MapMarkerSnapshot()
 
