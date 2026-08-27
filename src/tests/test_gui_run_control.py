@@ -5936,6 +5936,82 @@ class GuiRunControlTests(unittest.TestCase):
             self.assertTrue(config.user_config["OVERLAY"]["auto_start"])
             save_config.assert_called_once_with(config.user_config)
 
+    def test_overlay_state_publication_marshals_and_coalesces_ui_refresh(self) -> None:
+        component = build_overlay_test_component()
+        callbacks = []
+        component.tab_overlay = object()
+        component._marshal_to_ui = lambda callback: callbacks.append(callback) or True
+        component._overlay_tab_active = MagicMock(return_value=True)
+        component.refresh_overlay_ui = MagicMock()
+
+        component.update_overlay_state_from_tracker()
+        component.update_overlay_state_from_tracker()
+
+        self.assertEqual(len(callbacks), 1)
+        component._overlay_tab_active.assert_not_called()
+        component.refresh_overlay_ui.assert_not_called()
+
+        callbacks.pop()()
+
+        component._overlay_tab_active.assert_called_once_with()
+        component.refresh_overlay_ui.assert_called_once_with()
+
+    def test_overlay_ui_refresh_pending_clears_when_shutdown_rejects_callback(self) -> None:
+        component = build_overlay_test_component()
+        component.tab_overlay = object()
+        component._marshal_to_ui = lambda _callback: False
+
+        component._request_overlay_ui_refresh()
+
+        self.assertFalse(component._overlay_ui_refresh_pending)
+
+    def test_late_overlay_ui_refresh_failure_stays_inside_queued_callback(self) -> None:
+        component = build_overlay_test_component()
+        callbacks = []
+        component.tab_overlay = object()
+        component._marshal_to_ui = lambda callback: callbacks.append(callback) or True
+        component._overlay_tab_active = lambda: True
+        component.refresh_overlay_ui = MagicMock(
+            side_effect=RuntimeError("Internal C++ object already deleted")
+        )
+        component._log_port = MagicMock()
+
+        component._request_overlay_ui_refresh()
+        callbacks.pop()()
+
+        self.assertFalse(component._overlay_ui_refresh_pending)
+        component._log_port.assert_called_once()
+        self.assertIn("already deleted", component._log_port.call_args.args[0])
+
+    def test_failed_overlay_start_keeps_enabled_config_false(self) -> None:
+        component = build_overlay_test_component()
+        component.start_overlay_server = MagicMock(return_value=False)
+        component.refresh_overlay_ui = MagicMock()
+        overlay_cfg = deepcopy(config.DEFAULT_OVERLAY)
+        overlay_cfg["enabled"] = False
+
+        with patch.object(config, "OVERLAY", overlay_cfg), \
+             patch.object(config, "user_config", {}), \
+             patch.object(config, "save_config") as save_config:
+            component.toggle_overlay_server()
+
+            self.assertFalse(config.OVERLAY["enabled"])
+            save_config.assert_called_once_with(config.user_config)
+
+    def test_unexpected_overlay_rebuild_error_is_contained(self) -> None:
+        component = build_overlay_test_component()
+        component.save_overlay_settings_from_ui = MagicMock()
+        component.coordinator.rebuild_overlay_server = MagicMock(
+            side_effect=RuntimeError("constructor failed")
+        )
+        component.refresh_overlay_ui = MagicMock()
+        component._log_port = MagicMock()
+
+        self.assertFalse(component.start_overlay_server())
+
+        component._log_port.assert_called_once()
+        self.assertIn("constructor failed", component._log_port.call_args.args[0])
+
     def test_closing_widget_settings_clears_build_progression_controls(self) -> None:
         component = build_overlay_test_component()
         component.overlay_build_bg_checkbox = FakeCheckbox(True)

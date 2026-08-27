@@ -171,6 +171,9 @@ class AppCoordinator:
         lie if the rebuild happened anywhere else -- the coordinator's reference
         would go stale the first time the user restarted the server.
         """
+        previous = self.overlay_server
+        if previous is not None:
+            previous.stop()
         self.overlay_server = LocalOverlayServer(
             host=host,
             port=port,

@@ -7,6 +7,7 @@ import socket
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -28,6 +29,59 @@ def free_port() -> int:
 
 
 class OverlayServerTests(unittest.TestCase):
+    def test_thread_start_failure_releases_the_bound_port(self) -> None:
+        port = free_port()
+        failed = LocalOverlayServer(port=port)
+        with patch("infra.overlay_server.threading.Thread") as thread_type:
+            thread_type.return_value.start.side_effect = RuntimeError("thread unavailable")
+            with self.assertRaisesRegex(RuntimeError, "thread unavailable"):
+                failed.start()
+
+        self.assertFalse(failed.is_running)
+        self.assertIsNone(failed._server)
+        self.assertIsNone(failed._thread)
+        self.assertEqual(failed.last_error, "thread unavailable")
+
+        # The first object reached socket bind before Thread.start failed. A
+        # second real server proves that cleanup released the listening socket.
+        replacement = LocalOverlayServer(port=port)
+        replacement.start()
+        try:
+            self.assertTrue(replacement.is_running)
+        finally:
+            replacement.stop()
+
+    def test_new_start_forgets_previous_client_liveness(self) -> None:
+        server = LocalOverlayServer(port=free_port())
+        server.start()
+        server.note_state_request()
+        self.assertIsNotNone(server.seconds_since_state_request())
+        server.stop()
+
+        server.start()
+        try:
+            self.assertIsNone(server.seconds_since_state_request())
+        finally:
+            server.stop()
+
+    def test_stop_contains_cleanup_errors(self) -> None:
+        class BrokenServer:
+            def shutdown(self):
+                raise RuntimeError("shutdown failed")
+
+            def server_close(self):
+                raise RuntimeError("close failed")
+
+        server = LocalOverlayServer(port=free_port())
+        server._server = BrokenServer()
+        server._thread = None
+
+        server.stop()
+
+        self.assertFalse(server.is_running)
+        self.assertIn("shutdown failed", server.last_error)
+        self.assertIn("close failed", server.last_error)
+
     def test_widget_revision_ignores_layout_but_tracks_editor_settings(self) -> None:
         store = OverlayStateStore()
         self.assertEqual(store.get_widget_revision(), 0)

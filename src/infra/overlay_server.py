@@ -154,6 +154,7 @@ class LocalOverlayServer:
         self.asset_dir = asset_dir or _default_overlay_asset_dir()
         self._server: _OverlayHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._lifecycle_lock = threading.RLock()
         self.last_error: str | None = None
         # When a client last asked for overlay state. `is_running` answers
         # "did the server start", which is not the question a streamer has --
@@ -168,7 +169,12 @@ class LocalOverlayServer:
 
     @property
     def is_running(self) -> bool:
-        return self._server is not None and self._thread is not None and self._thread.is_alive()
+        with self._lifecycle_lock:
+            return (
+                self._server is not None
+                and self._thread is not None
+                and self._thread.is_alive()
+            )
 
     def note_state_request(self) -> None:
         with self._request_lock:
@@ -195,41 +201,102 @@ class LocalOverlayServer:
         return f"{self.url}/{widget_id}"
 
     def start(self) -> None:
-        if self.is_running:
-            return
-        self.last_error = None
-        handler = partial(
-            OverlayRequestHandler,
-            state_provider=self.state_store.get_state,
-            widget_revision_provider=self.state_store.get_widget_revision,
-            widget_revision_waiter=self.state_store.wait_for_widget_revision,
-            state_request_observer=self.note_state_request,
-            asset_dir=self.asset_dir,
-            settings=self.settings,
-        )
-        try:
-            self._server = _OverlayHTTPServer((self.host, self.port), handler)
-        except OSError as exc:
+        with self._lifecycle_lock:
+            if (
+                self._server is not None
+                and self._thread is not None
+                and self._thread.is_alive()
+            ):
+                return
+
+            # A serve thread that died before an ordinary stop still owns its
+            # listening socket. Reusing this object must close that stale
+            # server before attempting to bind the same port again.
+            stale_server = self._server
             self._server = None
-            self.last_error = str(exc)
-            raise
-        self._thread = threading.Thread(
-            target=self._server.serve_forever,
-            name="BonkOverlayServer",
-            daemon=True,
-        )
-        self._thread.start()
+            self._thread = None
+            if stale_server is not None:
+                try:
+                    stale_server.server_close()
+                except Exception:
+                    pass
+
+            self.last_error = None
+            with self._request_lock:
+                self._last_state_request = 0.0
+            handler = partial(
+                OverlayRequestHandler,
+                state_provider=self.state_store.get_state,
+                widget_revision_provider=self.state_store.get_widget_revision,
+                widget_revision_waiter=self.state_store.wait_for_widget_revision,
+                state_request_observer=self.note_state_request,
+                asset_dir=self.asset_dir,
+                settings=self.settings,
+            )
+            try:
+                server = _OverlayHTTPServer((self.host, self.port), handler)
+                thread = threading.Thread(
+                    target=self._serve,
+                    args=(server,),
+                    name="BonkOverlayServer",
+                    daemon=True,
+                )
+                self._server = server
+                self._thread = thread
+                thread.start()
+            except Exception as exc:
+                self._server = None
+                self._thread = None
+                self.last_error = str(exc)
+                server = locals().get("server")
+                if server is not None:
+                    try:
+                        server.server_close()
+                    except Exception:
+                        pass
+                raise
+
+    def _serve(self, server: _OverlayHTTPServer) -> None:
+        try:
+            # The default is 500 ms. A shorter poll keeps an interactive Stop
+            # click responsive while still leaving the HTTP work on this
+            # dedicated thread.
+            server.serve_forever(poll_interval=0.05)
+        except Exception as exc:
+            with self._lifecycle_lock:
+                if self._server is server:
+                    self.last_error = str(exc)
 
     def stop(self) -> None:
-        server = self._server
-        thread = self._thread
-        self._server = None
-        self._thread = None
-        if server is not None:
-            server.shutdown()
-            server.server_close()
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=2.0)
+        errors: list[Exception] = []
+        with self._lifecycle_lock:
+            server = self._server
+            thread = self._thread
+            self._server = None
+            self._thread = None
+            if server is not None:
+                try:
+                    server.shutdown()
+                except Exception as exc:
+                    errors.append(exc)
+                try:
+                    server.server_close()
+                except Exception as exc:
+                    errors.append(exc)
+            if (
+                thread is not None
+                and thread is not threading.current_thread()
+                and thread.is_alive()
+            ):
+                try:
+                    thread.join(timeout=2.0)
+                except Exception as exc:
+                    errors.append(exc)
+            if errors:
+                # Shutdown is best-effort during both an interactive stop and
+                # application teardown. Preserve diagnostics without letting a
+                # cleanup exception escape through a Qt slot.
+                self.last_error = "; ".join(str(error) for error in errors)
 
 
 class OverlayRequestHandler(BaseHTTPRequestHandler):

@@ -20,6 +20,7 @@ hardcoded 16:9. The canvas is user-set, and drawing a 16:9 box around a
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import escape
 
 from PySide6.QtCore import QEvent, QRect, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
@@ -79,13 +80,20 @@ class CanvasPreview(QWidget):
     # -- content --------------------------------------------------------------
 
     def set_canvas(self, width: int, height: int) -> None:
-        self._canvas_width = max(1, int(width))
-        self._canvas_height = max(1, int(height))
+        width = max(1, int(width))
+        height = max(1, int(height))
+        if (width, height) == (self._canvas_width, self._canvas_height):
+            return
+        self._canvas_width = width
+        self._canvas_height = height
         self.updateGeometry()
         self.update()
 
     def set_widgets(self, widgets) -> None:
-        self._widgets = tuple(widgets)
+        widgets = tuple(widgets)
+        if widgets == self._widgets:
+            return
+        self._widgets = widgets
         self.update()
 
     def set_placeholder(self, text: str) -> None:
@@ -95,7 +103,10 @@ class CanvasPreview(QWidget):
         coordinates -- that layout lives in the page's CSS and cannot be
         reproduced here, so an empty frame would be a lie rather than a blank.
         """
-        self._placeholder = str(text)
+        text = str(text)
+        if text == self._placeholder:
+            return
+        self._placeholder = text
         self.update()
 
     # -- geometry -------------------------------------------------------------
@@ -114,7 +125,9 @@ class CanvasPreview(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self.setFixedHeight(self.heightForWidth(self.width()))
+        target_height = self.heightForWidth(self.width())
+        if self.height() != target_height:
+            self.setFixedHeight(target_height)
 
     # -- identifying a block --------------------------------------------------
 
@@ -130,7 +143,7 @@ class CanvasPreview(QWidget):
         cells = [
             "<td style='color:#38BDF8; padding-right:4px'>{marker}</td>"
             "<td style='color:#8A94A3; padding-right:12px'>{label}</td>".format(
-                marker=widget.marker or "•", label=widget.label
+                marker=escape(widget.marker or "•"), label=escape(widget.label)
             )
             for widget in self._widgets
         ]
@@ -200,6 +213,12 @@ class CanvasPreview(QWidget):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
+        try:
+            self._paint_canvas(painter)
+        finally:
+            painter.end()
+
+    def _paint_canvas(self, painter: QPainter) -> None:
         painter.setRenderHint(QPainter.Antialiasing, False)
         frame = self.rect().adjusted(0, 0, -1, -1)
 

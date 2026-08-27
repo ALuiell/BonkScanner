@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from typing import Any, Callable
 
 from PySide6.QtCore import Qt, QTimer
@@ -116,6 +117,7 @@ class Overlay:
         set_tracked_item_rows: Callable[[Any], None],
         overlay_tab_active: Callable[[], bool],
         server_rebuilt: Callable[[Any], None],
+        marshal_to_ui: Callable[[Callable[[], None]], bool] | None = None,
         log: Callable[..., None] | None = None,
     ) -> None:
         self.coordinator = coordinator
@@ -124,6 +126,9 @@ class Overlay:
         self._set_tracked_item_rows = set_tracked_item_rows
         self._overlay_tab_active = overlay_tab_active
         self._server_rebuilt = server_rebuilt
+        self._marshal_to_ui = marshal_to_ui or self._run_ui_callback_now
+        self._overlay_ui_refresh_lock = threading.Lock()
+        self._overlay_ui_refresh_pending = False
         # Optional on purpose: the suite builds this object without an app, and
         # a status transition must never be the thing that raises.
         self._log_port = log
@@ -156,6 +161,11 @@ class Overlay:
                 self._build_progression_snapshot(),
             )
         )
+
+    @staticmethod
+    def _run_ui_callback_now(callback: Callable[[], None]) -> bool:
+        callback()
+        return True
 
     def _log(self, message: str, *, tag: str | None = None) -> None:
         port = self._log_port
@@ -620,7 +630,10 @@ class Overlay:
             _set_widget_style_role(button, original_role)
             button._copy_feedback_pending = False
 
-        QTimer.singleShot(1500, restore)
+        # Tie the delayed callback to the button's QObject lifetime. Closing
+        # the tab or application during the feedback window must cancel the
+        # callback instead of invoking Python against a deleted C++ widget.
+        QTimer.singleShot(1500, button, restore)
 
     def open_overlay_widget_settings_dialog(self) -> None:
         dialog = QDialog(self.tab_overlay)
@@ -849,6 +862,10 @@ class Overlay:
             dialog.exec()
         finally:
             self._clear_overlay_widget_settings_dialog_refs()
+            # The tab is the dialog's parent, so closing a modal window does
+            # not destroy it. Dispose it explicitly instead of retaining one
+            # hidden QDialog per visit until the whole application closes.
+            dialog.deleteLater()
 
     def _reset_overlay_stats_to_default(self) -> None:
         if not getattr(self, "overlay_stats_checkboxes", None):
@@ -889,35 +906,56 @@ class Overlay:
     def toggle_overlay_server(self) -> None:
         server = getattr(self, "overlay_server", None)
         should_start = not bool(server is not None and server.is_running)
-        config.OVERLAY["enabled"] = should_start
-        config.user_config["OVERLAY"] = config.OVERLAY
-        config.save_config(config.user_config)
-        if should_start:
-            self.start_overlay_server()
-        else:
-            self.stop_overlay_server()
-        self.refresh_overlay_ui()
+        enabled = False
+        try:
+            if should_start:
+                enabled = self.start_overlay_server()
+            else:
+                self.stop_overlay_server()
+        except Exception as exc:
+            # This is a Qt slot. No server/config cleanup failure should escape
+            # into Qt's event dispatcher and become a process-level crash.
+            self._log(f"[-] OBS overlay server transition failed: {exc}", tag="error")
+        finally:
+            config.OVERLAY["enabled"] = bool(enabled)
+            config.user_config["OVERLAY"] = config.OVERLAY
+            try:
+                config.save_config(config.user_config)
+            except Exception as exc:
+                self._log(f"[-] Could not save OBS overlay state: {exc}", tag="error")
+            self.refresh_overlay_ui()
 
     def start_overlay_server(self) -> bool:
-        self.save_overlay_settings_from_ui(persist=False)
-        if self.overlay_server.is_running:
-            return True
-        self.overlay_server = self.coordinator.rebuild_overlay_server(
-            host="127.0.0.1",
-            port=int(config.OVERLAY.get("port", 17845)),
-        )
-        self._server_rebuilt(self.overlay_server)
         try:
+            self.save_overlay_settings_from_ui(persist=False)
+            if self.overlay_server.is_running:
+                return True
+            self.overlay_server = self.coordinator.rebuild_overlay_server(
+                host="127.0.0.1",
+                port=int(config.OVERLAY.get("port", 17845)),
+            )
+            self._server_rebuilt(self.overlay_server)
             self.overlay_server.start()
-        except OSError:
+        except Exception as exc:
+            server = getattr(self, "overlay_server", None)
+            if server is not None and not getattr(server, "last_error", None):
+                try:
+                    server.last_error = str(exc)
+                except Exception:
+                    pass
+            self._log(f"[-] Could not start OBS overlay server: {exc}", tag="error")
             self.refresh_overlay_ui()
             return False
         self.refresh_overlay_ui()
         return True
 
     def stop_overlay_server(self) -> None:
-        self.overlay_server.stop()
-        self.refresh_overlay_ui()
+        try:
+            self.overlay_server.stop()
+        except Exception as exc:
+            self._log(f"[-] Could not stop OBS overlay server cleanly: {exc}", tag="error")
+        finally:
+            self.refresh_overlay_ui()
 
     def save_overlay_settings_from_ui(self, *, persist: bool = True) -> None:
         with config.config_lock:
@@ -1133,9 +1171,46 @@ class Overlay:
         )
         self._log_overlay_status_transition(str(state.get("status") or ""))
         self.overlay_state_store.set_state(state)
-        tab_active = getattr(self, "_is_overlay_tab_active", lambda: True)
-        if getattr(self, "tab_overlay", None) is not None and tab_active():
-            self.refresh_overlay_ui()
+        self._request_overlay_ui_refresh()
+
+    def _request_overlay_ui_refresh(self) -> None:
+        """Coalesce and marshal the only Qt part of state publication.
+
+        Tracker publication is intentionally callable from non-GUI services
+        (including Twitch commands). The state store is thread-safe; the tab,
+        hero and line edits are not. Always pass that final repaint through the
+        application's guarded UI invoker so a worker cannot touch Qt directly.
+        """
+        if getattr(self, "tab_overlay", None) is None:
+            return
+        with self._overlay_ui_refresh_lock:
+            if self._overlay_ui_refresh_pending:
+                return
+            self._overlay_ui_refresh_pending = True
+
+        def refresh_if_alive() -> None:
+            try:
+                if getattr(self, "tab_overlay", None) is None:
+                    return
+                tab_active = getattr(self, "_is_overlay_tab_active", lambda: True)
+                if tab_active():
+                    self.refresh_overlay_ui()
+            except Exception as exc:
+                # This body is executed as a queued Qt callback. A tab deleted
+                # during shutdown, or any other late UI failure, must end here
+                # instead of escaping through Qt's event dispatcher.
+                self._log(f"[-] Could not refresh OBS overlay controls: {exc}", tag="error")
+            finally:
+                with self._overlay_ui_refresh_lock:
+                    self._overlay_ui_refresh_pending = False
+
+        try:
+            accepted = self._marshal_to_ui(refresh_if_alive)
+        except Exception:
+            accepted = False
+        if accepted is False:
+            with self._overlay_ui_refresh_lock:
+                self._overlay_ui_refresh_pending = False
 
     # The overlay itself is now deliberately silent through a restart: it holds
     # the last good frame and says nothing. That silence needs somewhere to
@@ -1290,6 +1365,7 @@ def build_overlay(app: Any, coordinator: AppCoordinator, session_stats: SessionS
         set_tracked_item_rows=lambda rows: app._scanner.set_tracked_item_rows(rows),
         overlay_tab_active=lambda: app._is_overlay_tab_active(),
         server_rebuilt=lambda server: setattr(app, "overlay_server", server),
+        marshal_to_ui=lambda callback: app.marshal_to_ui(callback),
         log=lambda message, tag=None: app.log(message, tag=tag),
     )
 
