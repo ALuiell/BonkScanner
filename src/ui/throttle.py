@@ -47,6 +47,7 @@ from __future__ import annotations
 import time
 from contextlib import contextmanager
 from typing import Callable
+import weakref
 
 
 #: Default coalescing window. ~30 FPS: fast enough that a drag looks
@@ -55,7 +56,12 @@ from typing import Callable
 DEFAULT_UI_THROTTLE_MS = 33.0
 
 
-def qt_schedule(delay_ms: float, callback: Callable[[], None]) -> None:
+def qt_schedule(
+    delay_ms: float,
+    callback: Callable[[], None],
+    *,
+    context=None,
+) -> None:
     """Run ``callback`` after ``delay_ms``, or now if nothing can deliver it.
 
     Imported lazily so this module stays importable (and testable) without Qt.
@@ -72,7 +78,15 @@ def qt_schedule(delay_ms: float, callback: Callable[[], None]) -> None:
         # fire and the trailing frame would be lost.
         callback()
         return
-    QTimer.singleShot(max(int(delay_ms), 0), callback)
+    delay = max(int(delay_ms), 0)
+    if context is None:
+        QTimer.singleShot(delay, callback)
+    else:
+        # The context overload cancels delivery when the owning QObject is
+        # destroyed. A context-free Python callback can otherwise keep a
+        # widget wrapper alive after Qt has deleted its C++ object and invoke a
+        # trailing render against that invalid wrapper.
+        QTimer.singleShot(delay, context, callback)
 
 
 class UiUpdateThrottle:
@@ -84,10 +98,25 @@ class UiUpdateThrottle:
         *,
         clock: Callable[[], float] | None = None,
         schedule: Callable[[float, Callable[[], None]], None] | None = None,
+        qt_context=None,
     ) -> None:
         self._interval = max(float(interval_ms), 0.0) / 1000.0
         self._clock = clock or time.monotonic
-        self._schedule = schedule or qt_schedule
+        if schedule is not None:
+            self._schedule = schedule
+        elif qt_context is None:
+            self._schedule = qt_schedule
+        else:
+            context_ref = weakref.ref(qt_context)
+
+            def schedule_for_context(delay_ms, callback) -> None:
+                context = context_ref()
+                if context is not None:
+                    qt_schedule(delay_ms, callback, context=context)
+
+            self._schedule = schedule_for_context
+        if qt_context is not None:
+            qt_context.destroyed.connect(self._on_qt_context_destroyed)
         self._last_run: float | None = None
         self._pending: Callable[[], None] | None = None
         self._timer_armed = False
@@ -131,6 +160,11 @@ class UiUpdateThrottle:
         recording loaded, the selection cleared -- rather than merely stale.
         """
         self._pending = None
+
+    def _on_qt_context_destroyed(self, *_args) -> None:
+        """Release callbacks that may still hold the deleted widget wrapper."""
+        self._pending = None
+        self._timer_armed = False
 
     def _on_timeout(self) -> None:
         self._timer_armed = False

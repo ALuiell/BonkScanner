@@ -216,7 +216,7 @@ class LogView(QWidget):
         self._records: deque[LogRecord] = deque(maxlen=LOG_BUFFER_LIMIT)
         self._severities: set[str] = set()
         self._search = ""
-        self._render_throttle = throttle or UiUpdateThrottle()
+        self._render_throttle = throttle or UiUpdateThrottle(qt_context=self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

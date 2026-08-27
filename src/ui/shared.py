@@ -26,6 +26,7 @@ from PySide6.QtGui import QCloseEvent, QColor, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
+    QLabel,
     QLayout,
     QMainWindow,
     QPushButton,
@@ -137,47 +138,57 @@ class LabeledSwitch(QCheckBox):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        try:
+            if not painter.isActive():
+                return
+            painter.setRenderHint(QPainter.Antialiasing, True)
 
-        label_width = max(0, self.width() - self.LABEL_GAP - self.TRACK_WIDTH)
-        label_rect = QRect(0, 0, label_width, self.height())
-        label_color = QColor(
-            self._label_color if self.isEnabled() else self._label_disabled_color
-        )
-        painter.setPen(label_color)
-        painter.drawText(label_rect, Qt.AlignLeft | Qt.AlignVCenter, self.text())
-
-        track_x = self.width() - self.TRACK_WIDTH
-        track_y = (self.height() - self.TRACK_HEIGHT) / 2
-        track = QRectF(track_x, track_y, self.TRACK_WIDTH, self.TRACK_HEIGHT)
-        if self.isChecked():
-            track_fill = QColor(self._track_on_color)
-            track_border = QColor(self._track_on_border_color)
-            knob_fill = QColor(self._knob_on_color)
-            knob_x = track.right() - 3 - self.KNOB_SIZE
-        else:
-            track_fill = QColor(self._track_off_color)
-            track_border = QColor(
-                self._track_hover_border_color
-                if self.underMouse()
-                else self._track_off_border_color
+            label_width = max(0, self.width() - self.LABEL_GAP - self.TRACK_WIDTH)
+            label_rect = QRect(0, 0, label_width, self.height())
+            label_color = QColor(
+                self._label_color if self.isEnabled() else self._label_disabled_color
             )
-            knob_fill = QColor(self._knob_off_color)
-            knob_x = track.left() + 3
+            painter.setPen(label_color)
+            painter.drawText(label_rect, Qt.AlignLeft | Qt.AlignVCenter, self.text())
 
-        if not self.isEnabled():
-            track_fill.setAlpha(150)
-            track_border.setAlpha(150)
-            knob_fill.setAlpha(150)
+            track_x = self.width() - self.TRACK_WIDTH
+            track_y = (self.height() - self.TRACK_HEIGHT) / 2
+            track = QRectF(track_x, track_y, self.TRACK_WIDTH, self.TRACK_HEIGHT)
+            if self.isChecked():
+                track_fill = QColor(self._track_on_color)
+                track_border = QColor(self._track_on_border_color)
+                knob_fill = QColor(self._knob_on_color)
+                knob_x = track.right() - 3 - self.KNOB_SIZE
+            else:
+                track_fill = QColor(self._track_off_color)
+                track_border = QColor(
+                    self._track_hover_border_color
+                    if self.underMouse()
+                    else self._track_off_border_color
+                )
+                knob_fill = QColor(self._knob_off_color)
+                knob_x = track.left() + 3
 
-        painter.setPen(QPen(track_border, 1))
-        painter.setBrush(track_fill)
-        painter.drawRoundedRect(track, self.TRACK_HEIGHT / 2, self.TRACK_HEIGHT / 2)
+            if not self.isEnabled():
+                track_fill.setAlpha(150)
+                track_border.setAlpha(150)
+                knob_fill.setAlpha(150)
 
-        knob_y = track.top() + (self.TRACK_HEIGHT - self.KNOB_SIZE) / 2
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(knob_fill)
-        painter.drawEllipse(QRectF(knob_x, knob_y, self.KNOB_SIZE, self.KNOB_SIZE))
+            painter.setPen(QPen(track_border, 1))
+            painter.setBrush(track_fill)
+            painter.drawRoundedRect(
+                track, self.TRACK_HEIGHT / 2, self.TRACK_HEIGHT / 2
+            )
+
+            knob_y = track.top() + (self.TRACK_HEIGHT - self.KNOB_SIZE) / 2
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(knob_fill)
+            painter.drawEllipse(
+                QRectF(knob_x, knob_y, self.KNOB_SIZE, self.KNOB_SIZE)
+            )
+        finally:
+            if painter.isActive():
+                painter.end()
 
 
 class _TabHeaderCorner(QWidget):
@@ -242,16 +253,28 @@ class LazyPage(QWidget):
     def __init__(self, populate, parent=None) -> None:
         super().__init__(parent)
         self._populate = populate
+        self._building = False
 
     @property
     def is_built(self) -> bool:
-        return self._populate is None
+        return self._populate is None and not self._building
 
     def build_now(self) -> None:
-        """Build the contents if they are not built yet. Safe to call twice."""
-        populate, self._populate = self._populate, None
-        if populate is not None:
+        """Build once; a failed population remains retryable."""
+        populate = self._populate
+        if populate is None or self._building:
+            return
+        self._building = True
+        try:
             populate()
+        except Exception:
+            # Do not mark a half-built page complete. A transient data or
+            # dependency failure can then be retried explicitly.
+            raise
+        else:
+            self._populate = None
+        finally:
+            self._building = False
 
     def showEvent(self, event) -> None:
         # Before `super()`, so a `showEvent` handler further down the tree --
@@ -302,29 +325,36 @@ class StagedLoadingSpinner(QWidget):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        ring = self.rect().adjusted(8, 8, -8, -8)
+        try:
+            if not painter.isActive():
+                return
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            ring = self.rect().adjusted(8, 8, -8, -8)
 
-        background_pen = QPen(QColor("#263241"), 6)
-        background_pen.setCapStyle(Qt.RoundCap)
-        painter.setPen(background_pen)
-        painter.setBrush(Qt.NoBrush)
-        painter.drawEllipse(ring)
+            background_pen = QPen(QColor("#263241"), 6)
+            background_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(background_pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(ring)
 
-        arc_span = 105 if len(self._colors) == 1 else 72
-        angle_step = 360 // len(self._colors)
-        for index, color in enumerate(self._colors):
-            active_pen = QPen(color, 6)
-            active_pen.setCapStyle(Qt.RoundCap)
-            painter.setPen(active_pen)
-            start = 90 - self._angle + index * angle_step
-            painter.drawArc(ring, int(start * 16), int(-arc_span * 16))
+            arc_span = 105 if len(self._colors) == 1 else 72
+            angle_step = 360 // len(self._colors)
+            for index, color in enumerate(self._colors):
+                active_pen = QPen(color, 6)
+                active_pen.setCapStyle(Qt.RoundCap)
+                painter.setPen(active_pen)
+                start = 90 - self._angle + index * angle_step
+                painter.drawArc(ring, int(start * 16), int(-arc_span * 16))
+        finally:
+            if painter.isActive():
+                painter.end()
 
 
 class StagedLoadingPage(QWidget):
     """Paint a full-page loading overlay while a widget generator advances."""
 
     FIRST_STAGE_DELAY_MS = 16
+    failed = Signal(object)
 
     def __init__(
         self,
@@ -342,6 +372,8 @@ class StagedLoadingPage(QWidget):
         self._workspace_object_name = workspace_object_name
         self._steps = None
         self._built = False
+        self._failure: Exception | None = None
+        self._advancing = False
         self._loading_page = None
         self._workspace = None
         self._timer = QTimer(self)
@@ -355,8 +387,12 @@ class StagedLoadingPage(QWidget):
     def is_built(self) -> bool:
         return bool(self._built)
 
+    @property
+    def is_failed(self) -> bool:
+        return self._failure is not None
+
     def _ensure_started(self) -> None:
-        if self._steps is not None or self._built:
+        if self._steps is not None or self._built or self._failure is not None:
             return
 
         page_layout = QVBoxLayout(self)
@@ -415,23 +451,76 @@ class StagedLoadingPage(QWidget):
         return True
 
     def _advance(self) -> None:
-        if self._built or self._steps is None or not self.isVisible():
+        if (
+            self._built
+            or self._failure is not None
+            or self._steps is None
+            or self._advancing
+        ):
             return
-        if self._consume_step():
+        if not self.isVisible():
+            return
+        self._advancing = True
+        try:
+            has_more = self._consume_step()
+        except Exception as exc:
+            # Exceptions escaping a Qt timer slot are reported outside the
+            # caller that initiated the tab switch and can leave later queued
+            # UI work running against a partial page. Contain the asynchronous
+            # failure and leave an explicit, inspectable state instead.
+            self._fail_build(exc)
+            return
+        finally:
+            self._advancing = False
+        if has_more:
             self._timer.start(0)
+
+    def _fail_build(self, exc: Exception) -> None:
+        self._timer.stop()
+        self._steps = None
+        self._failure = exc
+        if self._loading_page is not None:
+            for spinner in self._loading_page.findChildren(StagedLoadingSpinner):
+                spinner.hide()
+            error = self._loading_page.findChild(
+                QLabel, f"{self._object_prefix}LoadingError"
+            )
+            if error is None:
+                error = QLabel(
+                    "This tab could not be loaded.\n"
+                    "Close and reopen BonkScanner. If it happens again, send the logs.",
+                    self._loading_page,
+                )
+                error.setObjectName(f"{self._object_prefix}LoadingError")
+                error.setAlignment(Qt.AlignCenter)
+                error.setWordWrap(True)
+                self._loading_page.layout().insertWidget(2, error, 0, Qt.AlignCenter)
+            self._sync_loading_overlay()
+        self.failed.emit(exc)
 
     def build_now(self) -> None:
         """Drain all remaining stages synchronously. Safe to call twice."""
+        if self._failure is not None:
+            raise RuntimeError("staged page construction previously failed") from self._failure
+        if self._advancing:
+            return
         self._ensure_started()
         self._timer.stop()
-        while not self._built:
-            self._consume_step()
+        self._advancing = True
+        try:
+            while not self._built:
+                self._consume_step()
+        except Exception as exc:
+            self._fail_build(exc)
+            raise
+        finally:
+            self._advancing = False
 
     def showEvent(self, event) -> None:
         self._ensure_started()
         super().showEvent(event)
         self._sync_loading_overlay()
-        if not self._built and not self._timer.isActive():
+        if not self._built and self._failure is None and not self._timer.isActive():
             self._timer.start(self.FIRST_STAGE_DELAY_MS)
 
     def resizeEvent(self, event) -> None:

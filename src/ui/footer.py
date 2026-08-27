@@ -216,33 +216,43 @@ class _AnimatedFooterLink(QPushButton):
 
     def paintEvent(self, _event) -> None:  # noqa: N802 -- Qt's name
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        try:
+            if not painter.isActive():
+                return
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setRenderHint(QPainter.TextAntialiasing, True)
 
-        color = _mix_color(
-            self._rest_color, self._hover_color, self._hover_progress
-        )
-        if self.isDown():
-            color = color.darker(118)
+            color = _mix_color(
+                self._rest_color, self._hover_color, self._hover_progress
+            )
+            if self.isDown():
+                color = color.darker(118)
 
-        content = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -2.0)
-        self._paint_content(painter, content, color)
+            content = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -2.0)
+            self._paint_content(painter, content, color)
 
-        if self._hover_progress <= 0.001:
-            return
-        half_width = self._content_width() * self._hover_progress / 2.0
-        centre_x = content.center().x()
-        y = content.bottom() + 1.0
-        line = QColor(self._line_color)
+            if self._hover_progress <= 0.001:
+                return
+            half_width = self._content_width() * self._hover_progress / 2.0
+            centre_x = content.center().x()
+            y = content.bottom() + 1.0
+            line = QColor(self._line_color)
 
-        halo = QColor(line)
-        halo.setAlpha(round(42 * self._hover_progress))
-        painter.setPen(QPen(halo, 3.0, Qt.SolidLine, Qt.RoundCap))
-        painter.drawLine(QLineF(centre_x - half_width, y, centre_x + half_width, y))
+            halo = QColor(line)
+            halo.setAlpha(round(42 * self._hover_progress))
+            painter.setPen(QPen(halo, 3.0, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(
+                QLineF(centre_x - half_width, y, centre_x + half_width, y)
+            )
 
-        line.setAlpha(round(220 * self._hover_progress))
-        painter.setPen(QPen(line, 1.0, Qt.SolidLine, Qt.RoundCap))
-        painter.drawLine(QLineF(centre_x - half_width, y, centre_x + half_width, y))
+            line.setAlpha(round(220 * self._hover_progress))
+            painter.setPen(QPen(line, 1.0, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(
+                QLineF(centre_x - half_width, y, centre_x + half_width, y)
+            )
+        finally:
+            if painter.isActive():
+                painter.end()
 
 
 class _SupportFooterLink(_AnimatedFooterLink):
@@ -488,10 +498,14 @@ class _TintedSupportBadgeIcon(QLabel):
         tinted.setDevicePixelRatio(source.devicePixelRatio())
         tinted.fill(Qt.transparent)
         painter = QPainter(tinted)
-        painter.drawPixmap(0, 0, source)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-        painter.fillRect(tinted.rect(), color)
-        painter.end()
+        try:
+            if painter.isActive():
+                painter.drawPixmap(0, 0, source)
+                painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+                painter.fillRect(tinted.rect(), color)
+        finally:
+            if painter.isActive():
+                painter.end()
         self._tinted_pixmap = tinted
         self._rendered_color = QColor(color)
         self._rendered_dpr = dpr
@@ -499,7 +513,12 @@ class _TintedSupportBadgeIcon(QLabel):
     def paintEvent(self, _event) -> None:
         self._refresh_tint()
         painter = QPainter(self)
-        painter.drawPixmap(0, 0, self._tinted_pixmap)
+        try:
+            if painter.isActive():
+                painter.drawPixmap(0, 0, self._tinted_pixmap)
+        finally:
+            if painter.isActive():
+                painter.end()
 
 
 def _support_badge_icon(
@@ -900,7 +919,7 @@ class SupportPopup(QFrame):
         """
         if self.isVisible() and self._anchor is not None:
             self._place_above(self._anchor)
-            QTimer.singleShot(0, self._settle)
+            QTimer.singleShot(0, self, self._settle)
 
     def _settle(self) -> None:
         """Second half of `_reanchor`, once the layout has caught up."""
@@ -925,7 +944,7 @@ class SupportPopup(QFrame):
         # The same one-pass lag applies to a popup built and filled in the click
         # that opens it: nothing has been polished yet. Idempotent when the
         # first placement was already right.
-        QTimer.singleShot(0, self._settle)
+        QTimer.singleShot(0, self, self._settle)
 
     def _place_above(self, anchor: QWidget) -> None:
         """Put the bottom-right corner of the card over `anchor`'s top-right.

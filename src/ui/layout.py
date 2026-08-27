@@ -88,38 +88,25 @@ def _is_tab_active(tabview, label: str) -> bool:
     """
     if tabview is None:
         return False
-    return tabview.tabText(tabview.currentIndex()) == label
+    current_index = tabview.currentIndex()
+    if current_index < 0:
+        return False
+    return tabview.tabText(current_index) == label
 
 
 class TabRouter:
     """What happens when the user switches a tab.
 
-    `GuiLayoutMixin`'s last responsibility, and the reason `MegabonkApp` still
-    had a base class. Eight methods that read `self.tabview`,
-    `self.left_tabview` and `self._templates_panel` out of the shared
-    namespace, and called *thirteen* delegators on the application to reach
-    components the app was already holding -- eleven of which had no other
-    production caller, and are gone with this object.
+    The ports are suppliers because the heavy recording views are created
+    after the router itself. The signals, however, are connected only after
+    ``build_layout`` has registered every page. Construction must not
+    masquerade as user navigation: adding the first tab used to write
+    ``config.json`` and queue work against a half-built object graph.
 
-    **Every port is a supplier, and that is the measurement rather than
-    style.** `_build_left_tabs` and `_build_right_panel` connect
-    `currentChanged` **before** `addTab` populates either panel, so these slots
-    fire during `build_layout`, while `_templates_panel`, `_recordings_view`
-    and `_compare_runs_view` are still `None`. A router holding values captured
-    at construction would hold `None` for the life of the application. Keeping
-    the connect at the same two points is what keeps the initial firing order
-    identical, which `tools/step23_startup_smoke.py` is the only check that
-    can see.
-
-    That firing order is also why each view is guarded. The four
-    `hasattr(self, "ensure_..._chooser_for_empty_selection")` checks this
-    replaces were permanently **true** -- `MegabonkApp` has defined both names
-    since step 21c -- so they guarded nothing while reading as if they guarded
-    construction order. The `is None` checks below guard the question those
-    `hasattr` calls were misspelling. Removing the `hasattr` and adding the
-    real guard is one edit on purpose: step 25b recorded what happens when a
-    `hasattr` covering a method of the same class outlives the method, and it
-    is "the feature silently stopped working" with a green suite.
+    Right-tab work is one queued, coalesced pass. Several switches can happen
+    before Qt returns to the event loop, and only the final visible page is
+    useful then. Refreshing a recording list synchronously and again after the
+    redraw merely doubled file/model work at the most timing-sensitive point.
     """
 
     def __init__(
@@ -146,21 +133,28 @@ class TabRouter:
         self._update_status = update_status
         self._refresh_live_player_stats = refresh_live_player_stats
         self._schedule_idle = schedule_idle
+        self._right_refresh_generation = 0
 
     # -- the left bar: Templates <-> Scores --------------------------------
-    #
-    # This writes `config.json` on **every** left tab switch, and it fires
-    # during `build_layout` when `_build_left_tabs` calls `setCurrentIndex`.
-    # Any harness that constructs a real app must stub `config.save_config`
-    # before doing so or it overwrites the user's file.
     def on_left_tab_changed(self) -> None:
         left_tabview = self._left_tabview()
         if left_tabview is None:
             return
-        tab_name = left_tabview.tabText(left_tabview.currentIndex())
-        config.EVALUATION_MODE = "scores" if tab_name == "Scores" else "templates"
-        config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
-        config.save_config(config.user_config)
+        current_index = left_tabview.currentIndex()
+        if current_index < 0:
+            return
+        tab_name = left_tabview.tabText(current_index)
+        if tab_name not in {"Templates", "Scores"}:
+            return
+        evaluation_mode = "scores" if tab_name == "Scores" else "templates"
+        mode_changed = (
+            config.EVALUATION_MODE != evaluation_mode
+            or config.user_config.get("EVALUATION_MODE") != evaluation_mode
+        )
+        config.EVALUATION_MODE = evaluation_mode
+        config.user_config["EVALUATION_MODE"] = evaluation_mode
+        if mode_changed:
+            config.save_config(config.user_config)
         templates_panel = self._templates_panel()
         if templates_panel is not None:
             templates_panel.refresh_scores_ui()
@@ -169,10 +163,15 @@ class TabRouter:
 
     # -- the right bar ------------------------------------------------------
     def on_right_tab_changed(self) -> None:
-        self._refresh_recording_tabs()
-        self._schedule_idle(self._refresh_right_tab_after_switch)
+        self._right_refresh_generation += 1
+        generation = self._right_refresh_generation
+        self._schedule_idle(
+            lambda: self._refresh_right_tab_after_switch(generation=generation)
+        )
 
-    def _refresh_right_tab_after_switch(self) -> None:
+    def _refresh_right_tab_after_switch(self, *, generation: int | None = None) -> None:
+        if generation is not None and generation != self._right_refresh_generation:
+            return
         self._refresh_recording_tabs()
         if self.is_live_stats_tab_active():
             self._refresh_live_player_stats()
@@ -180,19 +179,7 @@ class TabRouter:
             self._overlay.refresh_overlay_ui()
 
     def _refresh_recording_tabs(self) -> None:
-        """The eight lines both right-bar handlers ran, run from one place.
-
-        **This still runs twice per switch, and that is preserved rather than
-        fixed.** `on_right_tab_changed` refreshes synchronously and then
-        schedules `_refresh_right_tab_after_switch`, which refreshes again --
-        so switching to Recordings re-reads the list once before the repaint
-        and once after. Step 26 measured the duplication and did not remove it:
-        the two passes straddle Qt's redraw, `VodLibrary` is what absorbs the
-        second read, and a step whose subject is the router's *ownership* is
-        not the place to change how often it fires. De-duplicating the text is
-        not de-duplicating the calls -- the call count is identical to what the
-        two copies produced.
-        """
+        """Refresh whichever recording-backed page is visible, once."""
         recordings_view = self._recordings_view()
         if recordings_view is not None and self.is_recordings_tab_active():
             recordings_view.refresh_vods_list()
@@ -307,6 +294,12 @@ def build_layout(app):
     for index in range(app.tabview.count()):
         app.tabview.widget(index).setObjectName("mainTabPage")
 
+    # Adding the first tab emits ``currentChanged``. Connect only after every
+    # supplier the router can reach exists, so construction never persists a
+    # preference or queues refresh work as if the user had navigated.
+    app.left_tabview.currentChanged.connect(app._tab_router.on_left_tab_changed)
+    app.tabview.currentChanged.connect(app._tab_router.on_right_tab_changed)
+
 
 def _build_header(app, parent_layout):
     header_wrap = QFrame()
@@ -409,7 +402,6 @@ def _build_left_tabs(app, splitter):
     app.left_tabview.setObjectName("mainTabs")
     app.left_tabview.tabBar().setExpanding(True)
     app.left_tabview.tabBar().setUsesScrollButtons(False)
-    app.left_tabview.currentChanged.connect(app._tab_router.on_left_tab_changed)
 
     # The `«` collapse control rides in the tab bar's corner, next to the
     # Templates/Scores pills, exactly where the mockup places it.
@@ -436,24 +428,14 @@ def _build_left_tabs(app, splitter):
     collapsed._expand_btn.clicked.connect(app._left_rail.expand)
 
     # The ~34 lines that built both left tabs are `TemplatesPanel.build()`'s
-    # now (step 22c). Which tab opens stays here: that is a router question,
-    # and the router is an object as of step 26 -- but *which index the bar
-    # opens on* is the layout's, and `setCurrentIndex` is what fires the
-    # router's first left-bar slot, one line after the connect above.
-    #
-    # Read *before* the tabs exist, and that is the whole point of the line.
-    # `addTab` fires `currentChanged`, so adding the Templates tab makes index
-    # 0 current and the router writes `EVALUATION_MODE = "templates"` -- and
-    # saves it. Reading config after the build therefore never returned
-    # "scores": the preference had already been overwritten by the act of
-    # building the bar, so Scores mode could not survive a restart and the
-    # saved value was destroyed on disk every launch.
-    saved_evaluation_mode = config.EVALUATION_MODE
+    # now (step 22c). Which tab opens remains a layout decision. The router is
+    # connected after the full build, so restoring this index is not mistaken
+    # for a user change and cannot rewrite the preference during startup.
     app._templates_panel = _build_templates_panel(app)
     app._templates_panel.set_preferred_width_changed(
         app._left_rail.set_preferred_expanded_width
     )
-    app.left_tabview.setCurrentIndex(1 if saved_evaluation_mode == "scores" else 0)
+    app.left_tabview.setCurrentIndex(1 if config.EVALUATION_MODE == "scores" else 0)
 
     # The rail's bottom button follows the collapsed mode -- Add in Templates,
     # Edit in Scores -- so it is wired to the dispatcher rather than to either
@@ -471,12 +453,19 @@ class _VerticalRailLabel(QLabel):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
-        painter.setPen(QColor("#5C6675"))
-        painter.setFont(self.font())
-        painter.translate(0, self.height())
-        painter.rotate(-90)
-        painter.drawText(0, 0, self.height(), self.width(), Qt.AlignCenter, self.text())
-        painter.end()
+        try:
+            if not painter.isActive():
+                return
+            painter.setPen(QColor("#5C6675"))
+            painter.setFont(self.font())
+            painter.translate(0, self.height())
+            painter.rotate(-90)
+            painter.drawText(
+                0, 0, self.height(), self.width(), Qt.AlignCenter, self.text()
+            )
+        finally:
+            if painter.isActive():
+                painter.end()
 
     def sizeHint(self) -> QSize:
         metrics = self.fontMetrics()
@@ -574,9 +563,13 @@ class _DraggableRailTile(QPushButton):
         ghost = QPixmap(source_pixmap.size())
         ghost.fill(Qt.transparent)
         painter = QPainter(ghost)
-        painter.setOpacity(0.9)
-        painter.drawPixmap(0, 0, source_pixmap)
-        painter.end()
+        try:
+            if painter.isActive():
+                painter.setOpacity(0.9)
+                painter.drawPixmap(0, 0, source_pixmap)
+        finally:
+            if painter.isActive():
+                painter.end()
 
         drag = QDrag(self)
         mime = QMimeData()
@@ -633,10 +626,16 @@ class _DraggableRailTile(QPushButton):
         if not self._drop_edge:
             return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(QColor("#38BDF8"), 2, Qt.SolidLine, Qt.RoundCap))
-        y = 1 if self._drop_edge < 0 else self.height() - 2
-        painter.drawLine(3, y, self.width() - 3, y)
+        try:
+            if not painter.isActive():
+                return
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor("#38BDF8"), 2, Qt.SolidLine, Qt.RoundCap))
+            y = 1 if self._drop_edge < 0 else self.height() - 2
+            painter.drawLine(3, y, self.width() - 3, y)
+        finally:
+            if painter.isActive():
+                painter.end()
 
 
 class _RailDotsHolder(QWidget):
@@ -1169,9 +1168,6 @@ def _build_right_panel(app, splitter):
     app.tabview.setObjectName("mainTabs")
     app.tabview.tabBar().setExpanding(True)
     app.tabview.tabBar().setUsesScrollButtons(False)
-    # Connected before a single `addTab` runs, and deliberately left that way:
-    # see `TabRouter`'s header. Every `addTab` in `build_layout` fires this.
-    app.tabview.currentChanged.connect(app._tab_router.on_right_tab_changed)
     right_layout.addWidget(app.tabview, 1)
 
     return right_layout
@@ -1226,10 +1222,9 @@ def _build_tab_router(app):
     """Construct the tab-switch router and name its ten collaborators.
 
     The composition root for `TabRouter` (step 26), called from the first line
-    of `setup_ui` -- before `_build_left_tabs` and `_build_right_panel`, which
-    is the whole constraint. Both connect `currentChanged` before populating
-    their bar, so the router has to exist before either runs and cannot be
-    handed a single widget that does.
+    of `setup_ui` -- before `_build_left_tabs` and `_build_right_panel`. The
+    router therefore takes suppliers for objects created later; its signals
+    are connected only after every tab has been registered.
 
     Six of the ten are late-bound suppliers, for the reason `TabRouter`'s
     header records: they name objects that do not exist yet at this line. The

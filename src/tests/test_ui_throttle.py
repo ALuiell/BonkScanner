@@ -173,6 +173,54 @@ class QtScheduleFallbackTests(unittest.TestCase):
         single_shot.assert_called_once()
         self.assertEqual(33, single_shot.call_args.args[0])
 
+    def test_qobject_context_is_passed_to_the_timer(self) -> None:
+        """Qt cancels the callback if its owning widget is destroyed."""
+        from PySide6.QtCore import QObject, QTimer
+        from PySide6.QtWidgets import QApplication
+
+        context = QObject()
+        callback = lambda: None
+        single_shot = MagicMock()
+        with patch.object(QApplication, "instance", staticmethod(lambda: object())):
+            with patch.object(QTimer, "singleShot", single_shot):
+                qt_schedule(33.0, callback, context=context)
+
+        single_shot.assert_called_once_with(33, context, callback)
+
+    def test_throttle_uses_its_qobject_context_for_default_scheduling(self) -> None:
+        from PySide6.QtCore import QObject
+
+        context = QObject()
+        clock = FakeClock()
+        with patch("ui.throttle.qt_schedule") as schedule:
+            throttle = UiUpdateThrottle(100.0, clock=clock, qt_context=context)
+            throttle.request(lambda: None)
+            throttle.request(lambda: None)
+
+        self.assertEqual(schedule.call_count, 1)
+        self.assertIs(schedule.call_args.kwargs["context"], context)
+
+    def test_destroyed_context_releases_the_pending_widget_callback(self) -> None:
+        from PySide6.QtCore import QObject
+
+        context = QObject()
+        clock = FakeClock()
+        scheduler = FakeScheduler()
+        throttle = UiUpdateThrottle(
+            100.0,
+            clock=clock,
+            schedule=scheduler,
+            qt_context=context,
+        )
+        throttle.request(lambda: None)
+        throttle.request(context.objectName)
+        self.assertTrue(throttle.has_pending)
+
+        context.destroyed.emit()
+
+        self.assertFalse(throttle.has_pending)
+        scheduler.fire()
+
 
 class FakeBatchWidget:
     def __init__(self, enabled: bool = True) -> None:

@@ -12,24 +12,14 @@ from 11 to 9.
 The rest are new, and each locks in behaviour this step *changed the shape of*
 rather than re-testing the router's arithmetic:
 
-* Every port is a supplier, and the router's slots fire during `build_layout`
-  while three of them still answer `None` (`TabRouter`'s header explains why
-  the `currentChanged` connects cannot move). `test_*_before_the_views_exist`
-  is that moment. It matters more than it looks: **Qt swallows exceptions
-  raised inside a slot**, so the only symptom of getting this wrong is a
-  traceback on stderr, which no unit test and no `pytest` run can see. The
-  suite cannot prove the app starts clean -- `tools/step23_startup_smoke.py`
-  does that -- but it can prove the router tolerates the state the startup
-  smoke would find it in.
+* Every port is a supplier because views are created after the router, but the
+  signals are connected only after the layout is complete. The ``None`` guards
+  remain defensive rather than being the normal startup path.
 * The four `hasattr(self, "ensure_..._chooser_for_empty_selection")` guards are
-  gone, replaced by `is None` checks on the views. `test_*_before_the_views_
-  exist` and `test_right_tab_switch_refreshes_recordings_twice` are the pair
-  that says the replacement guards the real question: absent view, no call;
-  present view, both calls.
-* `_refresh_recording_tabs` runs **twice** per switch, once synchronously and
-  once from `after_idle`. That is preserved from the two copies it replaced,
-  and `test_right_tab_switch_refreshes_recordings_twice` counts it, so a later
-  "simplification" has to argue with a number rather than with a comment.
+  gone, replaced by `is None` checks on the views. The tests cover both sides:
+  an absent view is untouched and a present view gets one refresh.
+* A right-tab switch queues one refresh. Rapid switches coalesce by generation,
+  so stale callbacks cannot all re-read the final visible page.
 
 No real Qt widget is constructed anywhere in this file, for the reason step 25
 recorded twice: a test that builds one after a `QApplication` exists crashes
@@ -60,6 +50,11 @@ class FakeTabWidget:
 
     def tabText(self, _index: int) -> str:
         return self.active_tab
+
+
+class FakeEmptyTabWidget(FakeTabWidget):
+    def currentIndex(self) -> int:
+        return -1
 
 
 class FakeRecordingsView:
@@ -132,33 +127,28 @@ class TabActiveTests(unittest.TestCase):
     def test_predicate_answers_no_when_there_is_no_tab_bar(self) -> None:
         """The guard the four mixin predicates did not have.
 
-        They read `self.tabview.tabText(...)` unguarded. Reached before
-        `build_layout` builds the bar -- which is exactly when the router's
-        slots first fire -- that is an `AttributeError` inside a Qt slot, and
-        Qt swallows those.
+        They read `self.tabview.tabText(...)` unguarded. A partial-construction
+        or teardown caller would turn that into an `AttributeError` inside a
+        Qt slot, where the originating UI action is already out of scope.
         """
         self.assertFalse(_is_tab_active(None, "Live Stats"))
 
+    def test_predicate_answers_no_when_the_bar_has_no_current_page(self) -> None:
+        self.assertFalse(
+            _is_tab_active(FakeEmptyTabWidget("Live Stats"), "Live Stats")
+        )
+
 
 class RightTabRouterTests(unittest.TestCase):
-    def test_right_tab_switch_refreshes_recordings_twice(self) -> None:
-        """Once synchronously, once from `after_idle`. Counted, not assumed.
-
-        `on_right_tab_changed` and `_refresh_right_tab_after_switch` each ran
-        the same eight lines before step 26 folded them into
-        `_refresh_recording_tabs`. Folding the *text* must not fold the
-        *calls*: the two passes straddle Qt's redraw.
-        """
+    def test_right_tab_switch_refreshes_recordings_once_after_idle(self) -> None:
         router, calls, idle = build_router(active_tab="Recordings")
 
         router.on_right_tab_changed()
-        self.assertEqual(calls, ["vods", "vods_chooser"])
+        self.assertEqual(calls, [])
         self.assertEqual(len(idle), 1)
 
         idle[0]()
-        self.assertEqual(
-            calls, ["vods", "vods_chooser", "vods", "vods_chooser"]
-        )
+        self.assertEqual(calls, ["vods", "vods_chooser"])
 
     def test_compare_runs_switch_refreshes_the_list_and_the_chooser(self) -> None:
         router, calls, idle = build_router(active_tab="Compare Runs")
@@ -166,9 +156,20 @@ class RightTabRouterTests(unittest.TestCase):
         router.on_right_tab_changed()
         idle[0]()
 
-        self.assertEqual(
-            calls, ["compare", "compare_chooser", "compare", "compare_chooser"]
-        )
+        self.assertEqual(calls, ["compare", "compare_chooser"])
+
+    def test_rapid_switch_callbacks_coalesce_to_the_latest_generation(self) -> None:
+        router, calls, idle = build_router(active_tab="Recordings")
+
+        router.on_right_tab_changed()
+        router.on_right_tab_changed()
+        router.on_right_tab_changed()
+        self.assertEqual(len(idle), 3)
+
+        for callback in idle:
+            callback()
+
+        self.assertEqual(calls, ["vods", "vods_chooser"])
 
     def test_refresh_right_tab_after_switch_immediately_refreshes_live_stats(self) -> None:
         """Moved from `test_gui_run_control.py`; same assertion, real object."""
@@ -185,16 +186,8 @@ class RightTabRouterTests(unittest.TestCase):
 
         self.assertEqual(calls, ["overlay"])
 
-    def test_right_tab_switch_touches_nothing_before_the_views_exist(self) -> None:
-        """The state the router's slots first fire in.
-
-        `_build_right_panel` connects `currentChanged` before `addTab` runs, so
-        the first switch this object sees happens while `_recordings_view` and
-        `_compare_runs_view` are still `None`. The four `hasattr` guards this
-        replaced were permanently true and would not have caught it; what kept
-        the app up was that the predicates compared tab *text* and happened not
-        to match during the initial `addTab` calls.
-        """
+    def test_right_tab_switch_tolerates_absent_views(self) -> None:
+        """Supplier guards keep partial-construction callers harmless."""
         router, calls, idle = build_router(active_tab="Recordings", views=False)
 
         router.on_right_tab_changed()
@@ -244,13 +237,20 @@ class LeftTabRouterTests(unittest.TestCase):
 
             self.assertEqual(config.EVALUATION_MODE, "templates")
 
-    def test_left_tab_switch_returns_before_the_bar_exists(self) -> None:
-        """`_build_left_tabs` connects the signal before it builds the panel.
+    def test_left_tab_signal_does_not_rewrite_an_unchanged_mode(self) -> None:
+        router, calls, _idle = build_router(left_tab="Scores")
+        user_config = {"EVALUATION_MODE": "scores"}
 
-        The mixin's `if self.left_tabview is None: return` is preserved
-        verbatim. Without it, `setCurrentIndex` at the end of `_build_left_tabs`
-        would write `config.json` from inside a slot with no bar to read.
-        """
+        with patch.object(config, "EVALUATION_MODE", "scores"), \
+             patch.object(config, "user_config", user_config), \
+             patch.object(config, "save_config") as save_config:
+            router.on_left_tab_changed()
+
+        save_config.assert_not_called()
+        self.assertEqual(calls, ["scores", "sync:True", "status"])
+
+    def test_left_tab_switch_returns_before_the_bar_exists(self) -> None:
+        """The supplier guard remains safe during partial construction."""
         router, calls, _idle = build_router(left_tab=None)
 
         with patch.object(config, "save_config") as save_config:
@@ -259,13 +259,32 @@ class LeftTabRouterTests(unittest.TestCase):
         save_config.assert_not_called()
         self.assertEqual(calls, [])
 
-    def test_left_tab_switch_skips_a_panel_that_does_not_exist_yet(self) -> None:
-        """`MegabonkApp.refresh_scores_ui`'s `is None` guard, which came here.
+    def test_left_tab_teardown_signal_does_not_rewrite_the_mode(self) -> None:
+        calls: list[str] = []
+        router = TabRouter(
+            left_tabview=lambda: FakeEmptyTabWidget(""),
+            tabview=lambda: None,
+            templates_panel=lambda: None,
+            recordings_view=lambda: None,
+            compare_runs_view=lambda: None,
+            overlay=SimpleNamespace(refresh_overlay_ui=lambda: None),
+            template_filters=SimpleNamespace(sync=lambda **_kwargs: calls.append("sync")),
+            update_status=lambda: calls.append("status"),
+            refresh_live_player_stats=lambda: None,
+            schedule_idle=lambda _callback: None,
+        )
 
-        The app's delegator existed only because the router called it on the
-        application; the guard inside it was about *this* object's firing
-        order, so it moved with the caller rather than staying behind.
-        """
+        with patch.object(config, "EVALUATION_MODE", "scores"), \
+             patch.object(config, "user_config", {"EVALUATION_MODE": "scores"}), \
+             patch.object(config, "save_config") as save_config:
+            router.on_left_tab_changed()
+
+            self.assertEqual(config.EVALUATION_MODE, "scores")
+        save_config.assert_not_called()
+        self.assertEqual(calls, [])
+
+    def test_left_tab_switch_skips_a_panel_that_does_not_exist_yet(self) -> None:
+        """A partial-construction caller cannot touch an absent panel."""
         router, calls, _idle = build_router(left_tab="Scores", templates_panel=False)
 
         with patch.object(config, "user_config", {}), \

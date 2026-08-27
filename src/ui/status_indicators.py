@@ -136,29 +136,35 @@ class PulsingDot(QLabel):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(Qt.NoPen)
+        try:
+            if not painter.isActive():
+                return
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setPen(Qt.NoPen)
 
-        centre = self.rect().center()
-        # `+1` because an even-sided rect's centre rounds down, which would put
-        # the dot half a pixel off and make the ring visibly lopsided.
-        x = centre.x() + 1
-        y = centre.y() + 1
-        radius = DOT_DIAMETER / 2.0
+            centre = self.rect().center()
+            # `+1` because an even-sided rect's centre rounds down, which would put
+            # the dot half a pixel off and make the ring visibly lopsided.
+            x = centre.x() + 1
+            y = centre.y() + 1
+            radius = DOT_DIAMETER / 2.0
 
-        if self.is_pulsing():
-            ring = QColor(self._dot_color)
-            ring.setAlpha(int(RING_ALPHA * (1.0 - self._pulse)))
-            painter.setBrush(ring)
-            spread = radius + RING_TRAVEL * self._pulse
+            if self.is_pulsing():
+                ring = QColor(self._dot_color)
+                ring.setAlpha(int(RING_ALPHA * (1.0 - self._pulse)))
+                painter.setBrush(ring)
+                spread = radius + RING_TRAVEL * self._pulse
+                painter.drawEllipse(
+                    float(x) - spread, float(y) - spread, spread * 2, spread * 2
+                )
+
+            painter.setBrush(self._dot_color)
             painter.drawEllipse(
-                float(x) - spread, float(y) - spread, spread * 2, spread * 2
+                float(x) - radius, float(y) - radius, radius * 2, radius * 2
             )
-
-        painter.setBrush(self._dot_color)
-        painter.drawEllipse(
-            float(x) - radius, float(y) - radius, radius * 2, radius * 2
-        )
+        finally:
+            if painter.isActive():
+                painter.end()
 
 
 class RecordingFlag(QWidget):
