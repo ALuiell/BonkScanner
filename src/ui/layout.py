@@ -1338,7 +1338,8 @@ def _build_compare_runs_view(app, timeline_series_slots):
 
     Fewer collaborators than `RecordingsTab` needs, and that is the
     measurement, not an oversight: this tab opens no dialogs, so it needs no
-    `window`; it writes no log lines; and it reads no recorder.
+    `window`, and it reads no recorder. Its logger is only the failure sink for
+    config persistence and malformed recording render boundaries.
     """
     from ui.tabs.compare_runs import CompareRunsTab
 
@@ -1348,6 +1349,7 @@ def _build_compare_runs_view(app, timeline_series_slots):
         is_active=app._tab_router.is_compare_runs_tab_active,
         schedule=app.marshal_to_ui,
         timeline_series_slots=timeline_series_slots,
+        log=app.log,
     )
     view.build()
     app.vod_library.subscribe(

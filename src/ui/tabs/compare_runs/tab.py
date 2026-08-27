@@ -63,9 +63,9 @@ from PySide6.QtWidgets import (
 
 from app import config
 from app.vod_library import (
+    RECORDING_SORT_CONFIG_KEY,
     load_vod,
     recording_sort_mode,
-    set_recording_sort_mode,
 )
 from core.run_summary import item_counts
 from core.stats.formats import PlayerStatFormat
@@ -105,11 +105,11 @@ from ui.tabs.compare_runs.timeline import (
 from ui.tabs.compare_runs.timeline_legend import CompareRunsTimelineLegend
 from ui.timeline_controls import (
     TimelineSeriesSlots,
+    TIMELINE_CAPS_CONFIG_KEY,
     build_timeline_cap_checkboxes,
     build_timeline_series_menu,
     checked_timeline_caps,
     refresh_timeline_slot_button,
-    save_timeline_caps,
 )
 
 
@@ -405,15 +405,19 @@ class CompareRunsTab:
         schedule: Callable[[Callable[[], None]], None] | None = None,
         diff_throttle: UiUpdateThrottle | None = None,
         timeline_series_slots: TimelineSeriesSlots | None = None,
+        log: Callable[..., None] | None = None,
     ) -> None:
         self._tabview = tabview
         self._library = vod_library
         self._is_active = is_active
         self._schedule = schedule
+        self._log = log or (lambda _message, **_kwargs: None)
+        self._disposed = False
 
         # Slider-drag rate limiting. Injectable so a test can drive the
         # coalescing with a fake clock instead of a real event loop; the
         # default is the shared ~30 FPS window.
+        self._uses_default_diff_throttle = diff_throttle is None
         self._diff_throttle = diff_throttle or UiUpdateThrottle()
         self._timeline_series_slots = timeline_series_slots or TimelineSeriesSlots()
         # Formatted diffs, keyed by everything that can change one. Cleared
@@ -544,11 +548,15 @@ class CompareRunsTab:
 
     def refresh_compare_runs_list(self):
         """Refresh both chooser lists synchronously after the initial build."""
+        if self._disposed:
+            return
         for _step in self._refresh_compare_runs_list_steps(batch_size=0):
             pass
 
     def _refresh_compare_runs_list_steps(self, *, batch_size: int):
         """Refresh both lists, yielding between row batches when requested."""
+        if self._disposed:
+            return
         list_a = self._run_a_list_frame
         list_b = self._run_b_list_frame
         if list_a is None or list_b is None:
@@ -606,9 +614,29 @@ class CompareRunsTab:
         return normalize_recording_sort_mode(combo.currentData())
 
     def on_compare_runs_sort_changed(self, _index: int = 0) -> None:
-        set_recording_sort_mode(self._compare_runs_sort_mode())
+        self._save_compare_run_config_value(
+            "recording sort order",
+            RECORDING_SORT_CONFIG_KEY,
+            normalize_recording_sort_mode(self._compare_runs_sort_mode()),
+        )
         self._list_signature = None
         self.refresh_compare_runs_list()
+
+    def _save_compare_run_config_value(self, label: str, key: str, value) -> bool:
+        """Persist one preference without leaking an exception through Qt."""
+        missing = object()
+        previous = config.user_config.get(key, missing)
+        config.user_config[key] = value
+        try:
+            config.save_config(config.user_config)
+        except Exception as exc:
+            if previous is missing:
+                config.user_config.pop(key, None)
+            else:
+                config.user_config[key] = previous
+            self._log(f"Could not save {label}: {exc}", tag="warning")
+            return False
+        return True
 
     def invalidate_compare_runs_list(self) -> None:
         """Drop the painted-list signature. `VodLibrary`'s invalidate hook.
@@ -695,24 +723,46 @@ class CompareRunsTab:
             self.load_compare_run(side, path_str)
 
     def load_compare_run(self, side: str, path) -> None:
+        if self._disposed:
+            return
         path = Path(path)
         generations = self._load_generations
         generation = int(generations.get(side, 0)) + 1
         generations[side] = generation
         self._load_generations = generations
-        self._set_compare_run_error(side, "Loading recording…")
+        self._report_compare_run_state(side, "Loading recording…")
 
         def finish(loaded_vod, error) -> None:
-            if generation != self._load_generations.get(side):
+            if self._disposed or generation != self._load_generations.get(side):
                 return
             if error is not None:
-                self._set_compare_run_error(side, f"Could not load recording: {error}")
+                self._report_compare_run_state(
+                    side, f"Could not load recording: {error}"
+                )
                 return
-            self._set_compare_run_vod(side, loaded_vod)
-            self._set_compare_run_index(side, 0 if loaded_vod.snapshots else None)
-            self.refresh_compare_runs_list()
-            self.refresh_compare_runs_ui(changed_side=side)
-            self._auto_close_compare_runs_chooser_if_ready()
+            try:
+                self._set_compare_run_vod(side, loaded_vod)
+                self._set_compare_run_index(side, 0 if loaded_vod.snapshots else None)
+                self.refresh_compare_runs_list()
+                self.refresh_compare_runs_ui(changed_side=side)
+                self._auto_close_compare_runs_chooser_if_ready()
+            except Exception as exc:
+                # A malformed recording can fail after parsing, while building
+                # its timeline/diff model. Keep that inside the queued UI slot.
+                try:
+                    self._set_compare_run_vod(side, None)
+                except Exception:
+                    # If the renderer itself is the failing boundary, reset the
+                    # Python selection directly and leave repainting for the
+                    # next valid load.
+                    if side == "a":
+                        self._vod_a = None
+                    else:
+                        self._vod_b = None
+                self._set_compare_run_index(side, None)
+                self._report_compare_run_state(
+                    side, f"Could not display recording: {exc}"
+                )
 
         def load() -> None:
             try:
@@ -728,16 +778,24 @@ class CompareRunsTab:
         # `self.after` and `self._invoker` off the shared namespace, now one
         # injected callable.
         if callable(self._schedule):
-            threading.Thread(target=load, name=f"compare-{side}-loader", daemon=True).start()
+            try:
+                threading.Thread(
+                    target=load,
+                    name=f"compare-{side}-loader",
+                    daemon=True,
+                ).start()
+            except Exception as exc:
+                finish(None, exc)
         else:
             load()
 
-    def _marshal(self, callback) -> None:
+    def _marshal(self, callback) -> bool:
         schedule = self._schedule
         if callable(schedule):
-            schedule(callback)
+            return schedule(callback) is not False
         else:
             callback()
+            return True
 
     def toggle_compare_runs_chooser(self):
         next_expanded = not bool(self._chooser_expanded)
@@ -763,7 +821,7 @@ class CompareRunsTab:
         self.set_compare_runs_chooser_expanded(False, guided=False)
 
     def ensure_compare_runs_chooser_for_empty_selection(self) -> None:
-        if not self._is_active():
+        if self._disposed or not self._is_active():
             return
         if self._vod_a is not None or self._vod_b is not None:
             return
@@ -868,6 +926,8 @@ class CompareRunsTab:
 
     def on_compare_timeline_position_changed(self, position: float) -> None:
         """Immediate playhead/index update; content follows through coalescing."""
+        if self._disposed:
+            return
         timeline = self._timeline
         if timeline is None:
             return
@@ -935,7 +995,11 @@ class CompareRunsTab:
 
     def on_compare_run_caps_changed(self) -> None:
         keys = self._enabled_cap_keys()
-        save_timeline_caps(keys)
+        self._save_compare_run_config_value(
+            "timeline caps",
+            TIMELINE_CAPS_CONFIG_KEY,
+            list(keys),
+        )
         if self._timeline is not None:
             self._timeline.set_cap_keys(keys)
 
@@ -944,17 +1008,25 @@ class CompareRunsTab:
         if compact == self._timeline_compact:
             return
         self._timeline_compact = compact
-        config.user_config[COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY] = compact
-        config.save_config(config.user_config)
+        self._save_compare_run_config_value(
+            "compact timeline state",
+            COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY,
+            compact,
+        )
         if self._timeline is not None:
             self._timeline.set_compact(compact)
         if self._timeline_legend is not None:
             self._timeline_legend.setVisible(not compact)
 
     def _set_series_slot(self, slot_index: int, keys) -> None:
-        self._timeline_series_slots.set_slot(slot_index, keys)
+        try:
+            self._timeline_series_slots.set_slot(slot_index, keys)
+        except Exception as exc:
+            self._log(f"Could not save timeline series: {exc}", tag="warning")
 
     def _apply_timeline_series_slots(self, slots) -> None:
+        if self._disposed:
+            return
         slots = tuple(tuple(slot) for slot in slots)
         if slots == self._series_slots:
             return
@@ -999,6 +1071,8 @@ class CompareRunsTab:
         )
 
     def refresh_compare_runs_ui(self, *, changed_side: str | None = None):
+        if self._disposed:
+            return
         if changed_side in {"a", "b"} and not self._syncing:
             self._syncing = True
             try:
@@ -1384,6 +1458,26 @@ class CompareRunsTab:
         self._refresh_compare_runs_diff()
         self._refresh_compare_runs_selected_labels()
 
+    def _report_compare_run_state(self, side: str, text: str) -> None:
+        """Keep load/render status failures inside their Qt callback."""
+        try:
+            self._set_compare_run_error(side, text)
+        except Exception as exc:
+            # A malformed payload can make the normal diff renderer fail even
+            # while it is trying to paint the error state. The selection has
+            # already been cleared; do not let that secondary failure escape
+            # the queued invoker or list-selection signal.
+            self._log(
+                f"Could not update Compare Runs state ({text}): {exc}",
+                tag="warning",
+            )
+            try:
+                error_html = f'<span style="color:#f08b72;">{text}</span>'
+                _set_text(self._compare_run_widget(side, "status_label"), error_html)
+            except RuntimeError:
+                # The status widget was deleted during application teardown.
+                pass
+
     def _refresh_compare_runs_item_details_button(self, visible: bool) -> None:
         item_details_btn = self._item_details_btn
         if item_details_btn is None:
@@ -1646,12 +1740,18 @@ class CompareRunsTab:
         return f"{vod.metadata.name} · {snapshot_count} snapshots"
 
     def _save_compare_run_stat_selection(self) -> None:
-        config.user_config[COMPARE_RUN_STAT_CONFIG_KEY] = list(self._compare_run_checked_stat_labels())
-        config.save_config(config.user_config)
+        self._save_compare_run_config_value(
+            "selected comparison stats",
+            COMPARE_RUN_STAT_CONFIG_KEY,
+            list(self._compare_run_checked_stat_labels()),
+        )
 
     def _save_compare_run_sections(self) -> None:
-        config.user_config[COMPARE_RUN_SECTIONS_CONFIG_KEY] = self._compare_run_checked_sections()
-        config.save_config(config.user_config)
+        self._save_compare_run_config_value(
+            "comparison sections",
+            COMPARE_RUN_SECTIONS_CONFIG_KEY,
+            self._compare_run_checked_sections(),
+        )
 
     def _compare_run_checked_sections(self) -> dict[str, bool]:
         return {
@@ -2024,8 +2124,19 @@ class CompareRunsTab:
             # Run A is blue and Run B is purple everywhere else in this tab.
             spinner_colors=("#38BDF8", "#C084FC"),
         )
+        self._disposed = False
+        self._tab.destroyed.connect(self._on_tab_destroyed)
         self._tab.setObjectName("CompareRunsPage")
         self._tabview.addTab(self._tab, "Compare Runs")
+
+    def _on_tab_destroyed(self, _object=None) -> None:
+        """Invalidate trailing work without touching widgets being destroyed."""
+        self._disposed = True
+        self._load_generations = {
+            side: int(self._load_generations.get(side, 0)) + 1
+            for side in ("a", "b")
+        }
+        self._diff_throttle.cancel()
 
     def build_now(self) -> None:
         """Build the contents without waiting for a show. For tests."""
@@ -2147,6 +2258,11 @@ class CompareRunsTab:
         timeline_layout.addLayout(timeline_series_row)
 
         self._timeline = CompareRunsTimeline()
+        if self._uses_default_diff_throttle:
+            # A trailing diff render writes most of the tab. Tie its QTimer to
+            # the timeline so Qt cancels it with the page during teardown.
+            self._diff_throttle.cancel()
+            self._diff_throttle = UiUpdateThrottle(qt_context=self._timeline)
         self._timeline.set_compact(self._timeline_compact)
         self._timeline.positionChanged.connect(self.on_compare_timeline_position_changed)
         timeline_layout.addWidget(self._timeline)

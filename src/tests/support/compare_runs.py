@@ -39,6 +39,7 @@ def build_compare_runs_tab(**overrides) -> CompareRunsTab:
         # frame may simply never arrive.
         "diff_throttle": None,
         "timeline_series_slots": None,
+        "log": None,
     }
     unknown = set(overrides) - set(defaults)
     assert not unknown, f"not CompareRunsTab constructor arguments: {sorted(unknown)}"
