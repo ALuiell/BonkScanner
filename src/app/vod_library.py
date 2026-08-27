@@ -246,30 +246,67 @@ class VodLibrary:
             def apply_result() -> None:
                 if generation != self._refresh_generation:
                     return
-                self._refreshing = True
-                if error is not None:
+                callback_error = None
+                try:
+                    if error is not None:
+                        self._notify_failed(error)
+                        return
+                    self._index = tuple(vods)
+                    subscribers = tuple(self._subscribers)
+                    # Keep the two-phase contract even if one tab has already
+                    # failed or been disposed: every cache is invalidated
+                    # before any surviving view is repainted.
+                    for invalidate, _ in subscribers:
+                        try:
+                            invalidate()
+                        except Exception as exc:  # noqa: BLE001 -- Qt boundary
+                            callback_error = callback_error or exc
+                    for _, repaint in subscribers:
+                        try:
+                            repaint()
+                        except Exception as exc:  # noqa: BLE001 -- Qt boundary
+                            callback_error = callback_error or exc
+                    if callback_error is not None:
+                        self._notify_failed(callback_error)
+                finally:
+                    # A subscriber exception must not permanently latch the
+                    # in-flight guard and disable every future library refresh.
                     self._refreshing = False
-                    self._notify_failed(error)
-                    return
-                self._index = tuple(vods)
-                subscribers = tuple(self._subscribers)
-                for invalidate, _ in subscribers:
-                    invalidate()
-                for _, repaint in subscribers:
-                    repaint()
+
+            try:
+                scheduled = self._marshal(apply_result)
+            except Exception:
+                scheduled = False
+            if not scheduled:
+                # The UI invoker can disappear between the worker finishing
+                # and its result being posted. There is no safe thread-hop for
+                # listeners then, but the guard must still be released so a
+                # live/replaced invoker can retry later.
                 self._refreshing = False
 
-            self._marshal(apply_result)
+        try:
+            threading.Thread(
+                target=work, name="vod-metadata-index", daemon=True
+            ).start()
+        except Exception as exc:
+            self._refreshing = False
+            self._notify_failed(exc)
 
-        threading.Thread(target=work, name="vod-metadata-index", daemon=True).start()
-
-    def _marshal(self, callback: Callable[[], None]) -> None:
+    def _marshal(self, callback: Callable[[], None]) -> bool:
         schedule = self._schedule
         if callable(schedule):
-            schedule(callback)
+            result = schedule(callback)
+            return result is not False
         else:
             callback()
+            return True
 
     def _notify_failed(self, error: BaseException) -> None:
         for listener in tuple(self._failure_listeners):
-            listener(error)
+            try:
+                listener(error)
+            except Exception:
+                # Failure reporting is a Qt/UI boundary too. One disposed or
+                # broken listener must not escape the invoker slot or prevent
+                # the remaining tabs from receiving future refreshes.
+                pass

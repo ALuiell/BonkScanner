@@ -225,6 +225,60 @@ class VodStorageTests(unittest.TestCase):
         recorder.interval_seconds = 60
         self.assertEqual(recorder.interval_seconds, 60)
 
+    def test_failed_start_does_not_leave_a_phantom_active_recorder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(vods_dir=Path(temp_dir), clock=lambda: 1000.0)
+            with patch.object(Path, "open", side_effect=OSError("disk full")):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    recorder.start()
+
+            self.assertFalse(recorder.is_recording)
+            self.assertIsNone(recorder._file)
+            self.assertIsNone(recorder.path)
+            self.assertEqual("", recorder.name)
+
+    def test_failed_metadata_write_closes_and_removes_partial_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(vods_dir=Path(temp_dir), clock=lambda: 1000.0)
+            with patch.object(
+                recorder, "_write_record", side_effect=OSError("flush failed")
+            ):
+                with self.assertRaisesRegex(OSError, "flush failed"):
+                    recorder.start()
+
+            self.assertFalse(recorder.is_recording)
+            self.assertIsNone(recorder._file)
+            self.assertIsNone(recorder.path)
+            self.assertEqual([], list(Path(temp_dir).glob("*.jsonl")))
+
+    def test_failed_summary_write_still_closes_the_recording_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(vods_dir=Path(temp_dir), clock=lambda: 1000.0)
+            path = recorder.start()
+            with patch.object(
+                recorder, "_write_record", side_effect=OSError("disk removed")
+            ):
+                with self.assertRaisesRegex(OSError, "disk removed"):
+                    recorder.stop()
+
+            self.assertFalse(recorder.is_recording)
+            self.assertIsNone(recorder._file)
+            # Keep the recoverable partial recording; a failed summary must not
+            # turn into an implicit delete.
+            self.assertTrue(path.exists())
+
+    def test_start_refuses_to_replace_an_open_recording(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(vods_dir=Path(temp_dir), clock=lambda: 1000.0)
+            first_path = recorder.start()
+
+            with self.assertRaisesRegex(RuntimeError, "already active"):
+                recorder.start()
+
+            self.assertEqual(first_path, recorder.path)
+            self.assertTrue(recorder.is_recording)
+            recorder.stop()
+
     def test_recorder_writes_loads_and_renames_vod(self) -> None:
         now = 1000.0
         with tempfile.TemporaryDirectory() as temp_dir:

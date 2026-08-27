@@ -19,9 +19,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
+from app.vod_library import VodLibrary
 from ui.tabs.player_stats.recordings import (
     RecordingsTab,
     _format_bytes,
@@ -147,6 +149,145 @@ class FormatBytesTests(unittest.TestCase):
     def test_zero_and_negative_do_not_produce_nonsense(self) -> None:
         self.assertEqual(_format_bytes(0), "0 B")
         self.assertEqual(_format_bytes(-1), "0 B")
+
+
+class VodLibraryLifecycleTests(unittest.TestCase):
+    @staticmethod
+    def _run_threads_inline():
+        class ImmediateThread:
+            def __init__(self, *, target, **_kwargs) -> None:
+                self.target = target
+
+            def start(self) -> None:
+                self.target()
+
+        return patch("app.vod_library.threading.Thread", ImmediateThread)
+
+    def test_one_broken_subscriber_does_not_latch_or_starve_the_others(self) -> None:
+        scheduled = []
+        calls = []
+        failures = []
+        library = VodLibrary(
+            load_cached=tuple,
+            refresh_index=lambda: (_vod("fresh"),),
+            schedule=scheduled.append,
+        )
+        library.subscribe(
+            invalidate=lambda: (_ for _ in ()).throw(RuntimeError("disposed tab")),
+            repaint=lambda: calls.append("broken repaint still attempted"),
+            failed=lambda error: failures.append(str(error)),
+        )
+        library.subscribe(
+            invalidate=lambda: calls.append("good invalidate"),
+            repaint=lambda: calls.append("good repaint"),
+        )
+
+        with self._run_threads_inline():
+            library.ensure_refresh()
+        scheduled.pop(0)()
+
+        self.assertEqual(["fresh"], [vod.name for vod in library.index])
+        self.assertEqual(
+            ["good invalidate", "broken repaint still attempted", "good repaint"],
+            calls,
+        )
+        self.assertEqual(["disposed tab"], failures)
+        self.assertFalse(library._refreshing)
+
+        # The failed callback did not permanently disable later refreshes.
+        with self._run_threads_inline():
+            library.ensure_refresh()
+        self.assertEqual(1, len(scheduled))
+
+    def test_failure_listener_exceptions_are_contained(self) -> None:
+        scheduled = []
+        observed = []
+        library = VodLibrary(
+            load_cached=tuple,
+            refresh_index=lambda: (_ for _ in ()).throw(OSError("index failed")),
+            schedule=scheduled.append,
+        )
+        library.subscribe(
+            invalidate=lambda: None,
+            repaint=lambda: None,
+            failed=lambda _error: (_ for _ in ()).throw(RuntimeError("dead label")),
+        )
+        library.subscribe(
+            invalidate=lambda: None,
+            repaint=lambda: None,
+            failed=lambda error: observed.append(str(error)),
+        )
+
+        with self._run_threads_inline():
+            library.ensure_refresh()
+        scheduled.pop(0)()
+
+        self.assertEqual(["index failed"], observed)
+        self.assertFalse(library._refreshing)
+
+    def test_thread_start_failure_restores_refresh_guard(self) -> None:
+        failures = []
+        library = VodLibrary(load_cached=tuple, refresh_index=tuple)
+        library.subscribe(
+            invalidate=lambda: None,
+            repaint=lambda: None,
+            failed=lambda error: failures.append(str(error)),
+        )
+
+        with patch(
+            "app.vod_library.threading.Thread",
+            side_effect=RuntimeError("thread unavailable"),
+        ):
+            library.ensure_refresh()
+
+        self.assertEqual(["thread unavailable"], failures)
+        self.assertFalse(library._refreshing)
+
+    def test_dropped_ui_schedule_restores_refresh_guard(self) -> None:
+        library = VodLibrary(
+            load_cached=tuple,
+            refresh_index=lambda: (_vod("fresh"),),
+            schedule=lambda _callback: False,
+        )
+
+        with self._run_threads_inline():
+            library.ensure_refresh()
+
+        self.assertFalse(library._refreshing)
+        self.assertEqual([], list(library.index))
+
+    def test_raising_ui_schedule_restores_refresh_guard(self) -> None:
+        library = VodLibrary(
+            load_cached=tuple,
+            refresh_index=lambda: (_vod("fresh"),),
+            schedule=lambda _callback: (_ for _ in ()).throw(
+                RuntimeError("invoker deleted")
+            ),
+        )
+
+        with self._run_threads_inline():
+            library.ensure_refresh()
+
+        self.assertFalse(library._refreshing)
+
+
+class RecordingPreferenceTests(unittest.TestCase):
+    def test_preference_write_failure_is_contained_at_the_qt_boundary(self) -> None:
+        messages = []
+        tab = SimpleNamespace(
+            _log=lambda message, **kwargs: messages.append((message, kwargs))
+        )
+
+        saved = RecordingsTab._save_recording_preference(
+            tab,
+            "recording sort order",
+            lambda: (_ for _ in ()).throw(OSError("disk full")),
+        )
+
+        self.assertFalse(saved)
+        self.assertEqual(1, len(messages))
+        self.assertIn("disk full", messages[0][0])
+        self.assertEqual("warning", messages[0][1]["tag"])
 
 
 if __name__ == "__main__":

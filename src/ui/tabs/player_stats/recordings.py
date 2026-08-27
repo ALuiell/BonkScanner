@@ -405,6 +405,7 @@ class RecordingsTab:
         self._requested_snapshot_index = None
         # Slider-drag rate limiting; injectable so a test can drive the
         # coalescing with a fake clock instead of a real event loop.
+        self._uses_default_snapshot_throttle = snapshot_throttle is None
         self._snapshot_throttle = snapshot_throttle or UiUpdateThrottle()
         self._timeline_series_slots = timeline_series_slots or TimelineSeriesSlots()
         self._compare_start_index = None
@@ -560,7 +561,10 @@ class RecordingsTab:
         The cleanup dialog starts from the same value, but can change it for
         that one operation and owns the preview of what the choice will remove.
         """
-        set_minimum_snapshot_count(int(value))
+        self._save_recording_preference(
+            "minimum snapshot count",
+            lambda: set_minimum_snapshot_count(int(value)),
+        )
 
     def _recordings_sort_mode(self) -> str:
         """The combo's order, or the saved one before the combo exists."""
@@ -574,9 +578,24 @@ class RecordingsTab:
         self.refresh_vods_list()
 
     def on_recordings_sort_changed(self, _index: int = 0) -> None:
-        set_recording_sort_mode(self._recordings_sort_mode())
+        self._save_recording_preference(
+            "recording sort order",
+            lambda: set_recording_sort_mode(self._recordings_sort_mode()),
+        )
         self._list_signature = None
         self.refresh_vods_list()
+
+    def _save_recording_preference(self, label: str, writer) -> bool:
+        """Keep config I/O failures inside their Qt signal/timer boundary."""
+        try:
+            writer()
+        except Exception as exc:
+            self._log(
+                f"Could not save {label}: {exc}",
+                tag="warning",
+            )
+            return False
+        return True
     def invalidate_vods_list(self) -> None:
         """Drop the painted-list signature. `VodLibrary`'s invalidate hook."""
         self._list_signature = None
@@ -624,7 +643,10 @@ class RecordingsTab:
         if expanded:
             self._apply_library_width()
         if remember:
-            set_recording_library_open(expanded)
+            self._save_recording_preference(
+                "recordings library state",
+                lambda: set_recording_library_open(expanded),
+            )
     def _refresh_recordings_chooser(self) -> None:
         expanded = bool(self._chooser_expanded)
         chooser = self._chooser_group
@@ -694,7 +716,10 @@ class RecordingsTab:
         """
         self._remember_library_width()
         self._library_width_throttle.request(
-            lambda: set_recording_library_width(int(self._library_width))
+            lambda: self._save_recording_preference(
+                "recordings library width",
+                lambda: set_recording_library_width(int(self._library_width)),
+            )
         )
     def _on_vod_selection_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None):
         if current is None:
@@ -780,7 +805,15 @@ class RecordingsTab:
         # the shared namespace on every load; it is one injected callable now,
         # and the two branches are the same two.
         if callable(self._schedule):
-            threading.Thread(target=load, name="vod-loader", daemon=True).start()
+            try:
+                threading.Thread(
+                    target=load, name="vod-loader", daemon=True
+                ).start()
+            except Exception as exc:
+                # Resource exhaustion or interpreter teardown can reject a new
+                # native thread. Restore an interactive, explicit error state
+                # instead of leaving the tab disabled on "Loading…" forever.
+                finish(None, exc)
         else:
             load()
 
@@ -1306,13 +1339,20 @@ class RecordingsTab:
             default_threshold=minimum_snapshot_count(),
             recordings=cleanup_candidates,
         )
-        if dialog.exec() != QDialog.Accepted or dialog.threshold is None:
+        try:
+            accepted = dialog.exec() == QDialog.Accepted
+            threshold = dialog.threshold
+        finally:
+            delete_later = getattr(dialog, "deleteLater", None)
+            if callable(delete_later):
+                delete_later()
+        if not accepted or threshold is None:
             return
 
         selected_path = self._loaded_vod.metadata.path if self._loaded_vod is not None else None
         try:
             result = delete_vods_below_snapshot_count(
-                dialog.threshold,
+                threshold,
                 excluded_paths={active_path} if active_path is not None else None,
             )
         except Exception as exc:
@@ -1323,7 +1363,7 @@ class RecordingsTab:
             self._clear_loaded_vod_selection()
 
         self.refresh_vods_list()
-        message = f"[*] Removed {result.removed} recordings with snapshot count below {dialog.threshold}."
+        message = f"[*] Removed {result.removed} recordings with snapshot count below {threshold}."
         skipped = result.skipped_active + result.skipped_locked
         if skipped:
             message += f" Skipped {skipped} active or locked recording(s)."
@@ -1332,8 +1372,14 @@ class RecordingsTab:
         if self._loaded_vod is None:
             return
         dialog = ConfirmDeleteRecordingDialog(self._window(), self._loaded_vod.metadata.name)
-        dialog.exec()
-        if not dialog.result:
+        try:
+            dialog.exec()
+            confirmed = bool(dialog.result)
+        finally:
+            delete_later = getattr(dialog, "deleteLater", None)
+            if callable(delete_later):
+                delete_later()
+        if not confirmed:
             return
         path = self._loaded_vod.metadata.path
         try:
@@ -1684,7 +1730,10 @@ class RecordingsTab:
         )
 
     def _set_slot(self, slot_index: int, keys: tuple[str, ...]) -> None:
-        self._timeline_series_slots.set_slot(slot_index, keys)
+        self._save_recording_preference(
+            "timeline series",
+            lambda: self._timeline_series_slots.set_slot(slot_index, keys),
+        )
 
     def _apply_timeline_series_slots(self, slots) -> None:
         slots = tuple(tuple(slot) for slot in slots)
@@ -1698,7 +1747,9 @@ class RecordingsTab:
 
     def on_recording_caps_changed(self) -> None:
         keys = checked_timeline_caps(self._cap_checkboxes)
-        save_timeline_caps(keys)
+        self._save_recording_preference(
+            "timeline caps", lambda: save_timeline_caps(keys)
+        )
         # A cap key can add a series the model does not carry yet, so this is a
         # rebuild rather than a repaint.
         self._rebuild_scrubber_model()
@@ -1733,10 +1784,12 @@ class RecordingsTab:
             )
         self._scrubber.set_pin(self._compare_start_index)
 
-    @staticmethod
-    def _save_stats_expanded_preference(expanded: bool) -> None:
-        config.user_config[LIVE_STATS_EXPANDED_CONFIG_KEY] = bool(expanded)
-        config.save_config(config.user_config)
+    def _save_stats_expanded_preference(self, expanded: bool) -> None:
+        def save() -> None:
+            config.user_config[LIVE_STATS_EXPANDED_CONFIG_KEY] = bool(expanded)
+            config.save_config(config.user_config)
+
+        self._save_recording_preference("recording stats layout", save)
 
     def build(self):
         """Put the tab in the bar; build its heavy contents after first paint.
@@ -1795,6 +1848,13 @@ class RecordingsTab:
         self._body_splitter.setObjectName("RecordingsBodySplitter")
         self._body_splitter.setChildrenCollapsible(False)
         self._body_splitter.setHandleWidth(10)
+        # The trailing config write belongs to this splitter. A context-free
+        # timer could fire after the Recordings page was destroyed during
+        # application teardown.
+        self._library_width_throttle.cancel()
+        self._library_width_throttle = UiUpdateThrottle(
+            500, qt_context=self._body_splitter
+        )
         self._body_splitter.splitterMoved.connect(
             lambda _pos, _index: self._on_library_width_dragged()
         )
@@ -1813,6 +1873,14 @@ class RecordingsTab:
         vods_detail_layout.addWidget(self._build_record_plaque())
         vods_detail_layout.addLayout(self._build_scrubber_header())
         self._scrubber = RecordingScrubber()
+        if self._uses_default_snapshot_throttle:
+            # A queued scrub frame writes dozens of child widgets. Bind its
+            # timer to their owning scrubber so Qt cancels delivery with the
+            # page instead of calling through deleted C++ wrappers.
+            self._snapshot_throttle.cancel()
+            self._snapshot_throttle = UiUpdateThrottle(
+                qt_context=self._scrubber
+            )
         self._scrubber.setToolTip(
             "LMB / Shift+LMB drags A  ·  Shift+RMB drags compare point B\n"
             "← → step (Shift × 10)  ·  Home / End  ·  B pins  ·  Esc clears B"

@@ -337,6 +337,8 @@ class VodRecorder:
         character_id: int | None = None,
         character_name: str | None = None,
     ) -> Path:
+        if self.is_recording or self._file is not None:
+            raise RuntimeError("VOD recorder is already active.")
         self.vods_dir.mkdir(parents=True, exist_ok=True)
         created_at = datetime.now().replace(microsecond=0)
         file_stem = created_at.strftime("%Y-%m-%d_%H-%M-%S")
@@ -350,50 +352,82 @@ class VodRecorder:
         self.start_time = self.clock()
         self.last_snapshot_time = None
         self.snapshot_count = 0
+        self.is_recording = False
+        try:
+            self._file = self.path.open("w", encoding="utf-8")
+            self._write_record(
+                {
+                    "type": "metadata",
+                    "version": VOD_FORMAT_VERSION,
+                    "name": self.name,
+                    "created_at": created_at.isoformat(),
+                    "snapshot_interval_seconds": self.interval_seconds,
+                    "run_seed": seed,
+                    "character_id": character_id,
+                    "character_name": character_name,
+                },
+                flush=True,
+            )
+        except Exception:
+            opened_file, self._file = self._file, None
+            if opened_file is not None:
+                try:
+                    opened_file.close()
+                except Exception:
+                    pass
+            failed_path, self.path = self.path, None
+            if failed_path is not None:
+                try:
+                    failed_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            self.name = ""
+            self.start_time = None
+            self.last_snapshot_time = None
+            self.snapshot_count = 0
+            self._created_at = None
+            self._max_mob_kills = None
+            raise
         self.is_recording = True
-        self._file = self.path.open("w", encoding="utf-8")
-        self._write_record(
-            {
-                "type": "metadata",
-                "version": VOD_FORMAT_VERSION,
-                "name": self.name,
-                "created_at": created_at.isoformat(),
-                "snapshot_interval_seconds": self.interval_seconds,
-                "run_seed": seed,
-                "character_id": character_id,
-                "character_name": character_name,
-            },
-            flush=True,
-        )
         return self.path
 
     def stop(self) -> str:
         self.is_recording = False
         status = "kept"
         if self._file is not None:
-            if (
-                self._uses_automatic_name
-                and self._created_at is not None
-                and self._max_mob_kills is not None
-            ):
-                self.name = _automatic_vod_name(
-                    self._automatic_name_prefix,
-                    self._created_at,
-                    self._max_mob_kills,
+            stop_error = None
+            try:
+                if (
+                    self._uses_automatic_name
+                    and self._created_at is not None
+                    and self._max_mob_kills is not None
+                ):
+                    self.name = _automatic_vod_name(
+                        self._automatic_name_prefix,
+                        self._created_at,
+                        self._max_mob_kills,
+                    )
+                self._write_record(
+                    {
+                        "type": "summary",
+                        "name": self.name,
+                        "duration_seconds": self.elapsed_seconds(),
+                        "snapshot_count": self.snapshot_count,
+                        "mob_kills": self._max_mob_kills,
+                    },
+                    flush=True,
                 )
-            self._write_record(
-                {
-                    "type": "summary",
-                    "name": self.name,
-                    "duration_seconds": self.elapsed_seconds(),
-                    "snapshot_count": self.snapshot_count,
-                    "mob_kills": self._max_mob_kills,
-                },
-                flush=True,
-            )
-            self._file.flush()
-            self._file.close()
-            self._file = None
+                self._file.flush()
+            except Exception as exc:
+                stop_error = exc
+            finally:
+                opened_file, self._file = self._file, None
+                try:
+                    opened_file.close()
+                except Exception as exc:
+                    stop_error = stop_error or exc
+            if stop_error is not None:
+                raise stop_error
         threshold = minimum_snapshot_count()
         if self.path is not None and self.snapshot_count < threshold:
             self.path.unlink(missing_ok=True)

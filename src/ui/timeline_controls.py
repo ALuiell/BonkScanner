@@ -202,10 +202,23 @@ class TimelineSeriesSlots:
         normalized = _validated_timeline_series_slots(slots)
         if normalized is None or normalized == self._slots:
             return
+        previous = self._slots
         self._slots = normalized
-        save_timeline_series_slots(self._slots)
+        try:
+            save_timeline_series_slots(self._slots)
+        except Exception:
+            # Do not publish a value the shared service could not persist. In
+            # particular, Recordings and Compare Runs must not split into two
+            # different slot layouts after a disk/config error.
+            self._slots = previous
+            raise
         for callback in tuple(self._subscribers):
-            callback(self._slots)
+            try:
+                callback(self._slots)
+            except Exception:
+                # A disposed tab must not prevent the other subscriber from
+                # receiving the shared selection or escape the Qt click slot.
+                pass
 
 
 def refresh_timeline_slot_button(button: QPushButton, slot_index: int, keys) -> None:

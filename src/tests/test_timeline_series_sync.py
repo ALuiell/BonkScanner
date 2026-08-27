@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from app import config
 from tests.support.compare_runs import build_compare_runs_tab
 from tests.support.player_stats import build_recordings_tab
@@ -47,3 +49,33 @@ def test_shared_slots_migrate_the_existing_recordings_preference_first() -> None
         },
     ):
         assert TimelineSeriesSlots().slots[0] == ("Damage",)
+
+
+def test_failed_slot_persistence_rolls_back_the_shared_value() -> None:
+    shared = TimelineSeriesSlots(slots=(("Damage",), (), (), ()))
+    observed = []
+    shared.subscribe(observed.append)
+
+    with patch(
+        "ui.timeline_controls.save_timeline_series_slots",
+        side_effect=OSError("config unavailable"),
+    ), pytest.raises(OSError, match="config unavailable"):
+        shared.set_slot(0, ("Luck",))
+
+    assert shared.slots[0] == ("Damage",)
+    assert observed == []
+
+
+def test_broken_slot_subscriber_does_not_starve_the_next_tab() -> None:
+    shared = TimelineSeriesSlots(slots=(("Damage",), (), (), ()))
+    observed = []
+    shared.subscribe(
+        lambda _slots: (_ for _ in ()).throw(RuntimeError("tab deleted"))
+    )
+    shared.subscribe(observed.append)
+
+    with patch("ui.timeline_controls.save_timeline_series_slots"):
+        shared.set_slot(0, ("Luck",))
+
+    assert shared.slots[0] == ("Luck",)
+    assert observed == [(("Luck",), (), (), ())]

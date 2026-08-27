@@ -264,12 +264,28 @@ class VodCapture:
             run_time_seconds = self._read_run_timer()
             runtime_state = self._run_lifecycle().state_or_unknown()
             if runtime_state.mode is RuntimeGameMode.IN_GAME:
-                vod_path = self.start_recording(
-                    seed=seed,
-                    stage_ptr=stage_ptr,
-                    stage_index=stage_index,
-                    run_time_seconds=run_time_seconds,
-                )
+                try:
+                    vod_path = self.start_recording(
+                        seed=seed,
+                        stage_ptr=stage_ptr,
+                        stage_index=stage_index,
+                        run_time_seconds=run_time_seconds,
+                    )
+                except Exception as exc:
+                    # This is a Qt button callback. A read-only directory, full
+                    # disk, or failed metadata flush must become visible state,
+                    # not an exception escaping the signal into Qt.
+                    self.player_stats_recording_armed = False
+                    self.player_stats_recording_waiting_mode = None
+                    self._log(
+                        f"Could not start player stats recording: {exc}",
+                        tag="error",
+                    )
+                    self._player_stats_view().set_recording_status_text(
+                        f"Could not start recording: {exc}"
+                    )
+                    self._player_stats_view().refresh_player_stats_timeline_ui()
+                    return
                 self._log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
             else:
                 self.player_stats_recording_waiting_mode = runtime_state.mode.value
@@ -334,20 +350,41 @@ class VodCapture:
                 # Stopping must remain reliable even if the process disappears
                 # before the last best-effort memory snapshot can be built.
                 pass
-        recorder.stop()
-        self._reset_snapshot_buffer()
-        self.player_stats_recording_seed = None
-        self.player_stats_recording_stage_ptr = 0
-        self.player_stats_recording_stage_index = None
-        self.player_stats_recording_seed_missing_since = None
-        self.player_stats_recording_run_time_seconds = None
-        self.player_stats_recording_waiting_mode = None
-        self.player_stats_auto_start_detection_streak = 0
-        self._close_game_data_client()
-        if log_message:
+        stop_error = None
+        try:
+            recorder.stop()
+        except Exception as exc:
+            stop_error = exc
+            try:
+                recorder.is_recording = False
+            except Exception:
+                pass
+        finally:
+            # Recorder.stop() can fail while flushing a summary or closing a
+            # full/removed file. The logical recording still has to end, or
+            # every later refresh keeps treating a broken writer as active.
+            self._reset_snapshot_buffer()
+            self.player_stats_recording_seed = None
+            self.player_stats_recording_stage_ptr = 0
+            self.player_stats_recording_stage_index = None
+            self.player_stats_recording_seed_missing_since = None
+            self.player_stats_recording_run_time_seconds = None
+            self.player_stats_recording_waiting_mode = None
+            self.player_stats_auto_start_detection_streak = 0
+            self._close_game_data_client()
+        if stop_error is not None:
+            self._log(
+                f"Could not finalize player stats recording: {stop_error}",
+                tag="error",
+            )
+        elif log_message:
             self._log(log_message, tag=log_tag)
         if refresh_live_stats:
             self._refresh_now()
+            if stop_error is not None:
+                self._player_stats_view().set_recording_status_text(
+                    f"Recording stopped, but the file could not be finalized: {stop_error}"
+                )
         self._recordings_list_view()._refresh_vods_list_if_visible()
 
     def sync_run_state(self, context=None) -> str | None:

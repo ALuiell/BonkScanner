@@ -470,6 +470,43 @@ class RecordingsLayoutTests(unittest.TestCase):
             assert abs(corner_center - tab_center) <= 1
             stats_page = view._detail_tabs.widget(0)
             assert view._stats_expanded_toggle.parent() is not stats_page
+
+            # Both trailing timers own Recordings widgets/config callbacks and
+            # must be cancelled with the page. Exercise real QTimers in this
+            # isolated process so DeferredDelete cannot affect other Qt tests.
+            from PySide6.QtCore import QCoreApplication
+            from PySide6.QtTest import QTest
+            view._loaded_vod = SimpleNamespace(
+                snapshots=tuple(
+                    SimpleNamespace(time_label=f"00:{index}0")
+                    for index in range(3)
+                )
+            )
+            view._snapshot_index = 0
+            view._requested_snapshot_index = 0
+            view._refresh_scrub_readout = lambda _index: None
+            rendered = []
+            view.display_loaded_vod_snapshot = rendered.append
+            view._snapshot_throttle.cancel()
+            view._snapshot_throttle.request(lambda: None)
+            view.on_scrub_index_changed(2)
+            assert view._snapshot_throttle.has_pending
+
+            persisted_widths = []
+            view._library_width_throttle.cancel()
+            view._library_width_throttle.request(lambda: None)
+            view._library_width_throttle.request(
+                lambda: persisted_widths.append(True)
+            )
+            assert view._library_width_throttle.has_pending
+
+            view._tab.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            QTest.qWait(550)
+            QCoreApplication.processEvents()
+            assert rendered == [], rendered
+            assert persisted_widths == [], persisted_widths
+            print("BLOCK9_RECORDINGS_QT_CONTEXT_OK")
             """
         )
         env = os.environ.copy()
@@ -483,6 +520,7 @@ class RecordingsLayoutTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("BLOCK9_RECORDINGS_QT_CONTEXT_OK", result.stdout)
 
 
 if __name__ == "__main__":

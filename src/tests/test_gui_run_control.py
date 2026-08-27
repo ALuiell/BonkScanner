@@ -1825,6 +1825,30 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app._delete_btn.isEnabled())
         self.assertFalse(app._scrubber.isEnabled())
 
+    def test_load_selected_vod_recovers_when_worker_thread_cannot_start(self) -> None:
+        app = build_recordings_tab(schedule=lambda callback: callback())
+        app._name_entry = FakeEntry("Old")
+        app._name_entry.setEnabled = lambda enabled: setattr(
+            app._name_entry, "enabled", bool(enabled)
+        )
+        app._rename_btn = FakeControl()
+        app._delete_btn = FakeControl()
+        app._scrubber = FakeControl()
+        app._status_label = FakeLabel()
+        app._clear_loaded_vod_selection = MagicMock()
+
+        with patch.object(
+            threading, "Thread", side_effect=RuntimeError("thread unavailable")
+        ):
+            app.load_selected_vod("C:/tmp/run.jsonl")
+
+        app._clear_loaded_vod_selection.assert_called_once_with()
+        self.assertEqual(
+            app._status_label.text(),
+            "Could not load recording: thread unavailable",
+        )
+        self.assertFalse(app._load_in_progress)
+
     def test_template_manager_dialog_expands_selected_template(self) -> None:
         MegabonkApp._ensure_qt_application()
         templates = [
@@ -2208,6 +2232,75 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
         self.assertIn(("[*] Player stats recording stopped.", None), app.log_messages)
+
+    def test_manual_recording_start_failure_is_contained_at_qt_boundary(self) -> None:
+        recorder = SimpleNamespace(
+            is_recording=False,
+            start=lambda **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+            stop=lambda: None,
+        )
+        lifecycle = SimpleNamespace(
+            state_or_unknown=lambda: RuntimeGameState(
+                mode=RuntimeGameMode.IN_GAME,
+                is_playing=True,
+            )
+        )
+        service, world = build_vod_capture(
+            recorder=recorder,
+            recording_states=[SimpleNamespace(
+                map_seed=777,
+                current_stage_ptr=0x1234,
+                stage_index=0,
+            )],
+            run_timers=[12.0],
+            run_lifecycle=lifecycle,
+        )
+
+        with patch.object(config, "AUTO_START_RECORDING", False):
+            service.toggle_recording()
+
+        self.assertFalse(service.player_stats_recording_armed)
+        self.assertFalse(recorder.is_recording)
+        self.assertIn(
+            ("Could not start player stats recording: disk full", "error"),
+            world.log,
+        )
+        self.assertIn(
+            ("status", "Could not start recording: disk full"),
+            world.view_calls,
+        )
+        self.assertIn(("timeline", {}), world.view_calls)
+
+    def test_recording_stop_failure_still_resets_the_logical_session(self) -> None:
+        def fail_stop() -> None:
+            raise OSError("summary flush failed")
+
+        recorder = SimpleNamespace(is_recording=True, stop=fail_stop)
+        service, world = build_vod_capture(recorder=recorder)
+        service.player_stats_recording_seed = 777
+        service.player_stats_recording_stage_ptr = 0x1234
+
+        service.stop_recording(finalize_snapshot=False)
+
+        self.assertFalse(recorder.is_recording)
+        self.assertIsNone(service.player_stats_recording_seed)
+        self.assertEqual(0, service.player_stats_recording_stage_ptr)
+        self.assertEqual([True], world.snapshot_resets)
+        self.assertEqual([True], world.closed_clients)
+        self.assertIn(
+            (
+                "Could not finalize player stats recording: summary flush failed",
+                "error",
+            ),
+            world.log,
+        )
+        self.assertIn(
+            (
+                "status",
+                "Recording stopped, but the file could not be finalized: summary flush failed",
+            ),
+            world.view_calls,
+        )
 
     def test_auto_start_recording_respects_session_suppression(self) -> None:
         # The real constructor with explicit fakes, not `object.__new__`.
