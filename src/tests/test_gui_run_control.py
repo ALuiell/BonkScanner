@@ -5041,6 +5041,27 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("Kills:</span> +33", calls[0]["kwargs"]["new_items_text"])
         self.assertNotIn("Za Warudo +1", calls[0]["kwargs"]["new_items_text"])
 
+    def test_display_player_stats_snapshot_ignores_detached_recording_frame(self) -> None:
+        current = SimpleNamespace(
+            stats={},
+            items=(),
+            tomes=(),
+            banishes=(),
+            chests_per_minute=None,
+            game_time_seconds=10.0,
+            mob_kills=1,
+            player_level=1,
+            time_label="00:10",
+        )
+        detached = SimpleNamespace(**vars(current))
+        calls = []
+        view = build_live_stats_tab(vod_snapshots=lambda: [current])
+        view.display_player_stats = lambda *args, **kwargs: calls.append((args, kwargs))
+
+        view.display_player_stats_snapshot(detached)
+
+        self.assertEqual([], calls)
+
     def test_display_loaded_vod_snapshot_shows_legacy_in_game_fallback(self) -> None:
         app = build_recordings_tab()
         app._status_label = FakeLabel()

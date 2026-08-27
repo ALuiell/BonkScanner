@@ -90,6 +90,7 @@ class RecordingTimelineView:
         # Live Stats tab -- stat rows, items, four cards -- and a drag emits one
         # `valueChanged` per pixel; injectable so a test can drive the
         # coalescing with a fake clock rather than an event loop.
+        self._uses_default_throttle = throttle is None
         self._throttle = throttle or UiUpdateThrottle()
         self._requested_index: int | None = None
 
@@ -145,6 +146,13 @@ class RecordingTimelineView:
         self._slider.valueChanged.connect(self.handle_slider_value)
         content_layout.addWidget(self._slider)
 
+        if self._uses_default_throttle:
+            # A trailing drag frame owns Qt widget callbacks. Bind its timer to
+            # the slider so destroying the Live Stats tab cancels delivery
+            # instead of invoking Python against deleted C++ wrappers.
+            self._throttle.cancel()
+            self._throttle = UiUpdateThrottle(qt_context=self._slider)
+
         self._slider_time_label = QLabel("Timeline: live stats")
         content_layout.addWidget(self._slider_time_label)
 
@@ -176,6 +184,13 @@ class RecordingTimelineView:
         snapshot_count = len(snapshots)
         recording_armed = self._recording_armed()
         waiting_mode = self._waiting_mode()
+        selected = self._normalized_selected_index(snapshot_count)
+
+        if not recorder.is_recording or not snapshot_count:
+            # A queued drag belongs to the timeline that just disappeared.
+            # Its timer may still fire, but ``cancel`` makes that timeout inert.
+            self._requested_index = None
+            self._throttle.cancel()
 
         # Three states, three pictures. Stop is the live segment for both
         # `armed` and `recording` because pressing it is what either one
@@ -192,8 +207,9 @@ class RecordingTimelineView:
             self._slider.setEnabled(True)
             self._slider.setMaximum(max(snapshot_count - 1, 1))
             if update_slider:
-                index = self._selected_index()
-                self._slider.setValue(index if index is not None else snapshot_count - 1)
+                self._slider.setValue(
+                    selected if selected is not None else snapshot_count - 1
+                )
         else:
             self._slider.setEnabled(False)
             self._slider.setMaximum(1)
@@ -202,7 +218,6 @@ class RecordingTimelineView:
         if recorder.is_recording:
             prefix = f"Recording {recorder.elapsed_label()} | "
             if snapshot_count:
-                selected = self._selected_index()
                 mode = snapshots[selected].time_label if selected is not None else "--"
                 self._timeline_label.setText(f"{prefix}{snapshot_count} snapshots | {mode}")
             elif waiting_mode == RuntimeGameMode.PAUSED_IN_GAME.value:
@@ -217,7 +232,6 @@ class RecordingTimelineView:
         if recorder.is_recording and snapshot_count:
             first = snapshots[0].time_label
             last = snapshots[-1].time_label
-            selected = self._selected_index()
             current = snapshots[selected].time_label if selected is not None else "--"
             self._slider_time_label.setText(
                 f"Timeline: {first} - {last} | Selected: {current}"
@@ -250,11 +264,33 @@ class RecordingTimelineView:
         # Immediate and cheap, so the caption tracks the drag; selecting the
         # snapshot re-renders the whole Live Stats tab, so that is coalesced.
         self._slider_time_label.setText(self._timeline_range_text(index))
-        self._throttle.request(lambda: self._select_snapshot(index))
+        source_id = id(snapshots)
+        self._throttle.request(
+            lambda: self._select_snapshot(index, source_id=source_id)
+        )
 
-    def _select_snapshot(self, index: int) -> None:
+    def _select_snapshot(self, index: int, *, source_id: int | None = None) -> None:
+        snapshots = self._snapshots()
+        if source_id is not None and id(snapshots) != source_id:
+            self._requested_index = None
+            return
+        if not snapshots:
+            self._requested_index = None
+            return
+        index = min(max(int(index), 0), len(snapshots) - 1)
+        self._requested_index = None
         self._on_snapshot_selected(index)
         self.refresh(update_slider=False)
+
+    def _normalized_selected_index(self, snapshot_count: int) -> int | None:
+        selected = self._selected_index()
+        if selected is None or snapshot_count <= 0:
+            return None
+        try:
+            selected = int(selected)
+        except (TypeError, ValueError):
+            return None
+        return min(max(selected, 0), snapshot_count - 1)
 
     def _timeline_range_text(self, index: int) -> str:
         snapshots = self._snapshots()

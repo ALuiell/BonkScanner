@@ -13,6 +13,10 @@ component's real constructor -- no `object.__new__(MegabonkApp)`.
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import subprocess
+import sys
+import textwrap
 import unittest
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
@@ -21,6 +25,29 @@ from core.game_state import RuntimeGameMode
 from support.player_stats import FakeRecorder, build_recording_timeline_view
 from ui.styles import build_qt_app_stylesheet
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
+
+
+class DeferredThrottle:
+    """Deterministic trailing-only throttle for stale-selection tests."""
+
+    def __init__(self) -> None:
+        self.pending = None
+
+    def request(self, callback) -> bool:
+        self.pending = callback
+        return False
+
+    @property
+    def has_pending(self) -> bool:
+        return self.pending is not None
+
+    def cancel(self) -> None:
+        self.pending = None
+
+    def fire(self) -> None:
+        callback, self.pending = self.pending, None
+        if callback is not None:
+            callback()
 
 
 class RecordingTimelineRenderTests(unittest.TestCase):
@@ -93,6 +120,36 @@ class RecordingTimelineRenderTests(unittest.TestCase):
         self.assertEqual(
             harness.slider_time_label.text, "Timeline: 00:10 - 00:20 | Selected: --"
         )
+
+    def test_stale_selected_index_is_clamped_to_the_available_snapshots(self) -> None:
+        harness = build_recording_timeline_view(
+            recording=True,
+            snapshot_labels=("00:10", "00:20", "00:30"),
+            selected_index=99,
+        )
+
+        harness.view.refresh()
+
+        self.assertEqual(
+            harness.timeline_label.text,
+            "Recording 00:42 | 3 snapshots | 00:30",
+        )
+        self.assertIn(("setValue", 2), harness.slider.calls)
+
+    def test_invalid_selected_index_is_treated_as_live(self) -> None:
+        harness = build_recording_timeline_view(
+            recording=True,
+            snapshot_labels=("00:10", "00:20", "00:30"),
+        )
+        harness.state["selected"] = "not-an-index"
+
+        harness.view.refresh()
+
+        self.assertEqual(
+            harness.slider_time_label.text,
+            "Timeline: 00:10 - 00:30 | Selected: --",
+        )
+        self.assertIn(("setValue", 2), harness.slider.calls)
 
 
 class RecordingTimelineSliderTests(unittest.TestCase):
@@ -174,6 +231,38 @@ class RecordingTimelineCommandTests(unittest.TestCase):
         harness.view._on_toggle_recording()
 
         self.assertEqual(1, harness.toggles)
+
+    def test_queued_selection_is_discarded_after_snapshot_store_replacement(self) -> None:
+        throttle = DeferredThrottle()
+        harness = build_recording_timeline_view(
+            recording=True,
+            snapshot_labels=("old-a", "old-b"),
+            selected_index=0,
+            throttle=throttle,
+        )
+        harness.view.handle_slider_value(1)
+
+        harness.state["snapshots"] = [type(harness.state["snapshots"][0])("new")]
+        throttle.fire()
+
+        self.assertEqual([], harness.selections)
+
+    def test_timeline_reset_cancels_a_queued_selection(self) -> None:
+        throttle = DeferredThrottle()
+        harness = build_recording_timeline_view(
+            recording=True,
+            snapshot_labels=("00:10", "00:20"),
+            selected_index=0,
+            throttle=throttle,
+        )
+        harness.view.handle_slider_value(1)
+
+        harness.state["recorder"].is_recording = False
+        harness.state["snapshots"] = []
+        harness.view.refresh()
+        throttle.fire()
+
+        self.assertEqual([], harness.selections)
 
 
 class RecordingTimelineInitialPaintTests(unittest.TestCase):
@@ -260,6 +349,74 @@ class RecordingTimelineInitialPaintTests(unittest.TestCase):
             sizes.append(view._record_btn.sizeHint())
 
         self.assertEqual(1, len(set((size.width(), size.height()) for size in sizes)), sizes)
+
+    def test_destroying_the_tab_cancels_a_trailing_slider_callback(self) -> None:
+        # DeferredDelete is deliberately isolated. Running it against the one
+        # QApplication shared by the full suite would also flush deferred
+        # deletion from unrelated Qt tests and can terminate the test process
+        # before unittest has a chance to report anything.
+        script = textwrap.dedent(
+            """
+            import os
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            import src
+            from PySide6.QtCore import QCoreApplication, QEvent
+            from PySide6.QtTest import QTest
+            from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+            from tests.support.player_stats import FakeRecorder
+            from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
+
+            app = QApplication([])
+            holder = QWidget()
+            layout = QVBoxLayout(holder)
+            state = {
+                "snapshots": [
+                    type("Snapshot", (), {"time_label": "00:10"})(),
+                    type("Snapshot", (), {"time_label": "00:20"})(),
+                ],
+                "selected": None,
+            }
+            selections = []
+            def select(index):
+                selections.append(index)
+                state["selected"] = index
+
+            view = RecordingTimelineView(
+                recorder=lambda: FakeRecorder(is_recording=True, elapsed="00:20"),
+                snapshots=lambda: state["snapshots"],
+                selected_index=lambda: state["selected"],
+                recording_armed=lambda: False,
+                waiting_mode=lambda: None,
+                on_toggle_recording=lambda: None,
+                on_snapshot_selected=select,
+            )
+            view.install(layout)
+            selections.clear()
+            state["selected"] = 1
+            view.handle_slider_value(0)
+            assert selections == [], selections
+
+            holder.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            QTest.qWait(60)
+            QCoreApplication.processEvents()
+            assert selections == [], selections
+            print("BLOCK8_QT_CONTEXT_DELETE_OK")
+            """
+        )
+        env = os.environ.copy()
+        env.setdefault("QT_QPA_PLATFORM", "offscreen")
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[2],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("BLOCK8_QT_CONTEXT_DELETE_OK", result.stdout)
 
 
 class RecordingTimelineEncapsulationTests(unittest.TestCase):

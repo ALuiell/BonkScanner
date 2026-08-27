@@ -49,6 +49,7 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             import src
             from types import SimpleNamespace
             from PySide6.QtCore import Qt
+            from PySide6.QtTest import QTest
             from PySide6.QtWidgets import (
                 QApplication,
                 QFrame,
@@ -78,17 +79,22 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
 
             app = QApplication([])
             tabview = QTabWidget()
+            recorder = Recorder()
+            timeline_state = {"snapshots": [], "selected": None, "events": []}
+            def select_snapshot(index, *, pinned):
+                timeline_state["events"].append((index, pinned))
+                timeline_state["selected"] = index
             view = LiveStatsTab(
                 tabview=tabview,
                 live_run_tracker=lambda: object(),
-                vod_recorder=lambda: Recorder(),
-                vod_snapshots=lambda: (),
-                selected_snapshot_index=lambda: None,
+                vod_recorder=lambda: recorder,
+                vod_snapshots=lambda: timeline_state["snapshots"],
+                selected_snapshot_index=lambda: timeline_state["selected"],
                 recording_waiting_mode=lambda: None,
                 ensure_live_snapshot_store=lambda: SnapshotStore(),
                 is_recording_armed=lambda: False,
                 on_toggle_recording=lambda: None,
-                on_snapshot_selected=lambda *_args, **_kwargs: None,
+                on_snapshot_selected=select_snapshot,
             ).build()
             page = view.root_widget.findChild(QWidget, "LiveStatsPage")
             items = view.root_widget.findChild(QGroupBox, "LiveStatsItems")
@@ -327,6 +333,33 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 saved_scroll_position,
                 scrollbar.maximum(),
             )
+
+            # A slider frame queued for one recording must not be delivered
+            # into the next one. Drive the real LiveStatsTab, QSlider and Qt
+            # timer here; the small unit test covers the same contract with a
+            # deterministic fake throttle.
+            timeline_state["snapshots"] = [
+                SimpleNamespace(time_label=label)
+                for label in ("00:10", "00:20", "00:30")
+            ]
+            timeline_state["selected"] = 2
+            recorder.is_recording = True
+            timeline_slider = view._recording_timeline._slider
+            timeline_slider.blockSignals(True)
+            view.refresh_player_stats_timeline_ui()
+            timeline_slider.blockSignals(False)
+            throttle = view._recording_timeline._throttle
+            throttle.cancel()
+            throttle.request(lambda: None)
+            view.on_player_stats_slider_changed(0)
+            assert throttle.has_pending
+            timeline_state["snapshots"] = []
+            recorder.is_recording = False
+            view.refresh_player_stats_timeline_ui()
+            assert not throttle.has_pending
+            QTest.qWait(60)
+            app.processEvents()
+            assert timeline_state["events"] == [], timeline_state["events"]
             """
         )
         env = os.environ.copy()

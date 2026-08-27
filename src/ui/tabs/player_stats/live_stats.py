@@ -636,7 +636,16 @@ class LiveStatsTab:
         stage_summary_rows: list[dict[str, str]] | None = None,
     ):
         snapshots = self._vod_snapshots()
-        index = snapshots.index(snapshot) + 1
+        try:
+            snapshot_index = next(
+                index for index, candidate in enumerate(snapshots)
+                if candidate is snapshot
+            )
+        except StopIteration:
+            # A throttled slider callback can outlive a recording reset.  It
+            # must not repaint a detached historical frame into the new run.
+            return
+        index = snapshot_index + 1
         total = len(snapshots)
         self.display_player_stats(
             snapshot.stats,
@@ -936,6 +945,9 @@ class LiveStatsTab:
             # `vod_capture` and `player_stats_refresh` write them too -- so
             # they go back through a callback instead of being assigned here.
             snapshots = self._vod_snapshots()
+            if not snapshots:
+                return
+            index = min(max(int(index), 0), len(snapshots) - 1)
             self._on_snapshot_selected(
                 index, pinned=pin_for_selection(index, len(snapshots))
             )
