@@ -78,6 +78,7 @@ class Scanner:
         is_recording: Callable[[], bool],
         refresh_timeline: Callable[[], None],
         is_shutting_down: Callable[[], bool],
+        current_runtime_snapshot: Callable[[], Any],
         reroll_warning_dialog: Callable[[], Any],
         obs_reminder_dialog: Callable[[], Any],
     ) -> None:
@@ -96,6 +97,7 @@ class Scanner:
         self._is_recording = is_recording
         self._refresh_timeline = refresh_timeline
         self._is_shutting_down = is_shutting_down
+        self._current_runtime_snapshot = current_runtime_snapshot
         self._reroll_warning_dialog = reroll_warning_dialog
         self._obs_reminder_dialog = obs_reminder_dialog
 
@@ -426,6 +428,33 @@ class Scanner:
             return
         self._schedule(0, lambda m=message, t=tag: self._append_log(m, t))
 
+    def _is_late_forest_or_desert_stage(self) -> bool:
+        """Return true only when a late multi-map stage is positively known.
+
+        The live tracker already combines the game's raw stage ordinal, its
+        virtual T4 flag and Graveyard's activity markers into one coherent
+        snapshot. Reuse that on-tick reading here: the scanner must not add a
+        second off-tick walk over live game memory just for this guard.
+        """
+        runtime = self._current_runtime_snapshot()
+        if runtime is None:
+            return False
+
+        lifecycle = getattr(runtime.lifecycle, "value", runtime.lifecycle)
+        if lifecycle != "active" or runtime.status not in ("live", "reconnecting"):
+            return False
+
+        stage_index = int(runtime.current_stage_index)
+        if stage_index not in (2, 3, 4):
+            return False
+
+        # A late normalized tier is already a Forest/Desert signal because
+        # Graveyard has only stage 1. When its explicit identity is available,
+        # keep that as the stronger exemption; when context is one tick behind,
+        # fail closed so a just-launched scanner cannot erase a late run.
+        map_context = runtime.powerup_map_context
+        return map_context is None or not bool(map_context.is_graveyard)
+
     def toggle_scan_event(self):
         """Pause/resume, from the scan hotkey. Was `RunControlMixin`'s."""
         if not self.is_scanning():
@@ -444,6 +473,14 @@ class Scanner:
             self.scan_event.clear()
             self.log("[*] Scan paused. Press the scan hotkey again to resume.")
         else:
+            if self._is_late_forest_or_desert_stage():
+                self.log(
+                    "[SAFETY] Careful, champion — this Forest/Desert run is already past T1. "
+                    "Auto-reroll stayed off; mind that scan hotkey!",
+                    tag="warning",
+                )
+                self.update_status_ui()
+                return
             self.is_running = True
             self.pause_reason = None
             self.scan_event.set()
@@ -1141,6 +1178,7 @@ def build_scanner(
             update_slider=False
         ),
         is_shutting_down=lambda: bool(app._is_shutting_down),
+        current_runtime_snapshot=coordinator.live_run_tracker.runtime_snapshot,
         reroll_warning_dialog=lambda: RerollWarningDialog(app.window),
         obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window),
     )

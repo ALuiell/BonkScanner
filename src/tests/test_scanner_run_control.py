@@ -698,6 +698,85 @@ class ScanLifecycleTests(unittest.TestCase):
             ("[*] Scan started. Looking for selected target...", None), scanner.calls["log"]
         )
 
+    def test_hotkey_refuses_late_forest_and_desert_stages(self) -> None:
+        for stage_index in (2, 3, 4):
+            with self.subTest(stage_index=stage_index):
+                scanner = build_scanner(
+                    current_runtime_snapshot=lambda: SimpleNamespace(
+                        lifecycle="active",
+                        status="live",
+                        current_stage_index=stage_index,
+                        powerup_map_context=SimpleNamespace(is_graveyard=False),
+                    ),
+                )
+                scanner.scanner_thread = AliveThread()
+                scanner.is_ready_to_start = True
+
+                scanner.toggle_scan_event()
+
+                self.assertFalse(scanner.is_running)
+                self.assertFalse(scanner.scan_event.is_set())
+                self.assertIn(
+                    (
+                        "[SAFETY] Careful, champion — this Forest/Desert run is already past T1. "
+                        "Auto-reroll stayed off; mind that scan hotkey!",
+                        "warning",
+                    ),
+                    scanner.calls["log"],
+                )
+
+    def test_hotkey_still_starts_on_forest_or_desert_t1(self) -> None:
+        scanner = build_scanner(
+            current_runtime_snapshot=lambda: SimpleNamespace(
+                lifecycle="active",
+                status="live",
+                current_stage_index=1,
+                powerup_map_context=SimpleNamespace(is_graveyard=False),
+            ),
+        )
+        scanner.scanner_thread = AliveThread()
+        scanner.is_ready_to_start = True
+
+        scanner.toggle_scan_event()
+
+        self.assertTrue(scanner.is_running)
+        self.assertTrue(scanner.scan_event.is_set())
+
+    def test_hotkey_does_not_apply_late_stage_guard_to_graveyard(self) -> None:
+        scanner = build_scanner(
+            current_runtime_snapshot=lambda: SimpleNamespace(
+                lifecycle="active",
+                status="live",
+                # The map classification, not an ordinal assumption, excludes it.
+                current_stage_index=3,
+                powerup_map_context=SimpleNamespace(is_graveyard=True),
+            ),
+        )
+        scanner.scanner_thread = AliveThread()
+        scanner.is_ready_to_start = True
+
+        scanner.toggle_scan_event()
+
+        self.assertTrue(scanner.is_running)
+        self.assertTrue(scanner.scan_event.is_set())
+
+    def test_hotkey_blocks_late_stage_while_map_context_catches_up(self) -> None:
+        scanner = build_scanner(
+            current_runtime_snapshot=lambda: SimpleNamespace(
+                lifecycle="active",
+                status="live",
+                current_stage_index=3,
+                powerup_map_context=None,
+            ),
+        )
+        scanner.scanner_thread = AliveThread()
+        scanner.is_ready_to_start = True
+
+        scanner.toggle_scan_event()
+
+        self.assertFalse(scanner.is_running)
+        self.assertFalse(scanner.scan_event.is_set())
+
     def test_hotkey_immediately_pauses_when_a_movement_key_is_already_held(self) -> None:
         scanner = build_scanner()
         scanner.scanner_thread = AliveThread()
@@ -710,6 +789,22 @@ class ScanLifecycleTests(unittest.TestCase):
         self.assertFalse(scanner.is_running)
         self.assertFalse(scanner.scan_event.is_set())
         self.assertEqual(scanner.pause_reason, "player_movement")
+
+    def test_hotkey_pause_does_not_run_the_late_stage_guard(self) -> None:
+        scanner = build_scanner(
+            current_runtime_snapshot=lambda: self.fail(
+                "pausing must not probe the late-stage start guard"
+            ),
+        )
+        scanner.scanner_thread = AliveThread()
+        scanner.scan_event.set()
+        scanner.is_ready_to_start = True
+        scanner.is_running = True
+
+        scanner.toggle_scan_event()
+
+        self.assertFalse(scanner.is_running)
+        self.assertFalse(scanner.scan_event.is_set())
 
     def test_hotkey_pauses_scanning_without_stopping_monitor(self) -> None:
         scanner = build_scanner()
@@ -809,6 +904,29 @@ class ScanLifecycleTests(unittest.TestCase):
 
         self.assertTrue(scanner.is_running)
         self.assertTrue(scanner.scan_event.is_set())
+
+    def test_configured_scan_hotkey_reaches_the_late_stage_guard(self) -> None:
+        scanner, run_control = build_pair(
+            current_runtime_snapshot=lambda: SimpleNamespace(
+                lifecycle="active",
+                status="live",
+                current_stage_index=2,
+                powerup_map_context=SimpleNamespace(is_graveyard=False),
+            ),
+        )
+        scanner.scanner_thread = AliveThread()
+        scanner.is_ready_to_start = True
+
+        run_control.hotkey_toggle_scanning()
+
+        self.assertFalse(scanner.is_running)
+        self.assertFalse(scanner.scan_event.is_set())
+        self.assertTrue(
+            any(
+                "mind that scan hotkey" in str(message)
+                for message, _tag in scanner.calls["log"]
+            )
+        )
 
     def test_the_scan_hotkey_refuses_before_the_monitor_is_started(self) -> None:
         scanner = build_scanner()

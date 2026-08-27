@@ -178,6 +178,7 @@ def build_scanner(
     is_recording=None,
     refresh_timeline=None,
     is_shutting_down=None,
+    current_runtime_snapshot=None,
     reroll_warning_dialog=None,
     obs_reminder_dialog=None,
 ) -> Scanner:
@@ -243,6 +244,7 @@ def build_scanner(
             or (lambda: calls.__setitem__("timeline_refreshes", calls["timeline_refreshes"] + 1))
         ),
         is_shutting_down=is_shutting_down or (lambda: False),
+        current_runtime_snapshot=current_runtime_snapshot or (lambda: None),
         reroll_warning_dialog=reroll_warning_dialog or _refuse("RerollWarningDialog"),
         obs_reminder_dialog=obs_reminder_dialog or _refuse("ObsRecordingReminderDialog"),
     )
