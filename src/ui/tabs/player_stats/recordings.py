@@ -1321,6 +1321,7 @@ class RecordingsTab:
             None, status_text="Select a recording"
         )
         self._stat_cards.display_damage_sources((), status_text="Select a recording")
+        self._set_vod_loading_state(False)
         # Same state the router opens the library for, reached from a different
         # direction: deleting the selected run, cleaning up, or a load that
         # failed. Without this the tab is left showing a screen of "--" with
@@ -2141,6 +2142,7 @@ class RecordingsTab:
             spacing=6,
             maximum_columns=5,
             stretch_columns=False,
+            parent=_vods_scroll_content,
         )
         compact_stats_grid.setProperty("viewMode", "compact")
         for group in PLAYER_STAT_GROUPS:
@@ -2181,6 +2183,7 @@ class RecordingsTab:
             minimum_card_width=300,
             spacing=8,
             maximum_columns=4,
+            parent=_vods_scroll_content,
         )
         expanded_stats_grid.setProperty("viewMode", "expanded")
         for group in PLAYER_STAT_GROUPS:

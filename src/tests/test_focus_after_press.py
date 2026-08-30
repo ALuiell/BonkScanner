@@ -58,6 +58,12 @@ config.save_config = lambda *_args, **_kwargs: None
 # guide. The production default deliberately opens that modal again for this
 # release, so acknowledge it only inside the isolated subprocess.
 config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
+# Keep the focus scenario independent from the developer's persisted overlay
+# startup preference. The deferred overlay initialization copies `auto_start`
+# into `enabled` on the first event-loop turn, which otherwise changes the
+# toggle back underneath this test before it can exercise either segment.
+config.IN_GAME_OVERLAY["auto_start"] = False
+config.IN_GAME_OVERLAY["enabled"] = False
 app = MegabonkApp()
 qt = QApplication.instance()
 app.window.show()
