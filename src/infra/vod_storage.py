@@ -26,12 +26,17 @@ from core.settings import (
 from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, ChargeShrineSnapshot, ChargeShrineStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
+from core.run_verifier import VerifierStatFrame
+from infra.run_verifier import VerifierTelemetryWriter
 
 
+# 11 adds hidden run-verifier checkpoints while keeping summary as the last line.
+# 12 adds process-environment snapshots and deltas for the verifier.
+# 13 adds privacy-safe private executable memory-region evidence.
 # 10 lets the final summary publish the completed automatic name and kill count.
 # 9 added character identity metadata and the generic character-passive frame.
 # Older recordings omit newer fields and keep their original metadata name.
-VOD_FORMAT_VERSION = 10
+VOD_FORMAT_VERSION = 13
 RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
 LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -317,6 +322,32 @@ class VodRecorder:
         self._automatic_name_prefix = "Run"
         self._created_at: datetime | None = None
         self._max_mob_kills: int | None = None
+        self._verifier = VerifierTelemetryWriter()
+        self._pending_verification_context: tuple[
+            str | None,
+            str | None,
+            float | None,
+            dict[str, Any] | None,
+            str | None,
+        ] = (None, None, None, None, None)
+
+    def prepare_verification_context(
+        self,
+        *,
+        scanner_version: str | None,
+        game_build_id: str | None,
+        run_start_time_seconds: float | None,
+        environment_snapshot: dict[str, Any] | None = None,
+        environment_error: str | None = None,
+    ) -> None:
+        """Supply start-only metadata without widening capture's recorder port."""
+        self._pending_verification_context = (
+            scanner_version,
+            game_build_id,
+            run_start_time_seconds,
+            environment_snapshot,
+            environment_error,
+        )
 
     @property
     def interval_seconds(self) -> int:
@@ -336,9 +367,34 @@ class VodRecorder:
         seed: int | None = None,
         character_id: int | None = None,
         character_name: str | None = None,
+        scanner_version: str | None = None,
+        game_build_id: str | None = None,
+        run_start_time_seconds: float | None = None,
+        environment_snapshot: dict[str, Any] | None = None,
+        environment_error: str | None = None,
     ) -> Path:
         if self.is_recording or self._file is not None:
             raise RuntimeError("VOD recorder is already active.")
+        (
+            pending_scanner,
+            pending_build,
+            pending_run_start,
+            pending_environment,
+            pending_environment_error,
+        ) = (
+            self._pending_verification_context
+        )
+        if scanner_version is None:
+            scanner_version = pending_scanner
+        if game_build_id is None:
+            game_build_id = pending_build
+        if run_start_time_seconds is None:
+            run_start_time_seconds = pending_run_start
+        if environment_snapshot is None:
+            environment_snapshot = pending_environment
+        if environment_error is None:
+            environment_error = pending_environment_error
+        self._pending_verification_context = (None, None, None, None, None)
         self.vods_dir.mkdir(parents=True, exist_ok=True)
         created_at = datetime.now().replace(microsecond=0)
         file_stem = created_at.strftime("%Y-%m-%d_%H-%M-%S")
@@ -352,6 +408,7 @@ class VodRecorder:
         self.start_time = self.clock()
         self.last_snapshot_time = None
         self.snapshot_count = 0
+        self._verifier.reset()
         self.is_recording = False
         try:
             self._file = self.path.open("w", encoding="utf-8")
@@ -365,9 +422,32 @@ class VodRecorder:
                     "run_seed": seed,
                     "character_id": character_id,
                     "character_name": character_name,
+                    "verification": self._verifier.metadata(
+                        scanner_version=scanner_version,
+                        game_build_id=game_build_id,
+                        run_start_time_seconds=run_start_time_seconds,
+                    ),
                 },
                 flush=True,
             )
+            if environment_snapshot is not None:
+                try:
+                    environment_record = self._verifier.environment_record(
+                        environment_snapshot,
+                        elapsed_seconds=0.0,
+                    )
+                except Exception as exc:
+                    environment_record = self._verifier.environment_failure_record(
+                        exc,
+                        elapsed_seconds=0.0,
+                    )
+            else:
+                environment_record = self._verifier.environment_failure_record(
+                    environment_error
+                    or "Initial process environment snapshot is unavailable.",
+                    elapsed_seconds=0.0,
+                )
+            self._write_record(environment_record, flush=True)
         except Exception:
             opened_file, self._file = self._file, None
             if opened_file is not None:
@@ -387,6 +467,7 @@ class VodRecorder:
             self.snapshot_count = 0
             self._created_at = None
             self._max_mob_kills = None
+            self._verifier.reset()
             raise
         self.is_recording = True
         return self.path
@@ -407,6 +488,17 @@ class VodRecorder:
                         self._created_at,
                         self._max_mob_kills,
                     )
+                try:
+                    self._write_record(
+                        self._verifier.coverage_record(
+                            elapsed_seconds=self._verification_elapsed_seconds()
+                        ),
+                        flush=False,
+                    )
+                except Exception as exc:
+                    # The recording summary and close still have to run.  The
+                    # caller receives this error after the file is retired.
+                    stop_error = exc
                 self._write_record(
                     {
                         "type": "summary",
@@ -419,7 +511,7 @@ class VodRecorder:
                 )
                 self._file.flush()
             except Exception as exc:
-                stop_error = exc
+                stop_error = stop_error or exc
             finally:
                 opened_file, self._file = self._file, None
                 try:
@@ -444,6 +536,7 @@ class VodRecorder:
             self._file.close()
             self._file = None
         self.is_recording = False
+        self._verifier.reset()
 
     def elapsed_seconds(self) -> int:
         if self.start_time is None:
@@ -463,6 +556,86 @@ class VodRecorder:
         if self.last_snapshot_time is None:
             return True
         return self.clock() - self.last_snapshot_time >= self.interval_seconds
+
+    def _verification_elapsed_seconds(self) -> float:
+        if self.start_time is None:
+            return 0.0
+        return max(0.0, float(self.clock() - self.start_time))
+
+    def should_capture_verification(self) -> bool:
+        return bool(
+            self.is_recording
+            and self._file is not None
+            and self._verifier.should_capture(self._verification_elapsed_seconds())
+        )
+
+    def should_capture_environment(self) -> bool:
+        return bool(
+            self.is_recording
+            and self._file is not None
+            and self._verifier.should_capture_environment(
+                self._verification_elapsed_seconds()
+            )
+        )
+
+    def capture_environment(self, snapshot: dict[str, Any]) -> None:
+        if not self.is_recording or self._file is None:
+            raise RuntimeError("VOD recorder is not active.")
+        record = self._verifier.environment_record(
+            snapshot,
+            elapsed_seconds=self._verification_elapsed_seconds(),
+        )
+        self._write_record(record, flush=True)
+
+    def note_environment_failure(self, error: BaseException | str) -> None:
+        if not self.is_recording or self._file is None:
+            return
+        record = self._verifier.environment_failure_record(
+            error,
+            elapsed_seconds=self._verification_elapsed_seconds(),
+        )
+        self._write_record(record, flush=True)
+
+    def capture_verification(
+        self,
+        frame: VerifierStatFrame,
+        *,
+        game_time_seconds: float | None,
+        permanent_modifiers: dict[int, tuple[Any, ...]],
+        shrine_snapshot: Any,
+        chaos_snapshot: Any,
+        character_passive_snapshot: Any,
+        dice_level: int | None,
+        held_items: tuple[str, ...],
+        source_availability: dict[str, bool],
+    ) -> None:
+        if not self.is_recording or self._file is None:
+            raise RuntimeError("VOD recorder is not active.")
+        records = self._verifier.records_for_checkpoint(
+            frame,
+            elapsed_seconds=self._verification_elapsed_seconds(),
+            game_time_seconds=game_time_seconds,
+            permanent_modifiers=permanent_modifiers,
+            shrine_snapshot=shrine_snapshot,
+            chaos_snapshot=chaos_snapshot,
+            character_passive_snapshot=character_passive_snapshot,
+            dice_level=dice_level,
+            held_items=held_items,
+            source_availability=source_availability,
+        )
+        for record in records:
+            self._write_record(record, flush=False)
+        if records:
+            self._file.flush()
+
+    def note_verification_failure(self, error: BaseException | str) -> None:
+        if not self.is_recording or self._file is None:
+            return
+        record = self._verifier.note_failure(
+            self._verification_elapsed_seconds(), error
+        )
+        if record is not None:
+            self._write_record(record, flush=True)
 
     def capture(
         self,

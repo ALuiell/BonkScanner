@@ -5,6 +5,7 @@ import src
 import struct
 import types
 import unittest
+from unittest.mock import patch
 
 from infra.memory.reader import MemoryReadError, ProcessMemory
 
@@ -109,6 +110,115 @@ class ProcessMemoryTests(unittest.TestCase):
 
         with self.assertRaises(MemoryReadError):
             reader.read_bytes(0x9999, 4)
+
+    def test_loaded_modules_returns_portable_module_facts(self) -> None:
+        reader = self.create_reader({})
+        modules = [
+            types.SimpleNamespace(
+                name="Megabonk.exe",
+                filename=r"C:\Games\Megabonk\Megabonk.exe",
+                lpBaseOfDll=0x140000000,
+                SizeOfImage=123456,
+            )
+        ]
+
+        with patch("pymem.process.enum_process_module", return_value=modules):
+            result = reader.loaded_modules()
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].name, "Megabonk.exe")
+        self.assertEqual(result[0].base_address, 0x140000000)
+        self.assertEqual(result[0].size, 123456)
+
+    def test_loaded_module_enumeration_failure_is_a_memory_error(self) -> None:
+        reader = self.create_reader({})
+
+        with patch(
+            "pymem.process.enum_process_module",
+            side_effect=RuntimeError("transient module list failure"),
+        ):
+            with self.assertRaises(MemoryReadError):
+                reader.loaded_modules()
+
+    def test_empty_loaded_module_enumeration_is_a_memory_error(self) -> None:
+        reader = self.create_reader({})
+
+        with patch("pymem.process.enum_process_module", return_value=()) as enumerate_modules:
+            with self.assertRaises(MemoryReadError):
+                reader.loaded_modules()
+
+        self.assertEqual(enumerate_modules.call_count, 2)
+
+    def test_loaded_module_enumeration_retries_one_transient_empty_result(self) -> None:
+        reader = self.create_reader({})
+        modules = [
+            types.SimpleNamespace(
+                name="Megabonk.exe",
+                filename=r"C:\Games\Megabonk\Megabonk.exe",
+                lpBaseOfDll=0x140000000,
+                SizeOfImage=123456,
+            )
+        ]
+
+        with patch(
+            "pymem.process.enum_process_module",
+            side_effect=((), modules),
+        ) as enumerate_modules:
+            result = reader.loaded_modules()
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(enumerate_modules.call_count, 2)
+
+    def test_private_executable_regions_filters_the_virtual_memory_map(self) -> None:
+        reader = self.create_reader({})
+        rows = (
+            types.SimpleNamespace(
+                BaseAddress=0,
+                AllocationBase=0,
+                RegionSize=0x1000,
+                State=0x1000,
+                Type=0x20000,
+                Protect=0x20,
+            ),
+            types.SimpleNamespace(
+                BaseAddress=0x1000,
+                AllocationBase=0x1000,
+                RegionSize=0x1000,
+                State=0x1000,
+                Type=0x1000000,
+                Protect=0x20,
+            ),
+            types.SimpleNamespace(
+                BaseAddress=0x2000,
+                AllocationBase=0x2000,
+                RegionSize=0x1000,
+                State=0x1000,
+                Type=0x20000,
+                Protect=0x04,
+            ),
+        )
+        terminal = __import__("pymem").exception.WinAPIError(87)
+
+        with patch(
+            "pymem.memory.virtual_query",
+            side_effect=(*rows, terminal),
+        ):
+            result = reader.private_executable_regions()
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].base_address, 0)
+        self.assertEqual(result[0].size, 0x1000)
+        self.assertEqual(result[0].protection, 0x20)
+
+    def test_virtual_memory_map_failure_is_a_memory_error(self) -> None:
+        reader = self.create_reader({})
+
+        with patch(
+            "pymem.memory.virtual_query",
+            side_effect=RuntimeError("query failed"),
+        ):
+            with self.assertRaises(MemoryReadError):
+                reader.private_executable_regions()
 
 
 if __name__ == "__main__":

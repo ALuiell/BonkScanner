@@ -700,6 +700,11 @@ class LiveRunTracker:
             mob_kills=max(observed_mob_kills) if observed_mob_kills else None,
         )
 
+    @with_lock
+    def feature_status_snapshot(self) -> dict[str, FeatureStatus]:
+        """Return current feature freshness without building a full UI snapshot."""
+        return self._feature_status_snapshot_unlocked(self.clock())
+
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
         if self._cached_stage_summary is None:
             snapshots = self._stage_summary_timeline_unlocked()

@@ -83,6 +83,7 @@ from infra.vod_storage import (
     refresh_vod_metadata_index,
     rename_vod,
 )
+from infra.run_verifier import verify_vod
 
 __all__ = [
     "VodLibrary",
@@ -100,6 +101,7 @@ __all__ = [
     "set_recording_library_open",
     "set_recording_library_width",
     "set_recording_sort_mode",
+    "verify_vod",
 ]
 
 

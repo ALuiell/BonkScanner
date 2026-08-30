@@ -32,6 +32,7 @@ Note for whoever moves this again: ``ui.tabs.player_stats.recordings`` is in
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
@@ -49,6 +50,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -72,6 +74,7 @@ from app.vod_library import (
     set_recording_library_open,
     set_recording_library_width,
     set_recording_sort_mode,
+    verify_vod,
 )
 from core.run_summary import item_counts
 from core.stat_labels import abbreviate_stat_label
@@ -80,6 +83,10 @@ from projections.item_sort import ITEM_SORT_RARITY_DESC
 from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
 from projections.timeline_axis import AXIS_TIME, build_axis_projection
 from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
+from ui.dialogs.run_verification import (
+    RunVerificationDialog,
+    VerificationProgressDialog,
+)
 from ui.recording_library import RecordingLibraryRow
 from ui.tabs.player_stats.metrics import (
     LIVE_STATS_VALUE_WIDTH,
@@ -143,6 +150,21 @@ from ui.timeline_controls import (
 #: nothing to do with the button.
 LIBRARY_TOGGLE_CLOSED_CHEVRON = "»"
 LIBRARY_TOGGLE_OPEN_CHEVRON = "«"
+
+# Fast local files often finish before the loading ring paints a meaningful
+# frame. This is a presentation floor, not extra verifier work.
+MINIMUM_VERIFICATION_PROGRESS_SECONDS = 1.2
+
+
+def _verification_progress_remaining_seconds(
+    started_at: float,
+    finished_at: float,
+) -> float:
+    return max(
+        0.0,
+        MINIMUM_VERIFICATION_PROGRESS_SECONDS
+        - max(0.0, float(finished_at) - float(started_at)),
+    )
 
 
 #: The graph menu's own grouping. It starts from the same stat set as the cards,
@@ -432,6 +454,10 @@ class RecordingsTab:
         self._list_signature = None
         self._load_generation = 0
         self._load_in_progress = False
+        self._verification_generation = 0
+        self._verification_in_progress = False
+        self._verification_progress_dialog = None
+        self._verification_result_dialog = None
 
         self._rows = {}
         self._compact_rows = {}
@@ -450,6 +476,7 @@ class RecordingsTab:
         self._title_label = None
         self._name_entry = None
         self._rename_btn = None
+        self._verify_btn = None
         self._cleanup_btn = None
         self._delete_btn = None
         # The scrubber replaces four widgets: the `QSlider`, the
@@ -740,8 +767,14 @@ class RecordingsTab:
         has_snapshots = bool(has_recording and self._loaded_vod.snapshots)
         for widget, enabled in (
             (self._name_entry, has_recording),
-            (self._rename_btn, has_recording),
-            (self._delete_btn, has_recording),
+            (
+                self._verify_btn,
+                has_recording
+                and not self._verification_in_progress
+                and not self._selected_vod_is_active(),
+            ),
+            (self._rename_btn, has_recording and not self._verification_in_progress),
+            (self._delete_btn, has_recording and not self._verification_in_progress),
             (self._scrubber, has_snapshots),
         ):
             if widget is not None:
@@ -754,6 +787,7 @@ class RecordingsTab:
             button.setEnabled(has_snapshots)
         self._refresh_vod_compare_controls()
     def load_selected_vod(self, path):
+        self._invalidate_verification_ui()
         path = Path(path)
         generation = int(self._load_generation) + 1
         self._load_generation = generation
@@ -1277,6 +1311,8 @@ class RecordingsTab:
         self.refresh_loaded_vod_ui(update_slider=False)
         self.refresh_vods_list()
     def _clear_loaded_vod_selection(self) -> None:
+        if self._verification_in_progress:
+            self._invalidate_verification_ui()
         self._loaded_vod = None
         self._snapshot_index = None
         self._snapshot_throttle.cancel()
@@ -1321,6 +1357,7 @@ class RecordingsTab:
             None, status_text="Select a recording"
         )
         self._stat_cards.display_damage_sources((), status_text="Select a recording")
+        self._set_vod_loading_state(False)
         # Same state the router opens the library for, reached from a different
         # direction: deleting the selected run, cleaning up, or a load that
         # failed. Without this the tab is left showing a screen of "--" with
@@ -1553,7 +1590,7 @@ class RecordingsTab:
     # -- scrubber -----------------------------------------------------------
 
     def _build_record_plaque(self) -> QWidget:
-        """Which recording is open, and the two things you can do to it.
+        """Which recording is open, and the actions available for it.
 
         The recording library is opened from this context row instead of
         consuming a separate full-width strip above it. Actions for the current
@@ -1598,6 +1635,13 @@ class RecordingsTab:
         # Same secondary action as Edit in Templates: a real shared icon and
         # explicit label, rather than a font glyph whose shape varies by OS.
         self._rename_btn = QPushButton("Rename")
+        self._verify_btn = QPushButton("Verify Run")
+        self._verify_btn.setObjectName("RecordingPlaqueVerify")
+        self._verify_btn.setToolTip("Analyze this recording for stat consistency")
+        self._verify_btn.setCursor(Qt.PointingHandCursor)
+        self._verify_btn.setEnabled(False)
+        self._verify_btn.clicked.connect(self.verify_selected_vod)
+        title_row.addWidget(self._verify_btn)
         self._rename_btn.setObjectName("RecordingPlaqueRename")
         _apply_button_icon(self._rename_btn, "media/edit_icon.svg", 18)
         self._rename_btn.setToolTip("Rename this recording")
@@ -1655,11 +1699,128 @@ class RecordingsTab:
         for widget, visible in (
             (self._name_entry, renaming),
             (self._title_label, not renaming),
+            (self._verify_btn, not renaming),
             (self._rename_btn, not renaming),
             (self._delete_btn, not renaming),
         ):
             if widget is not None and hasattr(widget, "setVisible"):
                 widget.setVisible(visible)
+
+    def _invalidate_verification_ui(self) -> None:
+        """Retire any worker result that belongs to the previous selection."""
+        self._verification_generation += 1
+        progress = self._verification_progress_dialog
+        self._verification_progress_dialog = None
+        if progress is not None:
+            progress.done(QDialog.Rejected)
+            progress.deleteLater()
+        self._verification_in_progress = False
+
+    def _set_verification_state(self, active: bool) -> None:
+        self._verification_in_progress = bool(active)
+        has_recording = bool(
+            not self._load_in_progress and self._loaded_vod is not None
+        )
+        can_verify = has_recording and not self._selected_vod_is_active()
+        for widget, enabled in (
+            (self._verify_btn, can_verify and not active),
+            (self._rename_btn, has_recording and not active),
+            (self._delete_btn, has_recording and not active),
+            (self._name_entry, has_recording and not active),
+        ):
+            if widget is not None:
+                widget.setEnabled(enabled)
+
+    def _selected_vod_is_active(self) -> bool:
+        if self._loaded_vod is None:
+            return False
+        try:
+            recorder = self._vod_recorder()
+            active_path = getattr(recorder, "path", None)
+            return bool(
+                getattr(recorder, "is_recording", False)
+                and active_path is not None
+                and Path(active_path).resolve()
+                == Path(self._loaded_vod.metadata.path).resolve()
+            )
+        except (OSError, RuntimeError, TypeError):
+            return False
+
+    def verify_selected_vod(self) -> None:
+        if self._loaded_vod is None or self._verification_in_progress:
+            return
+        if self._selected_vod_is_active():
+            _set_text(
+                self._status_label,
+                "Stop the active recording before running verification.",
+            )
+            return
+        path = Path(self._loaded_vod.metadata.path)
+        recording_name = str(self._loaded_vod.metadata.name)
+        generation = self._verification_generation + 1
+        self._verification_generation = generation
+        self._set_verification_state(True)
+
+        progress = VerificationProgressDialog(recording_name, self._window())
+        self._verification_progress_dialog = progress
+        progress.show()
+        progress_started_at = time.monotonic()
+
+        def finish(report, error) -> None:
+            if generation != self._verification_generation:
+                return
+            current_progress = self._verification_progress_dialog
+            self._verification_progress_dialog = None
+            if current_progress is not None:
+                current_progress.done(QDialog.Accepted)
+                current_progress.deleteLater()
+            self._set_verification_state(False)
+            if error is not None:
+                QMessageBox.critical(
+                    self._window(),
+                    "Run Verification",
+                    f"Could not analyze this recording:\n{error}",
+                )
+                return
+            dialog = RunVerificationDialog(report, self._window())
+            self._verification_result_dialog = dialog
+            try:
+                dialog.exec()
+            finally:
+                if self._verification_result_dialog is dialog:
+                    self._verification_result_dialog = None
+                # A parented QDialog is only hidden by exec()/done().  Retiring
+                # it through the owning Qt event loop prevents every Verify Run
+                # click from leaving another hidden result tree behind.
+                dialog.deleteLater()
+
+        def analyze() -> None:
+            try:
+                report = verify_vod(path)
+                error = None
+            except Exception as exc:
+                report = None
+                error = exc
+            # Keep the loading state readable without blocking the Qt thread.
+            # The no-scheduler branch is a synchronous test-harness fallback,
+            # so the artificial floor belongs only to the real worker path.
+            if callable(self._schedule):
+                remaining = _verification_progress_remaining_seconds(
+                    progress_started_at,
+                    time.monotonic(),
+                )
+                if remaining > 0:
+                    time.sleep(remaining)
+            self._marshal(lambda: finish(report, error))
+
+        if callable(self._schedule):
+            threading.Thread(
+                target=analyze,
+                name="run-verifier",
+                daemon=True,
+            ).start()
+        else:
+            analyze()
 
     def _build_scrubber_header(self) -> QHBoxLayout:
         """The four series slots, and the position readout they sit beside."""
@@ -2141,6 +2302,7 @@ class RecordingsTab:
             spacing=6,
             maximum_columns=5,
             stretch_columns=False,
+            parent=_vods_scroll_content,
         )
         compact_stats_grid.setProperty("viewMode", "compact")
         for group in PLAYER_STAT_GROUPS:
@@ -2181,6 +2343,7 @@ class RecordingsTab:
             minimum_card_width=300,
             spacing=8,
             maximum_columns=4,
+            parent=_vods_scroll_content,
         )
         expanded_stats_grid.setProperty("viewMode", "expanded")
         for group in PLAYER_STAT_GROUPS:

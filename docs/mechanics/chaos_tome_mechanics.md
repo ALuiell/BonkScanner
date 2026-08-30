@@ -167,6 +167,10 @@ Reconstructing Chaos rolls after BonkScanner starts in the middle of a run is be
 
 A major challenge of tracking the Chaos Tome is that other game mechanics can also modify permanent stats. The main source of noise is the character **Dice** (internally `Dicehead`, passive `Gamba`), whose passive ability acts as a scaled-down version of the Chaos Tome.
 
+The complete character-passive catalog, Dice formula, runtime fields, recovery
+rules and UI contract are documented separately in
+[Character Passives and Dice mechanics](./character_passives_mechanics.md).
+
 ### 5.1. Why Dice Requires Shared Source Attribution
 Dice does **not** use a continuous random multiplier. For zero-based passive
 roll index $n$, it chooses one of five discrete rarity multipliers and applies a

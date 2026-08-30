@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import struct
 from typing import Any
 
 import pymem
 import pymem.exception
+import pymem.memory
 import pymem.process
 
 
@@ -18,6 +20,26 @@ class ModuleNotFoundError(Exception):
 
 class MemoryReadError(Exception):
     """Raised when memory cannot be read or interpreted."""
+
+
+@dataclass(frozen=True)
+class LoadedProcessModule:
+    """Privacy-neutral raw module facts read from the target process."""
+
+    name: str
+    filename: str
+    base_address: int
+    size: int
+
+
+@dataclass(frozen=True)
+class PrivateExecutableRegion:
+    """One committed executable MEM_PRIVATE range in the target process."""
+
+    base_address: int
+    allocation_base: int
+    size: int
+    protection: int
 
 
 class ProcessMemory:
@@ -125,6 +147,113 @@ class ProcessMemory:
 
     def module_offset(self, module_name: str, offset: int) -> int:
         return self.module_base_address(module_name) + offset
+
+    def loaded_modules(self) -> tuple[LoadedProcessModule, ...]:
+        """Enumerate native images currently registered in the game process."""
+        if self._pm is None:
+            raise MemoryReadError("Process memory is not initialized.")
+        last_error: Exception | None = None
+        for _attempt in range(2):
+            try:
+                modules = []
+                for module in pymem.process.enum_process_module(
+                    self._pm.process_handle
+                ):
+                    name = str(module.name or "").strip()
+                    filename = str(module.filename or "").strip()
+                    if not name or not filename:
+                        continue
+                    modules.append(
+                        LoadedProcessModule(
+                            name=name,
+                            filename=filename,
+                            base_address=int(
+                                getattr(module, "lpBaseOfDll", 0) or 0
+                            ),
+                            size=max(
+                                0,
+                                int(getattr(module, "SizeOfImage", 0) or 0),
+                            ),
+                        )
+                    )
+                if modules:
+                    return tuple(modules)
+                last_error = MemoryReadError(
+                    "The process module enumeration returned no usable modules."
+                )
+            except Exception as exc:
+                last_error = exc
+        # EnumProcessModulesEx can transiently fail while the process is
+        # loading or unloading an image. One immediate retry filters that
+        # expected race; the caller owns the slower ten-second retry cadence.
+        raise MemoryReadError("Failed to enumerate loaded process modules.") from last_error
+
+    def private_executable_regions(self) -> tuple[PrivateExecutableRegion, ...]:
+        """Enumerate committed executable memory not backed by an image file."""
+        if self._pm is None:
+            raise MemoryReadError("Process memory is not initialized.")
+        committed = 0x1000
+        private = 0x20000
+        executable = frozenset({0x10, 0x20, 0x40, 0x80})
+        max_user_address = 0x7FFF_FFFF_FFFF
+        max_regions = 4096
+        address = 0
+        queried = 0
+        regions: list[PrivateExecutableRegion] = []
+        while address < max_user_address:
+            try:
+                info = pymem.memory.virtual_query(
+                    self._pm.process_handle,
+                    address,
+                )
+            except pymem.exception.WinAPIError as exc:
+                # VirtualQueryEx reports ERROR_INVALID_PARAMETER after the
+                # highest valid user-mode address. It is only a normal end
+                # marker after at least one successful query.
+                if queried and int(getattr(exc, "error_code", 0)) == 87:
+                    break
+                raise MemoryReadError(
+                    "Failed to enumerate the process virtual-memory map."
+                ) from exc
+            except Exception as exc:
+                raise MemoryReadError(
+                    "Failed to enumerate the process virtual-memory map."
+                ) from exc
+            queried += 1
+            base = int(getattr(info, "BaseAddress", 0) or 0)
+            size = int(getattr(info, "RegionSize", 0) or 0)
+            next_address = base + size
+            if size <= 0 or next_address <= address:
+                raise MemoryReadError(
+                    "The process virtual-memory map did not advance."
+                )
+            state = int(getattr(info, "State", 0) or 0)
+            region_type = int(getattr(info, "Type", 0) or 0)
+            protection = int(getattr(info, "Protect", 0) or 0)
+            base_protection = protection & 0xFF
+            if (
+                state == committed
+                and region_type == private
+                and base_protection in executable
+            ):
+                regions.append(
+                    PrivateExecutableRegion(
+                        base_address=base,
+                        allocation_base=int(
+                            getattr(info, "AllocationBase", 0) or base
+                        ),
+                        size=size,
+                        protection=protection,
+                    )
+                )
+                if len(regions) > max_regions:
+                    raise MemoryReadError(
+                        "The private executable-region safety limit was exceeded."
+                    )
+            address = next_address
+        if not queried:
+            raise MemoryReadError("The process virtual-memory map is unavailable.")
+        return tuple(regions)
 
     def read_bytes(self, address: int, size: int) -> bytes:
         if self._pm is None:

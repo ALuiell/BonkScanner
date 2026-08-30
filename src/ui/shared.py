@@ -311,6 +311,10 @@ class StagedLoadingSpinner(QWidget):
         self._angle = (self._angle + 14) % 360
         self.update()
 
+    def stop(self) -> None:
+        """Stop repaint scheduling before the owning surface is retired."""
+        self._timer.stop()
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         timer = getattr(self, "_timer", None)
@@ -320,7 +324,7 @@ class StagedLoadingSpinner(QWidget):
     def hideEvent(self, event) -> None:
         timer = getattr(self, "_timer", None)
         if timer is not None:
-            timer.stop()
+            self.stop()
         super().hideEvent(event)
 
     def paintEvent(self, _event) -> None:
@@ -347,6 +351,8 @@ class StagedLoadingSpinner(QWidget):
                 painter.drawArc(ring, int(start * 16), int(-arc_span * 16))
         finally:
             if painter.isActive():
+                # This widget repaints every 30 ms.  End the native painter
+                # before cyclic GC or the owning surface can retire its wrapper.
                 painter.end()
 
 
@@ -375,6 +381,7 @@ class StagedLoadingPage(QWidget):
         self._failure: Exception | None = None
         self._advancing = False
         self._loading_page = None
+        self._loading_spinner = None
         self._workspace = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -414,14 +421,12 @@ class StagedLoadingPage(QWidget):
         loading_layout = QVBoxLayout(self._loading_page)
         loading_layout.setContentsMargins(24, 24, 24, 24)
         loading_layout.addStretch(1)
-        loading_layout.addWidget(
-            StagedLoadingSpinner(
-                colors=self._spinner_colors,
-                object_name=f"{self._object_prefix}LoadingSpinner",
-            ),
-            0,
-            Qt.AlignCenter,
+        self._loading_spinner = StagedLoadingSpinner(
+            colors=self._spinner_colors,
+            object_name=f"{self._object_prefix}LoadingSpinner",
+            parent=self._loading_page,
         )
+        loading_layout.addWidget(self._loading_spinner, 0, Qt.AlignCenter)
         loading_layout.addStretch(1)
 
         self._sync_loading_overlay()
@@ -446,6 +451,10 @@ class StagedLoadingPage(QWidget):
                 workspace_layout.activate()
             self._workspace.updateGeometry()
             self._workspace.update()
+            # Stop the repaint source before hiding the overlay.  The spinner's
+            # own hideEvent is a second guard, but retiring it here keeps the
+            # lifecycle deterministic for staged tabs such as Compare Runs.
+            self._loading_spinner.stop()
             self._loading_page.hide()
             return False
         return True
@@ -531,6 +540,9 @@ class StagedLoadingPage(QWidget):
         timer = getattr(self, "_timer", None)
         if timer is not None:
             timer.stop()
+        spinner = getattr(self, "_loading_spinner", None)
+        if spinner is not None:
+            spinner.stop()
         super().hideEvent(event)
 
 

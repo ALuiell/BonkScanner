@@ -1636,6 +1636,71 @@ QFrame#DangerInfoCard {
     border-radius: 12px;
 }
 
+/* Run verification presents a verdict first and evidence second. The status
+   surface is deliberately stronger than ordinary information cards, while the
+   grouped findings below keep the shared Info/Warning/Danger card language. */
+QFrame#RunVerificationSummary {
+    background-color: #111820;
+    border: 1px solid #2A3542;
+    border-left: 4px solid #64748B;
+    border-radius: 12px;
+}
+QFrame#RunVerificationSummary[verificationStatus="consistent"] {
+    background-color: #10241D;
+    border-color: #235C46;
+    border-left-color: #4ADE80;
+}
+QFrame#RunVerificationSummary[verificationStatus="inconsistent"] {
+    background-color: #2B171A;
+    border-color: #6B2A31;
+    border-left-color: #F0787E;
+}
+QFrame#RunVerificationSummary[verificationStatus="review_required"],
+QFrame#RunVerificationSummary[verificationStatus="partial"],
+QFrame#RunVerificationSummary[verificationStatus="late_start"],
+QFrame#RunVerificationSummary[verificationStatus="interrupted"] {
+    background-color: #2A2112;
+    border-color: #665026;
+    border-left-color: #FACC15;
+}
+QFrame#RunVerificationSummary[verificationStatus="unsupported_build"] {
+    background-color: #211A31;
+    border-color: #514073;
+    border-left-color: #C084FC;
+}
+QLabel#RunVerificationStatus {
+    color: #EDF1F5;
+    background: transparent;
+    font-size: 21px;
+    font-weight: 800;
+}
+QLabel#RunVerificationHeadline {
+    color: #D6DCE5;
+    background: transparent;
+    font-size: 13px;
+}
+QLabel#RunVerificationCounts {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 12px;
+}
+QLabel#RunVerificationSectionTitle {
+    color: #EDF1F5;
+    background: transparent;
+    font-size: 14px;
+    font-weight: 700;
+    padding-top: 4px;
+}
+QTabWidget#RunVerificationTabs::pane {
+    background: transparent;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+}
+QTabWidget#RunVerificationTabs QTabBar::tab {
+    min-width: 132px;
+    padding: 7px 14px;
+}
+
 /* The updater stays inside the same modal surface from release notes through
    download, verification and restart. Its hierarchy mirrors the compact cards
    elsewhere in the app instead of introducing a separate installer style. */

@@ -13,12 +13,29 @@ import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 
 class RecordingsLayoutTests(unittest.TestCase):
+    def test_verification_progress_has_a_short_presentation_floor(self) -> None:
+        from ui.tabs.player_stats.recordings import (
+            MINIMUM_VERIFICATION_PROGRESS_SECONDS,
+            _verification_progress_remaining_seconds,
+        )
+
+        self.assertEqual(MINIMUM_VERIFICATION_PROGRESS_SECONDS, 1.2)
+        self.assertAlmostEqual(
+            _verification_progress_remaining_seconds(10.0, 10.25),
+            0.95,
+        )
+        self.assertEqual(
+            _verification_progress_remaining_seconds(10.0, 12.0),
+            0.0,
+        )
+
     def test_recordings_reuses_the_live_stats_card_composition(self) -> None:
         script = textwrap.dedent(
             """
             import os
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
             import src
+            from pathlib import Path
             from types import SimpleNamespace
             from PySide6.QtWidgets import (
                 QApplication,
@@ -56,6 +73,25 @@ class RecordingsLayoutTests(unittest.TestCase):
             # The tab's contents wait for a show; this test drives the
             # widgets without one, so it asks for them. See `LazyPage`.
             view.build_now()
+
+            verify_button = view._tab.findChild(QPushButton, "RecordingPlaqueVerify")
+            assert verify_button is view._verify_btn
+            assert verify_button.text() == "Verify Run"
+            assert not verify_button.isEnabled()
+            view._loaded_vod = SimpleNamespace(
+                metadata=SimpleNamespace(path=Path("finished.jsonl"), name="Finished"),
+                snapshots=(),
+            )
+            view._set_vod_loading_state(False)
+            assert verify_button.isEnabled()
+            view._set_verification_state(True)
+            assert not verify_button.isEnabled()
+            assert not view._rename_btn.isEnabled()
+            assert not view._delete_btn.isEnabled()
+            view._set_verification_state(False)
+            assert verify_button.isEnabled()
+            view._loaded_vod = None
+            view._set_vod_loading_state(False)
 
             page = view._tab.findChild(QWidget, "LiveStatsPage")
             items = view._tab.findChild(QGroupBox, "LiveStatsItems")
