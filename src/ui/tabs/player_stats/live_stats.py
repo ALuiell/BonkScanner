@@ -145,12 +145,8 @@ class _ResponsiveCardGrid(QWidget):
         spacing: int = 8,
         maximum_columns: int = 4,
         stretch_columns: bool = True,
-        parent: QWidget | None = None,
     ) -> None:
-        # These grids switch visibility while their tab is being assembled.
-        # An explicit parent keeps any future ordering change from temporarily
-        # promoting a visible grid to a native top-level BonkScanner window.
-        super().__init__(parent)
+        super().__init__()
         self.setObjectName("LiveStatsCardGrid")
         self._minimum_card_width = minimum_card_width
         self._spacing = spacing
@@ -1191,7 +1187,6 @@ class LiveStatsTab:
             spacing=6,
             maximum_columns=5,
             stretch_columns=False,
-            parent=_player_stats_scroll_content,
         )
         compact_stats_grid.setProperty("viewMode", "compact")
         for group in PLAYER_STAT_GROUPS:
@@ -1231,7 +1226,6 @@ class LiveStatsTab:
             minimum_card_width=300,
             spacing=8,
             maximum_columns=4,
-            parent=_player_stats_scroll_content,
         )
         expanded_stats_grid.setProperty("viewMode", "expanded")
         for group in PLAYER_STAT_GROUPS:

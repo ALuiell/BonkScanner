@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gc
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -14,7 +13,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QSizePolicy,
     QTabWidget,
-    QWidget,
 )
 
 from core.item_metadata import ITEM_RARITY_COLOR_MAP
@@ -26,7 +24,7 @@ from projections.metric_table import MetricRow, MetricSection, MetricTable
 from projections.timeline_axis import build_axis_projection
 from ui.compare_overview import CompareRunsAxisView, CompareRunsLuckLootView
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
-from ui.shared import LabeledSwitch, StagedLoadingSpinner
+from ui.shared import LabeledSwitch
 from ui.tabs.compare_runs.tab import CompareRunsTab
 # `AXIS_PROGRESS` and `axis_positions` come from their owner rather than through
 # the timeline widget. The widget imported both and used neither: they were a
@@ -530,64 +528,6 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
     compare._detail_tabs.setCurrentIndex(4)
     app.processEvents()
     compare._diff_weapons_table.set_table.assert_called_once_with(table)
-    tabs.close()
-
-
-def test_compare_runs_loading_spinner_stops_with_its_staged_page() -> None:
-    app = QApplication.instance() or QApplication([])
-
-    class Library:
-        index = ()
-
-        def ensure_refresh(self):
-            return None
-
-    tabs = QTabWidget()
-    placeholder = QWidget()
-    tabs.addTab(placeholder, "Other")
-    compare = CompareRunsTab(
-        tabview=tabs,
-        vod_library=Library(),
-        is_active=lambda: True,
-    )
-
-    # Keep the staged page incomplete while the test switches away and back.
-    # The real builder also yields between batches; this longer fixture makes
-    # the spinner lifecycle observable without depending on machine speed.
-    def slow_workspace(_workspace):
-        for _ in range(64):
-            yield
-
-    compare._build_workspace = slow_workspace
-    compare.build()
-    page = compare._tab
-    spinner = page._loading_spinner
-
-    assert isinstance(spinner, StagedLoadingSpinner)
-    assert page.findChild(
-        StagedLoadingSpinner, "CompareRunsLoadingSpinner"
-    ) is spinner
-    assert spinner.parentWidget() is page._loading_page
-
-    tabs.resize(1200, 760)
-    tabs.show()
-    app.processEvents()
-    assert not spinner._timer.isActive()
-
-    tabs.setCurrentWidget(page)
-    assert spinner._timer.isActive()
-    gc.collect()
-    assert page._loading_spinner is spinner
-
-    tabs.setCurrentWidget(placeholder)
-    assert not page._timer.isActive()
-    assert not spinner._timer.isActive()
-
-    tabs.setCurrentWidget(page)
-    assert spinner._timer.isActive()
-    page.build_now()
-    assert page.is_built
-    assert not spinner._timer.isActive()
     tabs.close()
 
 

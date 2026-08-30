@@ -96,7 +96,6 @@ from app.read_sources import (
     POWERUP_TRACKING_SNAPSHOT,
     SIZE,
     STAGE_TIMER_CONTEXT,
-    VERIFIER_STAT_COMPONENTS,
     OWNER_STATS,
     PLAYER_STATS_CLIENT,
     RUN_TIMER,
@@ -1206,13 +1205,6 @@ class RefreshTasks:
                         permanent_modifiers if chaos_level is not None else {}
                     ),
                 )
-            self._capture_verifier_checkpoint(
-                context,
-                client=client,
-                owner_stats=owner_stats,
-                permanent_modifiers=permanent_modifiers,
-                dice_level=getattr(character_passive, "gamba_current_level", None),
-            )
             # The card was painted only by the 10 s payload while this task
             # folded a new reading every tick, which is why `!chaos` in chat
             # could report a roll the app's own card had not shown yet. Same
@@ -1229,76 +1221,6 @@ class RefreshTasks:
             self._mark_fast_feature_failed("chaos_tome", exc)
             self._mark_fast_feature_failed("character_passive", exc)
             return False
-
-    def _capture_verifier_checkpoint(
-        self,
-        context: RefreshTickContext,
-        *,
-        client,
-        owner_stats: int,
-        permanent_modifiers: dict[int, tuple[Any, ...]],
-        dice_level: int | None,
-    ) -> None:
-        """Best-effort verifier lane; never changes Chaos/Dice availability."""
-        recorder = None
-        try:
-            recorder = self._vod_recorder()
-            should_capture = getattr(recorder, "should_capture_verification", None)
-            capture = getattr(recorder, "capture_verification", None)
-            if (
-                not callable(should_capture)
-                or not callable(capture)
-                or not should_capture()
-            ):
-                return
-            frame = read_memory_source(
-                context,
-                VERIFIER_STAT_COMPONENTS,
-                lambda: client.get_verifier_stat_components(owner_stats),
-            )
-            held_items = read_memory_source(
-                context,
-                PASSIVE_ITEMS,
-                lambda: client.get_passive_items(owner_stats),
-            )
-            game_time = read_memory_source(
-                context,
-                RUN_TIMER,
-                client.get_run_timer,
-            )
-            tracker = self._tracker()
-            feature_status_reader = getattr(tracker, "feature_status_snapshot", None)
-            feature_status = (
-                feature_status_reader() if callable(feature_status_reader) else {}
-            )
-
-            def source_is_fresh(name: str) -> bool:
-                status = feature_status.get(name)
-                availability = getattr(status, "availability", None)
-                return getattr(availability, "value", availability) == "fresh"
-
-            capture(
-                frame,
-                game_time_seconds=game_time,
-                permanent_modifiers=permanent_modifiers,
-                shrine_snapshot=tracker.charge_shrine_snapshot(),
-                chaos_snapshot=tracker.chaos_tome_snapshot(),
-                character_passive_snapshot=tracker.character_passive_snapshot(),
-                dice_level=dice_level,
-                held_items=tuple(held_items or ()),
-                source_availability={
-                    "shrines": source_is_fresh("shrines"),
-                    "chaos_tome": source_is_fresh("chaos_tome"),
-                    "character_passive": source_is_fresh("character_passive"),
-                },
-            )
-        except Exception as exc:
-            note_failure = getattr(recorder, "note_verification_failure", None)
-            if callable(note_failure):
-                try:
-                    note_failure(exc)
-                except Exception:
-                    pass
 
     def _advance_permanent_source_recovery(
         self,

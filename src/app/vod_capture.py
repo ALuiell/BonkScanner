@@ -71,10 +71,8 @@ from app import config
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_view import player_stats_view, recordings_list_view
 from app.run_lifecycle import run_lifecycle as resolve_run_lifecycle
-from app.version import CURRENT_VERSION
 from core.game_state import RuntimeGameMode
 from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
-from infra.process_environment import scan_process_environment
 
 # Moved here from gui_styles.py in step 17a; this module is its only consumer.
 PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
@@ -181,8 +179,6 @@ class VodCapture:
         log: Callable[..., None],
         reset_snapshot_buffer: Callable[[], None],
         read_character_identity: Callable[[], tuple[int, str] | None] | None = None,
-        read_game_build_id: Callable[[], str | None] | None = None,
-        read_process_environment: Callable[[], dict[str, Any] | None] | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
         self._recorder = recorder
@@ -197,8 +193,6 @@ class VodCapture:
         self._log = log
         self._reset_snapshot_buffer = reset_snapshot_buffer
         self._read_character_identity = read_character_identity or (lambda: None)
-        self._read_game_build_id = read_game_build_id or (lambda: None)
-        self._read_process_environment = read_process_environment or (lambda: None)
         # Not `clock=time.monotonic` in the signature: a default argument binds
         # the function at import, where the code this replaces looked `time` up
         # on the module every call. Step 20 shipped that bug once already.
@@ -316,42 +310,15 @@ class VodCapture:
         run_time_seconds: float | None = None,
     ):
         identity = None
-        game_build_id = None
-        environment_snapshot = None
-        environment_error = None
         try:
             identity = self._read_character_identity()
         except Exception:
             identity = None
-        try:
-            game_build_id = self._read_game_build_id()
-        except Exception:
-            game_build_id = None
-        try:
-            environment_snapshot = self._read_process_environment()
-            if not isinstance(environment_snapshot, dict):
-                environment_snapshot = None
-                environment_error = "Initial process environment snapshot is unavailable."
-        except Exception as exc:
-            environment_snapshot = None
-            environment_error = str(exc)[:240]
-        recorder = self._recorder()
-        prepare_verification = getattr(
-            recorder, "prepare_verification_context", None
-        )
-        if callable(prepare_verification):
-            prepare_verification(
-                scanner_version=CURRENT_VERSION,
-                game_build_id=game_build_id,
-                run_start_time_seconds=run_time_seconds,
-                environment_snapshot=environment_snapshot,
-                environment_error=environment_error,
-            )
         if identity is None:
-            vod_path = recorder.start(seed=seed)
+            vod_path = self._recorder().start(seed=seed)
         else:
             character_id, character_name = identity
-            vod_path = recorder.start(
+            vod_path = self._recorder().start(
                 seed=seed,
                 character_id=character_id,
                 character_name=character_name,
@@ -383,8 +350,6 @@ class VodCapture:
                 # Stopping must remain reliable even if the process disappears
                 # before the last best-effort memory snapshot can be built.
                 pass
-        if recorder.is_recording:
-            self.capture_final_environment()
         stop_error = None
         try:
             recorder.stop()
@@ -481,8 +446,6 @@ class VodCapture:
 
         if not recorder.is_recording:
             return None
-
-        self._capture_process_environment()
 
         if runtime_state.mode is RuntimeGameMode.PAUSED_IN_GAME:
             was_paused = self.player_stats_recording_waiting_mode == runtime_state.mode.value
@@ -585,34 +548,6 @@ class VodCapture:
         )
         self._player_stats_view().refresh_player_stats_timeline_ui()
         return "split"
-
-    def _capture_process_environment(self, *, force: bool = False) -> None:
-        """Best-effort low-frequency environment lane, independent of stat gaps."""
-        recorder = self._recorder()
-        capture = getattr(recorder, "capture_environment", None)
-        if not callable(capture):
-            return
-        if not force:
-            should_capture = getattr(recorder, "should_capture_environment", None)
-            if not callable(should_capture) or not should_capture():
-                return
-        try:
-            snapshot = self._read_process_environment()
-            if not isinstance(snapshot, dict):
-                raise RuntimeError("Process environment snapshot is unavailable.")
-            capture(snapshot)
-        except Exception as exc:
-            note_failure = getattr(recorder, "note_environment_failure", None)
-            if callable(note_failure):
-                try:
-                    note_failure(exc)
-                except Exception:
-                    pass
-
-    def capture_final_environment(self) -> None:
-        """Best-effort final scan for normal stops and application shutdown."""
-        if self._recorder().is_recording:
-            self._capture_process_environment(force=True)
 
     def note_run_not_in_game(self) -> None:
         """The run is not IN_GAME this tick, so the auto-start streak restarts.
@@ -725,26 +660,6 @@ def _read_owner_character_identity(owner) -> tuple[int, str] | None:
     return None
 
 
-def _read_owner_game_build_id(owner) -> str | None:
-    try:
-        client = player_stats_memory(owner)._get_player_stats_client()
-        reader = getattr(client, "get_game_build_id", None)
-        if callable(reader):
-            value = str(reader() or "").strip()
-            return value or None
-    except Exception:
-        pass
-    return None
-
-
-def _read_owner_process_environment(owner) -> dict[str, Any] | None:
-    client = player_stats_memory(owner)._get_player_stats_client()
-    memory = getattr(client, "memory", None)
-    if memory is None:
-        return None
-    return scan_process_environment(memory)
-
-
 def vod_capture(owner) -> VodCapture:
     """Resolve the owner's ``VodCapture``, building it on first use.
 
@@ -788,8 +703,6 @@ def vod_capture(owner) -> VodCapture:
         log=lambda message, tag=None: owner.log(message, tag=tag),
         reset_snapshot_buffer=lambda: _reset_owner_snapshot_buffer(owner),
         read_character_identity=lambda: _read_owner_character_identity(owner),
-        read_game_build_id=lambda: _read_owner_game_build_id(owner),
-        read_process_environment=lambda: _read_owner_process_environment(owner),
     )
     if coordinator is not None:
         coordinator.vod_capture = service

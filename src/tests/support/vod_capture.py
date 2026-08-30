@@ -44,11 +44,9 @@ def build_vod_capture(
     is_live_stats_tab_active: bool | Callable[[], bool] = True,
     clock: Callable[[], float] | None = None,
     read_character_identity: Callable[[], tuple[int, str] | None] | None = None,
-    read_game_build_id: Callable[[], str | None] | None = None,
-    read_process_environment: Callable[[], dict[str, Any] | None] | None = None,
     world: Any = None,
 ) -> tuple[VodCapture, Any]:
-    """A real `VodCapture` with its collaborators faked.
+    """A real `VodCapture` with its eleven collaborators faked.
 
     Returns `(service, world)`, where `world` records what the service asked of
     each collaborator: `world.log`, `world.refresh_calls`, `world.view_calls`,
@@ -113,8 +111,6 @@ def build_vod_capture(
         log=lambda message, tag=None: world.log.append((message, tag)),
         reset_snapshot_buffer=lambda: world.snapshot_resets.append(True),
         read_character_identity=read_character_identity,
-        read_game_build_id=read_game_build_id,
-        read_process_environment=read_process_environment,
         **({"clock": clock} if clock is not None else {}),
     )
     return service, world

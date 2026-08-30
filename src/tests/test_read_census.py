@@ -28,11 +28,7 @@ class ReadCensusRatchetTests(unittest.TestCase):
     def test_boundary_populations_are_derived_from_the_tree(self) -> None:
         census = _load_census()
 
-        # 33 with verifier telemetry: one new enrolled component-frame read,
-        # plus cached PASSIVE_ITEMS and RUN_TIMER consumers in its checkpoint.
-        # The latter two add call sites but not physical reads because the
-        # Shrine and recording-lifecycle tasks resolve them earlier in the
-        # same pass. Before that, 30 arrived with Charge Shrine tracking. It reuses the shared
+        # 30 with the Charge Shrine tracking source. It reuses the shared
         # passive-item sample for Wrench and does not need a stage-context read.
         # The previous 29 followed
         # the `passive_items` task becoming the whole loot sample. Three
@@ -50,7 +46,7 @@ class ReadCensusRatchetTests(unittest.TestCase):
         # proves it went in through the pass rather than around it.
         self.assertEqual(
             census.boundary_site_count([census.SRC / rel for rel in census.ON_TICK_FILES]),
-            33,
+            30,
         )
         # 4 since `reroll_map` stopped reading the map state and stats itself:
         # `wait_for_map_ready` hands the scan loop the stats it waited for, so

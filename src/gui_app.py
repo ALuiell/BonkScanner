@@ -12,7 +12,6 @@ from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_refresh import player_stats_refresh
-from app.vod_capture import vod_capture
 from ui.dialogs import AutoRerollSetupGuideDialog, HelpDialog, SettingsDialog
 from ui.layout import build_layout, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
@@ -915,16 +914,6 @@ class MegabonkApp:
         # any blocking worker joins.  Nothing should be able to enqueue another
         # overlay paint while the rest of the object tree is being dismantled.
         self._run_shutdown_step("in_game_overlay", self.shutdown_in_game_overlay)
-
-        # Preserve the run's final process-environment evidence while the
-        # player-stats process handle is still alive. The recorder itself keeps
-        # its established position later in the shutdown order.
-        player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
-        if (
-            player_stats_vod_recorder is not None
-            and player_stats_vod_recorder.is_recording
-        ):
-            vod_capture(self).capture_final_environment()
         # `self._cancel_right_tab_transition()` stood here and is deleted
         # rather than moved. It was one of two methods on `GuiLayoutMixin`
         # whose entire body was `return None`, and it had been that since it

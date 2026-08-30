@@ -20,12 +20,6 @@ from core.character_passives import (
     CHARACTER_PASSIVE_SPEC_BY_CHARACTER_ID,
     CharacterPassiveReading,
 )
-from core.run_verifier import (
-    TARGET_STAT_IDS,
-    VerifierStatComponents,
-    VerifierStatFrame,
-    float32_bits,
-)
 from core.item_metadata import ITEM_DISPLAY_NAME_BY_RAW_VALUE, ITEM_ENUM_NAMES_BY_ID
 from infra.memory.reader import MemoryReadError, ProcessMemory
 
@@ -210,12 +204,6 @@ class PlayerStatsClient:
     MY_TIME_TIME_OFFSET = 0x04
     STATS_CONTEXT_OFFSET = 0x10
     STATS_ENTRIES_OFFSET = 0x18
-    RAW_STATS_DICTIONARY_OFFSET = 0x18
-    STAT_COMPONENTS_DICTIONARY_OFFSET = 0x20
-    STAT_COMPONENT_HAS_MODIFICATIONS_OFFSET = 0x10
-    STAT_COMPONENT_BASE_OFFSET = 0x14
-    STAT_COMPONENT_ADDITIVE_OFFSET = 0x18
-    STAT_COMPONENT_MULTIPLICATIVE_OFFSET = 0x1C
     STAGE_TIMER_OFFSET = 0x1C
     RUN_TIMER_OFFSET = 0x20
     FINAL_SWARM_TIMER_OFFSET = 0x24
@@ -436,7 +424,6 @@ class PlayerStatsClient:
         self._cached_status_effects_version: int | None = None
         self._cached_status_effect_value_addresses: dict[int, int] = {}
         self._cached_active_powerup_signature: tuple[int, ...] = ()
-        self._cached_game_build_id: str | None = None
 
     def close(self) -> None:
         if self._owns_memory and hasattr(self.memory, "close"):
@@ -463,175 +450,6 @@ class PlayerStatsClient:
                 stats[spec.label] = PlayerStatValue(spec=spec, value=value)
 
         return stats
-
-    def get_game_build_id(self) -> str:
-        """Return a cheap, process-image identity for the supported layout.
-
-        The PE timestamp plus ``SizeOfImage`` is intentionally used instead of
-        hashing GameAssembly.dll while a run is active. It is stable for the
-        loaded image, costs four small reads once per client, and is sufficient
-        to select a mechanics profile. Release validation still records the
-        full on-disk hash in the research document.
-        """
-        if self._cached_game_build_id is not None:
-            return self._cached_game_build_id
-        module_base = self.memory.module_offset(self.module_name, 0)
-        pe_offset = self.memory.read_i32(module_base + 0x3C)
-        if pe_offset <= 0 or pe_offset > 0x1000:
-            raise MemoryReadError(f"Game module PE offset is invalid: {pe_offset}")
-        nt_headers = module_base + pe_offset
-        if self.memory.read_i32(nt_headers) != 0x00004550:
-            raise MemoryReadError("Game module PE signature is invalid.")
-        timestamp = self.memory.read_i32(nt_headers + 0x08) & 0xFFFFFFFF
-        size_of_image = self.memory.read_i32(nt_headers + 0x50) & 0xFFFFFFFF
-        if size_of_image <= 0:
-            raise MemoryReadError("Game module SizeOfImage is invalid.")
-        self._cached_game_build_id = f"pe-{timestamp:08x}-{size_of_image:08x}"
-        return self._cached_game_build_id
-
-    def get_verifier_stat_components(
-        self,
-        owner_stats: int | None = None,
-        stat_ids: Iterable[int] = TARGET_STAT_IDS,
-    ) -> VerifierStatFrame:
-        """Read final/raw/component values twice and mark torn frames.
-
-        ``PlayerStatsNew.UpdateStat`` writes several containers. A checkpoint
-        landing inside that writer window must be retained as a coverage fact,
-        but it must not be treated as a strong equation. Two identical reads
-        are stable; a third attempt gives a real update one chance to settle.
-        """
-        owner_stats = owner_stats or self._resolve_owner_stats()
-        requested = tuple(dict.fromkeys(int(stat_id) for stat_id in stat_ids))
-        if not requested:
-            return VerifierStatFrame(stats=(), stable=True)
-        previous: tuple[VerifierStatComponents, ...] | None = None
-        for _attempt in range(3):
-            current = self._read_verifier_stat_components_once(owner_stats, requested)
-            if previous is not None and self._verifier_frames_equal(previous, current):
-                return VerifierStatFrame(stats=current, stable=True)
-            previous = current
-        return VerifierStatFrame(stats=previous or (), stable=False)
-
-    def _read_verifier_stat_components_once(
-        self,
-        owner_stats: int,
-        stat_ids: tuple[int, ...],
-    ) -> tuple[VerifierStatComponents, ...]:
-        final_dictionary = self.memory.read_ptr(owner_stats + self.STATS_CONTEXT_OFFSET)
-        raw_dictionary = self.memory.read_ptr(
-            owner_stats + self.RAW_STATS_DICTIONARY_OFFSET
-        )
-        components_dictionary = self.memory.read_ptr(
-            owner_stats + self.STAT_COMPONENTS_DICTIONARY_OFFSET
-        )
-        if not final_dictionary or not raw_dictionary or not components_dictionary:
-            raise MemoryReadError("Verifier stat dictionaries are not initialized.")
-
-        result = []
-        for stat_id in stat_ids:
-            final_entry = self._find_int_dictionary_entry(
-                final_dictionary,
-                stat_id,
-                entry_size=self.STAT_DICT_ENTRY_SIZE,
-            )
-            raw_entry = self._find_int_dictionary_entry(
-                raw_dictionary,
-                stat_id,
-                entry_size=self.STAT_DICT_ENTRY_SIZE,
-            )
-            component_entry = self._find_int_dictionary_entry(
-                components_dictionary,
-                stat_id,
-                entry_size=self.DICT_ENTRY_SIZE,
-            )
-            component = self.memory.read_ptr(
-                component_entry + self.DICT_ENTRY_VALUE_OFFSET
-            )
-            if not component:
-                raise MemoryReadError(
-                    f"StatComponents object is missing for stat {stat_id}."
-                )
-            read_u8 = getattr(self.memory, "read_u8", None)
-            has_modifications = bool(
-                read_u8(component + self.STAT_COMPONENT_HAS_MODIFICATIONS_OFFSET)
-                if callable(read_u8)
-                else self.memory.read_i32(
-                    component + self.STAT_COMPONENT_HAS_MODIFICATIONS_OFFSET
-                ) & 0xFF
-            )
-            result.append(
-                VerifierStatComponents(
-                    stat_id=stat_id,
-                    final_value=self.memory.read_float(
-                        final_entry + self.STAT_DICT_ENTRY_VALUE_OFFSET
-                    ),
-                    raw_value=self.memory.read_float(
-                        raw_entry + self.STAT_DICT_ENTRY_VALUE_OFFSET
-                    ),
-                    has_modifications=has_modifications,
-                    base_value=self.memory.read_float(
-                        component + self.STAT_COMPONENT_BASE_OFFSET
-                    ),
-                    additive_value=self.memory.read_float(
-                        component + self.STAT_COMPONENT_ADDITIVE_OFFSET
-                    ),
-                    multiplicative_value=self.memory.read_float(
-                        component + self.STAT_COMPONENT_MULTIPLICATIVE_OFFSET
-                    ),
-                )
-            )
-        return tuple(result)
-
-    def _find_int_dictionary_entry(
-        self,
-        dictionary: int,
-        key: int,
-        *,
-        entry_size: int,
-    ) -> int:
-        entries = self.memory.read_ptr(dictionary + self.DICT_ENTRIES_OFFSET)
-        count = self.memory.read_i32(dictionary + self.DICT_COUNT_OFFSET)
-        if not entries or count <= 0 or count > self.MAX_PERMANENT_STAT_ENTRIES:
-            raise MemoryReadError(
-                f"Verifier dictionary header is invalid for stat {key}: count={count}."
-            )
-        # EStat dictionaries are dense and inserted in enum order in the
-        # current build. Validate that fast path, then scan so a harmless
-        # insertion-order change does not masquerade as an unsupported build.
-        indices = (key,) if 0 <= key < count else ()
-        for index in (*indices, *(i for i in range(count) if i != key)):
-            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * entry_size)
-            if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
-                continue
-            if self.memory.read_i32(entry + self.DICT_ENTRY_KEY_OFFSET) == key:
-                return entry
-        raise MemoryReadError(f"Verifier dictionary has no entry for stat {key}.")
-
-    @staticmethod
-    def _verifier_frames_equal(
-        left: tuple[VerifierStatComponents, ...],
-        right: tuple[VerifierStatComponents, ...],
-    ) -> bool:
-        if len(left) != len(right):
-            return False
-        for first, second in zip(left, right):
-            if first.stat_id != second.stat_id:
-                return False
-            if first.has_modifications != second.has_modifications:
-                return False
-            for field in (
-                "final_value",
-                "raw_value",
-                "base_value",
-                "additive_value",
-                "multiplicative_value",
-            ):
-                if float32_bits(getattr(first, field)) != float32_bits(
-                    getattr(second, field)
-                ):
-                    return False
-        return True
 
     def get_luck(self, owner_stats: int | None = None) -> float | None:
         """Read Luck (stat 30) on its own.

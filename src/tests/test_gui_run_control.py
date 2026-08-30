@@ -6358,22 +6358,12 @@ class GuiRunControlTests(unittest.TestCase):
         player_stats_memory(app).close_player_stats_game_data_client = lambda: closed.append("mixin_game_data")
         app.close_overlay_server = lambda: None
         app.stop_twitch_bot = lambda: None
-        app.player_stats_vod_recorder = SimpleNamespace(
-            is_recording=True,
-            stop=lambda: closed.append("recorder"),
-            close=lambda: closed.append("close"),
-        )
-        capture = SimpleNamespace(
-            capture_final_environment=lambda: closed.append("environment")
-        )
+        app.player_stats_vod_recorder = None
 
-        with (
-            patch.object(gui_app, "vod_capture", return_value=capture),
-            patch_everywhere("keyboard", None),
-        ):
+        with patch_everywhere("keyboard", None):
             MegabonkApp.on_closing(app)
 
-        self.assertEqual(closed, ["environment", "coordinator", "recorder"])
+        self.assertEqual(closed, ["coordinator"])
         self.assertEqual(destroyed, [True])
 
     def test_on_closing_continues_after_a_shutdown_owner_fails(self) -> None:
