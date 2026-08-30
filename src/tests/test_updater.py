@@ -169,6 +169,11 @@ class UpdaterBackendTests(unittest.TestCase):
                 "if %MOVE_ATTEMPTS% GEQ 30 goto restore_old", script
             )
             self.assertIn("goto move_new_loop", script)
+            self.assertIn(":delete_backup", script)
+            self.assertIn(
+                "if %DELETE_ATTEMPTS% GEQ 30 goto cleanup_complete", script
+            )
+            self.assertIn("goto delete_backup", script)
             self.assertIn(":restore_old", script)
             self.assertIn("echo SUCCESS 3.2.1", script)
             self.assertIn("echo ERROR The update could not be installed", script)
@@ -241,6 +246,39 @@ class UpdaterBackendTests(unittest.TestCase):
             )
             self.assertFalse(result_path.exists())
             self.assertIsNone(updater.consume_update_result(str(exe_path)))
+
+    def test_startup_removes_only_updater_owned_stale_backups(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            exe_path = directory / "BonkScanner.exe"
+            exe_path.write_bytes(b"current")
+            stale_backup = directory / ".BonkScanner-1234-abcdef1234.old.exe"
+            stale_backup.write_bytes(b"old")
+            manual_backup = directory / ".BonkScanner-manual.old.exe"
+            manual_backup.write_bytes(b"keep")
+            other_backup = directory / ".Other-1234-abcdef1234.old.exe"
+            other_backup.write_bytes(b"keep")
+
+            self.assertIsNone(updater.consume_update_result(str(exe_path)))
+
+            self.assertFalse(stale_backup.exists())
+            self.assertTrue(manual_backup.exists())
+            self.assertTrue(other_backup.exists())
+
+    def test_locked_stale_backup_is_retried_on_a_later_startup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            exe_path = directory / "BonkScanner.exe"
+            exe_path.write_bytes(b"current")
+            stale_backup = directory / ".BonkScanner-1234-abcdef1234.old.exe"
+            stale_backup.write_bytes(b"old")
+
+            with patch.object(Path, "unlink", side_effect=PermissionError("locked")):
+                self.assertIsNone(updater.consume_update_result(str(exe_path)))
+            self.assertTrue(stale_backup.exists())
+
+            self.assertIsNone(updater.consume_update_result(str(exe_path)))
+            self.assertFalse(stale_backup.exists())
 
 
 class UpdateDialogContentTests(unittest.TestCase):

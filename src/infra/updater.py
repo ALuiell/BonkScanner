@@ -23,6 +23,7 @@ MAX_UPDATE_BYTES = 250 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
 INSTALLER_WAIT_ATTEMPTS = 120
 INSTALLER_MOVE_ATTEMPTS = 30
+INSTALLER_DELETE_ATTEMPTS = 30
 UPDATE_RESULT_NAME = ".bonkscanner-update-result.txt"
 _VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){2}$")
 _SHA256_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
@@ -230,7 +231,20 @@ if not exist "%TARGET%" goto restore_old
 > "%RESULT%" echo SUCCESS {version}
 start "" "%TARGET%"
 if errorlevel 1 goto restore_old
-if exist "%BACKUP%" del /f /q "%BACKUP%" >nul 2>&1
+
+REM Antivirus scanning or another still-running instance can retain the renamed
+REM executable briefly. Retry cleanup instead of silently abandoning BACKUP.
+set /a DELETE_ATTEMPTS=0
+:delete_backup
+if not exist "%BACKUP%" goto cleanup_complete
+del /f /q "%BACKUP%" >nul 2>&1
+if not exist "%BACKUP%" goto cleanup_complete
+set /a DELETE_ATTEMPTS+=1
+if %DELETE_ATTEMPTS% GEQ {INSTALLER_DELETE_ATTEMPTS} goto cleanup_complete
+ping 127.0.0.1 -n 2 >nul
+goto delete_backup
+
+:cleanup_complete
 (goto) 2>nul & del /f /q "%~f0"
 
 :restore_old
@@ -369,12 +383,35 @@ def _clean_subprocess_environment() -> dict[str, str]:
     return env
 
 
+def _cleanup_stale_update_backups(target: Path) -> None:
+    """Remove updater-owned backups that survived an earlier bounded cleanup."""
+    backup_name = re.compile(
+        rf"^\.{re.escape(target.stem)}-\d+-[0-9a-f]{{10}}\.old\.exe$",
+        re.IGNORECASE,
+    )
+    try:
+        siblings = tuple(target.parent.iterdir())
+    except OSError:
+        return
+    for sibling in siblings:
+        if not backup_name.fullmatch(sibling.name):
+            continue
+        try:
+            sibling.unlink()
+        except OSError:
+            # A second running copy can still own the file. Every later startup
+            # retries, so cleanup remains bounded without abandoning the backup.
+            pass
+
+
 def consume_update_result(exe_path: str | None = None) -> tuple[str, str] | None:
-    """Return and remove the previous helper's one-line result, if present."""
+    """Clean stale backups, then return and remove the helper's result."""
     target = exe_path or frozen_exe_path()
     if not target:
         return None
-    result_path = Path(target).resolve().with_name(UPDATE_RESULT_NAME)
+    target_path = Path(target).resolve()
+    _cleanup_stale_update_backups(target_path)
+    result_path = target_path.with_name(UPDATE_RESULT_NAME)
     try:
         text = result_path.read_text(encoding="utf-8", errors="replace").strip()
     except OSError:
