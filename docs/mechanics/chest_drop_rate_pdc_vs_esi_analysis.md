@@ -1,5 +1,10 @@
 # Mathematical Analysis: Impact of PDC vs. ESI on Chest Drop Rates (Chests/min)
 
+Status: the assembly evidence in this document is a **Megabonk v2.1.7
+reverse-engineering snapshot**. BonkScanner still implements the formula in
+`src/core/stats/types.py`, but the RVAs and constants below have not been
+revalidated here against a newer game build.
+
 ## Executive Summary
 
 This document provides a mathematical breakdown and comparative analysis of how **Powerup Drop Chance (PDC)** and **Elite Spawn Increase (ESI)** affect the chest drop rate (**Chests/min**) in *Megabonk*. 

@@ -2,6 +2,10 @@
 
 This document consolidates reverse-engineering findings and analysis regarding the tracking of **Chaos Tome** (ID 24 / `0x18`) in Megabonk. It details where the data is stored in memory, the hidden dual-rarity logic behind stat generation, and how the fingerprint matching algorithm tracks rolls accurately without using invasive hooks.
 
+Last code-path review: 2026-08-30. Offsets remain build-specific; this review
+confirmed the documented roots against the current BonkScanner source, not
+against a newly launched game process.
+
 ---
 
 ## 1. Memory Layout & Offsets
@@ -11,8 +15,8 @@ All tome data and player stats are linked to the player stats manager (`PlayerSt
 ### 1.1. Locating Chaos Tome Level
 The Chaos Tome level is stored in the tome inventory (`TomeInventory`):
 
-1. **Static Module Base**: `GameAssembly.dll` + `RUN_STATS_TYPE_INFO_OFFSET` (defined as `0x02F7A170` in `src/infra/memory/player_stats_client.py`).
-2. **PlayerStats (ownerStats)**: `[StaticRoot + 0xB8] + 0x40` (class static fields -> `ownerStats`).
+1. **Player-stats TypeInfo**: `GameAssembly.dll` + `TYPE_INFO_OFFSET` (defined as `0x02F6A4B8` in `src/infra/memory/player_stats_client.py`). `RUN_STATS_TYPE_INFO_OFFSET` (`0x02F7A170`) belongs to run counters/damage sources and is not the owner-stats root.
+2. **PlayerStats (ownerStats)**: `TypeInfo -> class_ptr +0xB8 -> static_fields +0x00 -> root +0x40 -> ownerStats`.
 3. **PlayerInventory**: `[PlayerStats + 0x28]` (`PLAYER_INVENTORY_OFFSET`).
 4. **TomeInventory**: `[PlayerInventory + 0x48]` (`TOME_INVENTORY_OFFSET`).
 5. **Tome Levels Dictionary**: `[TomeInventory + 0x18]` (`TOME_LEVELS_DICT_OFFSET`).

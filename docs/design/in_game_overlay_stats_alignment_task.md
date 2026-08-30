@@ -1,5 +1,11 @@
 # In-Game Overlay Stats Alignment Task
 
+Status: **Implemented.** The current renderer uses
+`_calculate_stats_label_width_px()` and two-column table rows in
+`src/projections/in_game_html.py`; coverage lives in
+`src/tests/test_in_game_overlay_render.py`. The remaining sections preserve the
+pre-implementation comparison and acceptance criteria.
+
 ## Goal
 
 Bring the `stats` widget alignment used by the OBS overlay into the in-game overlay so stat values start from the same visual column instead of shifting per row.

@@ -6,7 +6,10 @@ This page details the implementation of the Map Scanner Loop and the two evaluat
 
 ## The Scanner Worker Loop
 
-The core scanning process runs on a background `QThread` called `ScannerWorker` (defined in [src/gui_scanner.py](../../src/gui_scanner.py)). Keeping this in a separate thread prevents the GUI from freezing during continuous memory operations and key emulation.
+The [`Scanner`](../../src/gui_scanner.py) component owns a daemon
+`threading.Thread` named `BonkScannerWorker`. Keeping the polling loop outside
+the Qt owner thread prevents continuous memory operations and key emulation from
+freezing the GUI; UI callbacks are scheduled back onto Qt.
 
 ### Polling State Machine
 
@@ -25,7 +28,7 @@ stateDiagram-v2
         StableWait --> MapLoaded : Map Pointer & Stage Pointer valid
     }
 
-    WaitStable --> ReadMemory : Grace window passed
+    WaitStable --> ReadMemory : Stable counter snapshot confirmed
 
     state ReadMemory {
         [*] --> FetchMapStats : Call GameDataClient
@@ -47,8 +50,10 @@ stateDiagram-v2
 ```
 
 ### Key Safety Mechanisms
-1. **Unstable Read Mitigation**: The scanner does not evaluate the map immediately upon loading. It waits for the `MapGenerationState` to flag `is_generating = False` and checks that the memory pointers for both `current_map_ptr` and `current_stage_ptr` are stable and non-zero.
-2. **Stable Snapshot Reuse**: If the map-ready wait has already fetched a valid map snapshot, the scanner preserves and evaluates this state, preventing an immediate reread from picking up a transient or partial loading state.
+1. **Fail-Closed Readiness**: `wait_for_map_ready()` uses strict lifecycle reads. It requires generation/reset to be clear, non-zero map/stage pointers and evidence that the map identity changed; an unreadable flag is never converted into a ready state.
+2. **Stable Dictionary Snapshot**: Map counters and their `(entries, count, version)` revision must remain unchanged for at least 25 ms. A mutation during traversal raises instead of mixing two map generations.
+3. **Stable Snapshot Reuse**: If the map-ready wait has already fetched a valid map snapshot, the scanner preserves and evaluates this state, preventing an immediate reread from picking up a transient or partial loading state.
+4. **Late-Run Start Guard**: Starting the scanner through its configured scan hotkey is blocked for an active/reconnecting normalized T2-T4 snapshot unless the map context explicitly identifies Graveyard. Missing map context is blocked at those late tiers; manual in-game reset input is unaffected.
 
 ---
 

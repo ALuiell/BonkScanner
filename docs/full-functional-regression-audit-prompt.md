@@ -139,10 +139,13 @@ Treat these as established behavior. Do not ask the user to confirm them again u
 - Raw `stage_index = 2` means Stage 3.
 - Derived Stage 4 detection is allowed only after the tracker has already reached Stage 3.
 - Forest/Desert Stage 4 is not represented by a distinct reliable memory stage.
-- A Stage 4 transition may be detected when activity totals collapse after entering the final map:
+- `MapController.isFinalBossStage` is the primary Stage 4 promotion signal.
+- When that flag is unavailable, a Stage 4 transition may fall back to activity
+  collapse after entering the final map:
   - `chests_total < 46`, or
   - `pots_total < 55`.
-- Timer reset and the other documented transition signals may also contribute.
+- Stage-timer reset/jump evidence and the other documented transition signals
+  may contribute to the fallback path.
 - The collapse heuristic must never promote Stage 1 or Stage 2 directly to Stage 4.
 
 ### Graveyard
@@ -420,6 +423,8 @@ Use only the checklist for the requested area, plus shared dependencies that dir
 - restart path;
 - errors and recovery;
 - hotkeys;
+- configured-hotkey late-stage safeguard for Forest/Desert Tier 2-4, including
+  the Tier 1 and Graveyard exemptions and no effect on manual in-game `R`;
 - worker/timer shutdown;
 - log messages versus real actions;
 - session reset;
@@ -454,14 +459,16 @@ Use only the checklist for the requested area, plus shared dependencies that dir
 - player level;
 - chest statistics;
 - Stage Summary: Stage, Time, Kills, Items;
-- Segment Compare;
 - Banishes;
 - Stats;
 - Weapons;
 - Tomes;
 - Chaos Tome;
+- Charge Shrines;
+- character Passives, including Dice/Gamba attribution;
 - Damage Sources;
 - Powerups;
+- Build Progression;
 - event/stage timers;
 - unavailable and stale states;
 - per-field last-known fallback;
@@ -476,7 +483,9 @@ Use only the checklist for the requested area, plus shared dependencies that dir
 - new file for a new run;
 - snapshot interval;
 - schema and metadata;
-- items, stats, weapons, tomes, Chaos, banishes, damage sources, stage summary, chests, KPS, powerups when supported;
+- items, stats, weapons, tomes, Chaos, Shrines, character Passives, banishes,
+  damage sources, stage summary, chests, KPS, powerups, and format-10 fields
+  when supported;
 - timeline slider and nearest snapshot;
 - rename/delete/cleanup;
 - legacy `vods`;
@@ -496,7 +505,8 @@ Use only the checklist for the requested area, plus shared dependencies that dir
 - nearest snapshot;
 - selected stats;
 - overview;
-- Stage Summary, Items, Weapons, Tomes, and Chaos diffs;
+- Stage Summary, Items, Weapons, Tomes, Chaos, Shrines, and character Passive
+  diffs;
 - gained/broken/lost semantics where documented;
 - runs of different lengths;
 - missing fields and legacy recordings;
@@ -516,7 +526,9 @@ Use only the checklist for the requested area, plus shared dependencies that dir
 - global and command cooldowns;
 - command settings and templates;
 - stage and periodic announcements;
-- `!stats`, `!session`, `!bans`, `!disabled`, `!items`, `!weapons`, `!tomes`, `!chaos`, `!stages`, `!powerups`, `!kps`, `!chests`, `!scanner`, `!presets`, `!bonkhelp`;
+- `!stats`, `!session`, `!bans`, `!disabled`, `!items`, `!weapons`, `!tomes`,
+  `!chaos`, `!dice`, `!shrines`, `!stages`, `!powerups`, `!kps`, `!build`,
+  `!luck`, `!chests`, `!scanner`, `!presets`, `!bonkhelp`;
 - current thread-safe snapshot;
 - no dependency on an open Live Stats tab.
 
@@ -529,6 +541,11 @@ Use only the checklist for the requested area, plus shared dependencies that dir
 - Active Powerups;
 - Luck Rarity and rarity bar;
 - Event Timer and warning threshold;
+- Item Cooldowns;
+- Build Progression;
+- Full Map activity markers: manual hotkeys, opt-in automatic discovery,
+  Full Map visibility, viewport scaling, stage/run cleanup, and the dedicated
+  latest-wins worker;
 - source and refresh rate of every widget;
 - show/hide, scale, position, drag, persistence, reset;
 - start/stop, auto-start, click-through, always-on-top;

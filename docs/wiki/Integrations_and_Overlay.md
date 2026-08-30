@@ -22,7 +22,7 @@ sequenceDiagram
 
     GUI->>Bot: Start Thread (Channel, Token)
     activate Bot
-    Bot->>IRC: Connect via TCP Socket (port 6667)
+    Bot->>IRC: Connect via TLS Socket (port 6697)
     Bot->>IRC: Authenticate (PASS oauth:xxx, NICK nickname)
     Bot->>IRC: Join channel (#streamer)
     IRC-->>Bot: JOIN Confirmation
@@ -39,7 +39,10 @@ sequenceDiagram
 
 ### Safety & Resilience Features
 1. **PONG Keepalive**: Twitch IRC servers periodically send a `PING :tmi.twitch.tv`. The `TwitchBotWorker` immediately replies with `PONG :tmi.twitch.tv` to prevent disconnection.
-2. **Fixed Reconnect Delay**: If the socket is severed while the worker is still marked as running, the bot closes the socket, reports a reconnecting state, and retries after a fixed 2-second delay.
+2. **TLS and Fixed Reconnect Delay**: The worker connects to
+   `irc.chat.twitch.tv:6697` through the default TLS context. If the socket is
+   severed while the worker is still running, it closes the socket, reports a
+   reconnecting state and retries after a fixed 2-second delay.
 3. **Snapshot-only game data:** The bot does not read game memory. Commands and
    announcers consume the runtime snapshot supplied by the application.
 4. **The One Ring announcer:** This opt-in checkbox is off by default. It
@@ -60,6 +63,8 @@ sequenceDiagram
 | `!weapons` | — | Weapons list and isolated upgrade modifiers. |
 | `!tomes` | — | Active tomes and bonuses. |
 | `!chaos` | `!chaostome` | Chaos Tome level and stat rolls sum. |
+| `!dice` | — | Dice passive status, level, attributed effects and ambiguity/pending state. |
+| `!shrines` | — | Charge Shrine progress and attributed reward modifiers. |
 | `!stages` | — | Stage summary (time and kills per stage). |
 | `!powerups` | — | Active powerups and remaining durations. |
 | `!kps` | — | Current and rolling average kill rates. |
@@ -94,10 +99,16 @@ The server listens for requests starting with `/overlay/` and supports the follo
 | `/overlay/luck_rarity` | Displays item rarity percentage bars and expected chest counts. |
 | `/overlay/build_progression` | Renders the active build progression checklist and requirement deadlines. |
 | `/api/overlay-state` | Returns the raw state store in JSON format (polled by widget frontends). |
+| `/api/overlay-widget-revision?after=N` | Long-polls editor-visible widget configuration revision changes. |
+
+The editor also POSTs persisted widget geometry to
+`/api/save-widget-positions` and canvas dimensions to
+`/api/save-canvas-resolution`.
 
 ### Thread-Safe State Store
 Because HTTP request handlers run on separate socket threads, the server utilizes a thread-safe `OverlayStateStore` class:
-- Access to the state dictionary is protected by a `threading.Lock()`.
+- Access to state and widget revisions is protected by a
+  `threading.Condition()` so revision waiters can be notified.
 - Updates from the main thread use `set_state(state)` (acquiring the lock and copying state variables).
 - The request handler uses `get_state()` to retrieve a thread-safe snapshot of the state to serve JSON queries.
 - `src/projections/obs.py` builds the payload from `RuntimeStateSnapshot`; the
@@ -105,11 +116,9 @@ Because HTTP request handlers run on separate socket threads, the server utilize
   colours, and does not reimplement game rules.
 
 ### OBS Cache Prevention
-To ensure widgets update immediately after a game restart, all server responses contain strict cache-control headers:
+State, revision, asset and error responses disable caching with:
 ```http
-Cache-Control: no-cache, no-store, must-revalidate
-Pragma: no-cache
-Expires: 0
+Cache-Control: no-store
 ```
 
 ---

@@ -1,6 +1,6 @@
 # Functional Updates
 
-Date: 2026-08-20
+Last reviewed: 2026-08-30
 
 This file tracks open and partially completed functional/runtime work that does not fit cleanly into UI-only or performance-only buckets.
 
@@ -43,6 +43,39 @@ Open product decision:
   - the current run only;
   - the whole app session;
   - or both, with one of them clearly marked as the default/stat-friendly view.
+
+### Recordings & Build Progression
+
+#### 1. Record Active Build Progression in the Recording Timeline
+
+Status: `[Open]`
+
+Goal:
+
+- Add an optional synchronization setting that records the existing active `Build Progression` together with a run recording.
+- Show how the selected build was assembled over time: when each requirement was completed, when a deadline was missed, and when the full build was completed.
+- Keep this as a recording/history extension of the existing `Build Progression`, not as a separate challenge assistant or recommendation system.
+
+Planned implementation notes:
+
+- When synchronization is enabled, save a frozen copy of the active build definition at recording start so later edits or deletion of that build cannot change historical recordings.
+- Record exact Build Progression transition events with their in-game time and stage context instead of reconstructing them only from the normal recording snapshots, whose sampling interval can make completion and deadline times inaccurate.
+- Reuse the current `BuildProgressionService` state and transitions; this feature should not require additional game-memory reads or a second progression evaluator.
+- Add a dedicated `Build` lane to the recording timeline with:
+  - a step progression such as `2/8 -> 3/8 -> 4/8`;
+  - markers for completed requirements, banishes, missed deadlines, tracked caps, and full-build completion;
+  - tooltips showing the requirement, in-game time, stage, and deadline timing where relevant.
+- When the recording playhead moves, allow the existing Build Progression view to display the recorded state at that point in time.
+- Keep a recording bound to the build captured at its start if the user changes the active build during the run; do not silently mix multiple build definitions into one timeline.
+- Show the recorded build name in the recording details/library, and hide the Build lane for older recordings that do not contain Build Progression data.
+
+Initial delivery scope:
+
+- opt-in synchronization;
+- frozen build definition in the recording;
+- requirement and full-completion events;
+- Build timeline lane and playhead-aware historical state;
+- backward-compatible loading of existing recordings.
 
 ### Help & Documentation
 

@@ -11,7 +11,9 @@ by the Twitch Bot `!chests` command. The important distinction is between:
 
 The command formatter itself is in `src/twitch_bot.py::_handle_chests()`. Runtime
 state is maintained by `LiveRunTracker`, and the cumulative counters are read
-by the regular player-stat refresh in `src/app/player_stats_refresh.py`.
+by the 10-second full player-stat refresh in
+`src/app/player_stats_refresh.py`. Expected Key-proc inputs use the separate
+fast task in `src/app/refresh_tasks.py`.
 
 For the raw reverse-engineering background, enum definitions, class layouts,
 and chest-price formula, see
@@ -285,8 +287,9 @@ The exact factual counters are persistent totals and remain in the existing
 full player-stat refresh every `10,000 ms`.
 
 Expected Key procs require the historical Key chance at the time each normal
-chest is opened. The existing `250 ms` Chaos Tome loop therefore performs two
-additional narrow reads while `!chests` is enabled:
+chest is opened. The dedicated `expected_chest_inputs` task therefore performs
+two narrow reads on `FAST_TRACKER_INTERVAL_MS` (500 ms by default, with a
+100 ms floor):
 
 ```text
 RunStats.stats["chestsBought"]
@@ -300,18 +303,19 @@ expected += delta * sampled_key_chance
 key_chance = (0.10 * keys) / (1.0 + 0.10 * keys)
 ```
 
-If the Key stack changed inside the same sampling window, the sampled chance is
-the mean of the previous and current chances. This avoids systematically
-assuming that the Key pickup happened either before or after every chest in an
-otherwise ambiguous `250 ms` window.
+The tracker uses the post-open Key stack when `chestsBought` increases. A Key
+dropped by a chest can proc on that same chest, so the current stack is the best
+observable probability sample even though polling cannot reconstruct the exact
+event order inside one interval.
 
 No `25 ms` interactable monitor is required.
 
 Expected tracking is shared run telemetry. It is shown by `!chests`, displayed
 in the sixth Stats card in Live Stats and Recordings, and serialized into
 recording snapshots together with the per-stage chest breakdown. The two narrow
-`250 ms` reads therefore run whenever live run tracking is active, while the UI
-card itself refreshes on the regular 10-second player-stat update.
+fast-task reads therefore run during an active run, while factual cumulative
+counters and the durable recording payload remain on the 10-second full
+player-stat update.
 
 ### Advantages
 
@@ -338,9 +342,10 @@ card itself refreshes on the regular 10-second player-stat update.
 4. If tracking begins after normal chests have already been opened, historical
    Expected cannot be reconstructed and the command reports `Expected: --`
    until the next run.
-5. A Key pickup and chest opening inside the same `250 ms` interval have unknown
-   ordering. Averaging the before/after chances minimizes bias but cannot recover
-   the exact event order.
+5. A Key pickup and chest opening inside the same fast-task interval have
+   unknown ordering. The current post-open stack rule matches the game's
+   same-chest Key-drop behavior, but polling still cannot recover exact event
+   order.
 
 ## Option 4: `DetectInteractables.currentInteractable`
 
@@ -523,8 +528,8 @@ income arrives in the same `250 ms` sample and offsets the chest cost. Therefore
    preserving the legacy tuple getter for compatibility.
 5. Reject snapshots that violate the counter invariants and keep the previous
    valid values until the next refresh.
-6. Accumulate Expected Key procs in the existing `250 ms` loop using the Key
-   chance observed around each increase of `chestsBought`.
+6. Accumulate Expected Key procs in the dedicated fast task using the post-open
+   Key chance observed with each increase of `chestsBought`.
 7. Format the Twitch response with separate paid, Key-proc, expected, and free
    totals:
 

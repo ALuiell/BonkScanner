@@ -16,6 +16,8 @@ If the scanner loop skips matching maps or loops endlessly:
 If all labels in the Player Stats UI remain as `--` or default values:
 * **Base Pointer Validation**: Verify if `PlayerStatsNew` resolves in memory. If the base address resolves as `0x0`, the game is in the main menu or currently loading.
 * **Local vs. Total Failure**: Check if basic stats (Damage, Speed) fail to load, or if only inventories fail. If basic stats work but passive items are missing, the issue is restricted to inventory dictionary traversal.
+* **Source-Level Failure**: Inspect the named source (`PLAYER_STATS`, `PASSIVE_ITEMS`, `RUN_TIMER`, `MAP_ACTIVITY_VALUES`, etc.) rather than assuming every blank widget is one failed read. A `RefreshTickContext` caches a value or exception once per pass, so multiple affected consumers can share the same root read.
+* **Reconnect Threshold**: Three consecutive recognized Player Stats failures close the client and let the next demanded pass reconnect. The map-activity game-data source has its own streak so healthy sibling reads cannot hide that stale path.
 
 ### 3. Passive Items are Missing
 If items are equipped in-game but do not show up in the live stats grid:
@@ -29,18 +31,37 @@ graph TD
     CheckFallback -- Yes --> FallbackActive[Using Fallback Path]
     CheckFallback -- No --> BadPointer[Verify Dictionary Offsets & Traversal Count]
 
-    ResolveNames --> NameMatch{Display Name Found?}
-    NameMatch -- Yes --> Done[Items Rendered in UI]
-    NameMatch -- No --> UnknownItem[Displays as 'Unknown' / missing rarity color]
+    ResolveNames --> Complete{Every live entry decoded<br>and stack read twice?}
+    Complete -- Yes --> Done[Validated snapshot published]
+    Complete -- No --> FailClosed[Whole sample unavailable;<br>preserve last confirmed baseline]
 ```
 
-### 4. VOD Recording Splits Incorrectly
+The primary route is not selected merely because its pointer is non-null. The
+resolver prefers whichever candidate has live entries, because one route can be
+a drained allocated dictionary. An incomplete walk clears the cached layout and
+fails the whole source; publishing a partial inventory would create false item
+losses and phantom pickups when the missing entry returns.
+
+### 4. Full Map Markers are Missing or Frozen
+* **FullMap Initialization**: An uninitialized IL2CPP TypeInfo token is a normal
+  `FullMapNotReadyError`; the worker retains the connection and retries on the
+  next 25 ms marker tick.
+* **Worker Boundary**: Marker reads run on the dedicated single-worker executor,
+  not the Live Stats refresh pass. Check the latest-wins worker lifecycle and
+  generation before blaming `PlayerStatsClient` or the native restart hook.
+* **Automatic Discovery**: It is opt-in, sampled at 100 ms and observes only the
+  game-selected `currentInteractable`. Manual markers can still work while no
+  automatic marker is found.
+* **Projection**: Verify the live Full Map object, world size, transform bounds,
+  Win32 client dimensions, Qt device-pixel ratio and configured display scale.
+
+### 5. VOD Recording Splits Incorrectly
 If one continuous run generates multiple `.jsonl` files, or if two separate runs merge into one file:
 * **Timer Check**: Verify if `game_time_seconds` has reset to near $0.0$.
 * **Transition Boundary Conflict**: Check if the stage pointer changed while the run timer continued. If yes, the auto-split engine correctly attributes this to a stage transition, not a new run.
 * **Grace Window Duration**: If the game lags during loading screens, the map seed might read as invalid. Ensure the grace window (default 20 seconds) is active before closing the recording stream.
 
-### 5. OBS Overlay Doesn't Load
+### 6. OBS Overlay Doesn't Load
 * **Port Collision**: Run `netstat -ano | findstr 17845` in PowerShell to verify if another application is binding to the overlay port.
 * **Asset Integrity**: Ensure the folder [src/media/overlay/](../../src/media/overlay/) exists and is populated with `index.html`, CSS, and JS scripts.
 

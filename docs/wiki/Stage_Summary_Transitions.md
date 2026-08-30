@@ -1,84 +1,130 @@
 # BonkScanner Developer Wiki - Stage Summary & Transitions
 
-This page documents the algorithm used by BonkScanner to divide a live run or a recorded VOD timeline into separate, distinct **Stages** (Stage 1 to Stage 4), attributing items, elapsed times, and mob kills to each stage.
+This page documents how BonkScanner maps live or recorded snapshots to the
+human-facing Stage 1-4 timeline and attributes time, kills and item gains.
+
+The canonical implementation is
+[`src/core/run_summary.py`](../../src/core/run_summary.py). Both Stage Summary
+rows and recording-scrubber stage bands use the same `stage_number_sequence()`;
+they must not infer stage numbers independently.
 
 ---
 
-## The Stage Transition Problem
-In the game, stage transitions are not marked by explicit event logs. Instead, BonkScanner must reconstruct these boundaries by observing changes in the game's internal memory state:
-- **Stages 1-3**: Game pointer or map seed structures change upon entering a new map area.
-- **Stage 4**: The game engine typically reuses the Stage 3 pointer and seed. Stage 4 entry must be detected via anomalies or resets in the stage timer.
+## Memory Signals
+
+The game exposes a zero-based `MapController.index` for the ordinary maps:
+
+| Raw `stage_index` | User-facing stage |
+| :---: | :---: |
+| `0` | Stage 1 |
+| `1` | Stage 2 |
+| `2` | Stage 3 |
+
+The raw value stays at `2` in the Forest/Desert boss room, so Stage 4 needs
+additional positive evidence. Snapshots can carry:
+
+- `stage_index`, `stage_ptr` and `map_seed` from `GameDataClient`;
+- `is_final_boss_stage`, the game's own atomic MapController flag;
+- Chest/Pot map totals used as a fallback boss-room signature;
+- stage and run timers used only as the final heuristic fallback.
+
+Missing data never demotes an already resolved stage. The sequence is clamped
+to move forward from 1 through 4.
 
 ---
 
-## resolve_next_stage_index Algorithm
+## Initial Stage and Ordinary Transitions
 
-Stage transitions are evaluated sequentially for every snapshot using `resolve_next_stage_index` (defined in [src/core/run_summary.py](../../src/core/run_summary.py)):
+`resolve_initial_stage_index()` first normalizes the raw index. A late attach
+with raw Stage 3 is promoted directly to Stage 4 when the final-boss flag or map
+activity signature is already present.
 
-### 1. Transitions to Stage 2 & Stage 3
-If the current stage index is **less than 3**, the index increments to the next stage if:
-* **Stage Pointer Change**: Both previous and current snapshots have non-zero stage pointers, and the pointers differ:
-  $$\text{previous\_stage\_ptr} \neq \text{current\_stage\_ptr}$$
-* **Seed Fallback**: If stage pointers are missing/zero, but both previous and current map seeds are present and differ:
-  $$\text{previous\_seed} \neq \text{current\_seed}$$
+For later snapshots `resolve_next_stage_index()` uses this order:
 
-### 2. Transition to Stage 4 (Timer Heuristics)
-If the current stage index is **exactly 3**, BonkScanner evaluates `looks_like_stage_four_transition` to flag the transition to Stage 4.
+1. A raw transition from Stage 2 to Stage 3 is authoritative.
+2. Any available raw index updates the tracked Stage 1-3 value.
+3. Only when the raw index is unavailable, a changed non-zero stage pointer can
+   advance Stage 1/2. If both pointers are absent, a seed change is the fallback.
+4. A tracked Stage 3 can advance to Stage 4 through one of the positive signals
+   below.
 
-This checks three scenarios based on the stage timer ($T_{stage}$) and total run timer ($T_{run}$):
+Late attachment in Stage 2 or 3 can reconstruct the observed stage start from
+the run timer minus the stage timer. This is allowed only inside the known stage
+durations (540 seconds for Stage 2 and 480 seconds for Stage 3); ambiguous boss
+overtime is not backfilled.
+
+---
+
+## Stage 4 Promotion
+
+The strongest signal is `MapController.isFinalBossStage`. When it is unavailable
+or false, two fallbacks remain:
+
+1. **Map activity signature:** while raw Stage 3 is active, `chests_total < 46`
+   or `pots_total < 55` is treated as the boss-room wipe signature.
+2. **Timer transition:** `looks_like_stage_four_transition()` requires the same
+   non-zero stage pointer and seed on both snapshots, available timers and no
+   run-timer rewind larger than the 3-second tolerance. It then accepts one of:
+
+   - the stage timer falls to at most 90 seconds from a value above 5 seconds,
+     with a drop larger than 3 seconds;
+   - the timer falls into the 500-900 second ghost range by at least 300 seconds;
+   - the timer jumps upward past 500 seconds by at least 300 seconds.
 
 ```mermaid
-graph TD
-    Start[Check Stage 4 Transition] --> BasicChecks{Pointers & Seeds Equal<br>and Run Time Increasing?}
-    BasicChecks -- No --> False[Return False]
-    BasicChecks -- Yes --> CheckReset{Stage Time Reset?<br>T_curr <= 5.0s AND T_prev > 5.0s<br>AND T_curr + 0.25s < T_prev}
-
-    CheckReset -- Yes --> True[Return True - Timer Reset]
-    CheckReset -- No --> CheckGhostDown{Ghost Timer Jump Down?<br>3600.0s <= T_curr <= 3605.0s<br>AND T_prev - T_curr >= 600.0s}
-
-    CheckGhostDown -- Yes --> True
-    CheckGhostDown -- No --> CheckGhostUp{Ghost Timer Jump Up?<br>T_curr >= 3600.0s<br>AND T_curr - T_prev >= 600.0s}
-
-    CheckGhostUp -- Yes --> True
-    CheckGhostUp -- No --> False
+flowchart TD
+    Start[Tracked Stage 3] --> Flag{Final-boss flag true?}
+    Flag -- Yes --> Stage4[Promote to Stage 4]
+    Flag -- No --> Activity{Chest/Pot boss-room signature?}
+    Activity -- Yes --> Stage4
+    Activity -- No --> Stable{Same non-zero pointer and seed;<br>run timer within tolerance?}
+    Stable -- No --> Stay[Stay on Stage 3]
+    Stable -- Yes --> Timer{Reset or ghost-timer transition?}
+    Timer -- Yes --> Stage4
+    Timer -- No --> Stay
 ```
 
-#### Transition Flag Conditions:
-1. **Timer Reset**: The stage timer restarts near zero.
-   * `current_stage_time <= 5.0`
-   * `previous_stage_time > 5.0`
-   * `current_stage_time + 0.25 < previous_stage_time`
-2. **Ghost Timer Jump (Downwards)**: The stage timer jumps backward into a "ghost" stage range (often 3600-3605s).
-   * `3600.0 <= current_stage_time <= 3605.0`
-   * `previous_stage_time - current_stage_time >= 600.0`
-3. **Ghost Timer Jump (Upwards)**: The stage timer jumps forward past 3600 seconds.
-   * `current_stage_time >= 3600.0`
-   * `current_stage_time - previous_stage_time >= 600.0`
+All fallbacks are positive-only. A failed flag/activity read is not proof that
+the run is outside the boss room.
 
 ---
 
-## Stage Stat Attribution Logic
+## Time and Kill Attribution
 
-### 1. Stage Durations (Time Logic)
-- **Stage 1 Normalization**: While later stages calculate duration by subtracting the start time of the stage's first snapshot, **Stage 1 duration** is normalized to start from $0.0$ seconds (even if the first recording snapshot starts several seconds late).
-- **Boss Time-Skip Protection**: Stage 1-3 durations are calculated using the global run timer (`game_time_seconds`) rather than the stage timer (`stage_time_seconds`). This prevents in-game boss time-skip mechanics (which cause stage timers to skip forward) from corrupting the actual elapsed duration of the stage.
+- Stage 1 duration is normalized to run time `0.0`, even if recording began a
+  few seconds late.
+- Stage 2/3 late-attach duration can use the safe inference described above.
+- Durations use the global run timer rather than the stage timer, avoiding boss
+  time-skip/ghost-timer distortion.
+- A first snapshot in the new stage closes the previous stage when its stage
+  time is within 5 seconds, or when the raw index explicitly advanced. That
+  same closing decision is used for time, kills and item gains.
+- Kill totals use cumulative `mob_kills` with a per-stage baseline. Final drift
+  is reconciled into the last known stage only when the earlier rows are
+  sufficiently complete to do so safely.
 
-### 2. Mob Kills Attribution
-Kills are calculated using cumulative snapshot totals (`mob_kills`):
-- **Transition Boundary Rule**: If the first snapshot of a new stage is captured within the first few seconds of that stage (defined by `PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS = 5.0`), this snapshot is used as the **closing boundary** for the previous stage. This prevents kills obtained right before the transition from being omitted due to snapshot polling intervals.
-- **Reconciliation**: At the end of calculation, any remaining drift between the sum of stage kills and the final absolute total is resolved by adjusting the kills of the last active stage:
-  $$\text{Last Stage Kills} = \text{Last Stage Kills} + (\text{Final Snapshot Total Kills} - \sum \text{Calculated Stage Kills})$$
+---
 
-### 3. Items Gained (Debouncing logic)
-Inventory item counts can occasionally drop temporarily due to thread reading race conditions or memory glitches. To avoid creating fake item deltas, a **Debounce Tracker** is implemented in [src/core/run_summary.py](../../src/core/run_summary.py):
-- **Pending Drop Streaks**: If an item count decreases, the drop is not immediately committed. It is marked as "pending" for up to 3 snapshots (`PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS`).
-- If the count does not recover within 3 snapshots, the drop is finalized.
-- Item counts represent stack differences: if `Wrench x1` upgrades to `Wrench x3` at the transition boundary, $+2$ item counts are attributed to the new stage.
+## Item Gain Integrity
+
+Stage item totals use stack deltas grouped by rarity. The tracker does not trust
+a single temporary decrease:
+
+- a decrease becomes pending;
+- it is committed only after **2 consecutive readable snapshots**
+  (`PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS = 2`);
+- recovery before confirmation cancels the pending drop;
+- an unavailable item sample does not become an empty inventory or advance the
+  decrease streak;
+- a closing transition snapshot credits its gains to the stage it closes.
+
+The underlying `PlayerStatsClient` also fails an incomplete dictionary walk as a
+whole, so torn memory reads do not enter this debounce layer as plausible data.
 
 ---
 
 ## Navigation
 
-- Back to Home: [Home Wiki](./Home.md)
-- Back to Memory: [Memory & Live Stats Wiki](./Memory_and_Live_Stats.md)
-- Next up: [Recordings & VODs Wiki](./Recordings_and_VODs.md)
+- [Home Wiki](./Home.md)
+- [Memory & Live Stats Wiki](./Memory_and_Live_Stats.md)
+- [Recordings & VODs Wiki](./Recordings_and_VODs.md)

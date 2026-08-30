@@ -19,12 +19,22 @@ The implementation is split by responsibility:
   formats widget HTML only; it does not read game memory.
 - [`src/gui_in_game_overlay_settings.py`](../../src/gui_in_game_overlay_settings.py)
   defines the settings UI and the canonical widget rows.
+- [`src/app/map_marker_tracker.py`](../../src/app/map_marker_tracker.py) and
+  [`src/infra/memory/map_marker_client.py`](../../src/infra/memory/map_marker_client.py)
+  own the separate Full Map marker state and read-only memory adapter.
 
-Game memory is read on the application owner thread by refresh tasks. The
-overlay consumes read-only tracker state and never reads memory or mutates the
-tracker. `refresh_kps_widget()` is a deliberate narrow exception to the usual
-snapshot boundary: it reads the tracker's four read-only KPS accessors so a
-newly published KPS value can be painted immediately.
+Ordinary stats/widget data is read on the application owner thread by refresh
+tasks. The overlay consumes read-only tracker state and does not construct a
+`PlayerStatsClient` or `GameDataClient`. `refresh_kps_widget()` is a deliberate
+narrow exception to the usual snapshot boundary: it reads the tracker's four
+read-only KPS accessors so a newly published KPS value can be painted
+immediately.
+
+Full Map markers are the separate memory path. A 25 ms UI timer submits
+latest-wins work to one background executor; `MapMarkerTracker` and its
+`MapMarkerMemoryClient` live behind that serialized worker. The GUI only applies
+a completed immutable `MapMarkerSnapshot`, and shutdown queues `close()` behind
+any in-flight read before disposing the executor.
 
 ```mermaid
 flowchart LR
@@ -34,6 +44,9 @@ flowchart LR
     Snapshot --> Projection[In-game projection]
     Projection --> Window[InGameOverlayWindow]
     Tracker -. KPS repaint only .-> Window
+    FullMap[Full Map memory] --> MarkerWorker[Map marker worker]
+    MarkerWorker --> MarkerSnapshot[MapMarkerSnapshot]
+    MarkerSnapshot --> Window
 ```
 
 ## Cadence and freshness
@@ -47,17 +60,20 @@ The data it paints has different source cadences:
 | Data | Source cadence | Notes |
 | --- | ---: | --- |
 | Scanner and REC status | 500 ms repaint | Application state; no memory read. |
-| KPS | 500 ms refresh | Also repainted directly when combat metrics publish. |
-| Powerups and fast stage context | 500 ms / 1 s | Read by their refresh tasks and carried by the tracker. |
-| Passive items, Luck, timed-item cooldowns | 1 s | One coherent passive-item pass. |
-| Full stats, weapons, tomes and banishes | 10 s | From the full live snapshot. |
+| KPS | Configurable, 500 ms by default | Also repainted directly when combat metrics publish. |
+| Powerups and Expected chest inputs | Configurable, 500 ms by default | Read by demanded fast tasks and carried by the tracker. |
+| Passive items, Luck, banishes, map context and timed-item cooldowns | 1 s | Shared logical sources in one refresh pass. |
+| Event/stage timer, Charge Shrines and Chaos/Dice/passive attribution | 1 s when demanded | Published as read-only tracker state. |
+| Full stats, weapons, tomes, damage sources and durable recording payload | 10 s | From the full live snapshot. |
+| Full Map projection | 25 ms queue; latest completed sample wins | Dedicated worker; the UI timer never blocks on memory. |
+| Automatic marker discovery | 100 ms when enabled | Reads only the game-selected `currentInteractable` and an explicit class allowlist. |
 
 The overlay hides while the game window is inactive and reappears when it is
 active. In edit mode it remains visible so the layout can be changed.
 
-## Widgets
+## Widgets and Full Map layer
 
-Each widget has independent enable, position and scale settings:
+Each ordinary widget has independent enable, position and scale settings:
 
 - **Scanner status** — whether scanning is active.
 - **Recording status** — whether player-stat recording is active.
@@ -73,6 +89,11 @@ Each widget has independent enable, position and scale settings:
   held.
 - **Build progression** — active build checklist tracking item counts, stat thresholds,
   and progress targets against configurable stage/time deadlines.
+
+Map markers are a separate Full Map layer rather than a normal movable widget.
+They support a layer scale, manual markers and optional automatic discovery for
+supported interactables. Manual projection remains available when automatic
+discovery is disabled.
 
 `item_cooldowns` is intentionally separate from `powerups`: a powerup card
 hides when no buff is active, while a timed passive item can remain relevant for

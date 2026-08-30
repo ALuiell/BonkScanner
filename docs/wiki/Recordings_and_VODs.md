@@ -1,125 +1,182 @@
 # BonkScanner Developer Wiki - Recordings & VODs
 
-This page documents the serialization schema and file storage mechanisms used by the BonkScanner recording subsystem to persist and replay live run metrics.
+This page documents the JSONL recording format, capture cadence, lifecycle and
+cleanup rules used by BonkScanner.
+
+Serialization lives in
+[`src/infra/vod_storage.py`](../../src/infra/vod_storage.py). Run detection and
+auto-split/stop decisions live in
+[`src/app/vod_capture.py`](../../src/app/vod_capture.py).
 
 ---
 
-## Storage & Format
+## Storage and Write Policy
 
-Recordings (VODs) are stored in the `stats_recordings/` directory under the application's executable root.
-- **File Format**: JSON Lines (`.jsonl`), where each line is a separate, self-contained JSON object terminated by a newline (`\n`).
-- **File Naming**: `YYYY-MM-DD_HH-MM-SS.jsonl` (e.g., `2026-06-22_10-12-00.jsonl`).
-- **Flush Strategy**: To avoid data loss due to unexpected process terminations, records are written sequentially and flushed to disk every 3 snapshots.
+Recordings are stored in `stats_recordings/` under the application root. The
+legacy `vods/` directory is still read when listing old files.
+
+- File format: UTF-8 JSON Lines (`.jsonl`), one strict JSON object per line.
+- File name: timestamp `YYYY-MM-DD_HH-MM-SS.jsonl`, with a uniqueness suffix if
+  the timestamp already exists.
+- Metadata is written and flushed immediately.
+- Snapshots are flushed every 3 records.
+- The final summary is flushed when recording stops.
+- The default capture interval is 30 seconds. It is clamped to at least 10
+  seconds because full player snapshots cannot be produced more often than the
+  fixed 10-second memory pass.
+
+The persistent metadata index speeds recording-list display. It is a cache of
+the JSONL metadata/summary, not the source of truth; stale entries are reconciled
+against file modification time and size.
 
 ---
 
-## JSONL Schema Definition (Version 5)
+## JSONL Schema (Version 10)
 
-A valid VOD recording consists of three record types written in a specific sequence:
-1. **Metadata Record** (First line)
-2. **Snapshot Records** (Zero or more subsequent lines)
-3. **Summary Record** (Final line upon stopping)
+A finalized recording normally contains:
 
-### 1. Metadata Record Schema
-Written immediately when recording starts:
+1. one `metadata` record;
+2. zero or more `snapshot` records;
+3. one `summary` record.
+
+Loaders remain tolerant of older recordings and absent newer optional fields.
+
+### Metadata
+
 ```json
 {
   "type": "metadata",
-  "version": 5,
-  "name": "Run 2026-06-22 10:12:00",
-  "created_at": "2026-06-22T10:12:00",
+  "version": 10,
+  "name": "Dicehead 2026-08-30 12:00:00",
+  "created_at": "2026-08-30T12:00:00",
   "snapshot_interval_seconds": 30,
-  "run_seed": 48291032
+  "run_seed": 48291032,
+  "character_id": 18,
+  "character_name": "Dicehead"
 }
 ```
 
-### 2. Snapshot Record Schema
-Written periodically (default: every 30 seconds) during active runs:
+If no custom name is supplied, the initial automatic name starts with the
+character name when available, otherwise `Run`. The JSONL file name itself
+remains timestamp-based.
+
+### Snapshot
+
+Every snapshot always writes the basic collections and `chests_per_minute`:
+
 ```json
 {
   "type": "snapshot",
   "elapsed_seconds": 60,
   "captured_at": 149204.28,
   "stats": {
-    "Damage": { "value": 1.25, "display_value": "+25%" },
-    "Armor": { "value": 5.0, "display_value": "5" }
+    "Damage": { "value": 1.25, "display": "+25%" }
   },
   "items": ["Wrench x2", "Anvil x3"],
-  "weapons": [
-    {
-      "id": 12,
-      "level": 4,
-      "name": "Fireball",
-      "upgraded_stats": { "Damage": 45.0, "Cooldown": -0.4 }
-    }
-  ],
+  "weapons": [],
   "tomes": [],
+  "chaos_tome": null,
+  "shrines": null,
+  "character_passive": null,
   "banishes": [],
+  "damage_sources": [],
   "chests_per_minute": 1.2,
   "game_time_seconds": 180.5,
   "mob_kills": 248,
-  "player_level": 12,
-  "map_seed": 48291032,
-  "stage_ptr": 140391290321,
-  "stage_time_seconds": 120.4,
-  "chests_opened": 3,
-  "chests_total": 12,
-  "paid_chests": 2,
-  "free_chests": 1
+  "stage_index": 1,
+  "stage_time_seconds": 120.4
 }
 ```
 
-### 3. Summary Record Schema
-Written when the user terminates recording:
+The serializer adds the following top-level fields only when their values are
+available:
+
+- capture-time KPS (`kps_at_capture`, minute, five-minute and run averages);
+- `player_level`, `map_seed`, `stage_ptr` and raw zero-based `stage_index`;
+- chest totals, Pots total, paid/free counts, Key procs, held Keys and expected
+  Key procs;
+- per-stage opened/total chest maps;
+- actual and expected loot counts by internal rarity key.
+
+Nested weapon, tome, Chaos Tome, Charge Shrine, character-passive and damage
+source records are converted by dedicated version-tolerant helpers in
+`vod_storage.py`.
+
+### Summary
+
 ```json
 {
   "type": "summary",
+  "name": "Dicehead 12K 2026-08-30 12:00:00",
   "duration_seconds": 320,
-  "snapshot_count": 10
+  "snapshot_count": 10,
+  "mob_kills": 12480
 }
 ```
 
-The run seed is recorded in the initial metadata record, not duplicated in the summary record.
+For an automatic name, stop-time finalization inserts the maximum observed kill
+count in compact form. The summary name overrides the initial metadata name
+when the recording is loaded. A user-supplied name is preserved.
 
 ---
 
-## Auto-Split & Cleanup Heuristics
+## Lifecycle, Pause and Auto-Split
 
-The recorder (managed in [src/infra/vod_storage.py](../../src/infra/vod_storage.py)) contains safety mechanisms to split files or discard junk records automatically.
+The recording lifecycle is checked every second from the shared refresh pass:
 
-### 1. Auto-Split (New Run Detection)
-A recording session is split into a new file when a genuinely new run is started, but *must not* split on stage transitions.
+- `PAUSED_IN_GAME` pauses lifecycle progress without closing the current file;
+- returning to `IN_GAME` resumes it;
+- `GAME_OVER` or `MAIN_MENU` finalizes the current file and can leave automatic
+  recording armed for the next run;
+- `UNKNOWN` does not manufacture a stop/split decision;
+- a missing seed starts a 20-second grace window; persistent absence then
+  auto-stops and disarms recording.
+
+When seed or stage-pointer identity changes, the raw stage index prevents an
+ordinary map transition from looking like a new run:
 
 ```mermaid
-graph TD
-    Snapshot[New Memory Poll Snapshot] --> CheckSeed{Has Map Seed Changed?}
-
-    CheckSeed -- No --> Continue[Continue Current File]
-    CheckSeed -- Yes --> CheckStage{Has Stage Pointer Changed<br>AND Run Time Increased?}
-
-    CheckStage -- Yes --> StageTransition[Attribute as Stage Transition<br>Do NOT Split]
-    CheckStage -- No --> CheckTimer{Has Run Timer Reset to < 5.0s?}
-
-    CheckTimer -- Yes --> Split[Split File: Close old VOD,<br>open new .jsonl file]
-    CheckTimer -- No --> Grace{Is Seed Missing/Zero?}
-
-    Grace -- Yes --> GraceTimer[Enter Grace Window]
-    GraceTimer -- Expired --> Split
-    GraceTimer -- Recovered --> Continue
+flowchart TD
+    Identity[Seed or stage pointer changed] --> Index{Current raw stage index readable?}
+    Index -- No --> Wait[Wait for the next sample]
+    Index -- Yes --> Compare{Compare with previous index}
+    Compare -- Increased --> SameRun[Stage transition; update baseline]
+    Compare -- Decreased --> Split[New run; split before capture]
+    Compare -- Unchanged --> Timer{Run timer rewound by more than 3 s?}
+    Timer -- Yes --> Split
+    Timer -- No or unavailable --> SameRun
 ```
 
-### 2. Grace Windows
-If the game memory goes temporarily invalid (e.g., during loading screens or main menu transitions), the recorder implements a **20-second grace window** before splitting or auto-stopping. This avoids generating corrupted, fragmented files when the game hangs or is loading.
+The state that proves a new run already belongs to the new run. Auto-split
+therefore stops the old recorder without a final memory capture, starts the new
+file, and lets the next capture land only in the new recording.
 
-### 3. Short VOD Cleanup
-At stop time:
-- If a VOD has **zero snapshots** (often due to immediate cancellation), the file is unlinked (deleted) from disk.
-- If a VOD is shorter than the minimum snapshot threshold, it is automatically purged to keep the `stats_recordings/` folder clean.
+Interactive/terminal stop otherwise performs a best-effort final full snapshot
+before writing the summary. Failure to read that last snapshot does not prevent
+the file from being finalized.
+
+---
+
+## Cleanup and Compatibility
+
+At stop time, a file is deleted when its snapshot count is below the configured
+minimum. The default minimum is 1, preserving the historical rule that only an
+empty recording is discarded. A larger user setting can intentionally discard
+short non-empty recordings; empty and short deletions have distinct statuses.
+
+The loader:
+
+- accepts older versions with missing optional fields;
+- obtains fast metadata from the first metadata and final summary records when
+  possible, falling back to a full scan for incomplete/legacy files;
+- ignores malformed files in normal list views rather than breaking the whole
+  recordings page;
+- shares repeated strings while loading large timelines to reduce memory use.
 
 ---
 
 ## Navigation
 
-- Back to Home: [Home Wiki](./Home.md)
-- Back to Transitions: [Stage Summary Transitions Wiki](./Stage_Summary_Transitions.md)
-- Next up: [Integrations & Overlays Wiki](./Integrations_and_Overlay.md)
+- [Home Wiki](./Home.md)
+- [Stage Summary Transitions Wiki](./Stage_Summary_Transitions.md)
+- [Integrations & Overlays Wiki](./Integrations_and_Overlay.md)

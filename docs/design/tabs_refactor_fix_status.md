@@ -1,5 +1,10 @@
 # Tabs Refactor Fix Status
 
+Status: **historical completion snapshot.** The paths, test totals, and manual
+validation list below describe the refactor handoff at that time; they are not
+the current release checklist. Use `app/data_flow_architecture.md` for the live
+data-flow contract.
+
 Implementation status for the findings recorded in `tabs_refactor_audit.md`.
 
 ## Completed

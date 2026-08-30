@@ -1,11 +1,13 @@
 # UI Updates
 
-Date: 2026-08-23
+Last reviewed: 2026-08-30
 
-This file tracks open and partially completed UI-focused work.
+This file tracks open and partially completed UI-focused work. Implemented
+entries retain their original problem/goal text as decision history.
 
 Status legend:
 
+- `[Implemented]` present in the current UI and covered by automated checks
 - `[Partial]` some meaningful work is done, but the feature is not fully complete
 - `[Open]` not implemented yet
 
@@ -56,7 +58,15 @@ Implementation note:
 
 ## 2. Make Recordings List Narrower And Keep Stats Cards Static In Size
 
-Status: `[Open]`
+Status: `[Implemented]`
+
+Current implementation:
+
+- the recordings library is a collapsible, resizable `QSplitter` drawer with
+  bounded and persisted width;
+- the detail side receives the remaining width;
+- pooled/stable detail views avoid resizing the whole workspace as snapshot
+  content changes.
 
 Current issue:
 
@@ -105,7 +115,7 @@ Implementation note:
 
 ## 3. Reconsider The Live Stats Segment Compare Card
 
-Status: `[Open]`
+Status: `[Implemented]`
 
 Current thought:
 
@@ -251,7 +261,16 @@ Acceptance checks:
 
 ## 7. Reduce Nested Scrolling Ambiguity In Live Stats
 
-Status: `[Open]`
+Status: `[Implemented]`
+
+Current implementation:
+
+- Live Stats uses a stable two-column page: the main analytics column and a
+  bounded Items/Banishes column;
+- large inventories scroll inside `LiveStatsItemsScroll` without increasing
+  the outer page height or outer scrollbar range;
+- detail tabs own their content scrolling so tab switches do not resize the
+  surrounding page.
 
 Current issue:
 

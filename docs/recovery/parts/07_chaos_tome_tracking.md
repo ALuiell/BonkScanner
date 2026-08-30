@@ -1,10 +1,14 @@
 # Part 7: Chaos Tome and Permanent Stat Modifiers Recovery Guide
 
 ## Overview
-This component tracks the Chaos Tome level and resolves permanent stat modifier upgrades (from the Chaos Tome). When the Chaos Tome levels up, it adds a random stat modifier to the permanent stat upgrades dictionary in `StatInventory`. The tracker reads this dictionary, parses the list of `StatModifier` objects per stat, compares it with prior baselines, and resolves the exact random rolls and levels.
+This component tracks the Chaos Tome level and attributes Chaos modifiers from
+the permanent stat upgrades dictionary in `StatInventory`. The same source is
+now shared with character-passive and Charge Shrine attribution, so recovery
+must validate the source-specific budgets/reservations as well as the raw
+dictionary.
 
 - **Target Files**:
-  - Code: `src/infra/memory/player_stats_client.py`, `src/core/tracker/live_run.py`
+  - Code: `src/infra/memory/player_stats_client.py`, `src/core/tracker/live_run.py`, `src/core/tracker/chaos.py`
   - Unit Tests: `src/tests/test_player_stats.py`, `src/tests/test_live_run_tracker.py`
 
 ---
@@ -14,8 +18,9 @@ This component tracks the Chaos Tome level and resolves permanent stat modifier 
 ### 1. Stat Inventory Permanent Changes Chain
 ```
 owner_stats (resolved from PlayerStatsNew, see Part 2)
-  -> +0x50 (STAT_INVENTORY_OFFSET) -> [StatInventory Pointer]
-    -> +0x10 (STAT_INVENTORY_PERMANENT_CHANGES_OFFSET) -> [Dictionary<int, List<StatModifier>> Pointer]
+  -> +0x28 (PLAYER_INVENTORY_OFFSET) -> [PlayerInventory Pointer]
+    -> +0x50 (STAT_INVENTORY_OFFSET) -> [StatInventory Pointer]
+      -> +0x10 (STAT_INVENTORY_PERMANENT_CHANGES_OFFSET) -> [Dictionary<int, List<StatModifier>> Pointer]
 ```
 
 ### 2. Traversal of the Permanent Changes Dictionary

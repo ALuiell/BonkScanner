@@ -1,6 +1,6 @@
 # BonkScanner Functional Overview
 
-Date: 2026-08-03
+Last reviewed: 2026-08-30
 
 This document is a product-level and implementation-level map of BonkScanner.
 It is meant to help future debugging, feature planning, and review of possible
@@ -12,26 +12,37 @@ validation notes, use `docs/recovery/MEMORY_PATH_INDEX.md` and the reports under
 
 ## Mental Model
 
-BonkScanner has three major responsibilities:
+BonkScanner has five major responsibilities:
 
 1. Reroll maps until a target map is found.
 2. Inspect the current run in real time through memory reads.
 3. Record and replay live run snapshots for later review.
+4. Publish read-only run projections to OBS, the in-game overlay, and Twitch.
+5. Project opt-in activity markers onto the game's Full Map.
 
 The desktop UI now uses a split GUI layout. `src/gui_app.py` defines
 `MegabonkApp`, and focused `gui_*` modules own layout,
 scanner flow, run control, dialogs, live stats, and recordings behavior.
-Memory-facing readers are split mostly into `src/infra/memory/game_data_client.py` for map/reroll data
-and `src/infra/memory/player_stats_client.py` for run inspection. Recordings are stored and loaded
-through `src/infra/vod_storage.py`.
+Memory-facing readers are split into
+`src/infra/memory/game_data_client.py` for map/reroll and lifecycle data,
+`src/infra/memory/player_stats_client.py` for run inspection, and
+`src/infra/memory/map_marker_client.py` for the independent Full Map marker
+path. Recordings are stored and loaded through `src/infra/vod_storage.py`.
 
 ## System Architecture & Concurrency Model
 
 BonkScanner uses a strict multithreaded architecture to prevent UI freezing:
 - **Main Thread (PySide6 Event Loop):** Owns all UI components.
-- **ScannerWorker Thread (`QThread`):** Runs the background loop for memory polling and logic evaluation.
+- **Scanner Thread (`threading.Thread`):** Runs the map-ready polling and scanner evaluation loop.
 - **TwitchBotWorker Thread (`QThread`):** Runs the IRC client loop for Twitch integration.
 - **ThreadingHTTPServer Thread:** Handles background HTTP requests for OBS Overlays.
+- **Map Marker Worker:** A single-worker executor serializes Full Map reads and
+  keeps the 25 ms UI path non-blocking.
+
+Demand-driven Live Stats refresh tasks run on the Qt owner thread through
+`RefreshCoordinator`; they are not a second polling worker. The default fast
+driver is 500 ms (never below 100 ms), with 1 s feature lanes and a 10 s full
+snapshot lane.
 
 Qt signals and slots queue UI work from background workers where needed.
 `RuntimeStateSnapshot` and the OBS `OverlayStateStore` are the read-only,
@@ -52,6 +63,13 @@ away from game-memory reads.
   state from the game process.
 - `src/infra/memory/player_stats_client.py` reads live player stats, passive items, weapons, run timer,
   stage timer, kill count, and level.
+- `src/infra/memory/map_marker_client.py` reads the active `FullMap`, viewport,
+  map/player/stage identity, and the opt-in nearby-interactable path.
+- `src/app/refresh_coordinator.py`, `src/app/read_sources.py`, and
+  `src/app/refresh_tasks.py` define task cadence, demand gating, and per-tick
+  source sharing.
+- `src/app/map_marker_tracker.py` owns the latest-wins map-marker worker and
+  discovery lifecycle.
 - `src/core/tracker/live_run.py` maintains live stage boundaries, item deltas, and chaos stats.
 - `src/app/refresh_tasks.py` owns task cadence: 500 ms combat/powerup work,
   the 1 s passive-item lane, and the 10 s full snapshot.
@@ -79,8 +97,9 @@ User-facing flow:
 
 Implementation shape:
 
-- UI state is centralized in `MegabonkApp`; scanner loop control mainly lives
-  in `src/gui_scanner.py`, with run-control helpers in `src/gui_run_control.py`.
+- `MegabonkApp` wires focused components together. Scanner loop/session state is
+  owned by `Scanner` in `src/gui_scanner.py`; run-control state is owned by
+  `RunControl` in `src/gui_run_control.py`.
 - Map memory reads come from `GameDataClient` in `src/infra/memory/game_data_client.py`.
 - Runtime map stats are normalized through `src/core/runtime_stats.py`.
 - Template and score decisions come from `src/core/logic.py`.
@@ -93,6 +112,10 @@ Important details:
   valid map, the scanner should not immediately reread a transient bad state.
 - `Templates` and `Scores` are two evaluation modes over the same underlying
   map stats.
+- When the configured scan hotkey is used to start auto-reroll, a positively
+  identified Forest/Desert Tier 2-4 run is protected: scanning remains off and
+  a visible warning is logged. Tier 1, Graveyard, pause actions, and manual
+  in-game `R` are outside this guard.
 
 Risks:
 
@@ -132,8 +155,8 @@ Implementation shape:
 - Defaults and persisted values live in `src/app/config.py`.
 - Evaluation lives in `src/core/logic.py`.
 - UI controls live across `src/ui/layout.py`, `src/ui/tabs/templates/`, and
-  `src/ui/dialogs/`; runtime refresh for this area is coordinated through
-  `MegabonkApp`.
+  `src/ui/dialogs/`; `TemplateRuntimeFilters` owns the synchronized active
+  filters used by the scanner while `MegabonkApp` provides top-level wiring.
 
 Risks:
 
@@ -157,7 +180,8 @@ Tracks:
 
 Implementation shape:
 
-- Runtime state is mostly in `MegabonkApp`.
+- Runtime session counters and best/worst history are owned by `Scanner`;
+  `SessionStatsTab` renders copied projections of that state.
 - Persistent total rerolls and template stats are saved through `src/app/config.py`.
 
 Risks:
@@ -182,6 +206,8 @@ Shown data:
 - Player level.
 - Stage Summary.
 - Weapon cards with level and upgraded stats.
+- Charge Shrine totals and tracked reward rolls.
+- Character-passive data, including Dice Gamba roll attribution.
 
 Implementation shape:
 
@@ -207,6 +233,9 @@ Passive item logic:
   -> ItemInventory +0x10`.
 - The fallback exists because modded or externally added items can appear in
   `PlayerInventory.ItemInventory` while the older passive path is empty.
+- If one path fails while the other merely appears empty, the reader fails
+  closed instead of publishing a false empty inventory; the last valid tracker
+  state can remain visible until a coherent read recovers.
 - Item counts use stack values, so `Anvil x3` counts as three items.
 
 Item display sorting:
@@ -241,8 +270,9 @@ Core idea:
 
 - Stage transitions are detected from snapshot metadata, not from the visual HUD.
 - For stages 1-3, a stage pointer or seed change indicates a real stage change.
-- Stage 4 may reuse stage 3 pointer/seed, so stage timer behavior is used as a
-  fallback signal.
+- Forest/Desert Stage 4 reuses the Stage 3 pointer/seed. The primary promotion
+  signal is `MapController.isFinalBossStage`; activity collapse and stage-timer
+  reset remain fallback evidence when that positive flag cannot be read.
 
 Time logic:
 
@@ -297,6 +327,8 @@ Format:
 - Metadata record first.
 - Snapshot records next.
 - Summary record at stop.
+- Metadata currently declares VOD format version `10`; older supported formats
+  remain readable and missing newer fields are handled as optional.
 
 Snapshot data can include:
 
@@ -343,11 +375,15 @@ Implementation shape:
 
 - `TwitchBotWorker` (`src/twitch_bot.py`) runs on a background thread.
 - Connects via IRC socket using a Twitch OAuth token (`src/twitch_auth.py`).
+- Uses TLS to `irc.chat.twitch.tv:6697`.
 - Serves commands and automatic announcements from `RuntimeStateSnapshot`; it
   never reads game memory itself.
 - Controlled through `src/ui/tabs/twitch/`.
 - The One Ring announcement is opt-in (off by default), works on every map, and
   uses the fast inventory lane so it does not trail the pickup by a full snapshot.
+- Current run-derived commands include Dice (`!dice`), Charge Shrines
+  (`!shrines`), build progress (`!build`), and Luck rarity (`!luck`) in addition
+  to the scanner, stat, inventory, stage, chest, powerup, and Chaos commands.
 
 Risks:
 
@@ -413,9 +449,13 @@ Implementation shape:
 
 - Owned by `src/gui_in_game_overlay.py` with the click-through window canvas in `src/gui_in_game_overlay_window.py`.
 - Consumes read-only `RuntimeStateSnapshot` projections generated in `src/projections/in_game.py` and rendered as HTML in `src/projections/in_game_html.py`.
-- Features a single 500 ms timer for repaints and window geometry tracking.
+- Uses a 500 ms timer for normal widget repaint/window geometry tracking and a
+  separate 25 ms queueing timer for the Full Map marker layer.
 - Interactive edit mode (toggled via F9 or UI) allows in-place dragging of widgets over the game window.
 - Available widgets: Scanner status, Recording status, KPS, Active powerups, Luck rarity %, Stats, Event timer, Item cooldowns, and Build Progression.
+- Full Map activity markers are a separate anchored layer rather than a movable
+  widget. Manual hotkeys are always available when the layer is enabled;
+  automatic nearby-activity discovery is separately opt-in and runs at 100 ms.
 
 ## Build Progression
 

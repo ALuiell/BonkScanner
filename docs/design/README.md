@@ -3,6 +3,12 @@
 This directory stores feature-level design notes, implementation decisions,
 fallback strategies, and comparisons between alternative approaches.
 
+Design files are not automatically current specifications. A document with an
+explicit `Status` block defines whether it is implemented, open, or historical;
+dated audits and task plans preserve the code and test state from that review.
+For current cross-feature behavior, start with `docs/wiki/`,
+`docs/functional_overview.md`, and `docs/design/app/data_flow_architecture.md`.
+
 Use `docs/design/` for documents that answer questions like:
 
 - Which implementation options were considered?

@@ -80,11 +80,12 @@ Some parts of the project use technical names, so here is what they mean:
 ### Right Side
 - `Logs`: scanner activity, warnings, wait states, and result messages.
 - `Session Stats`: session time, reroll count, RPM, best and worst maps, tracked item counters, and averages per target.
-- `Live Stats`: current run stats, items, weapons, tomes, Chaos Tome data, banishes, damage sources, stage summary, segment compare, and recording controls.
+- `Live Stats`: current run stats, items, weapons, tomes, Chaos Tome data, banishes, damage sources, stage summary, powerups, and recording controls.
 - `Recordings`: saved recording viewer with timeline, Chaos Tome data, rename, delete, cleanup, and in-run compare tools.
 - `Compare Runs`: side-by-side comparison of two saved recordings with synced in-game time, Chaos Tome diffs, and a central difference panel.
 - `OBS Overlay`: local browser-source overlay controls for streaming layouts.
 - `Twitch Bot`: built-in Twitch IRC bot controls and command settings.
+- `In-Game Overlay`: transparent desktop widgets and Full Map activity markers.
 
 ## How Scanning Works
 1. BonkScanner connects to the running game locally.
@@ -92,6 +93,12 @@ Some parts of the project use technical names, so here is what they mean:
 3. Runtime values are evaluated by the active `Templates` or `Scores` mode.
 4. If the map does not match, the app restarts the run.
 5. Before accepting a snapshot, the scanner waits for a stable ready-state so transient map-load reads are less likely.
+
+The scan hotkey also has a late-run safeguard. If a Forest or Desert run is
+already past Tier 1, pressing the configured scan hotkey leaves auto-reroll off
+and writes a visible warning instead of resetting the run. Tier 1 and Graveyard
+are unaffected, and the safeguard does not change the game's normal manual `R`
+input.
 
 ## Evaluation Modes
 
@@ -147,11 +154,13 @@ The `Live Stats` tab shows:
 - mob kill count with thousands separators;
 - player level;
 - `Stage Summary` with per-stage time, kills, and gained item counts;
-- `Segment Compare` against an earlier snapshot in the same run;
+- a live `Powerups` summary;
 - `Banishes`;
 - current weapons with level and upgraded stats;
 - current tomes with level and active effects;
 - Chaos Tome tracking when available;
+- Charge Shrine and character-passive tracking when available, including Dice
+  Gamba rolls;
 - damage sources when available.
 
 `Live Stats` does not require recording. Recording only saves snapshots for later
@@ -189,6 +198,9 @@ Recordings are stored in `stats_recordings\` as `.jsonl` files and can be:
 - batch-cleaned by minimum snapshot count.
 
 Legacy recordings from `vods\` are still read when present.
+The current writer uses recording format version `10`; loaders keep compatibility
+with older supported formats and treat newer fields as optional when replaying
+legacy files.
 
 ## Compare Runs
 `Compare Runs` loads two saved recordings side by side as `Run A` and `Run B`.
@@ -241,6 +253,12 @@ Luck rarity %, Stats, Event timer, Item cooldowns, and Build Progression. The ti
 currently supports Bob's Light, hides when no supported item is held, and
 correctly freezes while the game is paused.
 
+`Map Activity Markers` are a separate Full Map-anchored layer inside the
+in-game overlay. They appear only while the game's Full Map is open, support
+manual marker hotkeys, and can optionally add supported nearby activities after
+the game selects them through its normal interaction system. Automatic
+discovery is off by default.
+
 ## Twitch Bot
 The `Twitch Bot` tab runs a built-in Twitch IRC chat bot for the configured channel.
 
@@ -264,6 +282,8 @@ Available chat commands:
 - `!weapons`: current weapons and upgraded stats.
 - `!tomes`: current tomes and values.
 - `!chaos` / `!chaostome`: tracked Chaos Tome level and stat roll totals.
+- `!dice`: accumulated Dice Gamba bonuses and tracked rolls.
+- `!shrines`: accumulated Charge Shrine stat bonuses.
 - `!stages`: stage summary.
 - `!powerups`: active powerup duration info.
 - `!kps`: current and average kill rate metrics.
@@ -292,7 +312,9 @@ The main `Settings` dialog currently includes:
 - `Scan Hotkey`
 - `Reset Hotkey`
 - `Record Hotkey`
+- `In-Game Overlay Edit Hotkey`
 - `Auto-start recording`
+- `Stop scanning when player moves`
 - `Show OBS reminder on Start Scanner`
 - `Reset Hold Duration (s)`
 - `Safety Margin (s)` (advanced)
@@ -370,6 +392,9 @@ build_exe.bat
 - `src/infra/memory/game_data_client.py` - map-ready state, counters, seed-related runtime reads, and scan data.
 - `src/infra/memory/reader.py` - low-level `pymem` wrappers and memory helpers.
 - `src/infra/memory/player_stats_client.py` - live player stats, passive items, weapons, tomes, banishes, damage sources, and chest-rate calculations.
+- `src/infra/memory/map_marker_client.py` - Full Map projection, map/player/stage identity, and opt-in nearby activity discovery.
+- `src/app/refresh_coordinator.py`, `src/app/read_sources.py`, and `src/app/refresh_tasks.py` - demand-driven memory-read scheduling and per-tick read sharing.
+- `src/app/map_marker_tracker.py` - latest-wins Full Map marker worker and marker lifecycle.
 - `src/core/tracker/live_run.py` - thread-safe live run tracking and runtime snapshots for overlays and Twitch.
 - `src/projections/obs.py` - builds the OBS overlay payload from a tracker snapshot.
 - `src/projections/in_game.py` and `src/projections/in_game_html.py` - project and render the in-game overlay.
@@ -384,6 +409,16 @@ build_exe.bat
 - `src\tests` - unit tests.
 - `src\media\overlay` - browser overlay HTML, CSS, JS, and preview asset.
 - `docs\help` - in-app help text in English, Ukrainian, and Russian.
+
+## Developer Validation
+
+Run the repository's canonical test entry point from a Windows command prompt:
+
+```bat
+run_tests.bat
+```
+
+Wait for the final `OK`; a partial run or an interrupted run is not a pass.
 
 ## Basic Usage
 1. Start Megabonk and wait until the target scene is loaded.

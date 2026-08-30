@@ -1,6 +1,7 @@
 # Reverse Recovery Guide
 
-Date: 2026-05-11
+Created: 2026-05-11
+Last documentation review: 2026-08-30
 
 ## Goal
 
@@ -19,6 +20,11 @@ It exists to help quickly:
 2. verify the current source of truth
 3. produce a clean reverse handoff
 4. update code with minimal confusion
+
+Reports under `docs/recovery/reports/` are dated evidence snapshots. Preserve
+their original offsets, file names, and conclusions; use
+`MEMORY_PATH_INDEX.md` for the current code-path index and create a new report
+when a game update changes live evidence.
 
 ## Main Rule
 
@@ -108,6 +114,7 @@ Most fragile pieces:
 Code:
 
 - `src/infra/memory/player_stats_client.py`
+- `src/core/tracker/chests.py`
 - `src/ui/tabs/player_stats/live_stats.py`
 
 Symptoms:
@@ -130,34 +137,65 @@ Code:
 Symptoms:
 
 - chests purchased and chests bought remain at zero
-- free openings are not registered or subtract gold from UI counters
+- paid, Key-proc, and inherently free openings no longer reconcile
 - key stacking proc calculations show wrong percentages
 
 Most fragile pieces:
 
 - `MONEY_UTILITY_TYPE_INFO_OFFSET` (offset `0x02F5E0B0`)
 - `MONEY_UTILITY_CHESTS_PURCHASED_OFFSET` (offset `0x48`)
-- key stack and current chance offsets in `ItemKey` (`0x30`, `0x34`)
+- `RUN_STATS_TYPE_INFO_OFFSET` and the `chestsBought` dictionary key
+- per-stage `MapStat.CHESTS.current` totals and stage-pointer attribution
+- passive Key stack used for Expected probability
 
-### 6. Chaos Tome tracking
+### 6. Permanent modifier attribution (Chaos, Dice, Shrines)
 
 Code:
 
 - `src/infra/memory/player_stats_client.py`
 - `src/core/tracker/live_run.py`
+- `src/core/tracker/chaos.py`
+- `src/core/tracker/passives.py`
+- `src/core/tracker/shrines.py`
 
 Symptoms:
 
 - Chaos Tome upgrades or level up rolls are missing from UI
 - wrong rolls are attributed to Chaos Tome upgrades
+- Dice/Gamba or Charge Shrine modifiers are attributed to the wrong source
 
 Most fragile pieces:
 
-- `STAT_INVENTORY_OFFSET` (offset `0x50` of `PlayerStatsNew`)
+- `PlayerInventory` at `owner_stats +0x28`, then `STAT_INVENTORY_OFFSET`
+  (`+0x50` of `PlayerInventory`)
 - `STAT_INVENTORY_PERMANENT_CHANGES_OFFSET` (offset `0x10` of `StatInventory`)
 - `permanentChanges` dictionary layout and `StatModifier` offsets
+- character/passive identity and Gamba level fields
+- `AchievementTracker` / `ShrineLogs` TypeInfo roots and exact pointer
+  reservation before shared attribution
 
-### 7. Keyboard restart control
+### 7. Full Map activity markers
+
+Code:
+
+- `src/infra/memory/map_marker_client.py`
+- `src/app/map_marker_tracker.py`
+- `src/gui_in_game_overlay.py`
+
+Symptoms:
+
+- markers do not appear while the Full Map is open
+- markers are offset, clipped, or scaled incorrectly
+- automatic discovery retains objects across a new run/stage
+
+Most fragile pieces:
+
+- `FullMapUi` delegate target and stale-subscriber selection
+- `FullMap` world size, display transform, and open-count fields
+- held-Tab versus pause-map viewport selection
+- `MyPlayer` / `MapController` scope identity
+
+### 8. Keyboard restart control
 
 Code:
 
@@ -247,17 +285,32 @@ Check:
 
 - `MONEY_UTILITY_TYPE_INFO_OFFSET`
 - `chestsPurchased` at `static_fields + 0x48`
-- `ItemKey` proc probability field `currentChance` at `+0x34`
+- `RunStats.stats["chestsBought"]`
+- per-stage map chest totals and the invariant
+  `chestsPurchased <= chestsBought <= total_opened`
+- current Key stack for Expected tracking; use gold deltas only as diagnostic
+  evidence
 
-### Step 7. Check Chaos Tome tracking and permanent changes dictionary
+### Step 7. Check permanent modifier attribution
 
 Check:
 
-- `StatInventory` at `PlayerStatsNew + 0x50`
+- `PlayerInventory` at `owner_stats +0x28`, then `StatInventory +0x50`
 - `permanentChanges` dictionary at `+0x10`
 - array size and `StatModifier` elements
+- source-specific budgets/identity before blaming the shared dictionary:
+  Chaos level, Dice/Gamba level, and Charge Shrine shown-log pointers
 
-### Step 8. Check keyboard restart control config
+### Step 8. Check Full Map marker roots
+
+Check:
+
+- newest live `FullMap` delegate target and `mapsOpen > 0`
+- held-Tab and pause-map viewports
+- player/map/stage scope identity and cleanup
+- automatic discovery only when its separate option is enabled
+
+### Step 9. Check keyboard restart control config
 
 Check:
 

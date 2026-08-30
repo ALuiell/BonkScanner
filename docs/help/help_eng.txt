@@ -47,6 +47,7 @@ Reroll and Restart
 - If rerolls feel unstable, first try increasing `Reset Hold Duration (s)` a little.
 - BonkScanner waits for a safe map-ready and memory-read state, so short pauses between restart and evaluation are normal.
 - `Stop scanning when player moves` in Settings pauses Auto-Reroll immediately when W, A, S, D, or Space is pressed. It only reacts while Auto-Reroll is active and Megabonk is the active window.
+- If a Forest or Desert run is already past Tier 1, the configured scan hotkey keeps Auto-Reroll off and shows a warning. Tier 1, Graveyard, and the game's normal manual `R` input are not blocked.
 
 Live Stats
 ----------
@@ -129,7 +130,7 @@ In-Game Overlay
 ---------------
 - `In-Game Overlay` creates a transparent, floating window displayed directly on top of the game window.
 - It displays live information during gameplay without needing a second monitor or an OBS Browser Source.
-- Turn on `In-Game Overlay` in the settings tab, or enable `Auto-start overlay` to launch it automatically.
+- Turn on `In-Game Overlay` in its app tab, or enable `Auto-start overlay` there to launch it automatically.
 - **Layout Editor**: Press `F9` (default hotkey) or click `Edit Layout` in the app UI to toggle Layout Mode.
 - In Layout Mode, you can drag widgets directly on top of the game window to align them. Press `Save Layout`, `Esc`, or `F9` again to exit and save.
 - Widget scales (from `0.5` to `3.0`) can be adjusted in the `Widget Settings` dialog.
@@ -143,6 +144,7 @@ In-Game Overlay
   - `Event Timer` — shows phase-aware map-event warnings.
   - `Item Cooldowns` — shows the countdown to the next trigger of supported timed passive items (Bob's Light).
   - `Build Progression` — shows active build requirements checklist (items, stats, progress targets) and deadline status.
+- `Map Activity Markers` are a separate Full Map layer, not a draggable HUD widget. Enable them in the In-Game Overlay module list; marker hotkeys work manually, and `Automatically mark discovered activities` can optionally add supported nearby activities. Markers are visible only while the game's Full Map is open.
 - Note: The overlay will automatically hide when the game window loses focus, and reappear when it is focused.
 
 
@@ -201,8 +203,11 @@ Hotkeys
 - `Record Hotkey`
 - `In-Game Overlay Edit Hotkey`
 - `Auto-start recording` - automatically starts player-stats recording when a live run is detected.
-- `Auto-start overlay` - automatically starts the transparent overlay when a live run is detected.
+- `Stop scanning when player moves`
 - `Show OBS reminder on Start Scanner`
+
+`Auto-start overlay` is configured in the `In-Game Overlay` tab, not in the
+main Settings dialog.
 
 Important:
 - `Reset Hotkey` is the community restart path. BonkScanner sends this key to restart runs.

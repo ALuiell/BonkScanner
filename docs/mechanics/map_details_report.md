@@ -2,13 +2,18 @@
 
 This document is designed for an in-depth, low-level analysis of map generation across 3 different maps.
 
+Last code-path review: 2026-08-30. Literal pointers and measured samples below
+are historical observations; module-relative offsets and current integration
+rules were checked against the repository, not revalidated in a live game.
+
 ## Data Extraction Mechanics
 We parse the game's memory (`src/infra/memory/game_data_client.py`) to extract static addresses and structures containing map information:
 - `GameManager` / `MapController` / `MapGenerationController`
 - From `MapController`, we retrieve `current_map_ptr` and `current_stage_ptr`.
 - Map activities are located in the `interactables_dict`, which maps string Labels to their current and max capacities.
 
-Please fill in the data for each of the 3 maps below, including memory addresses and system variables, to analyze the generation patterns.
+The sections below preserve the captured data for all three maps, including
+session-specific addresses where they were useful evidence.
 
 ---
 
@@ -21,7 +26,7 @@ All game timing fields reside in the static fields of `MyTime` (`GameAssembly.dl
 | Field Name | Offset in `MyTime` (`+0xB8`) | Type | Engine Purpose & Behavior Across Maps |
 | :--- | :---: | :---: | :--- |
 | **`MyTime.paused`** | `0x00` | `bool` | Game pause status (`true` during pause/menu, `false` in gameplay). |
-| **`MyTime.time`** | `0x04` | `float` | **Core Game Clock (`my_time`)**. Absolute unpaused elapsed time since run start. Does **not** reset on stage transitions. Anchor for `StatusEffect` timers. |
+| **`MyTime.time`** | `0x04` | `float` | **Session clock (`my_time`)**. Advances while gameplay time is unpaused, does not reset on stage transitions, and was observed to continue across death/menu/new-run boundaries. Anchor for `StatusEffect` and timed-item timestamps; never use it alone as run identity. |
 | **`MyTime.deltaTime`** | `0x08` | `float` | Delta time of current render frame. |
 | **`MyTime.fixedDeltaTime`** | `0x0C` | `float` | Fixed delta time for physics updates. |
 | **`MyTime.timeScale`** | `0x10` | `float` | Time multiplier (`1.0` normal speed, modified by time-scale powerups). |
@@ -310,7 +315,7 @@ not "left").
   * **3:00 remaining**: 2nd Miniboss spawns
 
 #### Stage 4 (Boss Room)
-* **Stage Index**: For BonkScanner's current tracking model, this should be treated as a **virtual Stage 4 layered on top of raw Stage 3 behavior**. The live tracker currently does **not** consume a distinct raw `stage_index=3` here; it promotes Stage 3 to Stage 4 via memory markers and heuristics.
+* **Stage Index**: For BonkScanner's current tracking model, this is a **virtual Stage 4 layered on top of raw Stage 3 behavior**. The game does not expose a distinct raw `stage_index=3` here; the tracker promotes on `MapController.isFinalBossStage`, with activity/timer evidence only as fallback.
 * **Stage Ptr**: `0x20f412a8d80` (**CRITICAL: Identical to Stage 3!**)
 * **Identification & Memory Flag**:
   - The game does *not* load a new Stage Ptr for the Boss Room. It is technically the same stage object in memory as Stage 3 (`stage_index = 2`).
@@ -385,7 +390,7 @@ somewhere else. Do not re-investigate this path.
   * **3:00 remaining**: 2nd Miniboss spawns
 
 #### Stage 4 (Boss Room)
-* **Stage Index**: For BonkScanner's current tracking model, this should be treated as a **virtual Stage 4 layered on top of raw Stage 3 behavior**. The live tracker currently does **not** consume a distinct raw `stage_index=3` here; it promotes Stage 3 to Stage 4 via memory markers and heuristics.
+* **Stage Index**: For BonkScanner's current tracking model, this is a **virtual Stage 4 layered on top of raw Stage 3 behavior**. The game does not expose a distinct raw `stage_index=3` here; the tracker promotes on `MapController.isFinalBossStage`, with activity/timer evidence only as fallback.
 * **Stage Ptr**: `0x20f411fe240` (**CRITICAL: Identical to Stage 3!**)
 * **Identification & Memory Flag**:
   - Exactly like Forest, the Boss Room is not a new Stage in memory. It uses the Stage 3 pointer (`stage_index = 2`).

@@ -15,7 +15,10 @@ BonkScanner has three major responsibilities:
 
 ## System Architecture & Concurrency Model
 
-To prevent the User Interface (UI) from freezing during active scanning, memory polling, and network communication, BonkScanner utilizes a strict multithreaded architecture.
+BonkScanner separates long-running scanner, map-marker, network and HTTP work
+from the UI. Demand-driven Live Stats refresh tasks remain on the application
+owner thread, but they have explicit cadences and share physical reads within a
+refresh pass.
 
 ```mermaid
 graph TD
@@ -27,9 +30,11 @@ graph TD
 
     subgraph Desktop Application
         MainUI["<b>Main Thread</b><br>(PySide6 Event Loop / GUI)"]:::mainThread
+        RefreshTasks["<b>RefreshCoordinator</b><br>(Demand-driven Live Stats reads)"]:::mainThread
 
         subgraph Workers [Background Worker Threads]
-            ScannerWorker["<b>ScannerWorker</b><br>(QThread / Polling Loop)"]:::workerThread
+            ScannerWorker["<b>BonkScannerWorker</b><br>(threading.Thread / Polling Loop)"]:::workerThread
+            MapMarkerWorker["<b>Map Marker Reader</b><br>(Single-worker executor)"]:::workerThread
             TwitchBot["<b>TwitchBotWorker</b><br>(QThread / IRC Socket)"]:::workerThread
             OverlayServer["<b>OverlayServer</b><br>(ThreadingHTTPServer)"]:::workerThread
         end
@@ -43,11 +48,17 @@ graph TD
 
     %% Interactions
     MainUI -- Spawns & Configures --> ScannerWorker
+    MainUI -- Drives --> RefreshTasks
+    MainUI -- Queues latest sample --> MapMarkerWorker
     MainUI -- Spawns & Configures --> TwitchBot
     MainUI -- Spawns & Configures --> OverlayServer
 
     ScannerWorker -- Reads Memory --> GameInstance
+    RefreshTasks -- Reads Memory --> GameInstance
+    MapMarkerWorker -- Reads Full Map state --> GameInstance
     ScannerWorker -- "Signals (Map Found / Stats)" --> MainUI
+    RefreshTasks -- "Publishes RuntimeStateSnapshot" --> MainUI
+    MapMarkerWorker -- "Publishes MapMarkerSnapshot" --> MainUI
     MainUI -- "Signals (Broadcast Events)" --> TwitchBot
     MainUI -- "Pushes State updates" --> OverlayServer
 
@@ -56,10 +67,16 @@ graph TD
 ```
 
 ### Threading Rules & State Sync
-- **Main Thread (GUI):** Owns UI widgets and game-memory refresh work. Qt
-  signals queue UI work from background workers where needed; read-only runtime
-  snapshots and `OverlayStateStore` are the thread-safe state boundaries.
-- **ScannerWorker Thread (`QThread`):** Polling thread that executes the scan loop. It checks map stability, reads map values, checks evaluation conditions, and controls restarts.
+- **Main Thread (GUI):** Owns UI widgets and the demand-driven Live Stats
+  `RefreshCoordinator`. One per-pass `RefreshTickContext` shares logical memory
+  sources between due tasks. Read-only runtime snapshots and
+  `OverlayStateStore` are the state boundaries used by other consumers.
+- **BonkScannerWorker (`threading.Thread`):** Daemon polling thread owned by the
+  `Scanner` component. It checks map stability, reads map values, evaluates
+  conditions, and controls restarts while UI work is marshalled back to Qt.
+- **Map Marker Worker:** A single-worker executor serializes Full Map memory
+  polling, manual placement and client close. The 25 ms UI timer queues
+  latest-wins work and never waits for it.
 - **TwitchBotWorker Thread (`QThread`):** Runs an IRC connection loop. It listens for commands and broadcasts messages without blocking the GUI.
 - **ThreadingHTTPServer Thread:** Runs a lightweight local HTTP server to feed
   overlay widgets, which poll the state endpoint.
@@ -75,6 +92,10 @@ Here is how the responsibilities are distributed across the project's codebase:
 | **Startup & Application Control** | |
 | [src/main.py](../../src/main.py) | Entry point of the desktop application. Instantiates `QApplication` and displays the GUI. |
 | [src/app/coordinator.py](../../src/app/coordinator.py) | Owns the runtime instances (live run tracker, overlay server and state store, snapshot store, VOD recorder). Qt-free. |
+| [src/app/refresh_coordinator.py](../../src/app/refresh_coordinator.py) | Schedules demanded refresh tasks and provides the per-pass source cache/metadata boundary. |
+| [src/app/read_sources.py](../../src/app/read_sources.py) | Canonical names and helpers for shared logical memory sources. |
+| [src/app/refresh_tasks.py](../../src/app/refresh_tasks.py) | Registers Live Stats cadences and publishes fast memory readings to the tracker/UI projections. |
+| [src/app/player_stats_memory.py](../../src/app/player_stats_memory.py) | Acquires Live Stats data, owns reconnect streaks and lazily manages the two coordinator-owned memory clients. |
 | [src/app/config.py](../../src/app/config.py) | Loads, validates, and saves configuration settings, profile templates, scoring configurations, custom hotkeys, and version histories in `config.json`. |
 | [src/app/version.py](../../src/app/version.py) | Holds `CURRENT_VERSION` and version-string comparison. |
 | [src/app/update_flow.py](../../src/app/update_flow.py) | Decides whether a packaged build should update, asking through a caller-supplied confirm callback. |
@@ -102,9 +123,11 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/core/runtime_stats.py](../../src/core/runtime_stats.py) | Standardizes raw map details into structures suitable for matching logic. |
 | [src/core/tracker/live_run.py](../../src/core/tracker/live_run.py) | Tracks live stage transitions, item acquisition differentials, and chaos stats during runs. |
 | **Memory Readers & Low-level** | |
-| [src/infra/memory/reader.py](../../src/infra/memory/reader.py) | Core memory access module wrapping Windows APIs (OpenProcess, ReadProcessMemory) to read raw bytes. |
+| [src/infra/memory/reader.py](../../src/infra/memory/reader.py) | Read-only `pymem` backend, typed reads, module-base caching and normalized memory exceptions. |
 | [src/infra/memory/game_data_client.py](../../src/infra/memory/game_data_client.py) | Uses pointers to read current map properties, seed, status indicators, and generation cycles. |
-| [src/infra/memory/player_stats_client.py](../../src/infra/memory/player_stats_client.py) | Decodes complex player statistics, inventory dictionaries, tome modifications, and passive item arrays. |
+| [src/infra/memory/player_stats_client.py](../../src/infra/memory/player_stats_client.py) | Decodes stats, inventories, weapons/tomes, timers, run counters, powerups, permanent modifiers and shrine state. |
+| [src/infra/memory/map_marker_client.py](../../src/infra/memory/map_marker_client.py) | Read-only Full Map viewport/current-interactable adapter with bounded traversal and fail-closed validation. |
+| [src/app/map_marker_tracker.py](../../src/app/map_marker_tracker.py) | Owns marker connection/retry state and publishes immutable map-marker snapshots. |
 | [src/core/item_metadata.py](../../src/core/item_metadata.py) | Normalization tables mapping raw item hashes or names to readable titles and rarity. |
 | [src/core/run_control.py](../../src/core/run_control.py) | The run-control port: provider protocol, errors, and type aliases. |
 | [src/infra/keyboard_run_control.py](../../src/infra/keyboard_run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |

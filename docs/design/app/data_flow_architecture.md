@@ -1,5 +1,7 @@
 # BonkScanner Data Flow Architecture
 
+Last reviewed: 2026-08-30
+
 ## Current Architecture
 
 This section is authoritative. The historical sections below are retained for
@@ -7,7 +9,7 @@ feature references and will be consolidated later.
 
 ```mermaid
 flowchart LR
-    Memory[Game memory] --> Driver[update_player_stats_timer 500 ms]
+    Memory[Game memory] --> Driver[update_player_stats_timer 500 ms default]
     Driver --> Coordinator[RefreshCoordinator]
     Config[Consumer config] --> Coordinator
     Coordinator --> Lifecycle[recording_lifecycle 10 s]
@@ -17,6 +19,7 @@ flowchart LR
     Coordinator --> Powerups[powerups 500 ms]
     Coordinator --> Chests[expected_chest_inputs 500 ms]
     Coordinator --> Event[event_timer 1 s]
+    Coordinator --> Shrines[charge_shrines 1 s]
     Coordinator --> Chaos[chaos_tome / character passives 1 s]
     Slow --> Store[LiveSnapshotStore last-known values]
     Slow --> Tracker[LiveRunTracker feature states]
@@ -25,6 +28,7 @@ flowchart LR
     Powerups --> Tracker
     Chests --> Tracker
     Event --> Tracker
+    Shrines --> Tracker
     Chaos --> Tracker
     Lifecycle --> Recorder[VodRecorder lifecycle]
     Tracker --> Snapshot[RuntimeStateSnapshot]
@@ -32,14 +36,25 @@ flowchart LR
     Snapshot --> InGame[In-game projection]
     Snapshot --> Twitch[Twitch projection]
     Snapshot --> VOD[VOD projection]
+    MarkerTick[Map marker UI timer 25 ms] --> MarkerWorker[Latest-wins single worker]
+    MarkerWorker --> MarkerClient[MapMarkerMemoryClient]
+    Memory --> MarkerClient
+    MarkerClient --> MarkerState[Full Map marker state]
+    MarkerState --> InGame
 ```
 
-- **One driver.** `update_player_stats_timer` is the only refresh timer; it ticks
+- **One Live Stats driver.** `update_player_stats_timer` is the only timer that
+  drives the demand-gated Live Stats task graph; it ticks
   the coordinator every `FAST_TRACKER_INTERVAL_MS` and does nothing else. Every
   cadence in the diagram above comes from a task's `interval_ms`, never from a
   timer. A second 10 s timer used to exist and ran the recording lifecycle from
   its callback body; that work is the `recording_lifecycle` task now, which is
   why collapsing the timers did not run it 20x more often.
+- Full Map markers intentionally stay outside that graph. Their 25 ms UI timer
+  only submits latest-wins work to a single-worker executor; automatic nearby
+  discovery is internally limited to 100 ms. This keeps map projection/manual
+  input responsive without blocking the Qt owner thread or adding marker reads
+  to the normal player-stat census.
 - `RefreshCoordinator` runs on the GUI owner thread and creates one shared
   `RefreshTickContext` per tick. Owner-dependent fast tasks resolve
   `owner_stats` at most once in that tick.
@@ -50,8 +65,8 @@ flowchart LR
   widget; in-game overlay requires an enabled runtime widget; Twitch requires
   a connected bot and enabled command; VOD requires recording.
 - `LiveRunTracker` is the single runtime source of truth. Its private state is
-  grouped into run, combat, chest, Chaos Tome, powerup, tracked-item and
-  availability feature states.
+  grouped into run, combat, chest, Chaos Tome, Charge Shrine, character
+  passive, powerup, tracked-item and availability feature states.
 - `RuntimeStateSnapshot` is the production read boundary for OBS, Twitch and
   the in-game overlay. Consumers do not read game memory or mutate tracker
   state. The in-game KPS repaint is the narrow, documented exception: it reads
@@ -231,7 +246,8 @@ This defines who is reading the data at the end of the pipeline.
 - **Live Stats Tab** (`src/ui/tabs/player_stats/live_stats.py`)
   - **Reads:** `LiveRunTracker` and immutable full live snapshots; it does not
     read game memory itself.
-  - **Cadence:** Updated directly by the GUI loops (500ms / 10s).
+  - **Cadence:** Updated from coordinator publications at mixed 500 ms, 1 s and
+    10 s freshness; the view itself does not schedule memory reads.
 - **OBS Overlay / Widgets** (`src/infra/overlay_server.py`)
   - **Reads:** `OverlayStateStore` (via HTTP endpoints).
   - **Cadence:** Clients poll the HTTP server via GET requests to `/api/overlay-state` (no WebSockets or Server-Sent Events).
@@ -258,16 +274,25 @@ This defines who is reading the data at the end of the pipeline.
 | Banishes | Game memory | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats |
 | Chaos tome / character passive | Game memory | Shared permanent-source refresh | 1 s | 1 s | LiveRunTracker | Live Stats, Recordings, Compare Runs, Twitch bot |
 | Powerups | Game memory | Fast Powerup refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats |
-| Chest counters | Game memory | Fast Chest refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats |
-| VOD snapshot data| In-memory | VodRecorder interval | ~30 s | 30 s | VodRecorder | VOD list, Compare Runs |
+| Expected Key-proc inputs | Game memory | `expected_chest_inputs` fast task | 500 ms default (100 ms floor) | Fast-task cadence | LiveRunTracker | Live Stats, in-game Luck Expected frame, Twitch bot, VOD projection |
+| Factual chest counters | Game memory | Slow full refresh | 10 s | 10 s | LiveRunTracker | Live Stats, Recordings, Twitch bot |
+| Charge Shrines | Game memory | Charge Shrine refresh | 1 s | 1 s | LiveRunTracker | Live Stats, Recordings, Compare Runs, Twitch bot |
+| Full Map markers | Game memory | Dedicated latest-wins marker worker | 25 ms projection/manual; 100 ms auto discovery | Separate from Live Stats task graph | MapMarkerTracker | In-game Full Map layer |
+| VOD snapshot data | In-memory | VodRecorder interval | Configurable; 30 s default, 10 s minimum | Configured interval | VodRecorder | VOD list, Compare Runs |
 | Overlay widget data | LiveRunTracker | Overlay state builder | ~500 ms (HTTP GET) | Mixed (500ms - 10s depending on field) | OverlayStateStore | OBS overlay / Widgets |
 
 ## 8. Current Architectural Observations
 
-- **Clear Fast/Slow Separation:** The architecture successfully splits heavy memory reads (Items/Weapons) into a 10s slow lane and fast-moving metrics (KPS/Timer/Kills) into a 500ms fast lane. This minimizes game-process read overhead.
+- **Clear Mixed-Cadence Separation:** Weapons, tomes, banishes and damage
+  sources stay in the 10 s full snapshot. Passive items also have a coherent
+  1 s lane for inventory-dependent consumers, while KPS/timer/kills and
+  Expected-chest inputs use the configurable fast lane.
 - **LiveRunTracker Evolution:** `LiveRunTracker` is naturally evolving into the primary state owner for all runtime derived logic.
 - **Blurred Boundaries:** The boundary between what lives strictly in the "Slow Full Snapshot" lane versus what is aggregated into `LiveRunTracker` can occasionally be blurred (e.g., Tracked Items, Stage Summary).
-- **Needs Confirmation:** Whether the Twitch Bot needs to pull any data from the slow lane, or if it naturally gets all required data by reading strictly from `LiveRunTracker` snapshots.
+- **Confirmed Consumer Boundary:** Twitch reads immutable
+  `RuntimeStateSnapshot` data. Some fields in that snapshot originate in the
+  10 s full lane, while faster feature state is composed from the 500 ms/1 s
+  tracker lanes; the IRC thread does not read game memory.
 
 ## 9. Known Gaps / Current Exceptions
 

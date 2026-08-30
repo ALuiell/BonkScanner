@@ -1,5 +1,11 @@
 # Twitch Bot Audit Evidence Report
 
+Status: **historical audit evidence for the branch/commit named below.** Symbol
+ownership, file names, missing-test notes, and conclusions are intentionally
+preserved as observed on 2026-07-13; this is not the current Twitch
+specification. See `docs/wiki/Integrations_and_Overlay.md` and
+`docs/functional_overview.md` for current behavior.
+
 ## 1. Audit identity
 - Area: Twitch Bot
 - Mode: Discovery
