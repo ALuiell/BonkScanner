@@ -181,11 +181,16 @@ class MapMarkerTracker:
         snapshot = self._snapshot
         if not snapshot.map_open or snapshot.viewport is None:
             return False
-        # Tapping the same action on or just around an existing manual icon
-        # toggles it off. Test against the clamped visual centre, not the raw
-        # world point: markers near a map edge are shifted inward when painted.
-        for marker_id, marker in tuple(self._markers.items()):
-            if marker.source != "manual" or marker.action_id != action_id:
+        # Tapping on or just around an existing manual icon toggles it off,
+        # regardless of which action is assigned to the pressed hotkey. The
+        # binding selects what to place in empty space; requiring the same
+        # action here would instead stack a new icon over the existing one.
+        # Walk newest-first because insertion order is also painting order, so
+        # this removes the visible topmost icon from any legacy overlap.
+        # Test against the clamped visual centre, not the raw world point:
+        # markers near a map edge are shifted inward when painted.
+        for marker_id, marker in reversed(tuple(self._markers.items())):
+            if marker.source != "manual":
                 continue
             geometry = map_marker_screen_geometry(
                 marker.world_x,

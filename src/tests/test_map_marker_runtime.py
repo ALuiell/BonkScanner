@@ -311,6 +311,25 @@ class MapMarkerTrackerTests(unittest.TestCase):
         self.assertEqual(len(snapshot.markers), 1)
         self.assertEqual(snapshot.markers[0].source, "automatic")
 
+    def test_manual_marker_can_be_removed_with_a_different_bound_action(self) -> None:
+        client = FakeMarkerClient([self.frame()])
+        tracker = MapMarkerTracker("game", client_factory=lambda _name: client)
+        tracker.tick(client_height=600)
+
+        tracker.place_manual_marker(
+            "boss_curse", screen_x=300, screen_y=300
+        )
+        self.assertEqual(
+            [marker.action_id for marker in tracker.snapshot.markers],
+            ["boss_curse"],
+        )
+
+        tracker.place_manual_marker(
+            "microwave_white", screen_x=300, screen_y=300
+        )
+
+        self.assertEqual(tracker.snapshot.markers, ())
+
     def test_manual_marker_hit_area_uses_scaled_clamped_visual_icon(self) -> None:
         client = FakeMarkerClient([self.frame()])
         tracker = MapMarkerTracker("game", client_factory=lambda _name: client)
