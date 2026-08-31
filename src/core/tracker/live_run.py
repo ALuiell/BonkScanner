@@ -1128,6 +1128,26 @@ class LiveRunTracker:
         return self._average_kps_for_window_unlocked(60.0)
 
     @with_lock
+    def current_minute_avg_kps_rate(
+        self,
+        candidate_snapshot: LiveRunSnapshot | None = None,
+    ) -> float | None:
+        """Return raw 60 s KPS only when it belongs to the candidate run.
+
+        The full player snapshot is registered before the fast combat task.  On
+        the first full pass of a new run, the combat deque can therefore still
+        describe the previous run until ``update`` sees the timer/seed reset.
+        Withholding that stale rate here keeps the derived chest estimate from
+        crossing the same boundary.
+        """
+        if (
+            candidate_snapshot is not None
+            and self._should_reset_for_snapshot(candidate_snapshot)
+        ):
+            return None
+        return combat.average_kps_rate_for_window(self._combat_state, 60.0)
+
+    @with_lock
     def current_five_minute_avg_kps(self) -> int | None:
         return self._average_kps_for_window_unlocked(300.0)
 

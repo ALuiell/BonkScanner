@@ -689,6 +689,27 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(tracker.current_minute_avg_kps(), 20)
 
+    def test_current_minute_avg_kps_rate_keeps_fractional_precision(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.track_kills(10.0, 100)
+        tracker.track_kills(70.0, 1_333)
+
+        self.assertAlmostEqual(
+            tracker.current_minute_avg_kps_rate(),
+            (1_333 - 100) / 60.0,
+        )
+        self.assertEqual(tracker.current_minute_avg_kps(), 21)
+
+    def test_candidate_new_run_withholds_previous_minute_kps_rate(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=10.0, mob_kills=100))
+        tracker.track_kills(10.0, 100)
+        tracker.track_kills(70.0, 1_300)
+
+        next_run = snapshot(time_seconds=1.0, mob_kills=2, map_seed=200)
+
+        self.assertIsNone(tracker.current_minute_avg_kps_rate(next_run))
+
     def test_current_run_avg_kps_uses_whole_run(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_fast_run_timer(10.0)

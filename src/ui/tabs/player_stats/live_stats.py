@@ -569,8 +569,6 @@ class LiveStatsTab:
             if compact_value_label is not None:
                 _set_text(compact_value_label, stat.display_value)
         self._items_section.update(items, items_text=items_text)
-        if chests_per_minute is None:
-            chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
         _set_text(
             self._chests_per_minute_label,
             formatting.format_chests_per_minute(chests_per_minute),

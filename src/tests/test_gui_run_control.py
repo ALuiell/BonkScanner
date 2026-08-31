@@ -3890,6 +3890,8 @@ class GuiRunControlTests(unittest.TestCase):
             {
                 "Damage": SimpleNamespace(display_value="123", value=1.23),
                 "Powerup Multiplier": SimpleNamespace(display_value="1.5x", value=1.5),
+                "Elite Spawn Increase": SimpleNamespace(value=15.0, display_value="15x"),
+                "Powerup Drop Chance": SimpleNamespace(value=2.0, display_value="2x"),
             },
             0x1234,
         )
@@ -4688,6 +4690,64 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(snapshot_calls, [])
         self.assertEqual(timeline_calls, ["timeline"])
 
+    def test_recording_captures_chest_rate_from_live_minute_kps(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(
+            is_recording=True,
+            should_capture=True,
+        )
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app._is_live_stats_tab_active = lambda: False
+        stats = {
+            "Elite Spawn Increase": SimpleNamespace(value=15.0, display_value="15x"),
+            "Powerup Drop Chance": SimpleNamespace(value=2.0, display_value="2x"),
+        }
+        app.live_run_tracker.update(
+            LiveRunSnapshot(
+                captured_at=1.0,
+                stats={},
+                game_time_seconds=1.0,
+                mob_kills=100,
+            )
+        )
+        app.live_run_tracker.track_kills(1.0, 100)
+        app.live_run_tracker.track_kills(21.0, 2_100)
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: (
+            stats,
+            0x1234,
+        )
+        player_stats_memory(app).read_passive_items_only = (
+            lambda owner_stats=None, _context=None: ()
+        )
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
+            get_live_weapons=lambda owner_stats=None: (),
+            get_live_tomes=lambda owner_stats=None: (),
+            get_live_banishes=lambda: (),
+            get_run_timer=lambda: 21.5,
+            get_stage_timer_context=lambda: (9.0, 0, None),
+            get_stage_timer=lambda: 9.0,
+            get_killed_mobs=lambda: 2_150,
+            get_player_level=lambda owner_stats=None: 2,
+        )
+
+        result = MegabonkApp.refresh_live_player_stats_now(app)
+
+        expected = formatting.calculate_player_chests_per_minute(
+            stats,
+            kills_per_second=100.0,
+        )
+        self.assertTrue(result)
+        self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
+        self.assertAlmostEqual(
+            app.player_stats_vod_recorder.capture_calls[0]["chests_per_minute"],
+            expected,
+        )
+        self.assertEqual(
+            app.player_stats_vod_recorder.capture_calls[0]["minute_avg_kps_at_capture"],
+            100,
+        )
+
     def _map_activity_app(self, activity_values, *, active_run: bool):
         """A recording app whose map-activity read returns `activity_values`."""
         app = self.build_recording_app()
@@ -4857,14 +4917,32 @@ class GuiRunControlTests(unittest.TestCase):
             get_live_banishes=lambda: ("Clover", "Golden Tome"),
             get_run_timer=lambda: 21.5,
             get_stage_timer=lambda: 9.0,
-            get_killed_mobs=lambda: 37,
+            get_killed_mobs=lambda: 2_150,
             get_player_level=lambda owner_stats=None: 2,
         )
+        stats = {
+            "Damage": SimpleNamespace(display_value="123", value=1.23),
+            "Elite Spawn Increase": SimpleNamespace(value=15.0, display_value="15x"),
+            "Powerup Drop Chance": SimpleNamespace(value=2.0, display_value="2x"),
+        }
+        app.live_run_tracker.update(
+            LiveRunSnapshot(
+                captured_at=1.0,
+                stats={},
+                game_time_seconds=1.0,
+                mob_kills=100,
+            )
+        )
+        app.live_run_tracker.track_kills(1.0, 100)
+        app.live_run_tracker.track_kills(21.0, 2_100)
         display_calls: list[dict[str, object]] = []
         attach_player_stats_view(app).display_player_stats = lambda stats, items=(), **kwargs: display_calls.append(
             {"stats": stats, "items": tuple(items), "kwargs": kwargs}
         )
-        player_stats_memory(app).read_player_stats_only = lambda _context=None: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: (
+            stats,
+            0x1234,
+        )
         player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ("Wrench x2",)
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
@@ -4875,6 +4953,13 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(display_calls[0]["kwargs"]["tomes"], (tome,))
         self.assertEqual(display_calls[0]["kwargs"]["banishes"], ("Clover", "Golden Tome"))
         self.assertEqual(display_calls[0]["kwargs"]["status_text"], "Live player stats (recording)")
+        self.assertAlmostEqual(
+            display_calls[0]["kwargs"]["chests_per_minute"],
+            formatting.calculate_player_chests_per_minute(
+                stats,
+                kills_per_second=100.0,
+            ),
+        )
 
     def test_refresh_live_player_stats_now_auto_starts_recording_after_stable_run_detection(self) -> None:
         app = self.build_recording_app()

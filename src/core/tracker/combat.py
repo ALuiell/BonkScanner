@@ -129,7 +129,11 @@ def track_ui_kps(state: _CombatState, game_time_seconds: float, current_kills: i
     state.ui_kps_value = max(0, int(round((int(current_kills) - baseline_kills) / time_delta)))
 
 
-def average_kps_for_window(state: _CombatState, window_seconds: float) -> int | None:
+def average_kps_rate_for_window(
+    state: _CombatState,
+    window_seconds: float,
+) -> float | None:
+    """Return the unrounded kill rate over the available part of a window."""
     if len(state.recent_kills_history) < 2:
         return None
 
@@ -146,7 +150,14 @@ def average_kps_for_window(state: _CombatState, window_seconds: float) -> int | 
         return None
 
     kills_delta = newest_kills - oldest_kills
-    return int(round(kills_delta / time_delta))
+    return max(0.0, kills_delta / time_delta)
+
+
+def average_kps_for_window(state: _CombatState, window_seconds: float) -> int | None:
+    rate = average_kps_rate_for_window(state, window_seconds)
+    if rate is None:
+        return None
+    return int(round(rate))
 
 
 def current_run_avg_kps(state: _CombatState) -> int | None:

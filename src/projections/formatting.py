@@ -2448,14 +2448,26 @@ def merge_banish_appearance_order(previous_banishes, current_banishes) -> tuple[
     return tuple(merged)
 
 
-def calculate_player_chests_per_minute(stats) -> float | None:
+def calculate_player_chests_per_minute(
+    stats,
+    *,
+    kills_per_second: float | None = 200.0,
+) -> float | None:
     elite_stat = stats.get("Elite Spawn Increase")
     powerup_stat = stats.get("Powerup Drop Chance")
     elite_spawn_increase = getattr(elite_stat, "value", None)
     powerup_drop_chance = getattr(powerup_stat, "value", None)
-    if elite_spawn_increase is None or powerup_drop_chance is None:
+    if (
+        elite_spawn_increase is None
+        or powerup_drop_chance is None
+        or kills_per_second is None
+    ):
         return None
-    return calculate_chests_per_minute(elite_spawn_increase, powerup_drop_chance)
+    return calculate_chests_per_minute(
+        elite_spawn_increase,
+        powerup_drop_chance,
+        kills_per_second=kills_per_second,
+    )
 
 
 def resolve_snapshot_chests_per_minute(snapshot) -> float | None:

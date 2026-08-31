@@ -67,6 +67,7 @@ shadows it, and the ``except`` clauses depend on that.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import time
 from typing import Any, Callable
 
@@ -272,7 +273,6 @@ class PlayerStatsRefresh:
 
         self._memory_service().record_memory_success()
 
-        chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
         items_text = None if items_available else "Items unavailable"
         snapshot_store = self._store()
 
@@ -372,7 +372,10 @@ class PlayerStatsRefresh:
             disabled_items_available=disabled_items_available,
             damage_sources=effective_damage_sources,
             damage_sources_available=damage_sources_available,
-            chests_per_minute=chests_per_minute,
+            # Filled from the tracker's unrounded 60 s KPS below, once the
+            # complete candidate also carries the timer/seed needed to reject a
+            # previous run's history.
+            chests_per_minute=None,
             game_time_seconds=run_timer_seconds,
             stage_timer_seconds=stage_timer_seconds,
             stage_time_seconds=stage_timer_seconds,
@@ -385,6 +388,24 @@ class PlayerStatsRefresh:
             chests_total=map_chests_total,
             pots_total=map_pots_total,
             is_final_boss_stage=is_final_boss_stage,
+        )
+        minute_kps_rate_reader = getattr(
+            self._live_tracker(),
+            "current_minute_avg_kps_rate",
+            None,
+        )
+        minute_kps_rate = (
+            minute_kps_rate_reader(live_snapshot)
+            if callable(minute_kps_rate_reader)
+            else None
+        )
+        chests_per_minute = formatting.calculate_player_chests_per_minute(
+            stats,
+            kills_per_second=minute_kps_rate,
+        )
+        live_snapshot = replace(
+            live_snapshot,
+            chests_per_minute=chests_per_minute,
         )
         self._live_tracker().update(live_snapshot)
 

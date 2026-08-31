@@ -1368,6 +1368,14 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertAlmostEqual(value, 1.5424457965)
 
+    def test_calculate_chests_per_minute_scales_with_live_kps(self) -> None:
+        standard = calculate_chests_per_minute(15.0, 2.0, kills_per_second=200.0)
+        live = calculate_chests_per_minute(15.0, 2.0, kills_per_second=50.0)
+
+        # KPS sits under the square root: one quarter of the kill rate produces
+        # one half of the estimated chest rate.
+        self.assertAlmostEqual(live, standard / 2.0)
+
     def test_calculate_chests_per_minute_returns_zero_for_non_positive_inputs(self) -> None:
         self.assertEqual(calculate_chests_per_minute(0.0, 2.0), 0.0)
         self.assertEqual(calculate_chests_per_minute(15.0, 0.0), 0.0)
