@@ -12,6 +12,9 @@ from core.character_passives import CharacterPassiveStatus
 from core.run_verifier import (
     ENVIRONMENT_SCHEMA_VERSION,
     FindingSeverity,
+    MechanicsVerificationStatus,
+    ProcessEnvironmentStatus,
+    RecordingCoverageStatus,
     VerificationStatus,
     VerifierStatComponents,
     VerifierStatFrame,
@@ -583,7 +586,7 @@ class RunVerifierAnalysisTests(unittest.TestCase):
             any("Game time moved backwards" == item.title for item in report.findings)
         )
 
-    def test_game_time_regression_beyond_three_seconds_is_inconsistent(self):
+    def test_game_time_regression_beyond_three_seconds_is_interrupted(self):
         records = _complete_records(VerifierTelemetryWriter())
 
         def first_time(checkpoint):
@@ -610,7 +613,7 @@ class RunVerifierAnalysisTests(unittest.TestCase):
 
         report = analyze_records(records)
 
-        self.assertEqual(report.status, VerificationStatus.INCONSISTENT)
+        self.assertEqual(report.status, VerificationStatus.INTERRUPTED)
         self.assertTrue(
             any("Game time moved backwards" == item.title for item in report.findings)
         )
@@ -647,7 +650,7 @@ class RunVerifierAnalysisTests(unittest.TestCase):
 
         report = analyze_records(records)
 
-        self.assertEqual(report.status, VerificationStatus.INCONSISTENT)
+        self.assertEqual(report.status, VerificationStatus.INTERRUPTED)
         finding = next(
             item for item in report.findings if item.title == "Game time moved backwards"
         )
@@ -743,6 +746,123 @@ class RunVerifierAnalysisTests(unittest.TestCase):
 
         self.assertEqual(report.status, VerificationStatus.INCONSISTENT)
         self.assertTrue(any("legal sources do not match" in item.title for item in report.findings))
+
+    def test_cross_source_mismatches_separated_by_unstable_sample_do_not_combine(self):
+        records = _complete_records(VerifierTelemetryWriter())
+
+        def mismatch(checkpoint):
+            checkpoint["sources"]["shrines"]["totals"]["40"] = 0.0
+
+        first, second = _append_checkpoint(
+            records,
+            mutate_first=mismatch,
+            mutate_second=mismatch,
+        )
+        second["stable"] = False
+        third = deepcopy(first)
+        third["sequence"] = 2
+        third["elapsed_seconds"] = 6.0
+        third["game_time_seconds"] = 6.0
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        coverage["checkpoint_count"] = 3
+        coverage["duration_seconds"] = 7.0
+        records[-1]["duration_seconds"] = 7
+        records.insert(records.index(coverage), third)
+
+        report = analyze_records(records)
+
+        self.assertNotEqual(report.status, VerificationStatus.INCONSISTENT)
+        self.assertEqual(report.inconsistency_count, 0)
+        self.assertTrue(any("was not confirmed" in item.title for item in report.findings))
+
+    def test_cross_source_mismatches_separated_by_missing_stat_do_not_combine(self):
+        records = _complete_records(VerifierTelemetryWriter())
+
+        def mismatch(checkpoint):
+            checkpoint["sources"]["shrines"]["totals"]["40"] = 0.0
+
+        first, second = _append_checkpoint(
+            records,
+            mutate_first=mismatch,
+        )
+        second["stats"].pop("40")
+        third = deepcopy(first)
+        third["sequence"] = 2
+        third["elapsed_seconds"] = 6.0
+        third["game_time_seconds"] = 6.0
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        coverage["checkpoint_count"] = 3
+        coverage["duration_seconds"] = 7.0
+        records[-1]["duration_seconds"] = 7
+        records.insert(records.index(coverage), third)
+
+        report = analyze_records(records)
+
+        self.assertNotEqual(report.status, VerificationStatus.INCONSISTENT)
+        self.assertEqual(report.inconsistency_count, 0)
+
+    def test_target_state_event_breaks_cross_source_reconciliation_chain(self):
+        records = _complete_records(VerifierTelemetryWriter())
+
+        def mismatch(checkpoint):
+            checkpoint["sources"]["shrines"]["totals"]["40"] = 0.0
+
+        first, second = _append_checkpoint(
+            records,
+            mutate_first=mismatch,
+            mutate_second=mismatch,
+        )
+        event = {
+            "type": "verification_event",
+            "schema": first["schema"],
+            "event": "target_state_changed",
+            "elapsed_seconds": 3.0,
+            "modifier_changes": {"added": [], "changed": [], "removed": []},
+        }
+        records.insert(records.index(second), event)
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        coverage["event_count"] += 1
+
+        report = analyze_records(records)
+
+        self.assertNotEqual(report.status, VerificationStatus.INCONSISTENT)
+        self.assertEqual(report.inconsistency_count, 0)
+
+    def test_future_verifier_schema_is_unsupported_not_inconsistent(self):
+        records = _complete_records(VerifierTelemetryWriter())
+        metadata = records[0]
+        metadata["verification"]["schema"] = 999
+        for record in records:
+            if record.get("type") in {
+                "verification_checkpoint",
+                "verification_coverage",
+            }:
+                record["schema"] = 999
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        records.insert(
+            records.index(coverage),
+            {
+                "type": "verification_event",
+                "schema": 999,
+                "event": "future_event",
+                "elapsed_seconds": 2.5,
+            },
+        )
+
+        report = analyze_records(records)
+
+        self.assertEqual(report.status, VerificationStatus.UNSUPPORTED_BUILD)
+        self.assertEqual(report.inconsistency_count, 0)
+        self.assertEqual(report.mechanics_status, MechanicsVerificationStatus.NOT_CHECKED)
+        self.assertEqual(report.coverage_status, RecordingCoverageStatus.UNSUPPORTED)
 
     def test_source_mismatches_separated_by_unavailable_coverage_do_not_combine(self):
         records = _complete_records(VerifierTelemetryWriter())
@@ -1159,10 +1279,42 @@ class RunVerifierAnalysisTests(unittest.TestCase):
         self.assertEqual(report.status, VerificationStatus.REVIEW_REQUIRED)
         self.assertEqual(report.inconsistency_count, 0)
         self.assertTrue(
-            any("mod-loader modules" in finding.title for finding in report.findings)
+            any("mod loader was active" in finding.title for finding in report.findings)
+        )
+        self.assertEqual(
+            report.process_environment_status,
+            ProcessEnvironmentStatus.MODIFIED_RUNTIME,
         )
 
-    def test_environment_delta_requires_manual_review(self):
+    def test_installed_loader_files_without_loaded_module_are_not_an_accusation(self):
+        snapshot = _clean_environment_snapshot()
+        snapshot["artifacts"].append(
+            {
+                "id": "7" * 24,
+                "path": "doorstop_config.ini",
+                "kind": "mod_loader_file",
+                "size": 123,
+                "sha256": "8" * 64,
+            }
+        )
+        snapshot["digest"] = environment_digest(
+            snapshot["modules"],
+            snapshot["artifacts"],
+            snapshot["private_executable_regions"],
+        )
+
+        report = analyze_records(_complete_records(VerifierTelemetryWriter(), snapshot))
+
+        self.assertEqual(report.status, VerificationStatus.CONSISTENT)
+        self.assertEqual(
+            report.process_environment_status,
+            ProcessEnvironmentStatus.MODIFIED_INSTALLATION,
+        )
+        self.assertTrue(
+            any("installed but were not active" in finding.title for finding in report.findings)
+        )
+
+    def test_known_game_module_delta_does_not_require_manual_review(self):
         writer = VerifierTelemetryWriter()
         records = _complete_records(writer)
         changed_snapshot = deepcopy(_clean_environment_snapshot())
@@ -1191,9 +1343,51 @@ class RunVerifierAnalysisTests(unittest.TestCase):
 
         report = analyze_records(records)
 
-        self.assertEqual(report.status, VerificationStatus.REVIEW_REQUIRED)
+        self.assertEqual(report.status, VerificationStatus.CONSISTENT)
         self.assertTrue(
-            any("changed during the run" in finding.title for finding in report.findings)
+            any("without raising a warning" in finding.title for finding in report.findings)
+        )
+
+    def test_late_known_steam_overlay_module_does_not_require_review(self):
+        writer = VerifierTelemetryWriter()
+        records = _complete_records(writer)
+        changed_snapshot = deepcopy(_clean_environment_snapshot())
+        changed_snapshot["modules"].append(
+            {
+                "id": "2" * 24,
+                "name": "steamclient64.dll",
+                "location": "other",
+                "size": 8765,
+                "sha256": "1" * 64,
+                # Older scanner builds may have persisted the fallback label;
+                # the analyzer's known-name classifier must still win.
+                "classification": "unknown",
+            }
+        )
+        changed_snapshot["digest"] = environment_digest(
+            changed_snapshot["modules"],
+            changed_snapshot["artifacts"],
+            changed_snapshot["private_executable_regions"],
+        )
+        checkpoint = writer.environment_record(changed_snapshot, elapsed_seconds=10.0)
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        records[records.index(coverage):records.index(coverage) + 1] = [
+            checkpoint,
+            writer.coverage_record(elapsed_seconds=11.0),
+        ]
+        records[-1]["duration_seconds"] = 11
+
+        report = analyze_records(records)
+
+        self.assertEqual(report.status, VerificationStatus.CONSISTENT)
+        self.assertEqual(report.process_environment_status, ProcessEnvironmentStatus.CLEAN)
+        self.assertFalse(
+            any(
+                "Unrecognized third-party modules" in finding.title
+                for finding in report.findings
+            )
         )
 
     def test_unrecognized_third_party_module_requires_manual_review(self):
@@ -1255,7 +1449,7 @@ class RunVerifierAnalysisTests(unittest.TestCase):
             )
         )
 
-    def test_private_executable_memory_delta_requires_manual_review(self):
+    def test_one_off_read_only_executable_memory_delta_is_neutral(self):
         writer = VerifierTelemetryWriter()
         records = _complete_records(writer)
         changed_snapshot = _clean_environment_snapshot()
@@ -1286,17 +1480,147 @@ class RunVerifierAnalysisTests(unittest.TestCase):
 
         report = analyze_records(records)
 
-        self.assertEqual(report.status, VerificationStatus.REVIEW_REQUIRED)
+        self.assertEqual(report.status, VerificationStatus.CONSISTENT)
         self.assertEqual(report.inconsistency_count, 0)
         self.assertTrue(
+            any(
+                finding.title
+                == "A transient read-only executable region was not treated as suspicious"
+                for finding in report.findings
+            )
+        )
+
+    def test_persistent_read_only_executable_memory_requires_review(self):
+        writer = VerifierTelemetryWriter()
+        records = _complete_records(writer)
+        changed_snapshot = _clean_environment_snapshot()
+        changed_snapshot["private_executable_regions"].append(
+            {
+                "id": "9" * 24,
+                "size": 0x1000,
+                "protection": 0x20,
+                "writable": False,
+                "guarded": False,
+            }
+        )
+        changed_snapshot["digest"] = environment_digest(
+            changed_snapshot["modules"],
+            changed_snapshot["artifacts"],
+            changed_snapshot["private_executable_regions"],
+        )
+        first = writer.environment_record(changed_snapshot, elapsed_seconds=10.0)
+        second = writer.environment_record(changed_snapshot, elapsed_seconds=20.0)
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        records[records.index(coverage):records.index(coverage) + 1] = [
+            first,
+            second,
+            writer.coverage_record(elapsed_seconds=21.0),
+        ]
+        records[-1]["duration_seconds"] = 21
+
+        report = analyze_records(records)
+
+        self.assertEqual(report.status, VerificationStatus.REVIEW_REQUIRED)
+        self.assertEqual(
+            report.process_environment_status,
+            ProcessEnvironmentStatus.NEEDS_REVIEW,
+        )
+
+    def test_baseline_mod_loader_does_not_taint_later_one_off_rx_region(self):
+        initial = _clean_environment_snapshot()
+        initial["modules"].append(
+            {
+                "id": "5" * 24,
+                "name": "winhttp.dll",
+                "location": "game",
+                "size": 4321,
+                "sha256": "4" * 64,
+                "classification": "mod_loader",
+            }
+        )
+        initial["digest"] = environment_digest(
+            initial["modules"],
+            initial["artifacts"],
+            initial["private_executable_regions"],
+        )
+        writer = VerifierTelemetryWriter()
+        records = _complete_records(writer, initial)
+        changed = deepcopy(initial)
+        changed["private_executable_regions"].append(
+            {
+                "id": "3" * 24,
+                "size": 0x1000,
+                "protection": 0x20,
+                "writable": False,
+                "guarded": False,
+            }
+        )
+        changed["digest"] = environment_digest(
+            changed["modules"],
+            changed["artifacts"],
+            changed["private_executable_regions"],
+        )
+        checkpoint = writer.environment_record(changed, elapsed_seconds=10.0)
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        records[records.index(coverage):records.index(coverage) + 1] = [
+            checkpoint,
+            writer.coverage_record(elapsed_seconds=11.0),
+        ]
+        records[-1]["duration_seconds"] = 11
+
+        report = analyze_records(records)
+
+        self.assertEqual(report.status, VerificationStatus.REVIEW_REQUIRED)
+        self.assertEqual(
+            report.process_environment_status,
+            ProcessEnvironmentStatus.MODIFIED_RUNTIME,
+        )
+        self.assertFalse(
             any(
                 finding.title
                 == "New private executable memory appeared during the run"
                 for finding in report.findings
             )
         )
-        self.assertTrue(
-            any("changed during the run" in finding.title for finding in report.findings)
+
+    def test_new_writable_executable_memory_requires_immediate_review(self):
+        writer = VerifierTelemetryWriter()
+        records = _complete_records(writer)
+        changed_snapshot = _clean_environment_snapshot()
+        changed_snapshot["private_executable_regions"].append(
+            {
+                "id": "6" * 24,
+                "size": 0x1000,
+                "protection": 0x40,
+                "writable": True,
+                "guarded": False,
+            }
+        )
+        changed_snapshot["digest"] = environment_digest(
+            changed_snapshot["modules"],
+            changed_snapshot["artifacts"],
+            changed_snapshot["private_executable_regions"],
+        )
+        checkpoint = writer.environment_record(changed_snapshot, elapsed_seconds=10.0)
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        records[records.index(coverage):records.index(coverage) + 1] = [
+            checkpoint,
+            writer.coverage_record(elapsed_seconds=11.0),
+        ]
+        records[-1]["duration_seconds"] = 11
+
+        report = analyze_records(records)
+
+        self.assertEqual(report.status, VerificationStatus.REVIEW_REQUIRED)
+        self.assertEqual(
+            report.process_environment_status,
+            ProcessEnvironmentStatus.NEEDS_REVIEW,
         )
 
     def test_tampered_private_executable_memory_flags_are_inconsistent(self):
@@ -1403,6 +1727,70 @@ class RunVerifierAnalysisTests(unittest.TestCase):
         self.assertEqual(report.status, VerificationStatus.PARTIAL)
         self.assertEqual(report.inconsistency_count, 0)
         self.assertEqual(report.environment_text, "Scan unavailable")
+
+    def test_isolated_environment_scan_failure_that_recovers_is_neutral(self):
+        writer = VerifierTelemetryWriter()
+        records = _complete_records(writer)
+        failure = writer.environment_failure_record(
+            "temporary scan failure",
+            elapsed_seconds=10.0,
+        )
+        recovered = writer.environment_record(
+            _clean_environment_snapshot(),
+            elapsed_seconds=20.0,
+        )
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        records[records.index(coverage):records.index(coverage) + 1] = [
+            failure,
+            recovered,
+            writer.coverage_record(elapsed_seconds=21.0),
+        ]
+        records[-1]["duration_seconds"] = 21
+
+        report = analyze_records(records)
+
+        self.assertEqual(report.status, VerificationStatus.CONSISTENT)
+        self.assertEqual(report.process_environment_status, ProcessEnvironmentStatus.CLEAN)
+        self.assertTrue(
+            any("scan failure recovered" in finding.title for finding in report.findings)
+        )
+
+    def test_consecutive_environment_scan_failures_require_review(self):
+        writer = VerifierTelemetryWriter()
+        records = _complete_records(writer)
+        failures = [
+            writer.environment_failure_record(
+                "temporary scan failure",
+                elapsed_seconds=elapsed,
+            )
+            for elapsed in (10.0, 20.0)
+        ]
+        recovered = writer.environment_record(
+            _clean_environment_snapshot(),
+            elapsed_seconds=30.0,
+        )
+        coverage = next(
+            record for record in records if record["type"] == "verification_coverage"
+        )
+        records[records.index(coverage):records.index(coverage) + 1] = [
+            *failures,
+            recovered,
+            writer.coverage_record(elapsed_seconds=31.0),
+        ]
+        records[-1]["duration_seconds"] = 31
+
+        report = analyze_records(records)
+
+        self.assertEqual(report.status, VerificationStatus.REVIEW_REQUIRED)
+        self.assertEqual(
+            report.process_environment_status,
+            ProcessEnvironmentStatus.PARTIAL,
+        )
+        self.assertTrue(
+            any("coverage was incomplete" in finding.title for finding in report.findings)
+        )
 
 
 class RunVerifierStorageTests(unittest.TestCase):

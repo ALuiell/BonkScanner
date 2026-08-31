@@ -82,7 +82,7 @@ from app.run_lifecycle import run_lifecycle
 from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.snapshot_store import live_snapshot_store
 from app.vod_capture import vod_capture
-from app.refresh_tasks import ensure_refresh_coordinator
+from app.refresh_tasks import ensure_refresh_coordinator, refresh_tasks
 from core.game_state import MapStat, RuntimeGameMode
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
@@ -149,6 +149,7 @@ class PlayerStatsRefresh:
         select_snapshot: Callable[[Any], None],
         game_data_client: Callable[[], Any],
         set_game_data_client: Callable[[Any], None],
+        capture_final_verification: Callable[[Any], Any] | None = None,
     ) -> None:
         self._shutdown_requested = shutdown_requested
         self._lifecycle_service = lifecycle_service
@@ -167,6 +168,9 @@ class PlayerStatsRefresh:
         self._select_snapshot = select_snapshot
         self._game_data_client = game_data_client
         self._set_game_data_client = set_game_data_client
+        self._capture_final_verification = capture_final_verification or (
+            lambda _context: None
+        )
 
     def tick(self) -> None:
         """The per-tick body of the fast refresh loop.
@@ -213,6 +217,13 @@ class PlayerStatsRefresh:
             recorder = self._recorder_handle()
             if not recorder.is_recording:
                 return False
+            try:
+                self._capture_final_verification(context)
+            except Exception:
+                # The final verifier lane is best-effort. A disappearing game
+                # process must not prevent the ordinary snapshot and summary
+                # from closing the recording cleanly.
+                pass
             runtime_snapshot = self._live_tracker().runtime_snapshot()
             chaos_snapshot_reader = getattr(
                 self._live_tracker(), "chaos_tome_snapshot", None
@@ -624,6 +635,9 @@ def player_stats_refresh(owner) -> PlayerStatsRefresh:
         set_game_data_client=lambda value: setattr(
             owner, "player_stats_game_data_client", value
         ),
+        capture_final_verification=lambda context: refresh_tasks(
+            owner
+        ).capture_final_verifier_checkpoint(context),
     )
     if coordinator is not None:
         coordinator.player_stats_refresh = service

@@ -1149,7 +1149,12 @@ class RefreshTasks:
             return False
         return bool(getattr(state, "is_final_boss_stage", False))
 
-    def _refresh_chaos_tome_task(self, context: RefreshTickContext) -> bool:
+    def _refresh_chaos_tome_task(
+        self,
+        context: RefreshTickContext,
+        *,
+        force_verifier: bool = False,
+    ) -> bool:
         try:
             client = self._fast_task_client(context)
             owner_stats = self._fast_task_owner_stats(context)
@@ -1212,6 +1217,7 @@ class RefreshTasks:
                 owner_stats=owner_stats,
                 permanent_modifiers=permanent_modifiers,
                 dice_level=getattr(character_passive, "gamba_current_level", None),
+                force=force_verifier,
             )
             # The card was painted only by the 10 s payload while this task
             # folded a new reading every tick, which is why `!chaos` in chat
@@ -1238,6 +1244,7 @@ class RefreshTasks:
         owner_stats: int,
         permanent_modifiers: dict[int, tuple[Any, ...]],
         dice_level: int | None,
+        force: bool = False,
     ) -> None:
         """Best-effort verifier lane; never changes Chaos/Dice availability."""
         recorder = None
@@ -1248,7 +1255,7 @@ class RefreshTasks:
             if (
                 not callable(should_capture)
                 or not callable(capture)
-                or not should_capture()
+                or (not force and not should_capture())
             ):
                 return
             frame = read_memory_source(
@@ -1299,6 +1306,16 @@ class RefreshTasks:
                     note_failure(exc)
                 except Exception:
                     pass
+
+    def capture_final_verifier_checkpoint(
+        self,
+        context: RefreshTickContext | None = None,
+    ) -> bool:
+        """Best-effort final verifier sample before the recorder is closed."""
+        if context is None:
+            now = time.monotonic()
+            context = RefreshTickContext(-1, now)
+        return self._refresh_chaos_tome_task(context, force_verifier=True)
 
     def _advance_permanent_source_recovery(
         self,

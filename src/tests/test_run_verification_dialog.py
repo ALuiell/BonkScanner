@@ -22,6 +22,9 @@ from PySide6.QtWidgets import (  # noqa: E402
 
 from core.run_verifier import (  # noqa: E402
     FindingSeverity,
+    MechanicsVerificationStatus,
+    ProcessEnvironmentStatus,
+    RecordingCoverageStatus,
     VerificationFinding,
     VerificationReport,
     VerificationStatus,
@@ -106,6 +109,9 @@ class RunVerificationDialogTests(unittest.TestCase):
             unavailable_count=0,
             findings=(),
             coverage_text="1/1 stable checkpoints",
+            mechanics_status=MechanicsVerificationStatus.PASSED,
+            coverage_status=RecordingCoverageStatus.COMPLETE,
+            process_environment_status=ProcessEnvironmentStatus.CLEAN,
         )
 
     def test_result_uses_a_separate_how_it_works_dialog(self) -> None:
@@ -144,8 +150,13 @@ class RunVerificationDialogTests(unittest.TestCase):
         overview_text = " ".join(
             label.text() for label in tabs.widget(0).findChildren(QLabel)
         )
-        self.assertIn("What needs attention", overview_text)
-        self.assertIn("No grouped issues", overview_text)
+        self.assertIn("Target stat results", overview_text)
+        self.assertIn("No problems found in the available checks", overview_text)
+        axis_values = {
+            label.text()
+            for label in dialog.findChildren(QLabel, "RunVerificationAxisValue")
+        }
+        self.assertEqual(axis_values, {"Passed", "Complete", "Clean"})
 
     def test_repeated_findings_render_as_one_grouped_issue(self) -> None:
         base = self._report()
@@ -153,6 +164,7 @@ class RunVerificationDialogTests(unittest.TestCase):
             **{
                 **base.__dict__,
                 "status": VerificationStatus.INCONSISTENT,
+                "mechanics_status": MechanicsVerificationStatus.CONFLICT,
                 "inconsistency_count": 143,
                 "findings": (
                     VerificationFinding(
@@ -183,7 +195,7 @@ class RunVerificationDialogTests(unittest.TestCase):
         )
         title = "Powerup Multiplier permanent modifiers do not match additive component"
         self.assertEqual(overview_text.count(title), 1)
-        self.assertIn("143 checks", overview_text)
+        self.assertIn("143 observations", overview_text)
         self.assertIn("72.2s–366.3s", overview_text)
         details = dialog.findChild(QPlainTextEdit, "RunVerificationReportText")
         self.assertIn("72.2s-366.3s (143 occurrences)", details.toPlainText())
@@ -204,6 +216,39 @@ class RunVerificationDialogTests(unittest.TestCase):
         self.assertIn("manual mappings", text)
         self.assertIn("Unsupported build", text)
         self.assertIn("does not prove that the run is legitimate", text)
+
+    def test_environment_warning_does_not_relabel_passed_mechanics(self) -> None:
+        base = self._report()
+        report = VerificationReport(
+            **{
+                **base.__dict__,
+                "status": VerificationStatus.REVIEW_REQUIRED,
+                "warning_count": 1,
+                "process_environment_status": (
+                    ProcessEnvironmentStatus.MODIFIED_RUNTIME
+                ),
+                "findings": (
+                    VerificationFinding(
+                        category="Process environment",
+                        severity=FindingSeverity.WARNING,
+                        title="A mod loader was active in the game process",
+                        detail="Loaded module: winhttp.dll.",
+                    ),
+                ),
+            }
+        )
+        parent = QWidget()
+        dialog = RunVerificationDialog(report, parent)
+        self.addCleanup(parent.close)
+        self.addCleanup(dialog.close)
+
+        summary = dialog.findChild(QLabel, "RunVerificationStatus")
+        self.assertEqual(summary.text(), "No stat conflicts found")
+        axis_values = {
+            label.text()
+            for label in dialog.findChildren(QLabel, "RunVerificationAxisValue")
+        }
+        self.assertEqual(axis_values, {"Passed", "Complete", "Modified runtime"})
 
 
 class RecordingsVerificationLifecycleTests(unittest.TestCase):

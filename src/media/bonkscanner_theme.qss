@@ -1668,6 +1668,38 @@ QFrame#RunVerificationSummary[verificationStatus="unsupported_build"] {
     border-color: #514073;
     border-left-color: #C084FC;
 }
+QFrame#RunVerificationAxisCard {
+    background-color: #111820;
+    border: 1px solid #2A3542;
+    border-left: 3px solid #64748B;
+    border-radius: 10px;
+}
+QFrame#RunVerificationAxisCard[verificationTone="success"] {
+    border-left-color: #4ADE80;
+}
+QFrame#RunVerificationAxisCard[verificationTone="warning"] {
+    border-left-color: #FACC15;
+}
+QFrame#RunVerificationAxisCard[verificationTone="danger"] {
+    border-left-color: #F0787E;
+}
+QLabel#RunVerificationAxisTitle {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 11px;
+    font-weight: 700;
+}
+QLabel#RunVerificationAxisValue {
+    color: #EDF1F5;
+    background: transparent;
+    font-size: 15px;
+    font-weight: 800;
+}
+QLabel#RunVerificationAxisDetail {
+    color: #B9C2CE;
+    background: transparent;
+    font-size: 11px;
+}
 QLabel#RunVerificationStatus {
     color: #EDF1F5;
     background: transparent;

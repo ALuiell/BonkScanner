@@ -22,9 +22,12 @@ from PySide6.QtWidgets import (
 
 from core.run_verifier import (
     FindingSeverity,
+    MechanicsVerificationStatus,
+    ProcessEnvironmentStatus,
+    RecordingCoverageStatus,
+    TARGET_STAT_LABELS,
     VerificationFinding,
     VerificationReport,
-    VerificationStatus,
     mechanics_profile_display_name,
 )
 from ui.dialogs.shell import (
@@ -41,31 +44,6 @@ from ui.dialogs.shell import (
 from ui.shared import StagedLoadingSpinner, _make_scroll_section
 
 
-_STATUS_EXPLANATIONS = {
-    VerificationStatus.CONSISTENT: (
-        "All available checks agree. No recorded conflicts were found."
-    ),
-    VerificationStatus.INCONSISTENT: (
-        "Some recorded values conflict. Review the grouped issues below."
-    ),
-    VerificationStatus.REVIEW_REQUIRED: (
-        "No confirmed formula conflict was required for this result, but unusual "
-        "process or recording evidence needs review."
-    ),
-    VerificationStatus.PARTIAL: (
-        "Only part of this run could be checked with the recorded evidence."
-    ),
-    VerificationStatus.LATE_START: (
-        "Recording started after the run, so the beginning could not be verified."
-    ),
-    VerificationStatus.INTERRUPTED: (
-        "Required verifier telemetry has a recorded gap."
-    ),
-    VerificationStatus.UNSUPPORTED_BUILD: (
-        "This game build or ruleset has not been validated by this BonkScanner version."
-    ),
-}
-
 _SEVERITY_LABELS = {
     FindingSeverity.INCONSISTENCY: "Conflict",
     FindingSeverity.WARNING: "Needs review",
@@ -79,6 +57,193 @@ _SEVERITY_ORDER = {
     FindingSeverity.UNAVAILABLE: 2,
     FindingSeverity.MATCH: 3,
 }
+
+
+_MECHANICS_DETAILS = {
+    MechanicsVerificationStatus.PASSED: (
+        "All available component and legal-source equations agree."
+    ),
+    MechanicsVerificationStatus.PARTIAL: (
+        "The recorded values were checked, but some exact source evidence is missing."
+    ),
+    MechanicsVerificationStatus.CONFLICT: (
+        "At least one comparable, confirmed stat equation conflicts."
+    ),
+    MechanicsVerificationStatus.NOT_CHECKED: (
+        "This recording does not contain supported verifier checkpoints."
+    ),
+}
+
+_COVERAGE_DETAILS = {
+    RecordingCoverageStatus.COMPLETE: "The verifier telemetry is continuous and finalized.",
+    RecordingCoverageStatus.PARTIAL: "Some required verifier evidence is unavailable.",
+    RecordingCoverageStatus.LATE_START: "The beginning of the run was not recorded.",
+    RecordingCoverageStatus.INTERRUPTED: "A material telemetry break was recorded.",
+    RecordingCoverageStatus.INVALID: "The recording structure contains conflicting data.",
+    RecordingCoverageStatus.LEGACY: "This recording predates verifier telemetry.",
+    RecordingCoverageStatus.UNSUPPORTED: "The recorded rules are not supported by this build.",
+}
+
+_ENVIRONMENT_DETAILS = {
+    ProcessEnvironmentStatus.CLEAN: "No review-worthy runtime indicators were found.",
+    ProcessEnvironmentStatus.MODIFIED_INSTALLATION: (
+        "Loader files are installed, but no loader module was captured as active."
+    ),
+    ProcessEnvironmentStatus.MODIFIED_RUNTIME: (
+        "A mod loader was active. This does not by itself prove cheating."
+    ),
+    ProcessEnvironmentStatus.NEEDS_REVIEW: (
+        "Unknown modules, persistent executable memory, or runtime changes need review."
+    ),
+    ProcessEnvironmentStatus.PARTIAL: "The process-environment scan was incomplete.",
+    ProcessEnvironmentStatus.NOT_RECORDED: "This recording has no environment telemetry.",
+    ProcessEnvironmentStatus.UNAVAILABLE: "The process-environment scan did not succeed.",
+    ProcessEnvironmentStatus.UNSUPPORTED: "This environment telemetry format is unsupported.",
+}
+
+
+def _status_tone(value) -> str:
+    if value in {
+        MechanicsVerificationStatus.CONFLICT,
+        ProcessEnvironmentStatus.NEEDS_REVIEW,
+    }:
+        return "danger" if value is MechanicsVerificationStatus.CONFLICT else "warning"
+    if value in {
+        MechanicsVerificationStatus.PARTIAL,
+        MechanicsVerificationStatus.NOT_CHECKED,
+        RecordingCoverageStatus.PARTIAL,
+        RecordingCoverageStatus.LATE_START,
+        RecordingCoverageStatus.INTERRUPTED,
+        RecordingCoverageStatus.INVALID,
+        RecordingCoverageStatus.LEGACY,
+        RecordingCoverageStatus.UNSUPPORTED,
+        ProcessEnvironmentStatus.MODIFIED_INSTALLATION,
+        ProcessEnvironmentStatus.MODIFIED_RUNTIME,
+        ProcessEnvironmentStatus.PARTIAL,
+        ProcessEnvironmentStatus.NOT_RECORDED,
+        ProcessEnvironmentStatus.UNAVAILABLE,
+        ProcessEnvironmentStatus.UNSUPPORTED,
+    }:
+        return (
+            "danger"
+            if value is RecordingCoverageStatus.INVALID
+            else "warning"
+        )
+    return "success"
+
+
+def _axis_card(title: str, value, detail: str, parent: QWidget) -> QFrame:
+    card = QFrame(parent)
+    card.setObjectName("RunVerificationAxisCard")
+    card.setProperty("verificationTone", _status_tone(value))
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(12, 10, 12, 10)
+    layout.setSpacing(3)
+    title_label = QLabel(title, card)
+    title_label.setObjectName("RunVerificationAxisTitle")
+    value_label = QLabel(value.value, card)
+    value_label.setObjectName("RunVerificationAxisValue")
+    detail_label = QLabel(detail, card)
+    detail_label.setObjectName("RunVerificationAxisDetail")
+    detail_label.setWordWrap(True)
+    layout.addWidget(title_label)
+    layout.addWidget(value_label)
+    layout.addWidget(detail_label)
+    return card
+
+
+def _primary_summary(report: VerificationReport) -> tuple[str, str, str]:
+    status = report.mechanics_status
+    if status is MechanicsVerificationStatus.CONFLICT:
+        return (
+            "Conflicts found",
+            "Comparable recorded stat values disagree. Review the confirmed conflicts below.",
+            "inconsistent",
+        )
+    if status is MechanicsVerificationStatus.PASSED:
+        return (
+            "No stat conflicts found",
+            "The available mechanics checks agree; coverage and environment are shown separately.",
+            "consistent",
+        )
+    if status is MechanicsVerificationStatus.PARTIAL:
+        return (
+            "Stat checks partially complete",
+            "No confirmed conflict is required for this result, but some source evidence is missing.",
+            "partial",
+        )
+    return (
+        "Stat checks unavailable",
+        "This recording cannot be evaluated with the current mechanics rules.",
+        "unsupported_build",
+    )
+
+
+def _group_actionable_findings(
+    findings: tuple[VerificationFinding, ...],
+) -> tuple[VerificationFinding, ...]:
+    source_incomplete = tuple(
+        finding
+        for finding in findings
+        if finding.severity is FindingSeverity.UNAVAILABLE
+        and finding.title.endswith("source attribution is incomplete")
+    )
+    if len(source_incomplete) < 2:
+        return findings
+    affected = ", ".join(
+        TARGET_STAT_LABELS[finding.stat_id]
+        for finding in source_incomplete
+        if finding.stat_id in TARGET_STAT_LABELS
+    )
+    grouped = VerificationFinding(
+        category="Coverage and limitations",
+        severity=FindingSeverity.UNAVAILABLE,
+        title="Exact source breakdown is incomplete",
+        detail=(
+            "The component equations were still checked. Affected stats: "
+            f"{affected or 'target stats'}."
+        ),
+        elapsed_seconds=min(
+            (
+                finding.elapsed_seconds
+                for finding in source_incomplete
+                if finding.elapsed_seconds is not None
+            ),
+            default=None,
+        ),
+        occurrence_count=max(finding.occurrence_count for finding in source_incomplete),
+        last_elapsed_seconds=max(
+            finding.last_elapsed_seconds or finding.elapsed_seconds or 0.0
+            for finding in source_incomplete
+        ),
+    )
+    source_ids = {id(finding) for finding in source_incomplete}
+    return tuple(finding for finding in findings if id(finding) not in source_ids) + (
+        grouped,
+    )
+
+
+def _target_stat_results(report: VerificationReport) -> str:
+    rows = ["<b>Target stat results</b><br><br>"]
+    for stat_id, label in TARGET_STAT_LABELS.items():
+        findings = tuple(
+            finding
+            for finding in report.findings
+            if finding.stat_id == stat_id
+            and finding.severity is not FindingSeverity.MATCH
+        )
+        if any(
+            finding.severity is FindingSeverity.INCONSISTENCY for finding in findings
+        ):
+            state = "Conflict found"
+        elif any(finding.severity is FindingSeverity.UNAVAILABLE for finding in findings):
+            state = "Partially checked"
+        elif report.mechanics_status is MechanicsVerificationStatus.NOT_CHECKED:
+            state = "Not checked"
+        else:
+            state = "Passed"
+        rows.append(f"&bull; <b>{html.escape(label)}</b>: {state}<br>")
+    return "".join(rows)
 
 
 def _finding_time_text(finding: VerificationFinding) -> str:
@@ -95,7 +260,7 @@ def _finding_card_html(finding: VerificationFinding) -> str:
     label = _SEVERITY_LABELS[finding.severity]
     context: list[str] = []
     if finding.occurrence_count > 1:
-        context.append(f"{finding.occurrence_count} checks")
+        context.append(f"{finding.occurrence_count} observations")
     time_text = _finding_time_text(finding)
     if time_text:
         context.append(time_text)
@@ -117,26 +282,19 @@ def _finding_card(finding: VerificationFinding) -> QFrame:
     return dialog_info_card(text)
 
 
-def _process_environment_overview(report: VerificationReport) -> str:
-    findings = tuple(
-        finding
-        for finding in report.findings
-        if finding.category == "Process environment"
-        and finding.severity is not FindingSeverity.MATCH
-    )
-    if any(
-        finding.severity is FindingSeverity.INCONSISTENCY
-        for finding in findings
-    ):
-        return "Conflicting process-environment telemetry was found."
-    review_groups = sum(
-        finding.severity is FindingSeverity.WARNING for finding in findings
-    )
-    if review_groups:
-        return f"{review_groups} grouped indicator(s) need review."
-    if report.environment_text in {"Not recorded", "Scan unavailable"}:
-        return report.environment_text
-    return "Captured; no flagged indicators were found."
+def _add_findings_section(
+    layout: QVBoxLayout,
+    parent: QWidget,
+    title: str,
+    findings: tuple[VerificationFinding, ...],
+) -> None:
+    if not findings:
+        return
+    title_label = QLabel(title, parent)
+    title_label.setObjectName("RunVerificationSectionTitle")
+    layout.addWidget(title_label)
+    for finding in findings:
+        layout.addWidget(_finding_card(finding))
 
 
 class VerificationProgressDialog(QDialog):
@@ -204,7 +362,12 @@ class RunVerificationGuideDialog(QDialog):
 
         scroll_layout.addWidget(
             dialog_info_card(
-                "<b>1. What does Verify Run check?</b><br><br>"
+                "<b>1. Three separate results</b><br><br>"
+                "The Overview separates <b>Game mechanics</b>, <b>Recording "
+                "coverage</b>, and <b>Game environment</b>. An environment warning "
+                "does not turn a passed stat equation into a mechanics conflict, and "
+                "missing coverage is not presented as cheating.<br><br>"
+                "<b>What does Verify Run check?</b><br><br>"
                 "BonkScanner checks whether the values stored in the recording agree "
                 "with each other and with the currently validated game formulas. The "
                 "pilot rules cover <b>Powerup Multiplier</b>, <b>Powerup Drop Chance</b>, "
@@ -230,11 +393,14 @@ class RunVerificationGuideDialog(QDialog):
                 "memory layout used for the analysis. The Technical rules ID is its "
                 "exact internal identifier.<br>"
                 "&bull; <b>Process environment</b> summarizes native-module scans, "
-                "mod-loader indicators, private executable memory, and changes during "
-                "the run. It does not store absolute file paths, raw memory addresses, "
+                "mod-loader indicators, private executable memory, and meaningful "
+                "changes during the run. Installed loader files and an actually loaded "
+                "loader are shown as different states. A single recovered scan failure "
+                "or a one-off read/execute page is not treated as a review indicator.<br>"
+                "It does not store absolute file paths, raw memory addresses, "
                 "memory contents, or a Windows username. Existing private executable "
-                "pages form the start baseline; new or changed pages are highlighted "
-                "for review.<br>"
+                "pages form the start baseline; persistent, writable, or correlated "
+                "new pages can be highlighted for review.<br>"
                 "&bull; <b>Not recorded</b> means the recording file does not contain "
                 "that information. This is expected for older recordings."
             )
@@ -257,10 +423,9 @@ class RunVerificationGuideDialog(QDialog):
                 "&bull; <b>Consistent</b>: all available checks agree.<br>"
                 "&bull; <b>Inconsistent</b>: at least one confirmed conflict was found.<br>"
                 "&bull; <b>Review required</b>: the pilot found an unknown or "
-                "unrecognized third-party module, a mod-loader indicator, a "
-                "new or changed private executable memory region, an environment "
-                "change, or a "
-                "non-fatal scan failure. This is a "
+                "unrecognized third-party module, an active mod loader, persistent "
+                "or writable private executable memory, a meaningful runtime change, "
+                "or repeated/unrecovered scan failures. This is a "
                 "reason to inspect the evidence, not an "
                 "automatic cheating verdict.<br>"
                 "&bull; <b>Partial</b>: only part of the run could be checked.<br>"
@@ -299,9 +464,10 @@ class RunVerificationDialog(QDialog):
             height=DIALOG_TALL,
         )
 
+        primary_title, primary_detail, primary_tone = _primary_summary(report)
         summary = QFrame(self)
         summary.setObjectName("RunVerificationSummary")
-        summary.setProperty("verificationStatus", report.status.value.lower().replace(" ", "_"))
+        summary.setProperty("verificationStatus", primary_tone)
         summary_layout = QVBoxLayout(summary)
         summary_layout.setContentsMargins(14, 12, 14, 12)
         summary_layout.setSpacing(5)
@@ -309,7 +475,7 @@ class RunVerificationDialog(QDialog):
         status_row = QHBoxLayout()
         status_row.setContentsMargins(0, 0, 0, 0)
         status_row.setSpacing(8)
-        status = QLabel(report.status.value, summary)
+        status = QLabel(primary_title, summary)
         status.setObjectName("RunVerificationStatus")
         status_row.addWidget(status)
         status_row.addStretch(1)
@@ -319,37 +485,68 @@ class RunVerificationDialog(QDialog):
         status_row.addWidget(how_it_works_button)
         summary_layout.addLayout(status_row)
 
-        headline = QLabel(_STATUS_EXPLANATIONS[report.status], summary)
+        headline = QLabel(primary_detail, summary)
         headline.setObjectName("RunVerificationHeadline")
         headline.setWordWrap(True)
         summary_layout.addWidget(headline)
 
-        actionable_findings = tuple(
-            sorted(
-                (
-                    finding
-                    for finding in report.findings
-                    if finding.severity is not FindingSeverity.MATCH
-                ),
-                key=lambda finding: (
-                    _SEVERITY_ORDER[finding.severity],
-                    finding.category.casefold(),
-                    finding.title.casefold(),
-                ),
+        actionable_findings = _group_actionable_findings(
+            tuple(
+                sorted(
+                    (
+                        finding
+                        for finding in report.findings
+                        if finding.severity is not FindingSeverity.MATCH
+                    ),
+                    key=lambda finding: (
+                        _SEVERITY_ORDER[finding.severity],
+                        finding.category.casefold(),
+                        finding.title.casefold(),
+                    ),
+                )
             )
         )
         counts = QLabel(
-            f"{report.match_count} checks passed  ·  "
-            f"{report.inconsistency_count} conflicts  ·  "
-            f"{report.warning_count} warnings  ·  "
-            f"{report.unavailable_count} could not be checked  ·  "
-            f"{len(actionable_findings)} grouped issue(s)",
+            f"3 monitored stats  ·  {report.coverage_text}  ·  "
+            f"{len(actionable_findings)} grouped finding(s)",
             summary,
         )
         counts.setObjectName("RunVerificationCounts")
         counts.setWordWrap(True)
         summary_layout.addWidget(counts)
         body.addWidget(summary)
+
+        axes = QHBoxLayout()
+        axes.setContentsMargins(0, 0, 0, 0)
+        axes.setSpacing(8)
+        axes.addWidget(
+            _axis_card(
+                "Game mechanics",
+                report.mechanics_status,
+                _MECHANICS_DETAILS[report.mechanics_status],
+                self,
+            ),
+            1,
+        )
+        axes.addWidget(
+            _axis_card(
+                "Recording coverage",
+                report.coverage_status,
+                _COVERAGE_DETAILS[report.coverage_status],
+                self,
+            ),
+            1,
+        )
+        axes.addWidget(
+            _axis_card(
+                "Game environment",
+                report.process_environment_status,
+                _ENVIRONMENT_DETAILS[report.process_environment_status],
+                self,
+            ),
+            1,
+        )
+        body.addLayout(axes)
 
         tabs = QTabWidget(self)
         tabs.setObjectName("RunVerificationTabs")
@@ -362,24 +559,38 @@ class RunVerificationDialog(QDialog):
         scroll, _scroll_content, scroll_layout = _make_scroll_section()
         overview_layout.addWidget(scroll, 1)
 
-        at_a_glance = dialog_info_card(
-            "<b>What was checked</b><br><br>"
-            f"Stable telemetry: {html.escape(report.coverage_text)}<br>"
-            "Process environment: "
-            f"{html.escape(_process_environment_overview(report))}"
-        )
-        scroll_layout.addWidget(at_a_glance)
+        scroll_layout.addWidget(dialog_info_card(_target_stat_results(report)))
 
-        issues_title = QLabel("What needs attention", overview)
-        issues_title.setObjectName("RunVerificationSectionTitle")
-        scroll_layout.addWidget(issues_title)
-        if actionable_findings:
-            for finding in actionable_findings:
-                scroll_layout.addWidget(_finding_card(finding))
-        else:
+        conflicts = tuple(
+            finding
+            for finding in actionable_findings
+            if finding.severity is FindingSeverity.INCONSISTENCY
+        )
+        environment = tuple(
+            finding
+            for finding in actionable_findings
+            if finding.category == "Process environment"
+            and finding.severity is not FindingSeverity.INCONSISTENCY
+        )
+        limitations = tuple(
+            finding
+            for finding in actionable_findings
+            if finding not in conflicts and finding not in environment
+        )
+        _add_findings_section(
+            scroll_layout, overview, "Confirmed conflicts", conflicts
+        )
+        _add_findings_section(
+            scroll_layout, overview, "Game environment review", environment
+        )
+        _add_findings_section(
+            scroll_layout, overview, "Coverage and limitations", limitations
+        )
+        if not actionable_findings:
             scroll_layout.addWidget(
                 dialog_info_card(
-                    "<b>No grouped issues</b><br><br>All available checks agree."
+                    "<b>No problems found in the available checks</b><br><br>"
+                    "The supported recorded evidence agrees."
                 )
             )
 

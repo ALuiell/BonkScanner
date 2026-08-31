@@ -218,7 +218,7 @@ class RecordedRunFixtureTests(unittest.TestCase):
             self.assertTrue(
                 any(
                     finding.category == "Process environment"
-                    and "mod-loader" in finding.title.lower()
+                    and "mod loader" in finding.title.lower()
                     for finding in report.findings
                 )
             )

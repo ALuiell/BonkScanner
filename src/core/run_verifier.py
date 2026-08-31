@@ -185,6 +185,34 @@ class VerificationStatus(str, Enum):
     UNSUPPORTED_BUILD = "Unsupported build"
 
 
+class MechanicsVerificationStatus(str, Enum):
+    PASSED = "Passed"
+    PARTIAL = "Partially checked"
+    CONFLICT = "Conflict found"
+    NOT_CHECKED = "Not checked"
+
+
+class RecordingCoverageStatus(str, Enum):
+    COMPLETE = "Complete"
+    PARTIAL = "Partial"
+    LATE_START = "Started late"
+    INTERRUPTED = "Interrupted"
+    INVALID = "Invalid recording"
+    LEGACY = "Legacy recording"
+    UNSUPPORTED = "Unsupported rules"
+
+
+class ProcessEnvironmentStatus(str, Enum):
+    CLEAN = "Clean"
+    MODIFIED_INSTALLATION = "Modified installation"
+    MODIFIED_RUNTIME = "Modified runtime"
+    NEEDS_REVIEW = "Needs review"
+    PARTIAL = "Partially checked"
+    NOT_RECORDED = "Not recorded"
+    UNAVAILABLE = "Scan unavailable"
+    UNSUPPORTED = "Unsupported telemetry"
+
+
 class FindingSeverity(str, Enum):
     MATCH = "match"
     INCONSISTENCY = "inconsistency"
@@ -222,6 +250,11 @@ class VerificationReport:
     findings: tuple[VerificationFinding, ...]
     coverage_text: str
     environment_text: str = "Not recorded"
+    mechanics_status: MechanicsVerificationStatus = MechanicsVerificationStatus.NOT_CHECKED
+    coverage_status: RecordingCoverageStatus = RecordingCoverageStatus.PARTIAL
+    process_environment_status: ProcessEnvironmentStatus = (
+        ProcessEnvironmentStatus.NOT_RECORDED
+    )
 
     @property
     def is_consistent(self) -> bool:
@@ -237,6 +270,9 @@ class VerificationReport:
             f"Game build: {self.game_build_id or 'Not recorded'}",
             f"BonkScanner version: {self.scanner_version or 'Not recorded'}",
             f"Verification rules: {profile_name}",
+            f"Game mechanics: {self.mechanics_status.value}",
+            f"Recording coverage: {self.coverage_status.value}",
+            f"Game environment status: {self.process_environment_status.value}",
         ]
         if self.mechanics_profile:
             lines.append(f"Technical rules ID: {self.mechanics_profile}")
@@ -306,6 +342,19 @@ class VerificationReport:
         return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class _PendingReconciliation:
+    count: int
+    category: str
+    title: str
+    detail: str
+    elapsed: float
+    stat_id: int | None
+    sequence: int | None
+    signature: Any
+    severity: FindingSeverity
+
+
 class _Analysis:
     def __init__(self) -> None:
         self.matches = 0
@@ -319,7 +368,7 @@ class _Analysis:
             tuple[FindingSeverity, str, str, int | None], int
         ] = {}
         self._pending_reconciliations: dict[
-            tuple[str, Any], tuple[int, str, str, float, int | None]
+            tuple[str, Any], _PendingReconciliation
         ] = {}
         self._pending_unavailable: dict[
             tuple[str, Any], VerificationFinding
@@ -385,7 +434,11 @@ class _Analysis:
         *,
         elapsed: float,
         stat_id: int | None,
-    ) -> None:
+        sequence: int | None,
+        signature: Any = None,
+        category: str = "Source reconciliation",
+        severity: FindingSeverity = FindingSeverity.INCONSISTENCY,
+    ) -> bool:
         """Require two adjacent stable samples for cross-source accusations.
 
         Component values and source trackers are read sequentially. A pickup or
@@ -394,26 +447,53 @@ class _Analysis:
         inconsistency immediately.
         """
         previous = self._pending_reconciliations.get(key)
-        count = (previous[0] if previous is not None else 0) + 1
-        self._pending_reconciliations[key] = (
-            count,
-            title,
-            detail,
-            elapsed,
-            stat_id,
+        adjacent = bool(
+            previous is not None
+            and previous.sequence is not None
+            and sequence is not None
+            and sequence == previous.sequence + 1
+        )
+        same_episode = bool(
+            previous is not None
+            and previous.signature == signature
+            and previous.category == category
+            and previous.severity is severity
+        )
+        count = previous.count + 1 if adjacent and same_episode else 1
+        self._pending_reconciliations[key] = _PendingReconciliation(
+            count=count,
+            category=category,
+            title=title,
+            detail=detail,
+            elapsed=elapsed,
+            stat_id=stat_id,
+            sequence=sequence,
+            signature=signature,
+            severity=severity,
         )
         if count >= 2:
             self.add(
-                FindingSeverity.INCONSISTENCY,
-                "Source reconciliation",
+                severity,
+                category,
                 title,
                 detail,
                 elapsed=elapsed,
                 stat_id=stat_id,
             )
+            return True
+        return False
 
     def reconcile_success(self, key: tuple[str, Any]) -> None:
         self._pending_reconciliations.pop(key, None)
+
+    def break_reconciliation_chain(self, *, stat_id: int | None = None) -> None:
+        """Prevent incomparable samples from confirming one another."""
+        if stat_id is None:
+            self._pending_reconciliations.clear()
+            return
+        for key, pending in tuple(self._pending_reconciliations.items()):
+            if pending.stat_id == stat_id:
+                self._pending_reconciliations.pop(key, None)
 
     def defer_unavailable(
         self,
@@ -460,16 +540,16 @@ class _Analysis:
         self._pending_unavailable.pop(key, None)
 
     def finalize_reconciliations(self) -> None:
-        for count, title, detail, elapsed, stat_id in self._pending_reconciliations.values():
-            if count != 1:
+        for pending in self._pending_reconciliations.values():
+            if pending.count != 1:
                 continue
             self.add(
                 FindingSeverity.UNAVAILABLE,
                 "Coverage and limitations",
-                f"{title} was not confirmed",
-                f"Only the final stable checkpoint disagreed. {detail}",
-                elapsed=elapsed,
-                stat_id=stat_id,
+                f"{pending.title} was not confirmed",
+                f"Only the final comparable checkpoint disagreed. {pending.detail}",
+                elapsed=pending.elapsed,
+                stat_id=pending.stat_id,
             )
         for finding in self._pending_unavailable.values():
             self.add(
@@ -657,8 +737,19 @@ def _check_checkpoint(
     capture_interval: float | None,
     game_time_high_water: float | None,
 ) -> None:
+    sequence = _integer(checkpoint.get("sequence"))
+    current_epoch = _integer(checkpoint.get("_reconciliation_epoch"))
+    previous_epoch = (
+        _integer(previous.get("_reconciliation_epoch"))
+        if previous is not None
+        else current_epoch
+    )
+    if sequence is None or current_epoch != previous_epoch:
+        analysis.break_reconciliation_chain()
+
     elapsed = _number(checkpoint.get("elapsed_seconds"))
     if elapsed is None:
+        analysis.break_reconciliation_chain()
         analysis.add(
             FindingSeverity.INCONSISTENCY,
             "Recording integrity",
@@ -669,6 +760,7 @@ def _check_checkpoint(
 
     stable = _boolean(checkpoint.get("stable"))
     if stable is None:
+        analysis.break_reconciliation_chain()
         analysis.add(
             FindingSeverity.INCONSISTENCY,
             "Recording integrity",
@@ -679,6 +771,7 @@ def _check_checkpoint(
         return
     stability_key = ("coverage", "stable_checkpoint")
     if not stable:
+        analysis.break_reconciliation_chain()
         analysis.defer_unavailable(
             stability_key,
             "Coverage and limitations",
@@ -706,7 +799,8 @@ def _check_checkpoint(
     sources = checkpoint.get("sources")
     items = sources.get("items") if isinstance(sources, dict) else None
     old_mask = _integer(items.get("old_mask")) if isinstance(items, dict) else None
-    if old_mask is None or old_mask < 0:
+    old_mask_valid = old_mask is not None and old_mask >= 0
+    if not old_mask_valid:
         analysis.add(
             FindingSeverity.INCONSISTENCY,
             "Recording integrity",
@@ -740,6 +834,7 @@ def _check_checkpoint(
         label = TARGET_STAT_LABELS[stat_id]
         entry = _stat_entry(checkpoint, stat_id)
         if entry is None:
+            analysis.break_reconciliation_chain(stat_id=stat_id)
             analysis.add(
                 FindingSeverity.UNAVAILABLE,
                 "Stat reconstruction",
@@ -761,6 +856,7 @@ def _check_checkpoint(
             for field in ("final", "raw", "base", "additive", "multiplicative")
         }
         if any(value is None for value in values.values()):
+            analysis.break_reconciliation_chain(stat_id=stat_id)
             continue
         final = values["final"]
         raw = values["raw"]
@@ -819,13 +915,17 @@ def _check_checkpoint(
 
         expected_base = 1.0 + (0.15 * old_mask if stat_id == 39 else 0.0)
         base_key = ("base", stat_id)
-        if not close_float32(base, expected_base, source_sum=True):
+        if stat_id == 39 and not old_mask_valid:
+            analysis.reconcile_success(base_key)
+        elif not close_float32(base, expected_base, source_sum=True):
             analysis.reconcile_failure(
                 base_key,
                 f"{label} base has no legal source",
                 f"Observed {base:.9g}; expected {expected_base:.9g} from Old Mask amount {old_mask}.",
                 elapsed=elapsed,
                 stat_id=stat_id,
+                sequence=sequence,
+                signature="base_source_mismatch",
             )
         else:
             analysis.reconcile_success(base_key)
@@ -959,6 +1059,8 @@ def _check_checkpoint(
                     f"Component delta {additive - 1.0:.9g}; modifier sum {modifier_sum:.9g}.",
                     elapsed=elapsed,
                     stat_id=stat_id,
+                    sequence=sequence,
+                    signature="modifier_sum_mismatch",
                 )
             else:
                 analysis.reconcile_success(modifier_key)
@@ -1007,6 +1109,8 @@ def _check_checkpoint(
                     f"Component delta {additive - 1.0:.9g}; Shrine + Dice + Chaos {source_sum:.9g}.",
                     elapsed=elapsed,
                     stat_id=stat_id,
+                    sequence=sequence,
+                    signature="legal_source_mismatch",
                 )
             else:
                 analysis.reconcile_success(source_key)
@@ -1059,6 +1163,8 @@ def _check_checkpoint(
                 f"Highest observed {high_water}; current {counter_name}={current_value}.",
                 elapsed=elapsed,
                 stat_id=None,
+                sequence=sequence,
+                signature="counter_regressed",
             )
         else:
             analysis.reconcile_success(counter_key)
@@ -1074,7 +1180,7 @@ def _check_checkpoint(
     )
     if game_time_regressed:
         assert current_game_time is not None and game_time_high_water is not None
-        analysis.reconcile_failure(
+        confirmed = analysis.reconcile_failure(
             ("game_time", 0),
             "Game time moved backwards",
             (
@@ -1084,7 +1190,13 @@ def _check_checkpoint(
             ),
             elapsed=elapsed,
             stat_id=None,
+            sequence=sequence,
+            signature="below_high_water",
+            category="Timeline checks",
+            severity=FindingSeverity.WARNING,
         )
+        if confirmed:
+            analysis.interrupted = True
     elif current_game_time is not None:
         analysis.reconcile_success(("game_time", 0))
     else:
@@ -1347,7 +1459,7 @@ def _analyze_process_environment(
     verification: dict[str, Any],
     coverage: dict[str, Any] | None,
     records: list[dict[str, Any]],
-) -> str:
+) -> tuple[str, ProcessEnvironmentStatus]:
     declared_schema = _integer(verification.get("environment_schema"))
     if declared_schema is None:
         if records:
@@ -1364,15 +1476,15 @@ def _analyze_process_environment(
                 "Process environment was not recorded",
                 "This recording predates native module and mod-loader telemetry.",
             )
-        return "Not recorded"
+        return "Not recorded", ProcessEnvironmentStatus.NOT_RECORDED
     if declared_schema != ENVIRONMENT_SCHEMA_VERSION:
         analysis.add(
-            FindingSeverity.INCONSISTENCY,
-            "Recording integrity",
-            "Environment schema is unsupported",
+            FindingSeverity.UNAVAILABLE,
+            "Build compatibility",
+            "Process-environment telemetry is unsupported",
             f"Expected {ENVIRONMENT_SCHEMA_VERSION}; observed {declared_schema!r}.",
         )
-        return "Unsupported telemetry"
+        return "Unsupported telemetry", ProcessEnvironmentStatus.UNSUPPORTED
     environment_interval = _number(
         verification.get("environment_capture_interval_seconds")
     )
@@ -1402,9 +1514,17 @@ def _analyze_process_environment(
     changes = 0
     previous_elapsed: float | None = None
     scan_times: list[float] = []
-    flagged_modules: dict[str, str] = {}
+    flagged_modules: dict[str, dict[str, Any]] = {}
     flagged_artifacts: dict[str, str] = {}
-    flagged_regions: dict[str, dict[str, Any]] = {}
+    new_regions: dict[str, dict[str, Any]] = {}
+    region_observations: dict[str, int] = {}
+    correlated_regions: set[str] = set()
+    current_failure_streak = 0
+    max_failure_streak = 0
+    final_failure_streak = 0
+    benign_change_count = 0
+    reviewable_change_count = 0
+    artifact_change_count = 0
 
     for expected_sequence, record in enumerate(records):
         if _integer(record.get("sequence")) != expected_sequence:
@@ -1436,6 +1556,9 @@ def _analyze_process_environment(
         kind = record.get("kind")
         if kind == "failure":
             failures += 1
+            current_failure_streak += 1
+            max_failure_streak = max(max_failure_streak, current_failure_streak)
+            final_failure_streak = current_failure_streak
             reason = record.get("reason")
             if not isinstance(reason, str) or not reason.strip() or len(reason) > 240:
                 analysis.add(
@@ -1445,6 +1568,8 @@ def _analyze_process_environment(
                     "A bounded failure reason is required.",
                 )
             continue
+        current_failure_streak = 0
+        final_failure_streak = 0
         if kind == "initial":
             if modules is not None or artifacts is not None or regions is not None:
                 analysis.add(
@@ -1507,9 +1632,9 @@ def _analyze_process_environment(
             )
             # A process can legitimately begin with executable private pages
             # created by graphics drivers, overlays, or runtime components.
-            # The MVP records that baseline but only elevates regions that
-            # appear or materially change after recording has started.
-            flagged_regions.update(added_regions)
+            # Only regions that appear or materially change after recording
+            # starts participate in the runtime review signal.
+            new_regions.update(added_regions)
             removed_modules = record.get("modules_removed")
             removed_artifacts = record.get("artifacts_removed")
             removed_regions = record.get("regions_removed")
@@ -1537,6 +1662,42 @@ def _analyze_process_environment(
             )
             if changed:
                 changes += 1
+                removed_reviewable_modules = any(
+                    token in modules
+                    and (
+                        known_environment_module_classification(
+                            modules[token]["name"], modules[token]["location"]
+                        )
+                        or modules[token]["classification"]
+                    )
+                    in {"mod_loader", "third_party", "unknown"}
+                    for token in removed_modules
+                )
+                added_reviewable_modules = any(
+                    (
+                        known_environment_module_classification(
+                            entry["name"], entry["location"]
+                        )
+                        or entry["classification"]
+                    )
+                    in {"mod_loader", "third_party", "unknown"}
+                    for entry in added_modules.values()
+                )
+                if added_reviewable_modules and added_regions:
+                    correlated_regions.update(added_regions)
+                artifact_changed = bool(added_artifacts or removed_artifacts)
+                region_changed = bool(added_regions or removed_regions)
+                if artifact_changed:
+                    artifact_change_count += 1
+                if (
+                    added_reviewable_modules
+                    or removed_reviewable_modules
+                    or artifact_changed
+                    or region_changed
+                ):
+                    reviewable_change_count += 1
+                else:
+                    benign_change_count += 1
             for token in removed_modules:
                 token = str(token or "").lower()
                 if token not in modules:
@@ -1649,9 +1810,15 @@ def _analyze_process_environment(
                 or entry["classification"]
             )
             if effective_classification in {"mod_loader", "third_party", "unknown"}:
-                flagged_modules[entry["id"]] = entry["name"]
+                flagged_modules[entry["id"]] = {
+                    **entry,
+                    "effective_classification": effective_classification,
+                }
         for entry in artifacts.values():
             flagged_artifacts[entry["id"]] = entry["path"]
+        for token in new_regions:
+            if token in regions:
+                region_observations[token] = region_observations.get(token, 0) + 1
 
     environment_coverage = coverage.get("environment") if coverage is not None else None
     coverage_duration = (
@@ -1734,7 +1901,7 @@ def _analyze_process_environment(
             "Process module inventory is unavailable",
             f"All {failures or len(records)} environment scan attempt(s) failed.",
         )
-        return "Scan unavailable"
+        return "Scan unavailable", ProcessEnvironmentStatus.UNAVAILABLE
 
     analysis.add(
         FindingSeverity.MATCH,
@@ -1748,66 +1915,153 @@ def _analyze_process_environment(
         "Private executable memory baseline captured",
         f"The final snapshot contains {len(regions)} private executable region(s).",
     )
-    if flagged_modules:
+    mod_loader_names = sorted(
+        {
+            entry["name"]
+            for entry in flagged_modules.values()
+            if entry["effective_classification"] == "mod_loader"
+        },
+        key=str.casefold,
+    )
+    other_flagged_names = sorted(
+        {
+            entry["name"]
+            for entry in flagged_modules.values()
+            if entry["effective_classification"] != "mod_loader"
+        },
+        key=str.casefold,
+    )
+    artifact_paths = sorted(set(flagged_artifacts.values()), key=str.casefold)
+    review_regions = {
+        token: entry
+        for token, entry in new_regions.items()
+        if entry["writable"]
+        or region_observations.get(token, 0) >= 2
+        or token in correlated_regions
+    }
+    transient_regions = {
+        token: entry for token, entry in new_regions.items() if token not in review_regions
+    }
+    material_failures = bool(
+        final_failure_streak
+        or max_failure_streak >= 2
+        or failures > max(1, len(records) // 10)
+    )
+
+    if mod_loader_names:
         analysis.review_required = True
-        names = sorted(set(flagged_modules.values()), key=str.casefold)
-        suffix = "" if len(names) <= 8 else f" (+{len(names) - 8} more)"
+        module_suffix = (
+            "" if len(mod_loader_names) <= 8 else f" (+{len(mod_loader_names) - 8} more)"
+        )
+        artifact_detail = ""
+        if artifact_paths:
+            artifact_suffix = (
+                "" if len(artifact_paths) <= 8 else f" (+{len(artifact_paths) - 8} more)"
+            )
+            artifact_detail = (
+                f" Installed files: {', '.join(artifact_paths[:8])}{artifact_suffix}."
+            )
         analysis.add(
             FindingSeverity.WARNING,
             "Process environment",
-            "Unrecognized third-party or mod-loader modules were recorded",
-            f"Flagged modules: {', '.join(names[:8])}{suffix}.",
+            "A mod loader was active in the game process",
+            (
+                f"Loaded module(s): {', '.join(mod_loader_names[:8])}{module_suffix}."
+                f"{artifact_detail} This proves a modified runtime, not cheating."
+            ),
         )
-    if flagged_artifacts:
+    elif artifact_paths:
+        analysis.add(
+            FindingSeverity.MATCH,
+            "Process environment",
+            "Mod-loader files are installed but were not active",
+            (
+                f"Installed files: {', '.join(artifact_paths[:8])}"
+                f"{' (+' + str(len(artifact_paths) - 8) + ' more)' if len(artifact_paths) > 8 else ''}. "
+                "No corresponding mod-loader module was captured in the game process."
+            ),
+        )
+    if other_flagged_names:
         analysis.review_required = True
-        paths = sorted(set(flagged_artifacts.values()), key=str.casefold)
-        suffix = "" if len(paths) <= 8 else f" (+{len(paths) - 8} more)"
+        suffix = (
+            "" if len(other_flagged_names) <= 8 else f" (+{len(other_flagged_names) - 8} more)"
+        )
         analysis.add(
             FindingSeverity.WARNING,
             "Process environment",
-            "Mod-loader artifacts were found in the game directory",
-            f"Flagged artifacts: {', '.join(paths[:8])}{suffix}.",
+            "Unrecognized third-party modules were recorded",
+            f"Flagged modules: {', '.join(other_flagged_names[:8])}{suffix}.",
         )
-    if flagged_regions:
+    if review_regions:
         analysis.review_required = True
-        total_size = sum(entry["size"] for entry in flagged_regions.values())
+        total_size = sum(entry["size"] for entry in review_regions.values())
         writable_count = sum(
-            1 for entry in flagged_regions.values() if entry["writable"]
+            1 for entry in review_regions.values() if entry["writable"]
         )
         analysis.add(
             FindingSeverity.WARNING,
             "Process environment",
             "New private executable memory appeared during the run",
             (
-                f"Observed {len(flagged_regions)} new or changed anonymous/private "
+                f"Observed {len(review_regions)} persistent, writable, or correlated "
+                "anonymous/private "
                 f"executable region(s), {total_size} byte(s) total; "
                 f"{writable_count} were writable. "
                 "This can be created by injected or dynamically generated code, but "
                 "it is not an automatic cheating verdict."
             ),
         )
-    if changes:
-        analysis.review_required = True
+    if transient_regions:
         analysis.add(
-            FindingSeverity.WARNING,
+            FindingSeverity.MATCH,
             "Process environment",
-            "Process environment changed during the run",
-            f"Module, artifact, or memory-region deltas appeared in {changes} scan(s).",
+            "A transient read-only executable region was not treated as suspicious",
+            (
+                f"Observed {len(transient_regions)} new RX region(s) in only one scan "
+                "without a correlated unknown module."
+            ),
         )
-    if failures:
+    if artifact_change_count:
         analysis.review_required = True
         analysis.add(
             FindingSeverity.WARNING,
             "Process environment",
-            "Some process-environment scans failed",
-            f"{failures} of {len(records)} scan attempt(s) were unavailable.",
+            "Mod-loader files changed during the run",
+            f"Game-directory loader or plugin artifacts changed in {artifact_change_count} scan(s).",
+        )
+    if benign_change_count:
+        analysis.add(
+            FindingSeverity.MATCH,
+            "Process environment",
+            "Known process modules changed without raising a warning",
+            f"Known game, system, or overlay modules changed in {benign_change_count} scan(s).",
+        )
+    if material_failures:
+        analysis.review_required = True
+        analysis.add(
+            FindingSeverity.WARNING,
+            "Process environment",
+            "Process-environment coverage was incomplete",
+            (
+                f"{failures} of {len(records)} scan attempt(s) failed; longest failure "
+                f"streak was {max_failure_streak}."
+            ),
+        )
+    elif failures:
+        analysis.add(
+            FindingSeverity.MATCH,
+            "Process environment",
+            "A transient environment scan failure recovered",
+            f"{failures} isolated scan attempt(s) failed and later scans recovered.",
         )
     if (
         not flagged_modules
         and not flagged_artifacts
-        and not flagged_regions
-        and not changes
-        and not failures
+        and not review_regions
+        and not transient_regions
+        and not reviewable_change_count
+        and not benign_change_count
+        and not material_failures
         and not coverage_gaps
     ):
         analysis.add(
@@ -1817,21 +2071,29 @@ def _analyze_process_environment(
             "The pilot classifier found no unrecognized third-party modules, "
             "mod-loader artifacts, private executable memory, or mid-run changes.",
         )
-    flagged_count = (
-        len(flagged_modules) + len(flagged_artifacts) + len(flagged_regions)
-    )
+    flagged_count = len(flagged_modules) + len(review_regions)
     detail = (
         f"{len(modules)} modules · {len(regions)} private executable · "
         f"{len(records)} scans"
     )
-    if flagged_count or changes or failures or coverage_gaps:
+    if flagged_count or flagged_artifacts or changes or failures or coverage_gaps:
         detail += (
             f" · {flagged_count} flagged · {changes} changed · "
             f"{failures} failed · {coverage_gaps} coverage gaps"
         )
     else:
         detail += " · no flagged indicators"
-    return detail
+    if other_flagged_names or review_regions or artifact_change_count:
+        environment_status = ProcessEnvironmentStatus.NEEDS_REVIEW
+    elif mod_loader_names:
+        environment_status = ProcessEnvironmentStatus.MODIFIED_RUNTIME
+    elif material_failures or coverage_gaps:
+        environment_status = ProcessEnvironmentStatus.PARTIAL
+    elif artifact_paths:
+        environment_status = ProcessEnvironmentStatus.MODIFIED_INSTALLATION
+    else:
+        environment_status = ProcessEnvironmentStatus.CLEAN
+    return detail, environment_status
 
 
 def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
@@ -1851,6 +2113,7 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
     open_gap_event = False
     gap_start_count = 0
     gap_recovery_count = 0
+    reconciliation_epoch = 0
 
     for record_index, record in enumerate(records):
         if not isinstance(record, dict):
@@ -1868,7 +2131,16 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
             "verification_event",
             "verification_coverage",
         }:
-            if _integer(record.get("schema")) != VERIFIER_SCHEMA_VERSION:
+            declared_verifier_schema = (
+                _integer(metadata.get("verification", {}).get("schema"))
+                if isinstance(metadata, dict)
+                and isinstance(metadata.get("verification"), dict)
+                else None
+            )
+            if (
+                declared_verifier_schema == VERIFIER_SCHEMA_VERSION
+                and _integer(record.get("schema")) != VERIFIER_SCHEMA_VERSION
+            ):
                 analysis.add(
                     FindingSeverity.INCONSISTENCY,
                     "Recording integrity",
@@ -1883,7 +2155,16 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
                     f"{record_type} appeared before the recording metadata.",
                 )
         if record_type == "verification_environment":
-            if _integer(record.get("schema")) != ENVIRONMENT_SCHEMA_VERSION:
+            declared_environment_schema = (
+                _integer(metadata.get("verification", {}).get("environment_schema"))
+                if isinstance(metadata, dict)
+                and isinstance(metadata.get("verification"), dict)
+                else None
+            )
+            if (
+                declared_environment_schema == ENVIRONMENT_SCHEMA_VERSION
+                and _integer(record.get("schema")) != ENVIRONMENT_SCHEMA_VERSION
+            ):
                 analysis.add(
                     FindingSeverity.INCONSISTENCY,
                     "Recording integrity",
@@ -1924,6 +2205,8 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
                     "Normal playback snapshots must precede final verifier coverage.",
                 )
         elif record_type == "verification_checkpoint":
+            if declared_verifier_schema != VERIFIER_SCHEMA_VERSION:
+                continue
             if saw_coverage:
                 analysis.add(
                     FindingSeverity.INCONSISTENCY,
@@ -1932,11 +2215,14 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
                     "Verifier checkpoints must precede the final coverage record.",
                 )
             checkpoint = dict(record)
+            checkpoint["_reconciliation_epoch"] = reconciliation_epoch
             checkpoint["_replayed_modifiers"] = tuple(
                 dict(modifier) for modifier in replayed_modifiers.values()
             )
             checkpoints.append(checkpoint)
         elif record_type == "verification_event":
+            if declared_verifier_schema != VERIFIER_SCHEMA_VERSION:
+                continue
             if saw_coverage:
                 analysis.add(
                     FindingSeverity.INCONSISTENCY,
@@ -1946,6 +2232,12 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
                 )
             event_count += 1
             event_name = record.get("event")
+            if event_name in {
+                "telemetry_gap_started",
+                "telemetry_gap_recovered",
+                "target_state_changed",
+            }:
+                reconciliation_epoch += 1
             if event_name == "telemetry_gap_started":
                 saw_gap_event = True
                 gap_start_count += 1
@@ -2177,6 +2469,9 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
             unavailable_count=analysis.unavailable,
             findings=tuple(analysis.findings),
             coverage_text="Legacy playback data only",
+            mechanics_status=MechanicsVerificationStatus.NOT_CHECKED,
+            coverage_status=RecordingCoverageStatus.LEGACY,
+            process_environment_status=ProcessEnvironmentStatus.NOT_RECORDED,
         )
 
     schema = _integer(verification.get("schema"))
@@ -2198,8 +2493,13 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
         if isinstance(raw_profile, str) and raw_profile.strip()
         else None
     )
+    unsupported = bool(
+        schema != VERIFIER_SCHEMA_VERSION
+        or profile != MECHANICS_PROFILE_ID
+        or game_build_id not in SUPPORTED_GAME_BUILD_IDS
+    )
     capture_interval = _number(verification.get("capture_interval_seconds"))
-    if capture_interval is None or capture_interval <= 0:
+    if not unsupported and (capture_interval is None or capture_interval <= 0):
         analysis.add(
             FindingSeverity.INCONSISTENCY,
             "Recording integrity",
@@ -2213,7 +2513,7 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
         if isinstance(target_stat_ids, list)
         else None
     )
-    if parsed_target_ids != TARGET_STAT_IDS:
+    if not unsupported and parsed_target_ids != TARGET_STAT_IDS:
         analysis.add(
             FindingSeverity.INCONSISTENCY,
             "Recording integrity",
@@ -2227,11 +2527,6 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
             "BonkScanner version was not recorded",
             "The recording file does not identify the BonkScanner version that created it.",
         )
-    unsupported = bool(
-        schema != VERIFIER_SCHEMA_VERSION
-        or profile != MECHANICS_PROFILE_ID
-        or game_build_id not in SUPPORTED_GAME_BUILD_IDS
-    )
     if unsupported:
         analysis.add(
             FindingSeverity.UNAVAILABLE,
@@ -2264,6 +2559,38 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
             "Recording integrity",
             "Final summary order",
             "The summary is the final record.",
+        )
+
+    if unsupported:
+        environment_text, process_environment_status = _analyze_process_environment(
+            analysis,
+            verification,
+            coverage,
+            environment_records,
+        )
+        return VerificationReport(
+            status=(
+                VerificationStatus.INCONSISTENT
+                if analysis.inconsistencies
+                else VerificationStatus.UNSUPPORTED_BUILD
+            ),
+            recording_name=name,
+            created_at=created_at,
+            game_build_id=game_build_id,
+            scanner_version=scanner_version,
+            mechanics_profile=profile,
+            checkpoint_count=0,
+            event_count=0,
+            match_count=analysis.matches,
+            inconsistency_count=analysis.inconsistencies,
+            warning_count=analysis.warnings,
+            unavailable_count=analysis.unavailable,
+            findings=tuple(analysis.findings),
+            coverage_text="Unsupported verifier rules",
+            environment_text=environment_text,
+            mechanics_status=MechanicsVerificationStatus.NOT_CHECKED,
+            coverage_status=RecordingCoverageStatus.UNSUPPORTED,
+            process_environment_status=process_environment_status,
         )
 
     if coverage is None:
@@ -2502,12 +2829,52 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
             "No component frames were available for analysis.",
         )
 
-    environment_text = _analyze_process_environment(
+    environment_text, process_environment_status = _analyze_process_environment(
         analysis,
         verification,
         coverage,
         environment_records,
     )
+
+    mechanics_conflict = any(
+        finding.severity is FindingSeverity.INCONSISTENCY
+        and finding.category in {"Stat reconstruction", "Source reconciliation"}
+        for finding in analysis.findings
+    )
+    mechanics_unavailable = any(
+        finding.severity is FindingSeverity.UNAVAILABLE
+        and finding.stat_id in TARGET_STAT_IDS
+        for finding in analysis.findings
+    )
+    if unsupported or not checkpoints:
+        mechanics_status = MechanicsVerificationStatus.NOT_CHECKED
+    elif mechanics_conflict:
+        mechanics_status = MechanicsVerificationStatus.CONFLICT
+    elif mechanics_unavailable:
+        mechanics_status = MechanicsVerificationStatus.PARTIAL
+    else:
+        mechanics_status = MechanicsVerificationStatus.PASSED
+
+    coverage_limited = any(
+        finding.severity in {FindingSeverity.WARNING, FindingSeverity.UNAVAILABLE}
+        and finding.category in {"Coverage and limitations", "Stat reconstruction"}
+        for finding in analysis.findings
+    )
+    recording_invalid = any(
+        finding.severity is FindingSeverity.INCONSISTENCY
+        and finding.category == "Recording integrity"
+        for finding in analysis.findings
+    )
+    if recording_invalid:
+        coverage_status = RecordingCoverageStatus.INVALID
+    elif interrupted or analysis.interrupted:
+        coverage_status = RecordingCoverageStatus.INTERRUPTED
+    elif late_start:
+        coverage_status = RecordingCoverageStatus.LATE_START
+    elif coverage_limited or not checkpoints:
+        coverage_status = RecordingCoverageStatus.PARTIAL
+    else:
+        coverage_status = RecordingCoverageStatus.COMPLETE
 
     if analysis.inconsistencies:
         status = VerificationStatus.INCONSISTENT
@@ -2544,4 +2911,7 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
         findings=tuple(analysis.findings),
         coverage_text=coverage_text,
         environment_text=environment_text,
+        mechanics_status=mechanics_status,
+        coverage_status=coverage_status,
+        process_environment_status=process_environment_status,
     )

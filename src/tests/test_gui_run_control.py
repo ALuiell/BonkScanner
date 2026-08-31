@@ -2473,9 +2473,14 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.live_run_tracker.update_fast_run_timer(10.0)
         app.live_run_tracker.track_kills(10.0, 12_345)
+        final_verifier_calls: list[object] = []
+        refresh_tasks(app).capture_final_verifier_checkpoint = (
+            lambda context=None: final_verifier_calls.append(context) or True
+        )
 
         vod_capture(app).stop_recording(refresh_live_stats=False)
 
+        self.assertEqual(len(final_verifier_calls), 1)
         self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
         final_shrines = app.player_stats_vod_recorder.capture_calls[0]["shrines"]
         self.assertEqual(final_shrines.charged, 1)
@@ -4059,6 +4064,36 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(service._refresh_chaos_tome_task(context))
 
         self.assertEqual(owner_reads, ["owner"])
+
+    def test_final_verifier_checkpoint_bypasses_periodic_interval(self) -> None:
+        captures: list[tuple[object, dict[str, object]]] = []
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_chaos_tracking_state=lambda _owner: (0, {}),
+            get_verifier_stat_components=lambda _owner: "final-frame",
+            get_passive_items=lambda _owner: ("Old Mask",),
+            get_run_timer=lambda: 42.0,
+        )
+        recorder = SimpleNamespace(
+            should_capture_verification=lambda: False,
+            capture_verification=lambda frame, **kwargs: captures.append(
+                (frame, kwargs)
+            ),
+            note_verification_failure=lambda _exc: None,
+        )
+        service, _world = build_refresh_tasks(
+            stats_client=client,
+            vod_recorder=recorder,
+        )
+        context = RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+
+        self.assertTrue(service._refresh_chaos_tome_task(context))
+        self.assertEqual(captures, [])
+        self.assertTrue(service.capture_final_verifier_checkpoint(context))
+
+        self.assertEqual(len(captures), 1)
+        self.assertEqual(captures[0][0], "final-frame")
+        self.assertEqual(captures[0][1]["game_time_seconds"], 42.0)
 
     def test_dice_receives_permanent_modifiers_without_chaos_tome(self) -> None:
         modifier = SimpleNamespace(object_ptr=0xCAFE, modify_type=0)
