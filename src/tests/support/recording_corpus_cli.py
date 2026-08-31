@@ -20,6 +20,8 @@ from typing import Iterable, Sequence
 from infra.run_verifier import verify_vod
 from tests.support.recording_corpus import (
     audit_snapshot_alignment,
+    build_mechanics_corpus,
+    build_mechanics_timeline,
     build_reference_corpus,
     scan_recording_libraries,
     summarize_inventory,
@@ -77,6 +79,37 @@ def _build(output: str) -> int:
             }
         )
     )
+    return 0
+
+
+def _build_mechanics(output: str) -> int:
+    corpus = build_mechanics_corpus(Path(output))
+    print(
+        _json(
+            {
+                "file_count": len(corpus.recordings),
+                "manifest": corpus.manifest_path.name,
+                "recordings": [
+                    {
+                        "file": recording.path.name,
+                        "key": recording.scenario.key,
+                        "evidence": recording.scenario.evidence,
+                        "expected_status": recording.expected_status.value,
+                        "sha256": recording.sha256,
+                    }
+                    for recording in corpus.recordings
+                ],
+            }
+        )
+    )
+    return 0
+
+
+def _timeline(input_path: str) -> int:
+    paths = _recording_paths((input_path,))
+    if len(paths) != 1:
+        raise ValueError("Timeline analysis requires exactly one recording")
+    print(_json(build_mechanics_timeline(paths[0])))
     return 0
 
 
@@ -211,6 +244,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build.add_argument("output")
 
+    build_mechanics = subparsers.add_parser(
+        "build-mechanics",
+        help="generate Shrine/Dice/Chaos/Old Mask progression fixtures and manifest",
+    )
+    build_mechanics.add_argument("output")
+
     inventory = subparsers.add_parser(
         "inventory",
         help="print a privacy-safe schema inventory without changing recordings",
@@ -232,6 +271,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also compare playback stats with nearby stable checkpoints",
     )
+
+    timeline = subparsers.add_parser(
+        "timeline",
+        help="print compressed target-stat source/component transitions",
+    )
+    timeline.add_argument("input")
     return parser
 
 
@@ -240,6 +285,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "build":
         return _build(args.output)
+    if args.command == "build-mechanics":
+        return _build_mechanics(args.output)
     try:
         if args.command == "inventory":
             return _inventory(args.inputs)
@@ -249,6 +296,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 details=bool(args.details),
                 alignment=bool(args.alignment),
             )
+        if args.command == "timeline":
+            return _timeline(args.input)
     except ValueError as exc:
         parser.error(str(exc))
     raise AssertionError(f"Unhandled command: {args.command}")

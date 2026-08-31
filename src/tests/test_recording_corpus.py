@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
+from hashlib import sha256
 import io
 import json
 from pathlib import Path
@@ -8,14 +9,19 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core.run_verifier import VerificationStatus
+from core.run_verifier import VerificationStatus, float32_bits
 from infra.run_verifier import verify_vod
 from infra.vod_storage import load_vod
 from tests.support.recording_corpus import (
+    MECHANICS_SCENARIOS,
+    MechanicsScenario,
+    MechanicsScenarioStep,
     RecordedRunFixture,
     RecordingDocument,
     TargetStatSources,
     audit_snapshot_alignment,
+    build_mechanics_corpus,
+    build_mechanics_timeline,
     build_reference_corpus,
     inspect_recording,
     modded_environment_snapshot,
@@ -136,6 +142,15 @@ class RecordedRunFixtureTests(unittest.TestCase):
             lambda: TargetStatSources(old_mask=True),
             lambda: TargetStatSources(old_mask=1.0),
             lambda: TargetStatSources(old_mask=1.5),
+            lambda: TargetStatSources(shrine_charged=-1),
+            lambda: TargetStatSources(dice_level=True),
+            lambda: TargetStatSources(chaos_level=1.0),
+            lambda: TargetStatSources(shrines={41: 0.1}, shrine_charged=0),
+            lambda: TargetStatSources(
+                dice={39: 0.1},
+                dice_rolls={39: 2},
+                dice_level=1,
+            ),
         )
         for build in invalid:
             with self.subTest(build=build):
@@ -407,6 +422,250 @@ class RecordingInventoryTests(unittest.TestCase):
             self.assertEqual(active_inventory.last_record_type, "metadata")
             self.assertFalse(malformed_inventory.finalized)
             self.assertEqual(malformed_inventory.issues[0].kind, "malformed_json")
+
+
+class MechanicsCorpusTests(unittest.TestCase):
+    def test_mechanics_corpus_matches_manifest_and_verifier(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            corpus = build_mechanics_corpus(Path(temp_dir))
+            manifest = json.loads(corpus.manifest_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(len(corpus.recordings), len(MECHANICS_SCENARIOS))
+            self.assertEqual(manifest["schema"], 1)
+            self.assertIn("0.15 * old_mask", manifest["source_equations"]["39"])
+            self.assertEqual(len(manifest["scenarios"]), len(corpus.recordings))
+            manifest_by_key = {
+                scenario["key"]: scenario for scenario in manifest["scenarios"]
+            }
+            for recording in corpus.recordings:
+                with self.subTest(scenario=recording.scenario.key):
+                    payload = recording.path.read_bytes()
+                    self.assertEqual(sha256(payload).hexdigest(), recording.sha256)
+                    self.assertEqual(
+                        manifest_by_key[recording.scenario.key]["sha256"],
+                        recording.sha256,
+                    )
+                    self.assertEqual(
+                        verify_vod(recording.path).status,
+                        VerificationStatus.CONSISTENT,
+                    )
+                    timeline = build_mechanics_timeline(recording.path)
+                    self.assertEqual(
+                        timeline["checkpoint_count"],
+                        len(recording.scenario.steps),
+                    )
+                    self.assertEqual(
+                        timeline["event_count"],
+                        len(recording.scenario.steps),
+                    )
+                    self.assertEqual(timeline["issue_event_count"], 0)
+                    self.assertIsNone(timeline["first_issue"])
+
+            stress = manifest_by_key["mixed_live_stress"]["steps"][-1]
+            self.assertEqual(stress["sources"]["shrine_charged"], 13)
+            self.assertEqual(stress["sources"]["dice_level"], 497)
+            self.assertEqual(stress["sources"]["chaos_level"], 101)
+            self.assertEqual(stress["sources"]["old_mask"], 5)
+            self.assertEqual(stress["expected_stats"]["39"]["base"], 1.75)
+            self.assertEqual(
+                stress["expected_stats"]["39"]["additive"],
+                2.6416709423065186,
+            )
+            source_additive = 1.0 + sum(
+                stress["sources"][source].get("39", 0.0)
+                for source in ("shrines", "dice", "chaos")
+            )
+            self.assertNotEqual(
+                stress["expected_stats"]["39"]["additive"],
+                source_additive,
+            )
+            stress_recording = next(
+                recording
+                for recording in corpus.recordings
+                if recording.scenario.key == "mixed_live_stress"
+            )
+            checkpoint = RecordingDocument.load(
+                stress_recording.path
+            ).records_of_type("verification_checkpoint")[-1]
+            self.assertEqual(checkpoint["sources"]["shrines"]["charged"], 13)
+            self.assertEqual(checkpoint["sources"]["dice"]["level"], 497)
+            self.assertEqual(checkpoint["sources"]["chaos"]["level"], 101)
+            self.assertTrue(
+                checkpoint["coverage"]["source_attribution_complete"]
+            )
+
+    def test_timeline_compresses_repeated_state_and_finds_first_tamper(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fixture = RecordedRunFixture(root)
+            for _ in range(2):
+                fixture.advance(2.0)
+                fixture.capture_state(TargetStatSources(shrine_charged=0))
+            fixture.finish()
+            clean_timeline = build_mechanics_timeline(fixture.path)
+            tampered = fixture.document().with_field(
+                "verification_checkpoint",
+                ("stats", "41", "final"),
+                99.0,
+                occurrence=-1,
+            )
+            tampered_path = tampered.write(root / "tampered-timeline.jsonl")
+            bad_timeline = build_mechanics_timeline(tampered_path)
+            transient = fixture.document().with_field(
+                "verification_checkpoint",
+                ("sources", "shrines", "totals", "41"),
+                0.5,
+                occurrence=0,
+            )
+            transient_timeline = build_mechanics_timeline(
+                transient.write(root / "transient-source.jsonl")
+            )
+            persistent = transient.with_field(
+                "verification_checkpoint",
+                ("sources", "shrines", "totals", "41"),
+                0.5,
+                occurrence=1,
+            )
+            persistent_timeline = build_mechanics_timeline(
+                persistent.write(root / "persistent-source.jsonl")
+            )
+            def change_modifier_summary(record: dict) -> None:
+                summary = record["modifier_summary"]["41"]
+                summary["addition_sum"] = 0.5
+                summary["addition_sum_bits"] = float32_bits(0.5)
+
+            transient_modifier = fixture.document().mutate_record(
+                "verification_checkpoint",
+                change_modifier_summary,
+                occurrence=0,
+            )
+            transient_modifier_timeline = build_mechanics_timeline(
+                transient_modifier.write(root / "transient-modifier.jsonl")
+            )
+            persistent_modifier = transient_modifier.mutate_record(
+                "verification_checkpoint",
+                change_modifier_summary,
+                occurrence=1,
+            )
+            persistent_modifier_timeline = build_mechanics_timeline(
+                persistent_modifier.write(root / "persistent-modifier.jsonl")
+            )
+            unsupported_profile = fixture.document().with_field(
+                "metadata",
+                ("verification", "mechanics_profile"),
+                "future-profile",
+            )
+            unsupported_timeline = build_mechanics_timeline(
+                unsupported_profile.write(root / "unsupported-profile.jsonl")
+            )
+
+            self.assertEqual(clean_timeline["checkpoint_count"], 2)
+            self.assertEqual(clean_timeline["event_count"], 1)
+            self.assertIsNone(clean_timeline["first_issue"])
+            self.assertEqual(bad_timeline["first_issue"]["checkpoint_index"], 1)
+            self.assertIn(
+                "stat_41_recorded_bits",
+                bad_timeline["first_issue"]["issues"],
+            )
+            self.assertIsNone(transient_timeline["first_issue"])
+            self.assertEqual(
+                transient_timeline["pending_observation_checkpoint_count"],
+                1,
+            )
+            self.assertEqual(
+                persistent_timeline["first_issue"]["checkpoint_index"],
+                1,
+            )
+            self.assertIn(
+                "stat_41_source_sum",
+                persistent_timeline["first_issue"]["issues"],
+            )
+            self.assertIsNone(transient_modifier_timeline["first_issue"])
+            self.assertIn(
+                "stat_41_modifier_sum",
+                persistent_modifier_timeline["first_issue"]["issues"],
+            )
+            self.assertFalse(unsupported_timeline["available"])
+            self.assertFalse(unsupported_timeline["profile_matches_analyzer"])
+            self.assertEqual(unsupported_timeline["events"], [])
+
+    def test_mechanics_corpus_never_overwrites_existing_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            build_mechanics_corpus(root)
+            before = {
+                path.name: sha256(path.read_bytes()).hexdigest()
+                for path in root.iterdir()
+            }
+
+            with self.assertRaises(FileExistsError):
+                build_mechanics_corpus(root)
+
+            self.assertEqual(
+                {
+                    path.name: sha256(path.read_bytes()).hexdigest()
+                    for path in root.iterdir()
+                },
+                before,
+            )
+
+    def test_mechanics_corpus_is_byte_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first = build_mechanics_corpus(root / "first")
+            second = build_mechanics_corpus(root / "second")
+
+            self.assertEqual(
+                [recording.sha256 for recording in first.recordings],
+                [recording.sha256 for recording in second.recordings],
+            )
+            self.assertEqual(
+                first.manifest_path.read_bytes(),
+                second.manifest_path.read_bytes(),
+            )
+
+    def test_mechanics_corpus_rejects_path_like_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            scenario = MechanicsScenario(
+                key="../outside",
+                description="invalid",
+                evidence="synthetic",
+                steps=(
+                    MechanicsScenarioStep(
+                        key="baseline",
+                        description="invalid",
+                        sources=TargetStatSources(),
+                        evidence="synthetic",
+                    ),
+                ),
+            )
+
+            with self.assertRaises(ValueError):
+                build_mechanics_corpus(Path(temp_dir), (scenario,))
+
+    def test_mechanics_cli_build_and_timeline_are_machine_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            build_output = io.StringIO()
+            with redirect_stdout(build_output):
+                self.assertEqual(
+                    corpus_cli_main(("build-mechanics", str(root))),
+                    0,
+                )
+            build_payload = json.loads(build_output.getvalue())
+            recording = root / build_payload["recordings"][0]["file"]
+            timeline_output = io.StringIO()
+            with redirect_stdout(timeline_output):
+                self.assertEqual(
+                    corpus_cli_main(("timeline", str(recording))),
+                    0,
+                )
+            timeline_payload = json.loads(timeline_output.getvalue())
+
+            self.assertEqual(build_payload["file_count"], len(MECHANICS_SCENARIOS))
+            self.assertEqual(build_payload["manifest"], "mechanics_manifest.json")
+            self.assertGreaterEqual(timeline_payload["event_count"], 2)
+            self.assertIsNone(timeline_payload["first_issue"])
 
 
 class ReferenceCorpusTests(unittest.TestCase):

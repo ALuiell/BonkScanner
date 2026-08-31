@@ -10,7 +10,9 @@ them or depend on a developer-specific path.  This module provides two layers:
 
 ``scan_recording_libraries`` is intentionally read-only.  It inventories a
 local corpus by schema shape and digest so research can use large recordings
-without copying names, paths, or full payloads into the repository.
+without copying names, paths, or full payloads into the repository.  The
+mechanics layer builds evidence-labelled source progressions and a compressed
+checkpoint timeline on top of the same production serializers.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path
+import struct
 from types import SimpleNamespace
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
@@ -34,6 +37,7 @@ from core.character_passives import (
 from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.run_verifier import (
     ENVIRONMENT_SCHEMA_VERSION,
+    MECHANICS_PROFILE_ID,
     SUPPORTED_GAME_BUILD_IDS,
     TARGET_STAT_IDS,
     TARGET_STAT_LABELS,
@@ -41,6 +45,7 @@ from core.run_verifier import (
     VerifierStatFrame,
     VerificationStatus,
     close_float32,
+    float32,
     float32_bits,
     environment_digest,
     reconstruct_stat,
@@ -515,6 +520,467 @@ def _finite_number(value: Any) -> float | None:
     return number
 
 
+# Mechanics timeline diagnostics
+
+
+def build_mechanics_timeline(path: Path | str) -> dict[str, Any]:
+    """Return compressed source/component transitions and the first bad frame."""
+
+    document = RecordingDocument.load(path)
+    checkpoints = document.records_of_type("verification_checkpoint")
+    metadata = document.records_of_type("metadata")
+    verification = metadata[0].get("verification") if metadata else None
+    recording_profile = (
+        verification.get("mechanics_profile")
+        if isinstance(verification, dict)
+        and isinstance(verification.get("mechanics_profile"), str)
+        else None
+    )
+    profile_matches = (
+        recording_profile == MECHANICS_PROFILE_ID
+        if recording_profile is not None
+        else None
+    )
+    unavailable_reason = None
+    if not checkpoints:
+        unavailable_reason = "The recording has no verifier checkpoints."
+    elif profile_matches is not True:
+        unavailable_reason = "The recording mechanics profile is unavailable or unsupported."
+    if unavailable_reason is not None:
+        return {
+            "file": Path(path).name,
+            "available": False,
+            "unavailable_reason": unavailable_reason,
+            "mechanics_profile": recording_profile,
+            "analyzer_profile": MECHANICS_PROFILE_ID,
+            "profile_matches_analyzer": profile_matches,
+            "checkpoint_count": len(checkpoints),
+            "stable_checkpoint_count": 0,
+            "limitation_checkpoint_count": len(checkpoints),
+            "event_count": 0,
+            "issue_event_count": 0,
+            "observation_checkpoint_count": 0,
+            "pending_observation_checkpoint_count": 0,
+            "first_issue": None,
+            "events": [],
+        }
+    events: list[dict[str, Any]] = []
+    previous_state: dict[str, Any] | None = None
+    first_issue: dict[str, Any] | None = None
+    pending_reconcilable: set[str] = set()
+    stable_count = 0
+    limitation_count = 0
+    observation_count = 0
+    pending_observation_count = 0
+    for checkpoint_index, checkpoint in enumerate(checkpoints):
+        stable = checkpoint.get("stable") is True
+        if stable:
+            stable_count += 1
+        coverage = checkpoint.get("coverage")
+        source_complete = (
+            coverage.get("source_attribution_complete")
+            if isinstance(coverage, dict)
+            and isinstance(coverage.get("source_attribution_complete"), bool)
+            else None
+        )
+        issues: list[str] = []
+        sources = checkpoint.get("sources")
+        items = sources.get("items") if isinstance(sources, dict) else None
+        old_mask = _timeline_integer(
+            items.get("old_mask") if isinstance(items, dict) else None
+        )
+        if stable and old_mask is None:
+            issues.append("old_mask_invalid")
+        effective_mask = old_mask if old_mask is not None else 0
+        stats: list[dict[str, Any]] = []
+        state_stats: dict[str, Any] = {}
+        raw_stats = checkpoint.get("stats")
+        for stat_id in TARGET_STAT_IDS:
+            entry = (
+                raw_stats.get(str(stat_id), raw_stats.get(stat_id))
+                if isinstance(raw_stats, dict)
+                else None
+            )
+            stat_state, stat_issues = _timeline_stat_state(
+                checkpoint,
+                entry,
+                stat_id=stat_id,
+                old_mask=effective_mask,
+                source_complete=source_complete,
+                strong=stable,
+            )
+            stats.append(stat_state)
+            issues.extend(stat_issues)
+            state_stats[str(stat_id)] = {
+                "final_bits": stat_state["final_bits"],
+                "base_bits": stat_state["base_bits"],
+                "additive_bits": stat_state["additive_bits"],
+                "multiplicative_bits": stat_state["multiplicative_bits"],
+                "modifier_addition_sum_bits": stat_state[
+                    "modifier_addition_sum_bits"
+                ],
+                "unsupported_modifier_count": stat_state[
+                    "unsupported_modifier_count"
+                ],
+                "sources": {
+                    source: _bits_or_none(stat_state["sources"][source])
+                    for source in ("shrines", "dice", "chaos")
+                },
+            }
+        observed_issues = set(issues)
+        reconcilable = {
+            issue
+            for issue in observed_issues
+            if issue.endswith(("_old_mask_base", "_modifier_sum", "_source_sum"))
+        }
+        immediate = observed_issues - reconcilable
+        confirmed_issues = immediate | (reconcilable & pending_reconcilable)
+        pending_only = reconcilable - pending_reconcilable
+        if observed_issues:
+            observation_count += 1
+        if pending_only:
+            pending_observation_count += 1
+        if stable:
+            pending_reconcilable = reconcilable
+        else:
+            pending_reconcilable.clear()
+        issue_list = sorted(confirmed_issues)
+        observation_list = sorted(observed_issues)
+        state = {
+            "stable": stable,
+            "source_complete": source_complete,
+            "old_mask": old_mask,
+            "stats": state_stats,
+            "observations": tuple(observation_list),
+            "issues": tuple(issue_list),
+        }
+        changes = _timeline_changes(previous_state, state)
+        if previous_state is None or changes:
+            event = {
+                "checkpoint_index": checkpoint_index,
+                "sequence": _timeline_integer(checkpoint.get("sequence")),
+                "elapsed_seconds": _finite_number(checkpoint.get("elapsed_seconds")),
+                "game_time_seconds": _finite_number(
+                    checkpoint.get("game_time_seconds")
+                ),
+                "stable": stable,
+                "source_attribution_complete": source_complete,
+                "old_mask": old_mask,
+                "changes": changes,
+                "stats": stats,
+                "observations": observation_list,
+                "issues": issue_list,
+            }
+            events.append(event)
+            if issue_list and first_issue is None:
+                first_issue = {
+                    "checkpoint_index": checkpoint_index,
+                    "sequence": event["sequence"],
+                    "elapsed_seconds": event["elapsed_seconds"],
+                    "issues": list(issue_list),
+                }
+        if not stable or source_complete is not True:
+            limitation_count += 1
+        previous_state = state
+    return {
+        "file": Path(path).name,
+        "available": True,
+        "unavailable_reason": None,
+        "mechanics_profile": recording_profile,
+        "analyzer_profile": MECHANICS_PROFILE_ID,
+        "profile_matches_analyzer": profile_matches,
+        "checkpoint_count": len(checkpoints),
+        "stable_checkpoint_count": stable_count,
+        "limitation_checkpoint_count": limitation_count,
+        "event_count": len(events),
+        "issue_event_count": sum(bool(event["issues"]) for event in events),
+        "observation_checkpoint_count": observation_count,
+        "pending_observation_checkpoint_count": pending_observation_count,
+        "first_issue": first_issue,
+        "events": events,
+    }
+
+
+def _timeline_stat_state(
+    checkpoint: Mapping[str, Any],
+    entry: Any,
+    *,
+    stat_id: int,
+    old_mask: int,
+    source_complete: bool | None,
+    strong: bool,
+) -> tuple[dict[str, Any], list[str]]:
+    label = TARGET_STAT_LABELS[stat_id]
+    issues: list[str] = []
+    if not isinstance(entry, dict):
+        return (
+            {
+                "stat_id": stat_id,
+                "label": label,
+                "final": None,
+                "final_bits": None,
+                "raw": None,
+                "raw_bits": None,
+                "base": None,
+                "base_bits": None,
+                "additive": None,
+                "additive_bits": None,
+                "multiplicative": None,
+                "multiplicative_bits": None,
+                "modifier_addition_sum": None,
+                "modifier_addition_sum_bits": None,
+                "unsupported_modifier_count": None,
+                "sources": {"shrines": None, "dice": None, "chaos": None},
+                "expected_base": None,
+                "expected_additive": None,
+                "expected_final": None,
+                "checks": {
+                    "recorded_bits": False,
+                    "component_equation": None,
+                    "final_raw": None,
+                    "old_mask_base": None,
+                    "modifier_recorded_bits": None,
+                    "modifier_sum": None,
+                    "source_sum": None,
+                    "supported_modifier_types": None,
+                    "supported_multiplier": None,
+                },
+            },
+            [f"stat_{stat_id}_missing"] if strong else [],
+        )
+
+    values: dict[str, float | None] = {}
+    recorded_bits_match = True
+    for field_name in ("final", "raw", "base", "additive", "multiplicative"):
+        value = _finite_number(entry.get(field_name))
+        bits = entry.get(f"{field_name}_bits")
+        values[field_name] = value
+        if (
+            value is None
+            or not isinstance(bits, str)
+            or float32_bits(value) != bits.casefold()
+        ):
+            recorded_bits_match = False
+    final = values["final"]
+    raw = values["raw"]
+    base = values["base"]
+    additive = values["additive"]
+    multiplicative = values["multiplicative"]
+    component_match: bool | None = None
+    final_raw_match: bool | None = None
+    if all(
+        value is not None
+        for value in (final, raw, base, additive, multiplicative)
+    ):
+        assert final is not None and raw is not None and base is not None
+        assert additive is not None and multiplicative is not None
+        try:
+            component_expected = reconstruct_stat(base, additive, multiplicative)
+        except (OverflowError, ValueError, struct.error):
+            component_expected = None
+        component_match = bool(
+            component_expected is not None
+            and float32_bits(raw) == float32_bits(component_expected)
+        )
+        final_raw_match = float32_bits(final) == float32_bits(raw)
+
+    expected_base = 1.0 + (0.15 * old_mask if stat_id == 39 else 0.0)
+    base_match = (
+        close_float32(base, expected_base, source_sum=True)
+        if base is not None
+        else None
+    )
+    multiplier_match = (
+        close_float32(multiplicative, 1.0)
+        if multiplicative is not None
+        else None
+    )
+    (
+        modifier_sum,
+        modifier_bits_match,
+        unsupported_modifier_count,
+    ) = _timeline_modifier_summary(checkpoint, stat_id)
+    modifier_match = (
+        close_float32(additive - 1.0, modifier_sum, source_sum=True)
+        if additive is not None and modifier_sum is not None
+        else None
+    )
+    supported_modifier_types = (
+        unsupported_modifier_count == 0
+        if unsupported_modifier_count is not None
+        else None
+    )
+    source_values = {
+        source: _timeline_source_total(checkpoint, source, stat_id)
+        for source in ("shrines", "dice", "chaos")
+    }
+    expected_additive: float | None = None
+    expected_final: float | None = None
+    source_match: bool | None = None
+    if source_complete is True and all(
+        value is not None for value in source_values.values()
+    ):
+        expected_additive = 1.0 + math.fsum(
+            value for value in source_values.values() if value is not None
+        )
+        source_match = (
+            close_float32(additive, expected_additive, source_sum=True)
+            if additive is not None
+            else False
+        )
+        try:
+            expected_final = reconstruct_stat(expected_base, expected_additive, 1.0)
+        except (OverflowError, ValueError, struct.error):
+            expected_final = None
+
+    checks = {
+        "recorded_bits": recorded_bits_match,
+        "component_equation": component_match,
+        "final_raw": final_raw_match,
+        "old_mask_base": base_match,
+        "modifier_recorded_bits": modifier_bits_match,
+        "modifier_sum": modifier_match,
+        "source_sum": source_match,
+        "supported_modifier_types": supported_modifier_types,
+        "supported_multiplier": multiplier_match,
+    }
+    if strong:
+        for check, matches in checks.items():
+            if matches is False:
+                issues.append(f"stat_{stat_id}_{check}")
+        if source_complete is True and source_match is None:
+            issues.append(f"stat_{stat_id}_source_values_missing")
+    return (
+        {
+            "stat_id": stat_id,
+            "label": label,
+            "final": final,
+            "final_bits": _bits_or_none(final),
+            "raw": raw,
+            "raw_bits": _bits_or_none(raw),
+            "base": base,
+            "base_bits": _bits_or_none(base),
+            "additive": additive,
+            "additive_bits": _bits_or_none(additive),
+            "multiplicative": multiplicative,
+            "multiplicative_bits": _bits_or_none(multiplicative),
+            "modifier_addition_sum": modifier_sum,
+            "modifier_addition_sum_bits": _bits_or_none(modifier_sum),
+            "unsupported_modifier_count": unsupported_modifier_count,
+            "sources": source_values,
+            "expected_base": expected_base,
+            "expected_additive": expected_additive,
+            "expected_final": expected_final,
+            "checks": checks,
+        },
+        issues,
+    )
+
+
+def _timeline_source_total(
+    checkpoint: Mapping[str, Any], source: str, stat_id: int
+) -> float | None:
+    sources = checkpoint.get("sources")
+    source_record = sources.get(source) if isinstance(sources, dict) else None
+    totals = source_record.get("totals") if isinstance(source_record, dict) else None
+    value = (
+        totals.get(str(stat_id), totals.get(stat_id))
+        if isinstance(totals, dict)
+        else None
+    )
+    return _finite_number(value)
+
+
+def _timeline_modifier_summary(
+    checkpoint: Mapping[str, Any], stat_id: int
+) -> tuple[float | None, bool | None, int | None]:
+    summaries = checkpoint.get("modifier_summary")
+    summary = (
+        summaries.get(str(stat_id), summaries.get(stat_id))
+        if isinstance(summaries, dict)
+        else None
+    )
+    if isinstance(summary, dict):
+        value = _finite_number(summary.get("addition_sum"))
+        bits = summary.get("addition_sum_bits")
+        bits_match = bool(
+            value is not None
+            and isinstance(bits, str)
+            and float32_bits(value) == bits.casefold()
+        )
+        return value, bits_match, _timeline_integer(summary.get("unsupported_count"))
+
+    modifiers = checkpoint.get("modifiers")
+    if isinstance(modifiers, list):
+        values: list[float] = []
+        unsupported = 0
+        for modifier in modifiers:
+            if not isinstance(modifier, dict):
+                continue
+            if _timeline_integer(modifier.get("stat_id")) != stat_id:
+                continue
+            value = _finite_number(modifier.get("value"))
+            modify_type = _timeline_integer(modifier.get("modify_type"))
+            if value is None or modify_type is None:
+                return None, False, None
+            if modify_type == 0:
+                values.append(value)
+            else:
+                unsupported += 1
+        return math.fsum(values), True, unsupported
+    return None, False, None
+
+
+def _timeline_integer(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return int(value)
+
+
+def _bits_or_none(value: float | None) -> str | None:
+    return float32_bits(value) if value is not None else None
+
+
+def _timeline_changes(
+    previous: Mapping[str, Any] | None,
+    current: Mapping[str, Any],
+) -> list[str]:
+    if previous is None:
+        return ["initial"]
+    changes = []
+    for field_name in ("stable", "source_complete", "old_mask"):
+        if previous.get(field_name) != current.get(field_name):
+            changes.append(field_name)
+    previous_stats = previous.get("stats")
+    current_stats = current.get("stats")
+    if not isinstance(previous_stats, dict) or not isinstance(current_stats, dict):
+        return [*changes, "stats"]
+    for stat_id in TARGET_STAT_IDS:
+        key = str(stat_id)
+        old_stat = previous_stats.get(key, {})
+        new_stat = current_stats.get(key, {})
+        for field_name in (
+            "final_bits",
+            "base_bits",
+            "additive_bits",
+            "multiplicative_bits",
+            "modifier_addition_sum_bits",
+            "unsupported_modifier_count",
+        ):
+            if old_stat.get(field_name) != new_stat.get(field_name):
+                changes.append(f"stat_{stat_id}_{field_name.removesuffix('_bits')}")
+        old_sources = old_stat.get("sources", {})
+        new_sources = new_stat.get("sources", {})
+        for source in ("shrines", "dice", "chaos"):
+            if old_sources.get(source) != new_sources.get(source):
+                changes.append(f"stat_{stat_id}_{source}")
+    if previous.get("issues") != current.get("issues"):
+        changes.append("issues")
+    if previous.get("observations") != current.get("observations"):
+        changes.append("observations")
+    return changes
+
+
 class ManualClock:
     """Monotonic clock controlled by a scenario instead of wall time."""
 
@@ -532,6 +998,9 @@ class ManualClock:
         return self.value
 
 
+# Legal-source fixtures and mechanics scenarios
+
+
 @dataclass(frozen=True)
 class TargetStatSources:
     """Known legal sources for the three verifier target stats."""
@@ -543,6 +1012,9 @@ class TargetStatSources:
     chaos: Mapping[int, float] = field(default_factory=dict)
     chaos_rolls: Mapping[int, int] = field(default_factory=dict)
     old_mask: int = 0
+    shrine_charged: int | None = None
+    dice_level: int | None = None
+    chaos_level: int | None = None
 
     def __post_init__(self) -> None:
         for source_name, values in (
@@ -600,6 +1072,281 @@ class TargetStatSources:
             or self.old_mask < 0
         ):
             raise ValueError("old_mask must be a non-negative integer")
+        for source_name, total, values, counts in (
+            (
+                "shrine_charged",
+                self.shrine_charged,
+                self.shrines,
+                self.shrine_rolls,
+            ),
+            ("dice_level", self.dice_level, self.dice, self.dice_rolls),
+            ("chaos_level", self.chaos_level, self.chaos, self.chaos_rolls),
+        ):
+            if total is None:
+                continue
+            if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+                raise ValueError(f"{source_name} must be a non-negative integer")
+            effective_target_rolls = sum(
+                int(counts.get(stat_id, 1 if float(value) != 0.0 else 0))
+                for stat_id, value in values.items()
+            )
+            if total < effective_target_rolls:
+                raise ValueError(
+                    f"{source_name} cannot be smaller than its target roll count"
+                )
+
+
+@dataclass(frozen=True)
+class MechanicsObservedStat:
+    """Exact float32 component state retained from a live capture."""
+
+    final: float
+    raw: float
+    base: float
+    additive: float
+    multiplicative: float = 1.0
+    has_modifications: bool = False
+
+    def __post_init__(self) -> None:
+        values = (
+            self.final,
+            self.raw,
+            self.base,
+            self.additive,
+            self.multiplicative,
+        )
+        if any(_finite_number(value) is None for value in values):
+            raise ValueError("Observed mechanics components must be finite float32")
+        reconstructed = reconstruct_stat(
+            self.base,
+            self.additive,
+            self.multiplicative,
+        )
+        if (
+            float32_bits(self.raw) != float32_bits(reconstructed)
+            or float32_bits(self.final) != float32_bits(self.raw)
+        ):
+            raise ValueError("Observed mechanics components must reconstruct exactly")
+
+    def component(self, stat_id: int) -> VerifierStatComponents:
+        return VerifierStatComponents(
+            stat_id=stat_id,
+            final_value=float32(self.final),
+            raw_value=float32(self.raw),
+            has_modifications=bool(self.has_modifications),
+            base_value=float32(self.base),
+            additive_value=float32(self.additive),
+            multiplicative_value=float32(self.multiplicative),
+        )
+
+
+@dataclass(frozen=True)
+class MechanicsScenarioStep:
+    """One source transition with an explicit evidence boundary."""
+
+    key: str
+    description: str
+    sources: TargetStatSources
+    evidence: str
+    advance_seconds: float = 2.0
+    observed_stats: Mapping[int, MechanicsObservedStat] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MechanicsScenario:
+    """A deterministic progression for one part of the verifier equation."""
+
+    key: str
+    description: str
+    evidence: str
+    steps: tuple[MechanicsScenarioStep, ...]
+
+
+@dataclass(frozen=True)
+class MechanicsReferenceRecording:
+    scenario: MechanicsScenario
+    path: Path
+    expected_status: VerificationStatus
+    sha256: str
+
+
+@dataclass(frozen=True)
+class MechanicsCorpusBuild:
+    manifest_path: Path
+    recordings: tuple[MechanicsReferenceRecording, ...]
+
+
+MECHANICS_SCENARIOS = (
+    MechanicsScenario(
+        key="shrine_pdc_confirmed",
+        description="The confirmed one-roll +6% Powerup Drop Chance shrine transition.",
+        evidence="live_confirmed",
+        steps=(
+            MechanicsScenarioStep(
+                "baseline",
+                "No earned target-stat sources.",
+                TargetStatSources(shrine_charged=0),
+                "live_confirmed",
+            ),
+            MechanicsScenarioStep(
+                "pdc_plus_6_percent",
+                "One charged shrine contributes the captured PDC Addition value.",
+                TargetStatSources(
+                    shrines={41: 0.0599999987},
+                    shrine_rolls={41: 1},
+                    shrine_charged=1,
+                ),
+                "live_confirmed",
+            ),
+        ),
+    ),
+    MechanicsScenario(
+        key="dice_esi_confirmed",
+        description="The isolated Dice/Gamba Elite Spawn Increase transition.",
+        evidence="live_confirmed",
+        steps=(
+            MechanicsScenarioStep(
+                "dice_level_zero",
+                "Dice/Gamba is identified before target-stat rolls are earned.",
+                TargetStatSources(dice_level=0),
+                "synthetic_identity_baseline",
+            ),
+            MechanicsScenarioStep(
+                "dice_esi_roll",
+                "One captured Dice/Gamba roll contributes ESI Addition.",
+                TargetStatSources(
+                    dice={39: 0.1100107357},
+                    dice_rolls={39: 1},
+                    dice_level=1,
+                ),
+                "live_confirmed",
+            ),
+        ),
+    ),
+    MechanicsScenario(
+        key="old_mask_linear_stacking",
+        description="Old Mask changes the ESI Flat/base component linearly.",
+        evidence="native_and_live_confirmed",
+        steps=(
+            MechanicsScenarioStep(
+                "no_mask",
+                "ESI starts at built-in base 1.0.",
+                TargetStatSources(),
+                "live_confirmed",
+            ),
+            MechanicsScenarioStep(
+                "one_mask",
+                "One mask produces base factor 1.15.",
+                TargetStatSources(old_mask=1),
+                "native_confirmed_synthetic_transition",
+            ),
+            MechanicsScenarioStep(
+                "two_masks",
+                "Two masks produce base factor 1.30, not 1.15 squared.",
+                TargetStatSources(old_mask=2),
+                "native_confirmed_synthetic_transition",
+            ),
+            MechanicsScenarioStep(
+                "two_masks_with_dice_esi",
+                "The Flat factor multiplies the captured Dice Addition component.",
+                TargetStatSources(
+                    dice={39: 0.1100107357},
+                    dice_rolls={39: 1},
+                    dice_level=1,
+                    old_mask=2,
+                ),
+                "confirmed_inputs_synthetic_combination",
+            ),
+        ),
+    ),
+    MechanicsScenario(
+        key="chaos_target_rolls",
+        description="A reduced replay of the captured Chaos target-stat contribution.",
+        evidence="derived_from_live_stress_capture",
+        steps=(
+            MechanicsScenarioStep(
+                "baseline",
+                "No Chaos levels have been earned.",
+                TargetStatSources(chaos_level=0),
+                "synthetic_baseline",
+            ),
+            MechanicsScenarioStep(
+                "chaos_level_101",
+                "Ten target rolls plus 91 non-target rolls reproduce the captured totals.",
+                TargetStatSources(
+                    chaos={
+                        39: 0.679999992251396,
+                        40: 1.83000002801418,
+                        41: 0.297000005841255,
+                    },
+                    chaos_rolls={39: 2, 40: 6, 41: 2},
+                    chaos_level=101,
+                ),
+                "live_confirmed_aggregate",
+            ),
+        ),
+    ),
+    MechanicsScenario(
+        key="mixed_live_stress",
+        description="Reduced target-stat replay of the paired five-mask stress capture.",
+        evidence="derived_from_live_paired_capture",
+        steps=(
+            MechanicsScenarioStep(
+                "clean_start",
+                "All three target stats are at baseline.",
+                TargetStatSources(shrine_charged=0, dice_level=0, chaos_level=0),
+                "live_confirmed",
+            ),
+            MechanicsScenarioStep(
+                "large_stack",
+                "Captured Shrine, Dice, Chaos and five-mask totals are applied together.",
+                TargetStatSources(
+                    shrines={39: 0.525000035762787},
+                    shrine_rolls={39: 1},
+                    shrine_charged=13,
+                    dice={
+                        39: 0.436670791357756,
+                        40: 0.425056639593095,
+                        41: 0.115880756173283,
+                    },
+                    dice_rolls={39: 12, 40: 27, 41: 14},
+                    dice_level=497,
+                    chaos={
+                        39: 0.679999992251396,
+                        40: 1.83000002801418,
+                        41: 0.297000005841255,
+                    },
+                    chaos_rolls={39: 2, 40: 6, 41: 2},
+                    chaos_level=101,
+                    old_mask=5,
+                ),
+                "live_confirmed_aggregate",
+                observed_stats={
+                    39: MechanicsObservedStat(
+                        final=4.622924327850342,
+                        raw=4.622924327850342,
+                        base=1.75,
+                        additive=2.6416709423065186,
+                    ),
+                    40: MechanicsObservedStat(
+                        final=3.255056858062744,
+                        raw=3.255056858062744,
+                        base=1.0,
+                        additive=3.255056858062744,
+                    ),
+                    41: MechanicsObservedStat(
+                        final=1.412880778312683,
+                        raw=1.412880778312683,
+                        base=1.0,
+                        additive=1.412880778312683,
+                    ),
+                },
+            ),
+        ),
+    ),
+)
+
+MECHANICS_FIXTURE_CREATED_AT = "2000-01-01T00:00:00"
 
 
 def clean_environment_snapshot() -> dict[str, Any]:
@@ -747,6 +1494,7 @@ class RecordedRunFixture:
         game_time_seconds: float | None = None,
         stable: bool = True,
         source_availability: Mapping[str, bool] | None = None,
+        observed_stats: Mapping[int, MechanicsObservedStat] | None = None,
     ) -> VerifierStatFrame:
         shrine_values = _target_values(sources.shrines)
         dice_values = _target_values(sources.dice)
@@ -754,18 +1502,35 @@ class RecordedRunFixture:
         shrine_rolls = _source_roll_counts(shrine_values, sources.shrine_rolls)
         dice_rolls = _source_roll_counts(dice_values, sources.dice_rolls)
         chaos_rolls = _source_roll_counts(chaos_values, sources.chaos_rolls)
+        shrine_charged = _resolved_source_count(
+            sources.shrine_charged, shrine_rolls
+        )
+        dice_level = _resolved_source_count(sources.dice_level, dice_rolls)
+        chaos_level = _resolved_source_count(sources.chaos_level, chaos_rolls)
+        is_dice = sources.dice_level is not None or any(dice_values.values())
         totals = {
             stat_id: shrine_values[stat_id]
             + dice_values[stat_id]
             + chaos_values[stat_id]
             for stat_id in TARGET_STAT_IDS
         }
+        overrides = dict(observed_stats or {})
+        invalid_overrides = set(overrides) - set(TARGET_STAT_IDS)
+        if invalid_overrides or any(
+            not isinstance(value, MechanicsObservedStat)
+            for value in overrides.values()
+        ):
+            raise ValueError("Observed stat overrides must contain target stat components")
         frame = VerifierStatFrame(
             stats=tuple(
-                _target_stat_component(
-                    stat_id,
-                    total=totals[stat_id],
-                    old_mask=int(sources.old_mask),
+                (
+                    overrides[stat_id].component(stat_id)
+                    if stat_id in overrides
+                    else _target_stat_component(
+                        stat_id,
+                        total=totals[stat_id],
+                        old_mask=int(sources.old_mask),
+                    )
                 )
                 for stat_id in TARGET_STAT_IDS
             ),
@@ -779,9 +1544,21 @@ class RecordedRunFixture:
             dice_rolls,
             chaos_rolls,
         )
-        shrine_snapshot = _shrine_snapshot(shrine_values, shrine_rolls)
-        chaos_snapshot = _chaos_snapshot(chaos_values, chaos_rolls)
-        passive = _dice_passive_snapshot(dice_values, dice_rolls)
+        shrine_snapshot = _shrine_snapshot(
+            shrine_values,
+            shrine_rolls,
+            charged=shrine_charged,
+        )
+        chaos_snapshot = _chaos_snapshot(
+            chaos_values,
+            chaos_rolls,
+            level=chaos_level,
+        )
+        passive = _dice_passive_snapshot(
+            dice_values,
+            dice_rolls,
+            level=dice_level if is_dice else None,
+        )
         held_items = (
             (f"Old Mask x{int(sources.old_mask)}",)
             if int(sources.old_mask) > 0
@@ -814,11 +1591,7 @@ class RecordedRunFixture:
             shrine_snapshot=shrine_snapshot,
             chaos_snapshot=chaos_snapshot,
             character_passive_snapshot=passive,
-            dice_level=(
-                sum(dice_rolls.values())
-                if any(dice_values.values())
-                else None
-            ),
+            dice_level=dice_level if is_dice else None,
             held_items=held_items,
             source_availability=availability,
         )
@@ -831,6 +1604,7 @@ class RecordedRunFixture:
         game_time_seconds: float | None = None,
         stable: bool = True,
         source_availability: Mapping[str, bool] | None = None,
+        observed_stats: Mapping[int, MechanicsObservedStat] | None = None,
         extra_stats: Mapping[str, float | None] | None = None,
         player_level: int | None = None,
         mob_kills: int | None = None,
@@ -849,6 +1623,7 @@ class RecordedRunFixture:
             game_time_seconds=game_time_seconds,
             stable=stable,
             source_availability=source_availability,
+            observed_stats=observed_stats,
         )
         shrine_values = _target_values(sources.shrines)
         dice_values = _target_values(sources.dice)
@@ -856,6 +1631,12 @@ class RecordedRunFixture:
         shrine_rolls = _source_roll_counts(shrine_values, sources.shrine_rolls)
         dice_rolls = _source_roll_counts(dice_values, sources.dice_rolls)
         chaos_rolls = _source_roll_counts(chaos_values, sources.chaos_rolls)
+        shrine_charged = _resolved_source_count(
+            sources.shrine_charged, shrine_rolls
+        )
+        dice_level = _resolved_source_count(sources.dice_level, dice_rolls)
+        chaos_level = _resolved_source_count(sources.chaos_level, chaos_rolls)
+        is_dice = sources.dice_level is not None or any(dice_values.values())
         stats = {
             TARGET_STAT_LABELS[component.stat_id]: component.final_value
             for component in frame.stats
@@ -868,9 +1649,21 @@ class RecordedRunFixture:
                 if int(sources.old_mask) > 0
                 else ()
             ),
-            chaos_tome=_chaos_snapshot(chaos_values, chaos_rolls),
-            shrines=_shrine_snapshot(shrine_values, shrine_rolls),
-            character_passive=_dice_passive_snapshot(dice_values, dice_rolls),
+            chaos_tome=_chaos_snapshot(
+                chaos_values,
+                chaos_rolls,
+                level=chaos_level,
+            ),
+            shrines=_shrine_snapshot(
+                shrine_values,
+                shrine_rolls,
+                charged=shrine_charged,
+            ),
+            character_passive=_dice_passive_snapshot(
+                dice_values,
+                dice_rolls,
+                level=dice_level if is_dice else None,
+            ),
             game_time_seconds=game_time_seconds,
             player_level=player_level,
             mob_kills=mob_kills,
@@ -1083,11 +1876,203 @@ def build_reference_corpus(
     )
 
 
+# Mechanics corpus and manifest
+
+
+def build_mechanics_corpus(
+    directory: Path | str,
+    scenarios: Iterable[MechanicsScenario] = MECHANICS_SCENARIOS,
+) -> MechanicsCorpusBuild:
+    """Build named source-equation progressions plus a machine-readable manifest."""
+
+    root = Path(directory)
+    root.mkdir(parents=True, exist_ok=True)
+    selected = tuple(scenarios)
+    keys = [scenario.key for scenario in selected]
+    if not selected:
+        raise ValueError("At least one mechanics scenario is required")
+    if len(keys) != len(set(keys)):
+        raise ValueError("Mechanics scenario keys must be unique")
+    for scenario in selected:
+        if not _safe_fixture_key(scenario.key) or not scenario.steps:
+            raise ValueError("Every mechanics scenario needs a key and steps")
+        for step in scenario.steps:
+            if not _safe_fixture_key(step.key) or not math.isfinite(
+                step.advance_seconds
+            ):
+                raise ValueError("Every mechanics step needs a key and finite delay")
+            if step.advance_seconds <= 0.0:
+                raise ValueError("Mechanics step delays must be positive")
+
+    manifest_path = root / "mechanics_manifest.json"
+    destinations = tuple(root / f"{key}.jsonl" for key in keys)
+    for destination in (*destinations, manifest_path):
+        if destination.exists():
+            raise FileExistsError(destination)
+
+    references: list[MechanicsReferenceRecording] = []
+    manifest_scenarios: list[dict[str, Any]] = []
+    for scenario, destination in zip(selected, destinations):
+        fixture = RecordedRunFixture(root, name=f"Mechanics: {scenario.key}")
+        step_records: list[dict[str, Any]] = []
+        try:
+            for index, step in enumerate(scenario.steps):
+                fixture.advance(step.advance_seconds)
+                frame = fixture.capture_state(
+                    step.sources,
+                    observed_stats=step.observed_stats,
+                    player_level=index + 1,
+                    mob_kills=index,
+                )
+                step_records.append(
+                    _mechanics_manifest_step(
+                        step,
+                        elapsed_seconds=fixture.clock.value,
+                        frame=frame,
+                    )
+                )
+            fixture.finish()
+            document = fixture.document().with_field(
+                "metadata",
+                ("created_at",),
+                MECHANICS_FIXTURE_CREATED_AT,
+            )
+        except Exception:
+            fixture.close()
+            fixture.path.unlink(missing_ok=True)
+            raise
+        path = _write_new_document(document, destination)
+        fixture.path.unlink(missing_ok=True)
+        digest = sha256(path.read_bytes()).hexdigest()
+        reference = MechanicsReferenceRecording(
+            scenario=scenario,
+            path=path,
+            expected_status=VerificationStatus.CONSISTENT,
+            sha256=digest,
+        )
+        references.append(reference)
+        manifest_scenarios.append(
+            {
+                "key": scenario.key,
+                "description": scenario.description,
+                "evidence": scenario.evidence,
+                "recording": path.name,
+                "sha256": digest,
+                "expected_status": reference.expected_status.value,
+                "steps": step_records,
+            }
+        )
+
+    manifest = {
+        "schema": 1,
+        "mechanics_profile": MECHANICS_PROFILE_ID,
+        "normalized_created_at": MECHANICS_FIXTURE_CREATED_AT,
+        "target_stats": {
+            str(stat_id): TARGET_STAT_LABELS[stat_id]
+            for stat_id in TARGET_STAT_IDS
+        },
+        "source_equations": {
+            "39": "(1 + 0.15 * old_mask) * (1 + shrines + dice + chaos)",
+            "40": "1 + shrines + dice + chaos",
+            "41": "1 + shrines + dice + chaos",
+        },
+        "scenarios": manifest_scenarios,
+    }
+    _write_new_bytes(
+        manifest_path,
+        (
+            json.dumps(
+                manifest,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8"),
+    )
+    return MechanicsCorpusBuild(manifest_path, tuple(references))
+
+
+def _safe_fixture_key(value: Any) -> bool:
+    return bool(
+        isinstance(value, str)
+        and value
+        and value.isascii()
+        and value == value.casefold()
+        and all(character.isalnum() or character == "_" for character in value)
+    )
+
+
+def _mechanics_manifest_step(
+    step: MechanicsScenarioStep,
+    *,
+    elapsed_seconds: float,
+    frame: VerifierStatFrame,
+) -> dict[str, Any]:
+    sources = step.sources
+    shrine_values = _target_values(sources.shrines)
+    dice_values = _target_values(sources.dice)
+    chaos_values = _target_values(sources.chaos)
+    shrine_rolls = _source_roll_counts(shrine_values, sources.shrine_rolls)
+    dice_rolls = _source_roll_counts(dice_values, sources.dice_rolls)
+    chaos_rolls = _source_roll_counts(chaos_values, sources.chaos_rolls)
+    return {
+        "key": step.key,
+        "description": step.description,
+        "evidence": step.evidence,
+        "elapsed_seconds": elapsed_seconds,
+        "sources": {
+            "shrines": _string_keyed_numbers(shrine_values),
+            "shrine_rolls": _string_keyed_numbers(shrine_rolls),
+            "shrine_charged": _resolved_source_count(
+                sources.shrine_charged,
+                shrine_rolls,
+            ),
+            "dice": _string_keyed_numbers(dice_values),
+            "dice_rolls": _string_keyed_numbers(dice_rolls),
+            "dice_level": _resolved_source_count(sources.dice_level, dice_rolls),
+            "chaos": _string_keyed_numbers(chaos_values),
+            "chaos_rolls": _string_keyed_numbers(chaos_rolls),
+            "chaos_level": _resolved_source_count(
+                sources.chaos_level,
+                chaos_rolls,
+            ),
+            "old_mask": sources.old_mask,
+        },
+        "expected_stats": {
+            str(component.stat_id): {
+                "final": component.final_value,
+                "final_bits": float32_bits(component.final_value),
+                "raw": component.raw_value,
+                "raw_bits": float32_bits(component.raw_value),
+                "base": component.base_value,
+                "base_bits": float32_bits(component.base_value),
+                "additive": component.additive_value,
+                "additive_bits": float32_bits(component.additive_value),
+                "multiplicative": component.multiplicative_value,
+                "multiplicative_bits": float32_bits(
+                    component.multiplicative_value
+                ),
+            }
+            for component in frame.stats
+        },
+    }
+
+
+def _string_keyed_numbers(values: Mapping[int, float | int]) -> dict[str, float | int]:
+    return {str(key): value for key, value in sorted(values.items())}
+
+
 def _write_new_document(document: RecordingDocument, path: Path) -> Path:
     # Exclusive creation keeps the corpus builder's no-overwrite guarantee true
     # even if another process creates the destination after the preflight pass.
+    return _write_new_bytes(path, document.to_bytes())
+
+
+def _write_new_bytes(path: Path, payload: bytes) -> Path:
     with path.open("xb") as output:
-        output.write(document.to_bytes())
+        output.write(payload)
     return path
 
 
@@ -1105,44 +2090,78 @@ def _source_roll_counts(
     }
 
 
+def _resolved_source_count(explicit: int | None, rolls: Mapping[int, int]) -> int:
+    return sum(rolls.values()) if explicit is None else int(explicit)
+
+
 def _shrine_snapshot(
     values: Mapping[int, float],
     rolls: Mapping[int, int],
+    *,
+    charged: int,
 ) -> ChargeShrineSnapshot:
-    return ChargeShrineSnapshot(
-        charged=sum(rolls.values()),
-        selected=sum(rolls.values()),
-        stats=tuple(
+    target_rolls = sum(rolls.values())
+    other_rolls = max(0, int(charged) - target_rolls)
+    stats = tuple(
+        ChargeShrineStatSnapshot(
+            stat_id=stat_id,
+            label=f"Target {stat_id}",
+            value=value,
+            value_format=PlayerStatFormat.MULTIPLIER,
+            rolls=rolls[stat_id],
+        )
+        for stat_id, value in values.items()
+        if value != 0.0
+    )
+    if other_rolls:
+        stats += (
             ChargeShrineStatSnapshot(
-                stat_id=stat_id,
-                label=f"Target {stat_id}",
-                value=value,
+                stat_id=0,
+                label="Other shrine rewards",
+                value=0.0,
                 value_format=PlayerStatFormat.MULTIPLIER,
-                rolls=rolls[stat_id],
-            )
-            for stat_id, value in values.items()
-            if value != 0.0
-        ),
+                rolls=other_rolls,
+            ),
+        )
+    return ChargeShrineSnapshot(
+        charged=int(charged),
+        selected=int(charged),
+        stats=stats,
     )
 
 
 def _chaos_snapshot(
     values: Mapping[int, float],
     rolls: Mapping[int, int],
+    *,
+    level: int,
 ) -> ChaosTomeSnapshot:
-    return ChaosTomeSnapshot(
-        level=sum(rolls.values()),
-        stats=tuple(
+    target_rolls = sum(rolls.values())
+    other_rolls = max(0, int(level) - target_rolls)
+    stats = tuple(
+        ChaosTomeStatSnapshot(
+            stat_id=stat_id,
+            label=f"Target {stat_id}",
+            value=value,
+            value_format=PlayerStatFormat.MULTIPLIER,
+            rolls=rolls[stat_id],
+        )
+        for stat_id, value in values.items()
+        if value != 0.0
+    )
+    if other_rolls:
+        stats += (
             ChaosTomeStatSnapshot(
-                stat_id=stat_id,
-                label=f"Target {stat_id}",
-                value=value,
+                stat_id=0,
+                label="Other Chaos rolls",
+                value=0.0,
                 value_format=PlayerStatFormat.MULTIPLIER,
-                rolls=rolls[stat_id],
-            )
-            for stat_id, value in values.items()
-            if value != 0.0
-        ),
+                rolls=other_rolls,
+            ),
+        )
+    return ChaosTomeSnapshot(
+        level=int(level),
+        stats=stats,
     )
 
 
@@ -1152,9 +2171,10 @@ def _target_stat_component(
     total: float,
     old_mask: int,
 ) -> VerifierStatComponents:
-    base = 1.0 + (0.15 * old_mask if stat_id == 39 else 0.0)
-    additive = 1.0 + float(total)
-    final = reconstruct_stat(base, additive, 1.0)
+    base = float32(1.0 + (0.15 * old_mask if stat_id == 39 else 0.0))
+    additive = float32(1.0 + float(total))
+    multiplicative = float32(1.0)
+    final = reconstruct_stat(base, additive, multiplicative)
     return VerifierStatComponents(
         stat_id=stat_id,
         final_value=final,
@@ -1162,7 +2182,7 @@ def _target_stat_component(
         has_modifications=bool(total),
         base_value=base,
         additive_value=additive,
-        multiplicative_value=1.0,
+        multiplicative_value=multiplicative,
     )
 
 
@@ -1213,8 +2233,12 @@ def _target_modifiers(
 def _dice_passive_snapshot(
     dice_values: Mapping[int, float],
     dice_rolls: Mapping[int, int],
+    *,
+    level: int | None,
 ) -> CharacterPassiveSnapshot:
-    is_dice = any(value != 0.0 for value in dice_values.values())
+    is_dice = level is not None or any(value != 0.0 for value in dice_values.values())
+    resolved_level = sum(dice_rolls.values()) if level is None else int(level)
+    other_rolls = max(0, resolved_level - sum(dice_rolls.values()))
     effects = tuple(
         CharacterPassiveEffectSnapshot(
             key=f"target_{stat_id}",
@@ -1228,13 +2252,25 @@ def _dice_passive_snapshot(
         for stat_id, value in dice_values.items()
         if value != 0.0
     )
+    if is_dice and other_rolls:
+        effects += (
+            CharacterPassiveEffectSnapshot(
+                key="other_rolls",
+                label="Other Dice rolls",
+                value=0.0,
+                value_format=PlayerStatFormat.MULTIPLIER,
+                kind=CharacterPassiveEffectKind.PERMANENT_ROLL,
+                stat_id=0,
+                count=other_rolls,
+            ),
+        )
     return CharacterPassiveSnapshot(
         character_id=18 if is_dice else 0,
         character_name="Dice" if is_dice else "Fixture",
         passive_id=15 if is_dice else 0,
         passive_name="Gamba" if is_dice else "Not Gamba",
         runtime_class="PassiveAbilityGamba" if is_dice else "FixturePassive",
-        level=sum(dice_rolls.values()),
+        level=resolved_level if is_dice else 0,
         status=CharacterPassiveStatus.SUPPORTED,
         effects=effects,
         coverage="complete",

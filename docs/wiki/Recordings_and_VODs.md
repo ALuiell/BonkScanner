@@ -153,6 +153,39 @@ normal snapshot records.
 
 ---
 
+## Regression Fixtures and Mechanics Timeline
+
+The test support package can generate two disposable corpora without copying a
+developer's personal recordings into the repository:
+
+- the adversarial corpus covers clean, modded, interrupted, tampered and
+  malformed recordings;
+- the mechanics corpus replays confirmed or explicitly labelled derived
+  Shrine, Dice/Gamba, Chaos Tome and Old Mask progressions.
+
+`build-mechanics` writes one JSONL per scenario and a
+`mechanics_manifest.json`. The manifest records the evidence boundary, source
+totals and counters, expected component/final float32 values, file digest and
+expected verifier verdict for every step. Existing destination files are never
+overwritten. The mechanics recordings use a normalized metadata timestamp, so
+the same scenario definitions produce the same bytes and SHA-256 across runs.
+
+The `timeline` command compresses repeated checkpoints and reports only source,
+component or coverage transitions. It includes the first checkpoint whose
+recorded bits, component equation, Old Mask base, source sum or multiplier does
+not reconcile. This is a developer diagnostic; production verdicts still come
+from the streaming verifier.
+
+```powershell
+.\.venv\Scripts\python.exe -m src.tests.support.recording_corpus_cli `
+  build-mechanics .tmp\mechanics-fixtures
+
+.\.venv\Scripts\python.exe -m src.tests.support.recording_corpus_cli `
+  timeline .tmp\mechanics-fixtures\mixed_live_stress.jsonl
+```
+
+---
+
 ## Lifecycle, Pause and Auto-Split
 
 The recording lifecycle is checked every second from the shared refresh pass:
