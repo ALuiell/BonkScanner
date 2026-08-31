@@ -19,6 +19,7 @@ from core.character_passives import (
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 from infra.vod_storage import LEGACY_VODS_DIR, RECORDINGS_DIR, VodRecorder, delete_vod, delete_vods_below_snapshot_count, list_vods, load_cached_vods, load_vod, load_vod_metadata, rename_vod, refresh_vod_metadata_index
+from projections import formatting
 
 
 class FakeRecordingSettings:
@@ -700,6 +701,56 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].weapons, ())
             self.assertEqual(loaded.snapshots[0].tomes, ())
             self.assertEqual(loaded.snapshots[0].banishes, ())
+
+    def test_explicit_unknown_chest_rate_survives_recording_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(
+                vods_dir=Path(temp_dir), interval_seconds=60, clock=lambda: 1000.0
+            )
+            path = recorder.start(name="Unknown chest rate")
+            recorder.capture(
+                {
+                    "Elite Spawn Increase": SimpleNamespace(
+                        value=15.0,
+                        display_value="15",
+                    ),
+                    "Powerup Drop Chance": SimpleNamespace(
+                        value=2.0,
+                        display_value="2",
+                    ),
+                },
+                chests_per_minute=None,
+            )
+            recorder.stop()
+
+            snapshot = load_vod(path).snapshots[0]
+
+            self.assertTrue(snapshot.chests_per_minute_recorded)
+            self.assertIsNone(snapshot.chests_per_minute)
+            self.assertIsNone(formatting.resolve_snapshot_chests_per_minute(snapshot))
+
+    def test_legacy_missing_chest_rate_field_keeps_historical_estimate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "legacy-chest-rate.jsonl"
+            path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":2,"name":"Old run","created_at":"2026-05-10T16:00:00","snapshot_interval_seconds":60}',
+                        '{"type":"snapshot","elapsed_seconds":0,"captured_at":1000.0,"stats":{"Elite Spawn Increase":{"value":15.0,"display":"15"},"Powerup Drop Chance":{"value":2.0,"display":"2"}},"items":[]}',
+                        '{"type":"summary","duration_seconds":0,"snapshot_count":1}',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            snapshot = load_vod(path).snapshots[0]
+
+            self.assertFalse(snapshot.chests_per_minute_recorded)
+            self.assertAlmostEqual(
+                formatting.resolve_snapshot_chests_per_minute(snapshot),
+                formatting.calculate_player_chests_per_minute(snapshot.stats),
+            )
 
     def test_loot_totals_round_trip_through_a_recording(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import json
 from math import isfinite
@@ -102,6 +102,14 @@ class VodSnapshot:
     banishes: tuple[str, ...] = ()
     damage_sources: tuple[DamageSourceSnapshot, ...] = ()
     chests_per_minute: float | None = None
+    # Presence is separate from the value: old recordings omitted the field and
+    # still use the historical 200-KPS estimate, while a new explicit JSON null
+    # means the live KPS was unavailable and must stay unavailable after reload.
+    chests_per_minute_recorded: bool = field(
+        default=False,
+        compare=False,
+        repr=False,
+    )
     game_time_seconds: float | None = None
     mob_kills: int | None = None
     kps_at_capture: int | None = None
@@ -528,6 +536,7 @@ class VodRecorder:
             banishes=tuple(banishes),
             damage_sources=tuple(damage_sources),
             chests_per_minute=chests_per_minute,
+            chests_per_minute_recorded=True,
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
             kps_at_capture=kps_at_capture,
@@ -895,8 +904,9 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         ),
         "banishes": list(snapshot.banishes),
         "damage_sources": [_damage_source_to_record(source) for source in snapshot.damage_sources],
-        "chests_per_minute": snapshot.chests_per_minute,
     }
+    if snapshot.chests_per_minute_recorded or snapshot.chests_per_minute is not None:
+        record["chests_per_minute"] = snapshot.chests_per_minute
     if snapshot.game_time_seconds is not None:
         record["game_time_seconds"] = snapshot.game_time_seconds
     if snapshot.mob_kills is not None:
@@ -1004,6 +1014,7 @@ def _record_to_snapshot(record: dict[str, Any], pool: dict[str, str] | None = No
         banishes=tuple(_shared_name(item, share) for item in record.get("banishes") or ()),
         damage_sources=tuple(_record_to_damage_source(item, share) for item in record.get("damage_sources") or ()),
         chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
+        chests_per_minute_recorded="chests_per_minute" in record,
         game_time_seconds=_coerce_optional_float(
             record.get("game_time_seconds", record.get("in_game_elapsed_seconds"))
         ),

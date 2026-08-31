@@ -2474,6 +2474,11 @@ def resolve_snapshot_chests_per_minute(snapshot) -> float | None:
     stored_value = getattr(snapshot, "chests_per_minute", None)
     if stored_value is not None:
         return stored_value
+    if getattr(snapshot, "chests_per_minute_recorded", False):
+        # A present-but-null field is a real measurement state: live KPS was
+        # unavailable for this frame. Only legacy snapshots that omitted the
+        # field may use the historical fixed-200-KPS estimate below.
+        return None
     return calculate_player_chests_per_minute(snapshot.stats)
 
 
