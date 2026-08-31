@@ -151,6 +151,18 @@ class DifficultyCapTests(unittest.TestCase):
         snapshots = [_snapshot(stage_index=3, stage_time=10.0)]
         self.assertEqual(scrubber.build_cap_steps(snapshots, "Difficulty"), ())
 
+    def test_cap_aware_scale_keeps_series_scale_when_no_cap_steps_exist(self) -> None:
+        model = scrubber.build_model(
+            [_snapshot(stage_index=3, stage_time=10.0, Difficulty=2.5)],
+            series_keys=("Difficulty",),
+        )
+
+        self.assertEqual(model.caps("Difficulty"), ())
+        self.assertEqual(
+            model.series_scale("Difficulty", include_cap=True),
+            2.5,
+        )
+
     def test_a_one_snapshot_spike_between_equal_neighbours_is_absorbed(self) -> None:
         """The post-boss stage-timer offset must not paint as a real step.
 

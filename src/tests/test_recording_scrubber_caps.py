@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from projections.scrubber import CapStep, ScrubberModel, Series
 from projections.timeline_axis import AXIS_TIME, TimelineAxisProjection
+from ui.tabs.player_stats import recording_scrubber as recording_scrubber_module
 from ui.tabs.player_stats.recording_scrubber import RecordingScrubber
 
 
@@ -25,6 +27,68 @@ def _series(key: str, values: tuple[float, ...], *, scale: float) -> Series:
         scale=scale,
         available=True,
     )
+
+
+class _TrackingPainter:
+    Antialiasing = object()
+    instances = []
+
+    def __init__(self, _device) -> None:
+        self._active = True
+        self.instances.append(self)
+
+    def setRenderHint(self, *_args) -> None:
+        pass
+
+    def isActive(self) -> bool:
+        return self._active
+
+    def end(self) -> None:
+        self._active = False
+
+
+def _assert_runtime_error(callback) -> None:
+    try:
+        callback()
+    except RuntimeError as exc:
+        assert str(exc) == "paint failed"
+    else:
+        raise AssertionError("expected paint failure")
+
+
+def test_widget_painter_ends_when_static_layer_rendering_raises() -> None:
+    QApplication.instance() or QApplication([])
+
+    class FailingScrubber(RecordingScrubber):
+        def _ensure_static_layer(self) -> None:
+            raise RuntimeError("paint failed")
+
+    widget = FailingScrubber()
+    _TrackingPainter.instances = []
+
+    with patch.object(recording_scrubber_module, "QPainter", _TrackingPainter):
+        _assert_runtime_error(lambda: widget.paintEvent(None))
+
+    assert len(_TrackingPainter.instances) == 1
+    assert not _TrackingPainter.instances[0].isActive()
+
+
+def test_static_layer_painter_ends_when_static_painting_raises() -> None:
+    QApplication.instance() or QApplication([])
+
+    class FailingScrubber(RecordingScrubber):
+        def _paint_static(self, _painter) -> None:
+            raise RuntimeError("paint failed")
+
+    widget = FailingScrubber()
+    widget.resize(500, 150)
+    _TrackingPainter.instances = []
+
+    with patch.object(recording_scrubber_module, "QPainter", _TrackingPainter):
+        _assert_runtime_error(widget._ensure_static_layer)
+
+    assert len(_TrackingPainter.instances) == 1
+    assert not _TrackingPainter.instances[0].isActive()
 
 
 def test_difficulty_caps_carry_percent_labels_without_over_cap_geometry() -> None:

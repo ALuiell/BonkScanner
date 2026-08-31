@@ -191,7 +191,8 @@ class ScrubberModel:
         series = self.series(key)
         scale = float(series.scale) if series is not None else 0.0
         if include_cap:
-            scale = max(scale, *(float(step.value) for step in self.caps(key)))
+            for step in self.caps(key):
+                scale = max(scale, float(step.value))
         return scale
 
     def position(self, index: int) -> float:

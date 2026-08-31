@@ -351,25 +351,27 @@ class RecordingScrubber(QWidget):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        self._ensure_static_layer()
-        if self._static_layer is not None:
-            painter.drawPixmap(0, 0, self._static_layer)
+        try:
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            self._ensure_static_layer()
+            if self._static_layer is not None:
+                painter.drawPixmap(0, 0, self._static_layer)
 
-        if self._model.count <= 0:
-            painter.end()
-            return
+            if self._model.count <= 0:
+                return
 
-        track = self._track_rect()
-        painter.save()
-        clip = QPainterPath()
-        clip.addRoundedRect(track, 9.0, 9.0)
-        painter.setClipPath(clip)
-        self._paint_segment(painter, track)
-        painter.restore()
-        self._paint_pin(painter, track)
-        self._paint_playhead(painter, track)
-        painter.end()
+            track = self._track_rect()
+            painter.save()
+            clip = QPainterPath()
+            clip.addRoundedRect(track, 9.0, 9.0)
+            painter.setClipPath(clip)
+            self._paint_segment(painter, track)
+            painter.restore()
+            self._paint_pin(painter, track)
+            self._paint_playhead(painter, track)
+        finally:
+            if painter.isActive():
+                painter.end()
 
     def _paint_static(self, painter: QPainter) -> None:
         track = self._track_rect()
@@ -409,9 +411,12 @@ class RecordingScrubber(QWidget):
         pixmap.setDevicePixelRatio(dpr)
         pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        self._paint_static(painter)
-        painter.end()
+        try:
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            self._paint_static(painter)
+        finally:
+            if painter.isActive():
+                painter.end()
         self._static_layer = pixmap
         self._static_rebuilds += 1
 
