@@ -31,13 +31,16 @@ against file modification time and size.
 
 ---
 
-## JSONL Schema (Version 10)
+## JSONL Schema (Version 13)
 
 A finalized recording normally contains:
 
-1. one `metadata` record;
-2. zero or more `snapshot` records;
-3. one `summary` record.
+1. one `metadata` record with verifier/build metadata;
+2. one initial `verification_environment` record;
+3. zero or more normal `snapshot` records interleaved with verifier-only
+   checkpoints, source/modifier events, and process-environment scans;
+4. one final `verification_coverage` record;
+5. one `summary` record, always last.
 
 Loaders remain tolerant of older recordings and absent newer optional fields.
 
@@ -46,13 +49,25 @@ Loaders remain tolerant of older recordings and absent newer optional fields.
 ```json
 {
   "type": "metadata",
-  "version": 10,
-  "name": "Dicehead 2026-08-30 12:00:00",
+  "version": 13,
+  "name": "Dice 2026-08-30 12:00:00",
   "created_at": "2026-08-30T12:00:00",
   "snapshot_interval_seconds": 30,
   "run_seed": 48291032,
   "character_id": 18,
-  "character_name": "Dicehead"
+  "character_name": "Dice",
+  "verification": {
+    "schema": 1,
+    "mechanics_profile": "bonkscanner-target-stats-2026-08-30",
+    "scanner_version": "3.1.2",
+    "game_build_id": "pe-6980d323-036fa000",
+    "capture_interval_seconds": 2.0,
+    "environment_schema": 2,
+    "environment_capture_interval_seconds": 10.0,
+    "target_stat_ids": [39, 40, 41],
+    "run_start_time_seconds": 0.0,
+    "late_start": false
+  }
 }
 ```
 
@@ -102,12 +117,28 @@ Nested weapon, tome, Chaos Tome, Charge Shrine, character-passive and damage
 source records are converted by dedicated version-tolerant helpers in
 `vod_storage.py`.
 
+### Verifier-only telemetry
+
+The visible playback format and normal snapshot cadence are unchanged.
+`verification_checkpoint` records capture ESI/PM/PDC component equations and
+legal source totals approximately every two seconds. `verification_event`
+records carry modifier deltas and telemetry gap boundaries.
+`verification_environment` records store privacy-safe module, mod-artifact, and
+private executable-memory inventories at the start and approximately every ten
+seconds. The final `verification_coverage` record closes counts, gaps, duration,
+and the environment digest chain.
+
+The normal VOD loader deliberately ignores these records; the run verifier uses
+its own streaming reader. See
+[Run Verifier Pilot Plan](../game_research_local/run_verifier_pilot_plan.md) and
+[Recording Corpus and Replay Harness](../game_research_local/run_verifier_test_corpus.md).
+
 ### Summary
 
 ```json
 {
   "type": "summary",
-  "name": "Dicehead 12K 2026-08-30 12:00:00",
+  "name": "Dice 12K 2026-08-30 12:00:00",
   "duration_seconds": 320,
   "snapshot_count": 10,
   "mob_kills": 12480
@@ -117,6 +148,8 @@ source records are converted by dedicated version-tolerant helpers in
 For an automatic name, stop-time finalization inserts the maximum observed kill
 count in compact form. The summary name overrides the initial metadata name
 when the recording is loaded. A user-supplied name is preserved.
+The run verifier also requires `snapshot_count` to equal the number of replayed
+normal snapshot records.
 
 ---
 
@@ -152,8 +185,8 @@ therefore stops the old recorder without a final memory capture, starts the new
 file, and lets the next capture land only in the new recording.
 
 Interactive/terminal stop otherwise performs a best-effort final full snapshot
-before writing the summary. Failure to read that last snapshot does not prevent
-the file from being finalized.
+before writing verifier coverage and the summary. Failure to read that last
+snapshot does not prevent the file from being finalized.
 
 ---
 

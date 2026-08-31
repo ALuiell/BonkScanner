@@ -156,7 +156,7 @@ def _complete_records(
             "type": "summary",
             "name": "Verifier fixture",
             "duration_seconds": 3,
-            "snapshot_count": 1,
+            "snapshot_count": 0,
         },
     ]
 
@@ -257,7 +257,7 @@ class RunVerifierAnalysisTests(unittest.TestCase):
         report = analyze_records(
             [
                 {"type": "metadata", "name": "Old run", "created_at": "2026-01-01"},
-                {"type": "summary", "name": "Old run", "snapshot_count": 1},
+                {"type": "summary", "name": "Old run", "snapshot_count": 0},
             ]
         )
 
@@ -327,7 +327,7 @@ class RunVerifierAnalysisTests(unittest.TestCase):
                 "type": "summary",
                 "name": "Gap run",
                 "duration_seconds": 3,
-                "snapshot_count": 1,
+                "snapshot_count": 0,
             },
         ]
 
@@ -1394,7 +1394,7 @@ class RunVerifierAnalysisTests(unittest.TestCase):
                 "type": "summary",
                 "name": "Environment failure",
                 "duration_seconds": 3,
-                "snapshot_count": 1,
+                "snapshot_count": 0,
             },
         ]
 

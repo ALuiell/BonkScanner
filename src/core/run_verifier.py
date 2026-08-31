@@ -1842,6 +1842,7 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
     checkpoints: list[dict[str, Any]] = []
     environment_records: list[dict[str, Any]] = []
     summary: dict[str, Any] | None = None
+    snapshot_count = 0
     event_count = 0
     last_type = None
     replayed_modifiers: dict[str, dict[str, Any]] = {}
@@ -1913,6 +1914,15 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
                         "Metadata is not the first record",
                         f"The metadata appeared at JSONL record {record_index + 1}.",
                     )
+        elif record_type == "snapshot":
+            snapshot_count += 1
+            if saw_coverage:
+                analysis.add(
+                    FindingSeverity.INCONSISTENCY,
+                    "Recording integrity",
+                    "Snapshot follows final coverage",
+                    "Normal playback snapshots must precede final verifier coverage.",
+                )
         elif record_type == "verification_checkpoint":
             if saw_coverage:
                 analysis.add(
@@ -2108,6 +2118,33 @@ def analyze_records(records: Iterable[dict[str, Any]]) -> VerificationReport:
                 )
             else:
                 summary = record
+
+    if summary is not None:
+        declared_snapshot_count = _integer(summary.get("snapshot_count"))
+        if declared_snapshot_count is None or declared_snapshot_count < 0:
+            analysis.add(
+                FindingSeverity.INCONSISTENCY,
+                "Recording integrity",
+                "Summary snapshot count is invalid",
+                "The final summary must contain a non-negative integer snapshot count.",
+            )
+        elif declared_snapshot_count != snapshot_count:
+            analysis.add(
+                FindingSeverity.INCONSISTENCY,
+                "Recording integrity",
+                "Summary snapshot count disagrees",
+                (
+                    f"Summary={declared_snapshot_count}; replayed "
+                    f"{snapshot_count} snapshot record(s)."
+                ),
+            )
+        else:
+            analysis.add(
+                FindingSeverity.MATCH,
+                "Recording integrity",
+                "Snapshot count",
+                f"The summary matches all {snapshot_count} snapshot record(s).",
+            )
 
     metadata = metadata or {}
     verification = metadata.get("verification")
