@@ -129,9 +129,9 @@ seconds. The final `verification_coverage` record closes counts, gaps, duration,
 and the environment digest chain.
 
 The normal VOD loader deliberately ignores these records; the run verifier uses
-its own streaming reader. See
-[Run Verifier Pilot Plan](../game_research_local/run_verifier_pilot_plan.md) and
-[Recording Corpus and Replay Harness](../game_research_local/run_verifier_test_corpus.md).
+its own streaming reader. Internal mechanics notes and the reusable fixture
+harness document the research and adversarial scenarios without making the
+published wiki depend on developer-local files.
 
 ### Summary
 

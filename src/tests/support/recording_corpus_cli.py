@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import json
+import math
 from pathlib import Path
 import time
 from typing import Iterable, Sequence
@@ -33,11 +34,19 @@ def _recording_paths(inputs: Iterable[str]) -> tuple[Path, ...]:
     discovered: dict[Path, Path] = {}
     for raw in inputs:
         candidate = Path(raw)
+        if not candidate.exists():
+            raise ValueError(f"Recording input does not exist: {candidate}")
         if candidate.is_file() and candidate.suffix.casefold() == ".jsonl":
             discovered.setdefault(candidate.resolve(), candidate)
         elif candidate.is_dir():
             for path in candidate.glob("*.jsonl"):
                 discovered.setdefault(path.resolve(), path)
+        else:
+            raise ValueError(
+                f"Recording input must be a .jsonl file or directory: {candidate}"
+            )
+    if not discovered:
+        raise ValueError("No .jsonl recordings were found in the supplied inputs")
     return tuple(discovered[key] for key in sorted(discovered, key=str))
 
 
@@ -72,7 +81,13 @@ def _build(output: str) -> int:
 
 
 def _inventory(inputs: Sequence[str]) -> int:
-    entries = scan_recording_libraries(Path(value) for value in inputs)
+    roots = tuple(Path(value) for value in inputs)
+    for root in roots:
+        if not root.exists():
+            raise ValueError(f"Recording input does not exist: {root}")
+        if not root.is_dir():
+            raise ValueError(f"Recording inventory input must be a directory: {root}")
+    entries = scan_recording_libraries(roots)
     print(_json(summarize_inventory(entries)))
     return 0
 
@@ -81,6 +96,7 @@ def _audit(inputs: Sequence[str], *, details: bool, alignment: bool) -> int:
     paths = _recording_paths(inputs)
     statuses: Counter[str] = Counter()
     error_types: Counter[str] = Counter()
+    alignment_error_types: Counter[str] = Counter()
     durations_ms: list[float] = []
     detail_rows = []
     alignment_counts: Counter[str] = Counter()
@@ -101,25 +117,31 @@ def _audit(inputs: Sequence[str], *, details: bool, alignment: bool) -> int:
         else:
             statuses[report.status.value] += 1
             alignment_report = None
+            alignment_error = None
             if alignment:
-                alignment_report = audit_snapshot_alignment(path)
-                if alignment_report.checkpoint_count == 0:
-                    alignment_counts["files_without_checkpoints"] += 1
-                    alignment_counts["legacy_snapshots_not_compared"] += (
-                        alignment_report.snapshot_count
-                    )
+                try:
+                    alignment_report = audit_snapshot_alignment(path)
+                except Exception as exc:
+                    alignment_error = type(exc).__name__
+                    alignment_error_types[alignment_error] += 1
                 else:
-                    alignment_counts["compared_values"] += (
-                        alignment_report.compared_value_count
-                    )
-                    alignment_counts["issues"] += len(alignment_report.issues)
-                    alignment_counts["transitioning_issues"] += sum(
-                        issue.transitioning_neighborhood
-                        for issue in alignment_report.issues
-                    )
-                    alignment_counts["snapshots_without_nearby_checkpoint"] += (
-                        alignment_report.snapshots_without_nearby_checkpoint
-                    )
+                    if alignment_report.checkpoint_count == 0:
+                        alignment_counts["files_without_checkpoints"] += 1
+                        alignment_counts["legacy_snapshots_not_compared"] += (
+                            alignment_report.snapshot_count
+                        )
+                    else:
+                        alignment_counts["compared_values"] += (
+                            alignment_report.compared_value_count
+                        )
+                        alignment_counts["issues"] += len(alignment_report.issues)
+                        alignment_counts["transitioning_issues"] += sum(
+                            issue.transitioning_neighborhood
+                            for issue in alignment_report.issues
+                        )
+                        alignment_counts[
+                            "snapshots_without_nearby_checkpoint"
+                        ] += alignment_report.snapshots_without_nearby_checkpoint
             if details:
                 detail = {
                     "file": path.name,
@@ -134,7 +156,9 @@ def _audit(inputs: Sequence[str], *, details: bool, alignment: bool) -> int:
                         if finding.severity.value != "match"
                     ],
                 }
-                if alignment_report is not None:
+                if alignment_error is not None:
+                    detail["alignment_error"] = alignment_error
+                elif alignment_report is not None:
                     detail["alignment"] = {
                         "compared_values": alignment_report.compared_value_count,
                         "issues": len(alignment_report.issues),
@@ -150,7 +174,7 @@ def _audit(inputs: Sequence[str], *, details: bool, alignment: bool) -> int:
         durations_ms.append((time.perf_counter() - file_started) * 1000.0)
 
     sorted_durations = sorted(durations_ms)
-    p95_index = max(0, int(len(sorted_durations) * 0.95) - 1)
+    p95_index = max(0, math.ceil(len(sorted_durations) * 0.95) - 1)
     result = {
         "file_count": len(paths),
         "statuses": dict(sorted(statuses.items())),
@@ -170,6 +194,7 @@ def _audit(inputs: Sequence[str], *, details: bool, alignment: bool) -> int:
         result["recordings"] = detail_rows
     if alignment:
         result["snapshot_alignment"] = dict(sorted(alignment_counts.items()))
+        result["alignment_errors"] = dict(sorted(alignment_error_types.items()))
     print(_json(result))
     return 0
 
@@ -211,17 +236,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     if args.command == "build":
         return _build(args.output)
-    if args.command == "inventory":
-        return _inventory(args.inputs)
-    if args.command == "audit":
-        return _audit(
-            args.inputs,
-            details=bool(args.details),
-            alignment=bool(args.alignment),
-        )
+    try:
+        if args.command == "inventory":
+            return _inventory(args.inputs)
+        if args.command == "audit":
+            return _audit(
+                args.inputs,
+                details=bool(args.details),
+                alignment=bool(args.alignment),
+            )
+    except ValueError as exc:
+        parser.error(str(exc))
     raise AssertionError(f"Unhandled command: {args.command}")
 
 

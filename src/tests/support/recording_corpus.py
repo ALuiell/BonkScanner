@@ -500,8 +500,19 @@ def audit_snapshot_alignment(
 def _finite_number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    number = float(value)
-    return number if math.isfinite(number) else None
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    try:
+        # Recording telemetry is float32. A finite JSON number can still be
+        # too large for the schema and must not crash the optional diagnostic.
+        float32_bits(number)
+    except (OverflowError, ValueError):
+        return None
+    return number
 
 
 class ManualClock:
@@ -540,11 +551,18 @@ class TargetStatSources:
             ("chaos", self.chaos),
         ):
             for stat_id, value in values.items():
-                if int(stat_id) not in TARGET_STAT_IDS:
+                if (
+                    isinstance(stat_id, bool)
+                    or not isinstance(stat_id, int)
+                    or stat_id not in TARGET_STAT_IDS
+                ):
                     raise ValueError(f"{source_name} contains non-target stat {stat_id}")
-                if not math.isfinite(float(value)):
-                    raise ValueError(f"{source_name} contains a non-finite value")
-                if float(value) < 0.0:
+                number = _finite_number(value)
+                if number is None:
+                    raise ValueError(
+                        f"{source_name} values must be finite float32 numbers"
+                    )
+                if number < 0.0:
                     raise ValueError(f"{source_name} bonuses must be non-negative")
         for source_name, counts in (
             ("shrine_rolls", self.shrine_rolls),
@@ -552,7 +570,11 @@ class TargetStatSources:
             ("chaos_rolls", self.chaos_rolls),
         ):
             for stat_id, count in counts.items():
-                if int(stat_id) not in TARGET_STAT_IDS:
+                if (
+                    isinstance(stat_id, bool)
+                    or not isinstance(stat_id, int)
+                    or stat_id not in TARGET_STAT_IDS
+                ):
                     raise ValueError(f"{source_name} contains non-target stat {stat_id}")
                 if (
                     isinstance(count, bool)
@@ -765,6 +787,24 @@ class RecordedRunFixture:
             if int(sources.old_mask) > 0
             else ()
         )
+        availability = {
+            "shrines": True,
+            "chaos_tome": True,
+            "character_passive": True,
+        }
+        if source_availability is not None:
+            unknown_sources = set(source_availability) - set(availability)
+            if unknown_sources:
+                raise ValueError(
+                    "Unknown verifier source availability: "
+                    + ", ".join(sorted(map(str, unknown_sources)))
+                )
+            if any(
+                not isinstance(value, bool)
+                for value in source_availability.values()
+            ):
+                raise ValueError("Verifier source availability values must be booleans")
+            availability.update(source_availability)
         self.recorder.capture_verification(
             frame,
             game_time_seconds=(
@@ -780,15 +820,7 @@ class RecordedRunFixture:
                 else None
             ),
             held_items=held_items,
-            source_availability=dict(
-                {
-                    "shrines": True,
-                    "chaos_tome": True,
-                    "character_passive": True,
-                }
-                if source_availability is None
-                else source_availability
-            ),
+            source_availability=availability,
         )
         return frame
 
@@ -1052,9 +1084,11 @@ def build_reference_corpus(
 
 
 def _write_new_document(document: RecordingDocument, path: Path) -> Path:
-    if path.exists():
-        raise FileExistsError(path)
-    return document.write(path)
+    # Exclusive creation keeps the corpus builder's no-overwrite guarantee true
+    # even if another process creates the destination after the preflight pass.
+    with path.open("xb") as output:
+        output.write(document.to_bytes())
+    return path
 
 
 def _target_values(values: Mapping[int, float]) -> dict[int, float]:

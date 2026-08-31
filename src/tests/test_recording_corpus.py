@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core.run_verifier import VerificationStatus
 from infra.run_verifier import verify_vod
@@ -123,7 +124,12 @@ class RecordedRunFixtureTests(unittest.TestCase):
         invalid = (
             lambda: TargetStatSources(shrines={41: -0.1}),
             lambda: TargetStatSources(chaos={40: float("nan")}),
+            lambda: TargetStatSources(chaos={40: 1e100}),
+            lambda: TargetStatSources(chaos={40: True}),
+            lambda: TargetStatSources(chaos={40: "0.1"}),
             lambda: TargetStatSources(dice={12: 0.1}),
+            lambda: TargetStatSources(shrines={"41": 0.1}),
+            lambda: TargetStatSources(shrine_rolls={"41": 1}),
             lambda: TargetStatSources(shrines={41: 0.1}, shrine_rolls={41: 0}),
             lambda: TargetStatSources(shrines={41: 0.1}, shrine_rolls={41: 1.0}),
             lambda: TargetStatSources(chaos_rolls={40: 1}),
@@ -135,6 +141,42 @@ class RecordedRunFixtureTests(unittest.TestCase):
             with self.subTest(build=build):
                 with self.assertRaises(ValueError):
                     build()
+
+    def test_partial_source_availability_keeps_unspecified_sources_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = RecordedRunFixture(Path(temp_dir))
+            fixture.advance(1.0)
+            fixture.capture_state(
+                TargetStatSources(),
+                source_availability={"shrines": False},
+            )
+            fixture.finish()
+
+            checkpoint = fixture.document().records_of_type(
+                "verification_checkpoint"
+            )[0]
+
+            self.assertFalse(checkpoint["coverage"]["shrines_complete"])
+            self.assertTrue(checkpoint["coverage"]["dice_complete"])
+            self.assertTrue(checkpoint["coverage"]["chaos_complete"])
+
+    def test_source_availability_rejects_typos_and_non_boolean_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for availability in (
+                {"shrine": False},
+                {"shrines": 0},
+            ):
+                with self.subTest(availability=availability):
+                    fixture = RecordedRunFixture(Path(temp_dir))
+                    try:
+                        fixture.advance(1.0)
+                        with self.assertRaises(ValueError):
+                            fixture.capture_state(
+                                TargetStatSources(),
+                                source_availability=availability,
+                            )
+                    finally:
+                        fixture.close()
 
     def test_capture_state_cannot_silently_replace_a_target_stat(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -309,6 +351,22 @@ class RecordingDocumentMutationTests(unittest.TestCase):
             self.assertEqual(tampered.issues[0].stat_id, 41)
             self.assertFalse(tampered.issues[0].transitioning_neighborhood)
 
+    def test_snapshot_alignment_ignores_numbers_outside_float32_range(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            document = self._document(root).with_field(
+                "verification_checkpoint",
+                ("stats", "39", "final"),
+                1e100,
+            )
+
+            report = audit_snapshot_alignment(
+                document.write(root / "oversized-float.jsonl")
+            )
+
+            self.assertEqual(report.compared_value_count, 2)
+            self.assertEqual(report.issues, ())
+
 
 class RecordingInventoryTests(unittest.TestCase):
     def test_inventory_is_schema_only_and_summary_finds_duplicates(self) -> None:
@@ -402,6 +460,56 @@ class ReferenceCorpusTests(unittest.TestCase):
             self.assertEqual(audit_payload["errors"], {"JSONDecodeError": 1})
             self.assertEqual(sum(audit_payload["statuses"].values()), 7)
             self.assertIn("compared_values", audit_payload["snapshot_alignment"])
+
+    def test_cli_reports_alignment_failure_without_losing_verifier_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fixture = RecordedRunFixture(root)
+            fixture.advance(1.0)
+            fixture.capture_state(TargetStatSources())
+            fixture.finish()
+            output = io.StringIO()
+
+            with patch(
+                "tests.support.recording_corpus_cli.audit_snapshot_alignment",
+                side_effect=OverflowError("synthetic alignment failure"),
+            ), redirect_stdout(output):
+                self.assertEqual(
+                    corpus_cli_main(
+                        ("audit", str(fixture.path), "--alignment", "--details")
+                    ),
+                    0,
+                )
+
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["statuses"], {"Consistent": 1})
+            self.assertEqual(payload["alignment_errors"], {"OverflowError": 1})
+            self.assertEqual(
+                payload["recordings"][0]["alignment_error"],
+                "OverflowError",
+            )
+
+    def test_cli_rejects_missing_audit_and_inventory_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing = Path(temp_dir) / "missing"
+            for command in ("audit", "inventory"):
+                error = io.StringIO()
+                with self.subTest(command=command), redirect_stderr(error):
+                    with self.assertRaises(SystemExit) as raised:
+                        corpus_cli_main((command, str(missing)))
+
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("Recording input does not exist", error.getvalue())
+
+    def test_cli_rejects_an_empty_audit_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            error = io.StringIO()
+            with redirect_stderr(error):
+                with self.assertRaises(SystemExit) as raised:
+                    corpus_cli_main(("audit", temp_dir))
+
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("No .jsonl recordings", error.getvalue())
 
 
 if __name__ == "__main__":
