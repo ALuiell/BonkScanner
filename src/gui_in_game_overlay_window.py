@@ -642,7 +642,18 @@ class InGameOverlayWindow(QWidget):
         self._position_save_timer.timeout.connect(self._position_save_btn)
 
         self.widgets: dict[str, DraggableOverlayWidget] = {}
-        for widget_id in ("scanner", "recording", "kps", "powerups", "luck_rarity", "stats", "event_timer", "item_cooldowns", "build_progression"):
+        for widget_id in (
+            "scanner",
+            "recording",
+            "kps",
+            "powerups",
+            "luck_rarity",
+            "stats",
+            "event_timer",
+            "item_cooldowns",
+            "build_progression",
+            "weapon_tracker",
+        ):
             widget = (
                 LuckRarityOverlayWidget(widget_id, self)
                 if widget_id == "luck_rarity"

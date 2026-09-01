@@ -84,7 +84,7 @@ from projections.item_sort import (
 from infra.memory.reader import MemoryReadError, ProcessNotFoundError
 from core.game_state import RuntimeGameMode, RuntimeGameState
 from core.tracker.live_run import LiveRunTracker
-from core.tracker.snapshots import LiveRunSnapshot
+from core.tracker.snapshots import LiveRunSnapshot, RunLifecycle
 from core.stats.types import ChargeShrineReading
 from core.vod_capture import VodCapturePayload
 from app.coordinator import AppCoordinator, RefreshLoop
@@ -5150,6 +5150,9 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["tomes"], (tome,))
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["damage_sources"], (damage,))
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["banishes"], ("Clover",))
+        latest_snapshot = app.live_run_tracker.latest_snapshot()
+        self.assertEqual(latest_snapshot.weapons, (weapon,))
+        self.assertTrue(latest_snapshot.weapons_available)
 
     def test_refresh_live_player_stats_now_preserves_last_known_items_when_read_is_empty(self) -> None:
         app = self.build_recording_app()
@@ -5171,6 +5174,9 @@ class GuiRunControlTests(unittest.TestCase):
     def test_read_live_player_stats_data_accepts_empty_inventory_at_new_match_start(self) -> None:
         app = self.build_recording_app()
         live_snapshot_store(app).last_known_items = ("Wrench x2",)
+        live_snapshot_store(app).last_known_weapons = (
+            SimpleNamespace(weapon_id=23, name="Katana"),
+        )
         live_snapshot_store(app).last_seed = 123
         live_snapshot_store(app).last_run_timer = 45.0
         player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
@@ -5187,6 +5193,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(result[1], ())
         self.assertTrue(result[2])
         self.assertEqual(live_snapshot_store(app).last_known_items, None)
+        self.assertEqual(live_snapshot_store(app).last_known_weapons, None)
 
     def test_stop_player_stats_recording_refreshes_live_stats_without_items(self) -> None:
         app = object.__new__(MegabonkApp)
@@ -7196,6 +7203,219 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(overlay.in_game_overlay_window.hide_calls, 1)
         self.assertFalse(overlay.in_game_overlay_window.isVisible())
 
+    def _weapon_tracker_fast_tick_overlay(
+        self,
+        *,
+        latest_snapshot,
+        edit_mode=False,
+        run_completed=False,
+    ):
+        widget = SimpleNamespace(set_text=MagicMock(), setVisible=MagicMock())
+        tracker = SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=latest_snapshot,
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=None,
+                fast_stage_timer=None,
+                graveyard_main_map_events_active=False,
+                lifecycle=(
+                    RunLifecycle.COMPLETED
+                    if run_completed
+                    else RunLifecycle.ACTIVE
+                ),
+            )
+        )
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(
+            visible=True, edit_mode=edit_mode
+        )
+        overlay.in_game_overlay_window.widgets = {"weapon_tracker": widget}
+        return overlay, widget
+
+    def _weapon_tracker_overlay_cfg(self, **weapon_overrides):
+        weapon_cfg = {
+            "enabled": True,
+            "layout": "compact",
+            "selected_stats": ["damage", "projectile_count", "size"],
+        }
+        weapon_cfg.update(weapon_overrides)
+        return {
+            "enabled": True,
+            "widgets": {
+                "scanner": {"enabled": False},
+                "recording": {"enabled": False},
+                "kps": {"enabled": False},
+                "powerups": {"enabled": False},
+                "luck_rarity": {"enabled": False},
+                "weapon_tracker": weapon_cfg,
+            },
+        }
+
+    def test_weapon_tracker_fast_tick_renders_compact_rows_in_normal_mode(self) -> None:
+        latest = SimpleNamespace(
+            stats={
+                "Damage": SimpleNamespace(value=2.0),
+                "Projectile Count": SimpleNamespace(value=1.0),
+                "Size": SimpleNamespace(value=1.5),
+            },
+            weapons=(
+                SimpleNamespace(
+                    weapon_id=23,
+                    name="Katana",
+                    level=4,
+                    upgrade_stat_ids=(9, 12, 16),
+                    full_stats={
+                        9: SimpleNamespace(value=1.4),
+                        12: SimpleNamespace(value=50.0),
+                        16: SimpleNamespace(value=1.0),
+                    },
+                    max_duration=-1.0,
+                    max_size_multiplier=-1.0,
+                ),
+            ),
+            weapons_available=True,
+        )
+        overlay, widget = self._weapon_tracker_fast_tick_overlay(
+            latest_snapshot=latest
+        )
+
+        with patch.object(
+            config, "IN_GAME_OVERLAY", self._weapon_tracker_overlay_cfg()
+        ):
+            overlay._overlay_fast_tick()
+
+        html = widget.set_text.call_args.args[0]
+        self.assertIn("Katana", html)
+        self.assertIn("DMG", html)
+        self.assertNotIn("Lv.4", html)
+        self.assertNotIn("Weapons", html)
+        widget.setVisible.assert_called_with(True)
+
+    def test_weapon_tracker_fast_tick_uses_all_edit_layout_placeholders(self) -> None:
+        cases = (
+            (None, [], "No Weapon Stats Selected"),
+            (None, ["damage"], "Waiting for Weapon Data"),
+            (
+                SimpleNamespace(stats={}, weapons=(), weapons_available=True),
+                ["damage"],
+                "No Matching Weapon Stats",
+            ),
+        )
+        for latest, selected, message in cases:
+            with self.subTest(message=message):
+                overlay, widget = self._weapon_tracker_fast_tick_overlay(
+                    latest_snapshot=latest,
+                    edit_mode=True,
+                )
+                cfg = self._weapon_tracker_overlay_cfg(
+                    selected_stats=selected
+                )
+                with patch.object(config, "IN_GAME_OVERLAY", cfg):
+                    overlay._overlay_fast_tick()
+
+                html = widget.set_text.call_args.args[0]
+                self.assertIn("Weapons", html)
+                self.assertIn(message, html)
+                widget.setVisible.assert_called_with(True)
+
+    def test_weapon_tracker_fast_tick_hides_empty_normal_state(self) -> None:
+        latest = SimpleNamespace(stats={}, weapons=(), weapons_available=True)
+        overlay, widget = self._weapon_tracker_fast_tick_overlay(
+            latest_snapshot=latest
+        )
+
+        with patch.object(
+            config, "IN_GAME_OVERLAY", self._weapon_tracker_overlay_cfg()
+        ):
+            overlay._overlay_fast_tick()
+
+        widget.set_text.assert_called_once_with("")
+        widget.setVisible.assert_called_with(False)
+
+    def test_weapon_tracker_fast_tick_switches_to_detailed_immediately(self) -> None:
+        latest = SimpleNamespace(
+            stats={"Damage": SimpleNamespace(value=1.0)},
+            weapons=(
+                SimpleNamespace(
+                    weapon_id=23,
+                    name="Katana",
+                    level=4,
+                    upgrade_stat_ids=(12,),
+                    full_stats={12: SimpleNamespace(value=10.0)},
+                    max_duration=-1.0,
+                    max_size_multiplier=-1.0,
+                ),
+            ),
+            weapons_available=True,
+        )
+        overlay, widget = self._weapon_tracker_fast_tick_overlay(
+            latest_snapshot=latest
+        )
+        cfg = self._weapon_tracker_overlay_cfg(selected_stats=["damage"])
+        with patch.object(config, "IN_GAME_OVERLAY", cfg):
+            overlay._overlay_fast_tick()
+            cfg["widgets"]["weapon_tracker"]["layout"] = "detailed"
+            overlay._overlay_fast_tick()
+
+        first_html = widget.set_text.call_args_list[0].args[0]
+        second_html = widget.set_text.call_args_list[1].args[0]
+        self.assertNotIn("Lv.4", first_html)
+        self.assertIn("Lv.4", second_html)
+
+    def test_weapon_tracker_keeps_confirmed_values_after_death(self) -> None:
+        latest = SimpleNamespace(
+            stats={"Damage": SimpleNamespace(value=1.0)},
+            weapons=(
+                SimpleNamespace(
+                    weapon_id=23,
+                    name="Katana",
+                    level=4,
+                    upgrade_stat_ids=(12,),
+                    full_stats={12: SimpleNamespace(value=10.0)},
+                    max_duration=-1.0,
+                    max_size_multiplier=-1.0,
+                ),
+            ),
+            weapons_available=True,
+        )
+        overlay, widget = self._weapon_tracker_fast_tick_overlay(
+            latest_snapshot=latest,
+            run_completed=True,
+        )
+
+        with patch.object(
+            config,
+            "IN_GAME_OVERLAY",
+            self._weapon_tracker_overlay_cfg(selected_stats=["damage"]),
+        ):
+            overlay._overlay_fast_tick()
+
+        self.assertIn("Katana", widget.set_text.call_args.args[0])
+        widget.setVisible.assert_called_with(True)
+
+    def test_weapon_tracker_hides_with_the_overlay_when_game_loses_focus(self) -> None:
+        latest = SimpleNamespace(
+            stats={"Damage": SimpleNamespace(value=1.0)},
+            weapons=(),
+            weapons_available=True,
+        )
+        overlay, widget = self._weapon_tracker_fast_tick_overlay(
+            latest_snapshot=latest
+        )
+        overlay._is_game_window_active = lambda _process_name: False
+
+        with patch.object(
+            config, "IN_GAME_OVERLAY", self._weapon_tracker_overlay_cfg()
+        ):
+            overlay._overlay_fast_tick()
+
+        self.assertFalse(overlay.in_game_overlay_window.isVisible())
+        widget.set_text.assert_not_called()
+
     def test_overlay_fast_tick_does_not_reenter_itself(self) -> None:
         overlay = build_in_game_overlay_test_component()
         overlay._overlay_fast_tick_once = MagicMock(return_value=True)
@@ -7546,7 +7766,9 @@ class GuiRunControlTests(unittest.TestCase):
         overlay.in_game_overlay_window = FakeInGameOverlayWindow()
 
         fake_win32gui = SimpleNamespace(GetWindowRect=lambda _window: (100, 200, 740, 680))
-        with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui):
+        with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui), patch.object(
+            gui_in_game_overlay.QApplication, "screens", return_value=[]
+        ):
             rect = overlay._in_game_overlay_target_geometry()
 
         self.assertIsInstance(rect, QRect)
@@ -7563,7 +7785,9 @@ class GuiRunControlTests(unittest.TestCase):
             GetClientRect=lambda _window: (0, 0, 640, 480),
             ClientToScreen=lambda _window, point: (100 + point[0], 200 + point[1]),
         )
-        with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui):
+        with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui), patch.object(
+            gui_in_game_overlay.QApplication, "screens", return_value=[]
+        ):
             rect = overlay._in_game_overlay_target_geometry()
 
         self.assertEqual(rect, QRect(100, 200, 640, 480))

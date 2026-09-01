@@ -28,6 +28,14 @@ def _test_overlay_config() -> dict:
             "luck_rarity": {"enabled": True, "x": 0, "y": 0, "scale": 1.0, "show_bar": True},
             "stats": {"enabled": True, "x": 0, "y": 0, "scale": 1.0, "selected_stats": ["Damage", "Difficulty", "XP Gain", "Luck"]},
             "event_timer": {"enabled": True, "x": 0, "y": 0, "scale": 1.0, "warning_seconds": 15},
+            "weapon_tracker": {
+                "enabled": True,
+                "x": 0,
+                "y": 0,
+                "scale": 1.0,
+                "layout": "compact",
+                "selected_stats": ["damage", "projectile_count", "size"],
+            },
         }
     }
 
@@ -59,6 +67,84 @@ class InGameOverlayWindowTests(unittest.TestCase):
             self.assertTrue(layer.isHidden())
         finally:
             layer.close()
+
+    def test_weapon_tracker_is_registered_as_one_draggable_widget(self) -> None:
+        parent_mixin = SimpleNamespace(
+            _in_game_overlay_target_geometry=lambda: QRect(0, 0, 640, 480),
+            _toggle_igo_edit_mode=lambda: None,
+        )
+        overlay_config = _test_overlay_config()
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config):
+            window = InGameOverlayWindow(parent_mixin)
+            try:
+                self.assertIn("weapon_tracker", window.widgets)
+                self.assertEqual(
+                    window.widgets["weapon_tracker"].widget_id,
+                    "weapon_tracker",
+                )
+            finally:
+                window.close()
+
+    def test_weapon_tracker_drag_position_persists_through_shared_path(self) -> None:
+        parent_mixin = SimpleNamespace(
+            _in_game_overlay_target_geometry=lambda: QRect(0, 0, 640, 480),
+            _toggle_igo_edit_mode=lambda: None,
+        )
+        overlay_config = _test_overlay_config()
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config):
+            window = InGameOverlayWindow(parent_mixin)
+            try:
+                window.on_widget_moved("weapon_tracker", 123, 234)
+
+                self.assertEqual(
+                    overlay_config["widgets"]["weapon_tracker"]["x"], 123
+                )
+                self.assertEqual(
+                    overlay_config["widgets"]["weapon_tracker"]["y"], 234
+                )
+            finally:
+                window.close()
+
+    def test_weapon_tracker_reclamps_when_rows_or_layout_change_size(self) -> None:
+        # Leave enough room for the compact row at the configured position on
+        # every supported Windows DPI/font setup, while the deliberately large
+        # table below still overflows in both directions.
+        target_rect = QRect(0, 0, 400, 320)
+        parent_mixin = SimpleNamespace(
+            _in_game_overlay_target_geometry=lambda: target_rect,
+            _toggle_igo_edit_mode=lambda: None,
+        )
+        overlay_config = _test_overlay_config()
+        overlay_config["widgets"]["weapon_tracker"]["x"] = 120
+        overlay_config["widgets"]["weapon_tracker"]["y"] = 160
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config):
+            window = InGameOverlayWindow(parent_mixin)
+            try:
+                window.sync_geometry_to_target()
+                widget = window.widgets["weapon_tracker"]
+                widget.set_text(
+                    "<table>"
+                    + "".join(
+                        f"<tr><td>Weapon {index}</td><td>DMG 100 · PROJ 2 · SIZE ×1.4</td></tr>"
+                        for index in range(8)
+                    )
+                    + "</table>"
+                )
+
+                self.assertEqual(
+                    widget.x(), max(0, target_rect.width() - widget.width())
+                )
+                self.assertEqual(
+                    widget.y(), max(0, target_rect.height() - widget.height())
+                )
+
+                widget.set_text("<span>Katana DMG 100</span>")
+                self.assertEqual(widget.pos(), QPoint(120, 160))
+            finally:
+                window.close()
 
     def test_hold_palette_can_show_without_existing_markers(self) -> None:
         layer = MapMarkerLayer()

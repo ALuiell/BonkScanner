@@ -553,6 +553,73 @@ class LegacyNativeHookCleanupTests(unittest.TestCase):
 
 
 class InGameOverlayConfigTests(unittest.TestCase):
+    def test_weapon_tracker_defaults_are_added_to_old_config(self) -> None:
+        normalized = config.normalize_in_game_overlay_config({"widgets": {}})
+
+        self.assertEqual(
+            normalized["widgets"]["weapon_tracker"],
+            config.DEFAULT_IN_GAME_OVERLAY["widgets"]["weapon_tracker"],
+        )
+
+    def test_weapon_tracker_missing_selection_receives_defaults(self) -> None:
+        normalized = config.normalize_in_game_overlay_config(
+            {"widgets": {"weapon_tracker": {"enabled": True}}}
+        )
+
+        self.assertEqual(
+            normalized["widgets"]["weapon_tracker"]["selected_stats"],
+            ["damage", "projectile_count", "size"],
+        )
+
+    def test_weapon_tracker_explicit_empty_selection_is_preserved(self) -> None:
+        normalized = config.normalize_in_game_overlay_config(
+            {"widgets": {"weapon_tracker": {"selected_stats": []}}}
+        )
+
+        self.assertEqual(
+            normalized["widgets"]["weapon_tracker"]["selected_stats"], []
+        )
+
+    def test_weapon_tracker_selection_drops_unknowns_duplicates_and_reorders(self) -> None:
+        normalized = config.normalize_in_game_overlay_config(
+            {
+                "widgets": {
+                    "weapon_tracker": {
+                        "selected_stats": [
+                            "crit_damage",
+                            "size",
+                            "unknown",
+                            "damage",
+                            "size",
+                        ]
+                    }
+                }
+            }
+        )
+
+        self.assertEqual(
+            normalized["widgets"]["weapon_tracker"]["selected_stats"],
+            ["damage", "size", "crit_damage"],
+        )
+
+    def test_weapon_tracker_invalid_layout_normalizes_to_compact(self) -> None:
+        normalized = config.normalize_in_game_overlay_config(
+            {"widgets": {"weapon_tracker": {"layout": "wide"}}}
+        )
+
+        self.assertEqual(
+            normalized["widgets"]["weapon_tracker"]["layout"], "compact"
+        )
+
+    def test_weapon_tracker_detailed_layout_is_preserved(self) -> None:
+        normalized = config.normalize_in_game_overlay_config(
+            {"widgets": {"weapon_tracker": {"layout": "detailed"}}}
+        )
+
+        self.assertEqual(
+            normalized["widgets"]["weapon_tracker"]["layout"], "detailed"
+        )
+
     def test_invalid_scale_falls_back_to_widget_default(self) -> None:
         normalized = config.normalize_in_game_overlay_config(
             {

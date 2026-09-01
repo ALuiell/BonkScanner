@@ -52,6 +52,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from app import config
+from app.in_game_overlay_demand import in_game_overlay_weapon_tracker_active
 from app.read_sources import (
     DISABLED_ITEMS,
     LIVE_BANISHES,
@@ -379,13 +380,16 @@ class PlayerStatsMemory:
         except Exception:
             items_available = False
 
-        # 5. Read optional live stats if relevant tabs/features are active
-        if (
+        # 5. Read optional live stats if relevant tabs/features are active.
+        # Weapon Tracker is narrower than those consumers: it needs weapons
+        # only, not tomes, banishes, disabled items or damage sources.
+        optional_live_stats_requested = (
             self._recording_active()
             or self._live_stats_tab_active()
             or self._overlay_refresh_wanted()
             or self._twitch_bot_active()
-        ):
+        )
+        if optional_live_stats_requested or in_game_overlay_weapon_tracker_active():
             try:
                 client = self._get_player_stats_client()
                 weapons = read_source(context, LIVE_WEAPONS, lambda: client.get_live_weapons(owner_stats))
@@ -397,6 +401,7 @@ class PlayerStatsMemory:
                 weapons = ()
                 weapons_available = False
 
+        if optional_live_stats_requested:
             try:
                 client = self._get_player_stats_client()
                 tomes = read_source(context, LIVE_TOMES, lambda: client.get_live_tomes(owner_stats))

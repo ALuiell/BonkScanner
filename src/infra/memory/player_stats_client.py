@@ -234,6 +234,8 @@ class PlayerStatsClient:
     WEAPON_LEVEL_OFFSET = 0x20
     WEAPON_STATS_DICT_OFFSET = 0x28
     WEAPON_ID_OFFSET = 0x50
+    WEAPON_MAX_DURATION_OFFSET = 0x8C
+    WEAPON_MAX_SIZE_MULTIPLIER_OFFSET = 0x90
     PLAYER_XP_OFFSET = 0x30
     PLAYER_XP_LEVEL_OFFSET = 0x14
     WEAPON_UPGRADE_DATA_OFFSET = 0xD8
@@ -1109,19 +1111,15 @@ class PlayerStatsClient:
         owner_stats = owner_stats or self._resolve_owner_stats()
         player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
         if not player_inventory:
-            return ()
+            raise MemoryReadError("Player inventory is not initialized for weapon read.")
 
         weapon_inventory = self.memory.read_ptr(player_inventory + self.WEAPON_INVENTORY_OFFSET)
         if not weapon_inventory:
-            return ()
+            raise MemoryReadError("Weapon inventory is not initialized.")
 
         weapons_dict = self.memory.read_ptr(weapon_inventory + self.WEAPONS_DICT_OFFSET)
         if not weapons_dict:
-            return ()
-
-        entries = self.memory.read_ptr(weapons_dict + self.DICT_ENTRIES_OFFSET)
-        if not entries:
-            return ()
+            raise MemoryReadError("Weapon inventory dictionary is not initialized.")
 
         count = self.memory.read_i32(weapons_dict + self.DICT_COUNT_OFFSET)
         if count <= 0:
@@ -1129,25 +1127,28 @@ class PlayerStatsClient:
         if count > self.MAX_WEAPON_DICT_ENTRIES:
             raise MemoryReadError(f"Weapon dictionary count is invalid: {count}")
 
+        entries = self.memory.read_ptr(weapons_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            raise MemoryReadError("Weapon dictionary entries are not initialized.")
+
         weapons: list[WeaponSnapshot] = []
         for index in range(count):
             entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.WEAPON_DICT_ENTRY_SIZE)
-            try:
-                hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
-                if hash_code < 0:
-                    continue
-
-                weapon_id = self.memory.read_i32(entry + self.WEAPON_DICT_ENTRY_KEY_OFFSET)
-                weapon_base = self.memory.read_ptr(entry + self.WEAPON_DICT_ENTRY_VALUE_OFFSET)
-                if not weapon_base:
-                    continue
-
-                snapshot = self._read_weapon_snapshot(weapon_id, weapon_base)
-            except MemoryReadError:
+            hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
+            if hash_code < 0:
                 continue
 
-            if snapshot is not None:
-                weapons.append(snapshot)
+            weapon_id = self.memory.read_i32(entry + self.WEAPON_DICT_ENTRY_KEY_OFFSET)
+            weapon_base = self.memory.read_ptr(entry + self.WEAPON_DICT_ENTRY_VALUE_OFFSET)
+            if not weapon_base:
+                raise MemoryReadError(
+                    f"Weapon {weapon_id} has no readable WeaponBase pointer."
+                )
+
+            # A single failed entry makes the whole inventory pass unavailable.
+            # Publishing the other entries as a complete tuple would overwrite
+            # LiveSnapshotStore's last-known inventory and flash one weapon away.
+            weapons.append(self._read_weapon_snapshot(weapon_id, weapon_base))
 
         weapons.sort(key=lambda weapon: weapon.weapon_id)
         return tuple(weapons)
@@ -2787,12 +2788,14 @@ class PlayerStatsClient:
 
         return " ".join(parts) if parts else value
 
-    def _read_weapon_snapshot(self, weapon_id: int, weapon_base: int) -> WeaponSnapshot | None:
+    def _read_weapon_snapshot(self, weapon_id: int, weapon_base: int) -> WeaponSnapshot:
         level = self.memory.read_i32(weapon_base + self.WEAPON_LEVEL_OFFSET)
         weapon_data = self.memory.read_ptr(weapon_base + self.WEAPON_DATA_OFFSET)
         weapon_stats_dict = self.memory.read_ptr(weapon_base + self.WEAPON_STATS_DICT_OFFSET)
         if not weapon_data or not weapon_stats_dict:
-            return None
+            raise MemoryReadError(
+                f"Weapon {weapon_id} has incomplete WeaponData/stat pointers."
+            )
 
         try:
             resolved_weapon_id = self.memory.read_i32(weapon_data + self.WEAPON_ID_OFFSET)
@@ -2801,10 +2804,31 @@ class PlayerStatsClient:
         except MemoryReadError:
             pass
 
+        max_duration = self.memory.read_float(
+            weapon_data + self.WEAPON_MAX_DURATION_OFFSET
+        )
+        max_size_multiplier = self.memory.read_float(
+            weapon_data + self.WEAPON_MAX_SIZE_MULTIPLIER_OFFSET
+        )
+        if not isfinite(max_duration) or not isfinite(max_size_multiplier):
+            raise MemoryReadError(
+                f"Weapon {weapon_id} has non-finite duration/size caps."
+            )
+
         full_stats = self._read_weapon_stats_dict(weapon_stats_dict)
+        if not full_stats:
+            raise MemoryReadError(f"Weapon {weapon_id} has no complete stat dictionary.")
         upgrade_data = self.memory.read_ptr(weapon_data + self.WEAPON_UPGRADE_DATA_OFFSET)
-        upgrade_modifiers = self.memory.read_ptr(upgrade_data + self.UPGRADE_MODIFIERS_OFFSET) if upgrade_data else 0
+        if not upgrade_data:
+            raise MemoryReadError(f"Weapon {weapon_id} has no upgrade data.")
+        upgrade_modifiers = self.memory.read_ptr(
+            upgrade_data + self.UPGRADE_MODIFIERS_OFFSET
+        )
+        if not upgrade_modifiers:
+            raise MemoryReadError(f"Weapon {weapon_id} has no upgrade modifier pool.")
         upgrade_stat_ids = self._read_upgrade_stat_ids(upgrade_modifiers)
+        if not upgrade_stat_ids:
+            raise MemoryReadError(f"Weapon {weapon_id} has an empty upgrade stat pool.")
         upgraded_stats = {
             stat_id: full_stats[stat_id]
             for stat_id in upgrade_stat_ids
@@ -2818,6 +2842,8 @@ class PlayerStatsClient:
             upgrade_stat_ids=upgrade_stat_ids,
             upgraded_stats=upgraded_stats,
             full_stats=full_stats,
+            max_duration=max_duration,
+            max_size_multiplier=max_size_multiplier,
         )
 
     def _read_weapon_stats_dict(self, dictionary_address: int) -> dict[int, WeaponStatValue]:

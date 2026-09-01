@@ -1464,6 +1464,8 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         )
         memory.floats.update(
             {
+                weapon_data + PlayerStatsClient.WEAPON_MAX_DURATION_OFFSET: -1.0,
+                weapon_data + PlayerStatsClient.WEAPON_MAX_SIZE_MULTIPLIER_OFFSET: 4.0,
                 weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 10.0,
                 weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_SIZE + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 2.0,
                 weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + (2 * PlayerStatsClient.STAT_DICT_ENTRY_SIZE) + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 0.6,
@@ -1482,6 +1484,29 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         self.assertEqual(weapons[0].upgraded_stats[12].display_value, "10")
         self.assertEqual(weapons[0].upgraded_stats[11].display_value, "0.6x")
         self.assertIn(16, weapons[0].full_stats)
+        self.assertEqual(weapons[0].max_duration, -1.0)
+        self.assertEqual(weapons[0].max_size_multiplier, 4.0)
+
+        memory.floats[
+            weapon_data + PlayerStatsClient.WEAPON_MAX_SIZE_MULTIPLIER_OFFSET
+        ] = float("inf")
+        with self.assertRaises(MemoryReadError):
+            client.get_live_weapons()
+        memory.floats[
+            weapon_data + PlayerStatsClient.WEAPON_MAX_SIZE_MULTIPLIER_OFFSET
+        ] = 4.0
+
+        second_entry = (
+            weapon_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.WEAPON_DICT_ENTRY_SIZE
+        )
+        memory.ints[weapons_dict + PlayerStatsClient.DICT_COUNT_OFFSET] = 2
+        memory.ints[second_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET] = 1
+        memory.ints[second_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET] = 1
+
+        with self.assertRaises(MemoryReadError):
+            client.get_live_weapons()
 
     def test_get_live_tomes_reads_levels_and_effective_values(self) -> None:
         memory = build_player_stats_memory()

@@ -83,6 +83,10 @@ import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from app import config
+from app.in_game_overlay_demand import (
+    in_game_overlay_requires_player_stats_refresh,
+    in_game_overlay_widget_enabled,
+)
 from app.read_sources import (
     CHARACTER_PASSIVE_READING,
     CHAOS_TRACKING_STATE,
@@ -400,31 +404,6 @@ def build_refresh_coordinator(
 # file's docstring gives for its existing pair: a mixin method reachable only
 # through the shared ``self`` becomes a new hidden cross-mixin read the moment
 # its caller and its definition sit in different files.
-
-
-def in_game_overlay_widget_enabled(widget_id: str) -> bool:
-    # No ``owner`` parameter: this never read ``self``. It was a ``@staticmethod``
-    # on a mixin, which is a free function wearing a class for company.
-    overlay = getattr(config, "IN_GAME_OVERLAY", {}) or {}
-    if not overlay.get("enabled", False):
-        return False
-    widgets = overlay.get("widgets", {}) or {}
-    if not isinstance(widgets, dict):
-        return False
-    widget_cfg = widgets.get(widget_id, {})
-    return isinstance(widget_cfg, dict) and bool(widget_cfg.get("enabled", False))
-
-
-def in_game_overlay_requires_player_stats_refresh() -> bool:
-    # `luck_rarity` is **not** here any more. It demanded the 10 s full snapshot
-    # only because Luck was reachable nowhere else; it now rides the narrow
-    # `LUCK` source on the `passive_items` task, and leaving it here would keep
-    # paying for a full per-stat walk it no longer reads from.
-    return (
-        in_game_overlay_widget_enabled("stats")
-        or in_game_overlay_widget_enabled("event_timer")
-        or in_game_overlay_widget_enabled("build_progression")
-    )
 
 
 def in_game_overlay_luck_expected_frame_active() -> bool:

@@ -505,6 +505,8 @@ class WeaponSnapshot:
     upgrade_stat_ids: tuple[int, ...]
     upgraded_stats: dict[int, WeaponStatValue]
     full_stats: dict[int, WeaponStatValue]
+    max_duration: float | None = None
+    max_size_multiplier: float | None = None
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,10 @@ from uuid import uuid4
 from dataclasses import dataclass
 
 from core.build_progression import PROGRESS_TARGETS
+from core.stats.weapon_tracker import (
+    DEFAULT_WEAPON_TRACKER_SELECTED_STATS,
+    normalize_weapon_tracker_metric_keys,
+)
 from core.json_safety import dumps_strict_json, load_legacy_json
 from core.map_markers import normalize_map_marker_settings
 from core.settings import MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS
@@ -156,6 +160,14 @@ DEFAULT_IN_GAME_OVERLAY = {
         "stats": {"enabled": False, "x": 10, "y": 130, "scale": 1.0, "selected_stats": ["Damage", "Difficulty", "XP Gain", "Luck"]},
         "event_timer": {"enabled": False, "x": 10, "y": 160, "scale": 1.0, "warning_seconds": 15},
         "build_progression": {"enabled": False, "x": 10, "y": 190, "scale": 1.0, "max_rows": 5, "show_completed": False},
+        "weapon_tracker": {
+            "enabled": False,
+            "x": 10,
+            "y": 220,
+            "scale": 1.0,
+            "layout": "compact",
+            "selected_stats": list(DEFAULT_WEAPON_TRACKER_SELECTED_STATS),
+        },
     }
 }
 
@@ -1231,6 +1243,25 @@ def normalize_in_game_overlay_config(value):
                 # grammar now, not optional decorations.
                 widgets[key].pop("show_target_time", None)
                 widgets[key].pop("show_section_headings", None)
+
+            if key == "weapon_tracker":
+                selected_stats_val = widgets[key].get("selected_stats")
+                if isinstance(
+                    selected_stats_val,
+                    (list, tuple, set, frozenset),
+                ):
+                    widgets[key]["selected_stats"] = list(
+                        normalize_weapon_tracker_metric_keys(selected_stats_val)
+                    )
+                else:
+                    widgets[key]["selected_stats"] = list(
+                        DEFAULT_WEAPON_TRACKER_SELECTED_STATS
+                    )
+                widgets[key]["layout"] = (
+                    widgets[key].get("layout")
+                    if widgets[key].get("layout") in ("compact", "detailed")
+                    else "compact"
+                )
             
             if key == "kps":
                 metrics_val = widgets[key].get("metrics")

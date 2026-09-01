@@ -347,7 +347,11 @@ class PlayerStatsRefresh:
             items=effective_items,
             items_available=items_available,
             weapons=effective_weapons,
-            weapons_available=weapons_available,
+            # This immutable snapshot is the rendering boundary, so its
+            # availability describes the effective last-known tuple rather
+            # than only the newest physical read. The latter remains local to
+            # this refresh for health/status accounting above.
+            weapons_available=effective_weapons_available,
             tomes=effective_tomes,
             tomes_available=tomes_available,
             banishes=banishes,

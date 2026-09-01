@@ -8,10 +8,84 @@ from types import SimpleNamespace
 from projections.in_game_html import (
     build_event_timer_overlay_html,
     build_stats_overlay_html,
+    build_weapon_tracker_overlay_html,
 )
+from core.stats.weapon_tracker import WeaponTrackerMetric, WeaponTrackerRow
 
 
 class InGameOverlayRenderTests(unittest.TestCase):
+    def _weapon_rows(self):
+        return (
+            WeaponTrackerRow(
+                weapon_id=23,
+                name="Katana",
+                level=4,
+                metrics=(
+                    WeaponTrackerMetric("damage", 12, "DMG", 100.0),
+                    WeaponTrackerMetric("projectile_count", 16, "PROJ", 2.0),
+                    WeaponTrackerMetric("size", 9, "SIZE", 1.4),
+                ),
+            ),
+        )
+
+    def test_weapon_tracker_compact_is_one_row_without_level_or_heading(self) -> None:
+        html = build_weapon_tracker_overlay_html(
+            self._weapon_rows(), layout="compact"
+        )
+
+        self.assertIn("Katana", html)
+        self.assertIn("DMG", html)
+        self.assertIn("100", html)
+        self.assertIn("PROJ", html)
+        self.assertIn("×1.4", html)
+        self.assertNotIn("Lv.4", html)
+        self.assertNotIn("Weapons", html)
+        self.assertEqual(html.count("<tr>"), 1)
+
+    def test_weapon_tracker_detailed_shows_level_and_metric_rows(self) -> None:
+        html = build_weapon_tracker_overlay_html(
+            self._weapon_rows(), layout="detailed"
+        )
+
+        self.assertIn("Katana", html)
+        self.assertIn("Lv.4", html)
+        self.assertEqual(html.count("<tr>"), 4)
+        self.assertNotIn("Weapons", html)
+
+    def test_weapon_tracker_escapes_weapon_names(self) -> None:
+        rows = (
+            WeaponTrackerRow(
+                weapon_id=1,
+                name="A&B <Bow>",
+                level=1,
+                metrics=(WeaponTrackerMetric("damage", 12, "DMG", 10.0),),
+            ),
+        )
+
+        html = build_weapon_tracker_overlay_html(rows)
+
+        self.assertIn("A&amp;B &lt;Bow&gt;", html)
+        self.assertNotIn("A&B <Bow>", html)
+
+    def test_weapon_tracker_edit_mode_status_messages_are_exact(self) -> None:
+        for message in (
+            "No Weapon Stats Selected",
+            "Waiting for Weapon Data",
+            "No Matching Weapon Stats",
+        ):
+            with self.subTest(message=message):
+                html = build_weapon_tracker_overlay_html(
+                    (), edit_mode=True, status_message=message
+                )
+                self.assertIn("Weapons", html)
+                self.assertIn(message, html)
+
+    def test_weapon_tracker_normal_empty_state_is_hidden_without_heading(self) -> None:
+        html = build_weapon_tracker_overlay_html((), edit_mode=False)
+
+        self.assertEqual(html, "")
+        self.assertNotIn("Weapons", html)
+
     def test_stats_overlay_uses_shared_stat_abbreviations(self) -> None:
         snapshot = SimpleNamespace(
             stats={

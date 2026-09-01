@@ -22,6 +22,10 @@ from PySide6.QtWidgets import (
 
 from app import config
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
+from core.stats.weapon_tracker import (
+    WEAPON_TRACKER_METRICS,
+    WEAPON_TRACKER_METRIC_ORDER,
+)
 from ui.run_toggle import IN_GAME_OVERLAY_CAPTIONS
 from ui.dialogs.map_markers import MapMarkerSettingsDialog
 from ui.dialogs.shell import DIALOG_REGULAR, dialog_body, dialog_footer
@@ -30,7 +34,11 @@ from ui.shared import LabeledSwitch, _make_scroll_section
 from ui.styles import _set_widget_style_role
 from ui.tab_hero import STATE_OFF, STATE_OK, STATE_WARN, TabHero
 
-#: The seven in-game widgets, in table order, with the label each row carries
+
+WEAPON_TRACKER_LAYOUT_DEBOUNCE_MS = 100
+
+
+#: The in-game widgets, in table order, with the label each row carries
 #: and the attribute its enable toggle is stored under.
 #:
 #: Named for rows rather than tiles because that is what they are now: the
@@ -48,6 +56,7 @@ IN_GAME_WIDGET_ROWS = (
     ("event_timer", "Event timer", "igo_event_timer_cb"),
     ("item_cooldowns", "Item cooldowns", "igo_item_cooldowns_cb"),
     ("build_progression", "Build Progression", "igo_build_progression_cb"),
+    ("weapon_tracker", "Weapon Tracker", "igo_weapon_tracker_cb"),
 )
 
 
@@ -69,6 +78,7 @@ IGO_SCALE_SPIN_ATTRIBUTES = {
     "event_timer": "igo_event_timer_scale_spin",
     "item_cooldowns": "igo_item_cooldowns_scale_spin",
     "build_progression": "igo_build_progression_scale_spin",
+    "weapon_tracker": "igo_weapon_tracker_scale_spin",
 }
 
 
@@ -146,6 +156,56 @@ class InGameWidgetSettingsDialog(QDialog):
         # The Stats row on the tab reports this count; without the call it keeps
         # whatever it said when the tab was built.
         refresh_in_game_overlay_stats_summary(self.parent_mixin)
+
+
+class WeaponTrackerSettingsDialog(QDialog):
+    """Focused Save/Cancel editor for Weapon Tracker metrics."""
+
+    def __init__(self, parent_mixin: Any, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.parent_mixin = parent_mixin
+        self.setWindowTitle("Weapon Tracker settings")
+
+        layout = dialog_body(
+            self,
+            title="Weapon Tracker",
+            subtitle="Choose upgradeable weapon stats shown in game.",
+            width=DIALOG_REGULAR,
+        )
+        settings = config.IN_GAME_OVERLAY["widgets"]["weapon_tracker"]
+        selected = set(settings.get("selected_stats", ()))
+
+        grid_widget = QWidget(self)
+        grid_layout = QGridLayout(grid_widget)
+        grid_layout.setSpacing(10)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.metric_checkboxes: dict[str, QCheckBox] = {}
+        for index, key in enumerate(WEAPON_TRACKER_METRIC_ORDER):
+            caption = WEAPON_TRACKER_METRICS[key].player_stat_label
+            checkbox = QCheckBox(caption, grid_widget)
+            checkbox.setChecked(key in selected)
+            self.metric_checkboxes[key] = checkbox
+            grid_layout.addWidget(checkbox, index // 2, index % 2)
+        layout.addWidget(grid_widget)
+        layout.addStretch(1)
+
+        cancel_btn = QPushButton("Cancel", self)
+        cancel_btn.clicked.connect(self.reject)
+        save_btn = QPushButton("Save", self)
+        save_btn.clicked.connect(self._save_settings)
+        dialog_footer(self, secondary=cancel_btn, primary=save_btn)
+
+    def _save_settings(self) -> None:
+        settings = config.IN_GAME_OVERLAY["widgets"]["weapon_tracker"]
+        settings["selected_stats"] = [
+            key
+            for key in WEAPON_TRACKER_METRIC_ORDER
+            if self.metric_checkboxes[key].isChecked()
+        ]
+        self.parent_mixin.apply_in_game_overlay_settings()
+        config.save_config(config.user_config)
+        refresh_weapon_tracker_settings_summary(self.parent_mixin)
+        self.accept()
 
 
 def build_in_game_overlay_tab(parent_mixin: Any) -> None:
@@ -318,7 +378,7 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
 
     This used to be a grid of on/off tiles with a `Widget Settings` button
     opening a dialog that held the scales. The two halves were always about the
-    same seven widgets, and splitting them across a tab and a modal was worth it
+    the same widgets, and splitting them across a tab and a modal was worth it
     only while that modal was a 700x760 window with tabs of its own. Once it
     became a 639x348 table it fitted the tab with room to spare -- and the tab
     had about 1560x580 of nothing in it.
@@ -613,6 +673,50 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
         row.addStretch(1)
         return holder
 
+    if widget_id == "weapon_tracker":
+        holder, row = _options_row()
+        settings_btn = QPushButton("Settings…")
+        settings_btn.clicked.connect(
+            parent_mixin._open_weapon_tracker_settings_dialog
+        )
+        parent_mixin.igo_weapon_tracker_settings_btn = settings_btn
+        row.addWidget(settings_btn)
+        parent_mixin.igo_weapon_tracker_summary_label = QLabel("")
+        parent_mixin.igo_weapon_tracker_summary_label.setObjectName(
+            "tableRowEmpty"
+        )
+        row.addWidget(parent_mixin.igo_weapon_tracker_summary_label)
+        parent_mixin.igo_weapon_tracker_layout_combo = QComboBox()
+        for caption, value in (("Compact", "compact"), ("Detailed", "detailed")):
+            parent_mixin.igo_weapon_tracker_layout_combo.addItem(caption, value)
+        settings = config.IN_GAME_OVERLAY["widgets"]["weapon_tracker"]
+        parent_mixin.igo_weapon_tracker_layout_combo.setCurrentIndex(
+            max(
+                0,
+                parent_mixin.igo_weapon_tracker_layout_combo.findData(
+                    settings.get("layout", "compact")
+                ),
+            )
+        )
+        parent_mixin.igo_weapon_tracker_layout_combo.setMaximumWidth(118)
+        parent_mixin.igo_weapon_tracker_layout_apply_timer = QTimer(
+            parent_mixin.igo_weapon_tracker_layout_combo
+        )
+        parent_mixin.igo_weapon_tracker_layout_apply_timer.setSingleShot(True)
+        parent_mixin.igo_weapon_tracker_layout_apply_timer.setInterval(
+            WEAPON_TRACKER_LAYOUT_DEBOUNCE_MS
+        )
+        parent_mixin.igo_weapon_tracker_layout_apply_timer.timeout.connect(
+            parent_mixin._apply_igo_weapon_tracker_layout_change
+        )
+        parent_mixin.igo_weapon_tracker_layout_combo.currentIndexChanged.connect(
+            parent_mixin._queue_igo_weapon_tracker_layout_change
+        )
+        row.addWidget(parent_mixin.igo_weapon_tracker_layout_combo)
+        row.addStretch(1)
+        refresh_weapon_tracker_settings_summary(parent_mixin)
+        return holder
+
     return None
 
 
@@ -636,6 +740,15 @@ def refresh_in_game_overlay_stats_summary(parent_mixin: Any) -> None:
         return
     selected = config.IN_GAME_OVERLAY["widgets"]["stats"].get("selected_stats") or []
     label.setText(f"{len(selected)} selected" if selected else "defaults")
+
+
+def refresh_weapon_tracker_settings_summary(parent_mixin: Any) -> None:
+    label = getattr(parent_mixin, "igo_weapon_tracker_summary_label", None)
+    if label is None:
+        return
+    settings = config.IN_GAME_OVERLAY["widgets"]["weapon_tracker"]
+    selected_count = len(settings.get("selected_stats", ()))
+    label.setText(f"{selected_count} stats")
 
 
 def in_game_overlay_hotkey_text() -> str:

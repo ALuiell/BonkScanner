@@ -1101,6 +1101,8 @@ def _weapon_to_record(weapon: WeaponSnapshot) -> dict[str, Any]:
         "id": weapon.weapon_id,
         "name": weapon.name,
         "level": weapon.level,
+        "max_duration": weapon.max_duration,
+        "max_size_multiplier": weapon.max_size_multiplier,
         "upgrade_stat_ids": list(weapon.upgrade_stat_ids),
         "upgraded_stats": {
             str(stat_id): _weapon_stat_value_to_record(value)
@@ -1237,6 +1239,10 @@ def _record_to_weapon(record: Any, share=None) -> WeaponSnapshot:
         upgrade_stat_ids=upgrade_stat_ids,
         upgraded_stats=_record_to_weapon_stats(raw_upgraded_stats),
         full_stats=_record_to_weapon_stats(raw_full_stats),
+        max_duration=_coerce_optional_float(record.get("max_duration")),
+        max_size_multiplier=_coerce_optional_float(
+            record.get("max_size_multiplier")
+        ),
     )
 
 

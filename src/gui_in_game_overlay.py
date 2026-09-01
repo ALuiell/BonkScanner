@@ -50,8 +50,13 @@ from projections.in_game_html import (
     build_powerups_overlay_html,
     build_stats_overlay_html,
     build_status_indicator_html,
+    build_weapon_tracker_overlay_html,
 )
 from projections.build_progression import build_progression_payload
+from core.stats.weapon_tracker import (
+    DEFAULT_WEAPON_TRACKER_SELECTED_STATS,
+    calculate_weapon_tracker_rows,
+)
 # `calculate_luck_rarity_probabilities` is `core.luck_rarity`'s, and was reached
 # through `projections.in_game_html` -- which imported it, never used it, and so
 # was a re-export this module was the only reader of. Taken from its owner, on
@@ -64,6 +69,7 @@ from gui_in_game_overlay_settings import (
     IGO_SCALE_SPIN_ATTRIBUTES,
     IN_GAME_WIDGET_ROWS,
     InGameWidgetSettingsDialog,
+    WeaponTrackerSettingsDialog,
     build_in_game_overlay_tab,
     refresh_in_game_overlay_hotkey_ui,
     update_in_game_overlay_status_ui,
@@ -98,6 +104,7 @@ class InGameOverlay:
         can_run: Callable[[], bool] = lambda: True,
         log: Callable[..., None] = lambda *_args, **_kwargs: None,
         widget_settings_dialog: Callable[["InGameOverlay", QWidget | None], Any] = InGameWidgetSettingsDialog,
+        weapon_tracker_settings_dialog: Callable[["InGameOverlay", QWidget | None], Any] = WeaponTrackerSettingsDialog,
         timer_factory: Callable[[], Any] = QTimer,
         map_marker_tracker_factory: Callable[[str], Any] = MapMarkerTracker,
         map_marker_executor_factory: Callable[[], Executor] = _build_map_marker_executor,
@@ -124,6 +131,7 @@ class InGameOverlay:
         self._can_run = can_run
         self._log = log
         self._widget_settings_dialog = widget_settings_dialog
+        self._weapon_tracker_settings_dialog = weapon_tracker_settings_dialog
         self._map_marker_tracker = map_marker_tracker_factory(config.PROCESS_NAME)
         self._map_marker_executor_factory = map_marker_executor_factory
         self._map_marker_executor: Executor | None = None
@@ -334,11 +342,11 @@ class InGameOverlay:
             widget = self.in_game_overlay_window.widgets.get(widget_id)
             if widget is None:
                 continue
-            # These two hide themselves from the fast tick when they have
-            # nothing to say -- no buff up, no timed item held -- so applying
-            # settings may only ever *hide* them. Showing here would put an
-            # empty box on screen until the next tick took it away again.
-            if widget_id in ("powerups", "item_cooldowns"):
+            # These hide themselves from the fast tick when they have nothing
+            # to say -- no buff, no timed item, or no matching weapon stats --
+            # so applying settings may only ever *hide* them. Showing here
+            # would put an empty box on screen until the next tick removed it.
+            if widget_id in ("powerups", "item_cooldowns", "weapon_tracker"):
                 if not widget_cfg["enabled"]:
                     widget.setVisible(False)
             else:
@@ -1000,6 +1008,51 @@ class InGameOverlay:
                 bool(html) or self.in_game_overlay_window.edit_mode
             )
 
+        weapon_cfg = cfg["widgets"].get("weapon_tracker", {})
+        weapon_widget = widgets.get("weapon_tracker")
+        if weapon_widget is not None:
+            if weapon_cfg.get("enabled", False):
+                selected_stats = tuple(
+                    weapon_cfg.get(
+                        "selected_stats",
+                        DEFAULT_WEAPON_TRACKER_SELECTED_STATS,
+                    )
+                )
+                edit_mode = self.in_game_overlay_window.edit_mode
+                rows = ()
+                if not selected_stats:
+                    status_message = "No Weapon Stats Selected"
+                elif latest_snapshot is None:
+                    status_message = "Waiting for Weapon Data"
+                else:
+                    weapons = tuple(
+                        getattr(latest_snapshot, "weapons", ()) or ()
+                    )
+                    weapons_available = bool(
+                        getattr(latest_snapshot, "weapons_available", False)
+                    )
+                    if not weapons and not weapons_available:
+                        status_message = "Waiting for Weapon Data"
+                    else:
+                        rows = calculate_weapon_tracker_rows(
+                            weapons,
+                            getattr(latest_snapshot, "stats", {}) or {},
+                            selected_stats,
+                        )
+                        status_message = (
+                            None if rows else "No Matching Weapon Stats"
+                        )
+                html = build_weapon_tracker_overlay_html(
+                    rows,
+                    layout=weapon_cfg.get("layout", "compact"),
+                    edit_mode=edit_mode,
+                    status_message=status_message,
+                )
+                weapon_widget.set_text(html)
+                weapon_widget.setVisible(bool(rows) or edit_mode)
+            else:
+                weapon_widget.setVisible(False)
+
         if cfg["widgets"]["powerups"]["enabled"]:
             snapshot = projection.powerups
             html = build_powerups_overlay_html(
@@ -1196,6 +1249,15 @@ class InGameOverlay:
         columns of the same table now, so there is one saver -- which is also
         one less way for the two to disagree about what a widget's settings are.
         """
+        # A different table control may be changed while a debounced Weapon
+        # Tracker layout update is pending. This full save already observes the
+        # combo's latest value, so cancel the redundant trailing repaint/write.
+        layout_timer = getattr(
+            self, "igo_weapon_tracker_layout_apply_timer", None
+        )
+        if layout_timer is not None:
+            layout_timer.stop()
+
         cfg = config.IN_GAME_OVERLAY
         widgets = cfg["widgets"]
         cfg["auto_start"] = self.igo_auto_start_cb.isChecked()
@@ -1233,6 +1295,10 @@ class InGameOverlay:
         if getattr(self, "igo_build_max_rows_spin", None) is not None:
             widgets["build_progression"]["max_rows"] = self.igo_build_max_rows_spin.value()
             widgets["build_progression"]["show_completed"] = self.igo_build_completed_cb.isChecked()
+        if getattr(self, "igo_weapon_tracker_layout_combo", None) is not None:
+            widgets["weapon_tracker"]["layout"] = (
+                self.igo_weapon_tracker_layout_combo.currentData() or "compact"
+            )
 
         marker_cfg = cfg.setdefault("map_markers", {})
         if self.igo_map_markers_cb is not None:
@@ -1241,6 +1307,25 @@ class InGameOverlay:
             marker_cfg["scale"] = self.igo_map_markers_scale_spin.value()
 
         self.apply_in_game_overlay_settings()
+        config.save_config(config.user_config)
+
+    def _queue_igo_weapon_tracker_layout_change(self, *_args) -> None:
+        """Remember the latest layout and coalesce expensive UI-side work."""
+        combo = getattr(self, "igo_weapon_tracker_layout_combo", None)
+        if combo is None:
+            return
+        config.IN_GAME_OVERLAY["widgets"]["weapon_tracker"]["layout"] = (
+            combo.currentData() or "compact"
+        )
+        timer = getattr(self, "igo_weapon_tracker_layout_apply_timer", None)
+        if timer is None:
+            self._apply_igo_weapon_tracker_layout_change()
+            return
+        timer.start()
+
+    def _apply_igo_weapon_tracker_layout_change(self) -> None:
+        """Render and persist the last layout after rapid changes settle."""
+        self._overlay_fast_tick()
         config.save_config(config.user_config)
 
     def _toggle_igo_edit_mode(self) -> None:
@@ -1294,6 +1379,17 @@ class InGameOverlay:
 
     def _open_igo_widget_settings_dialog(self) -> None:
         dialog = self._widget_settings_dialog(self, self.tab_in_game_overlay)
+        try:
+            dialog.exec()
+        finally:
+            delete_later = getattr(dialog, "deleteLater", None)
+            if callable(delete_later):
+                delete_later()
+
+    def _open_weapon_tracker_settings_dialog(self) -> None:
+        dialog = self._weapon_tracker_settings_dialog(
+            self, self.tab_in_game_overlay
+        )
         try:
             dialog.exec()
         finally:

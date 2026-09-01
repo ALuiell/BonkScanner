@@ -13,11 +13,17 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app.snapshot_store import LiveSnapshotStore
 from app.player_stats_source import FullPlayerSample
+from app import config
+from app.in_game_overlay_demand import (
+    in_game_overlay_requires_player_stats_refresh,
+    in_game_overlay_weapon_tracker_active,
+)
 from infra.memory.reader import MemoryReadError
 from tests.support.player_stats_memory import build_player_stats_memory
 
@@ -30,7 +36,152 @@ class _CountingClient:
         self.closed += 1
 
 
+class _FullSampleClient:
+    def __init__(self, *, weapons=(), weapon_error: Exception | None = None) -> None:
+        self.weapons = tuple(weapons)
+        self.weapon_error = weapon_error
+        self.weapon_reads = 0
+        self.tome_reads = 0
+
+    def resolve_owner_stats(self):
+        return 0x1234
+
+    def get_player_stats(self, _owner_stats=None):
+        return {"Damage": SimpleNamespace(value=1.0)}
+
+    def get_passive_items(self, _owner_stats=None):
+        return ()
+
+    def get_run_timer(self):
+        return 21.0
+
+    def get_stage_timer_context(self):
+        return 1.0, 0, 600.0
+
+    def get_live_weapons(self, _owner_stats=None):
+        self.weapon_reads += 1
+        if self.weapon_error is not None:
+            raise self.weapon_error
+        return self.weapons
+
+    def get_live_tomes(self, _owner_stats=None):
+        self.tome_reads += 1
+        return ()
+
+    def get_killed_mobs(self):
+        return 0
+
+    def get_player_level(self, _owner_stats=None):
+        return 1
+
+
+def _overlay_config(*, master=True, widget=True, selected=None):
+    return config.normalize_in_game_overlay_config(
+        {
+            "enabled": master,
+            "widgets": {
+                "weapon_tracker": {
+                    "enabled": widget,
+                    "selected_stats": (
+                        ["damage"] if selected is None else selected
+                    ),
+                }
+            },
+        }
+    )
+
+
 class PlayerStatsMemoryTests(unittest.TestCase):
+    def test_weapon_tracker_demand_requires_master_widget_and_nonempty_selection(self) -> None:
+        cases = (
+            (False, True, ["damage"], False),
+            (True, False, ["damage"], False),
+            (True, True, [], False),
+            (True, True, ["damage"], True),
+        )
+        for master, widget, selected, expected in cases:
+            with self.subTest(
+                master=master, widget=widget, selected=selected
+            ), patch.object(
+                config,
+                "IN_GAME_OVERLAY",
+                _overlay_config(
+                    master=master, widget=widget, selected=selected
+                ),
+            ):
+                self.assertEqual(
+                    in_game_overlay_weapon_tracker_active(), expected
+                )
+                self.assertEqual(
+                    in_game_overlay_requires_player_stats_refresh(), expected
+                )
+
+    def test_weapon_tracker_only_full_sample_reads_one_weapon_walk_and_nothing_else(self) -> None:
+        weapon = SimpleNamespace(weapon_id=23, name="Katana")
+        client = _FullSampleClient(weapons=(weapon,))
+        game_data = SimpleNamespace(
+            get_map_generation_state=lambda: SimpleNamespace(
+                map_seed=123, current_stage_ptr=1
+            )
+        )
+        service, _world = build_player_stats_memory(
+            stats_client=client,
+            game_data_client=game_data,
+        )
+
+        with patch.object(
+            config,
+            "IN_GAME_OVERLAY",
+            _overlay_config(master=True, widget=True, selected=["damage"]),
+        ):
+            sample = service.read_full_sample()
+
+        self.assertEqual(sample.weapons, (weapon,))
+        self.assertTrue(sample.weapons_available)
+        self.assertEqual(client.weapon_reads, 1)
+        self.assertEqual(client.tome_reads, 0)
+
+    def test_disabled_or_empty_weapon_tracker_creates_no_weapon_read(self) -> None:
+        for widget, selected in ((False, ["damage"]), (True, [])):
+            with self.subTest(widget=widget, selected=selected):
+                client = _FullSampleClient()
+                game_data = SimpleNamespace(
+                    get_map_generation_state=lambda: SimpleNamespace(
+                        map_seed=123, current_stage_ptr=1
+                    )
+                )
+                service, _world = build_player_stats_memory(
+                    stats_client=client,
+                    game_data_client=game_data,
+                )
+                with patch.object(
+                    config,
+                    "IN_GAME_OVERLAY",
+                    _overlay_config(
+                        master=True, widget=widget, selected=selected
+                    ),
+                ):
+                    sample = service.read_full_sample()
+
+                self.assertEqual(sample.weapons, ())
+                self.assertFalse(sample.weapons_available)
+                self.assertEqual(client.weapon_reads, 0)
+
+    def test_temporary_failure_retains_last_weapon_but_new_run_clears_it(self) -> None:
+        weapon = SimpleNamespace(weapon_id=23, name="Katana")
+        store = LiveSnapshotStore()
+        first = store.merge_weapons((weapon,), True)
+        failed = store.merge_weapons((), False)
+
+        self.assertEqual(first.effective, (weapon,))
+        self.assertEqual(failed.effective, (weapon,))
+        self.assertTrue(failed.effective_available)
+
+        store.reset_for_new_match()
+        new_run_failed = store.merge_weapons((), False)
+        self.assertEqual(new_run_failed.effective, ())
+        self.assertFalse(new_run_failed.effective_available)
+
     def test_full_sample_preserves_the_legacy_tuple_field_order(self) -> None:
         values = (
             {"Damage": 1},

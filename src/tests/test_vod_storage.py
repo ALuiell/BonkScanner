@@ -349,6 +349,8 @@ class VodStorageTests(unittest.TestCase):
                             11: WeaponStatValue(11, "Speed", 0.6, WeaponStatFormat.MULTIPLIER),
                             24: WeaponStatValue(24, "Knockback", 1.0, WeaponStatFormat.MULTIPLIER),
                         },
+                        max_duration=5.0,
+                        max_size_multiplier=-1.0,
                     ),
                 ),
                 (
@@ -450,6 +452,8 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].weapons[0].name, "Fire Staff")
             self.assertEqual(loaded.snapshots[0].weapons[0].upgraded_stats[12].display_value, "10")
             self.assertEqual(loaded.snapshots[0].weapons[0].upgraded_stats[11].display_value, "0.6x")
+            self.assertEqual(loaded.snapshots[0].weapons[0].max_duration, 5.0)
+            self.assertEqual(loaded.snapshots[0].weapons[0].max_size_multiplier, -1.0)
             self.assertEqual(loaded.snapshots[0].tomes[0].name, "Damage")
             self.assertEqual(loaded.snapshots[0].tomes[0].level, 3)
             self.assertEqual(loaded.snapshots[0].tomes[0].display_value, "1.25x")
@@ -510,6 +514,26 @@ class VodStorageTests(unittest.TestCase):
 
             delete_vod(renamed.path)
             self.assertFalse(renamed.path.exists())
+
+    def test_legacy_weapon_without_caps_loads_with_none(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "legacy-weapon.jsonl"
+            path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":7,"name":"Legacy weapon","created_at":"2026-09-01T00:00:00","snapshot_interval_seconds":60}',
+                        '{"type":"snapshot","elapsed_seconds":0,"captured_at":1.0,"stats":{},"weapons":[{"id":0,"name":"Fire Staff","level":1,"upgrade_stat_ids":[],"upgraded_stats":{},"full_stats":{}}]}',
+                        '{"type":"summary","duration_seconds":0,"snapshot_count":1}',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            weapon = load_vod(path).snapshots[0].weapons[0]
+
+            self.assertIsNone(weapon.max_duration)
+            self.assertIsNone(weapon.max_size_multiplier)
 
     def test_recorder_writes_non_finite_measurements_as_json_null(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

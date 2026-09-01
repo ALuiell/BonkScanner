@@ -25,6 +25,7 @@ from core.luck_rarity import (
     LUCK_RARITY_ORDER,
     format_expected_count,
 )
+from core.stats.weapon_tracker import WeaponTrackerRow
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {
@@ -55,6 +56,85 @@ POWERUP_COLORS: dict[str, str] = {
 # stylesheet, which makes the same state the same colour on both surfaces.
 CRITICAL_COLOR = "#ff4d4d"
 HEADER_COLOR = "#ffffff"
+
+
+def build_weapon_tracker_overlay_html(
+    rows: tuple[WeaponTrackerRow, ...],
+    *,
+    layout: str = "compact",
+    edit_mode: bool = False,
+    status_message: str | None = None,
+) -> str:
+    """Render the approved text-only Weapon Tracker Qt rich text."""
+    if not rows and not edit_mode:
+        return ""
+
+    parts: list[str] = []
+    if edit_mode:
+        parts.append(
+            f"<div style='color:{HEADER_COLOR}; text-shadow:{TEXT_SHADOW}; "
+            "font-weight:bold; margin-bottom:3px;'>Weapons</div>"
+        )
+
+    if not rows:
+        message = escape(str(status_message or "No Matching Weapon Stats"))
+        parts.append(
+            f"<div style='color:#94a3b8; text-shadow:{TEXT_SHADOW};'>"
+            f"{message}</div>"
+        )
+        return "".join(parts)
+
+    if layout == "detailed":
+        parts.append(_build_detailed_weapon_tracker_html(rows))
+    else:
+        parts.append(_build_compact_weapon_tracker_html(rows))
+    return "".join(parts)
+
+
+def _build_compact_weapon_tracker_html(
+    rows: tuple[WeaponTrackerRow, ...],
+) -> str:
+    rendered_rows = []
+    for row in rows:
+        metrics = []
+        for metric in row.metrics:
+            metrics.append(
+                f"<span style='color:#94a3b8'>{escape(str(metric.label))}</span> "
+                f"<span style='color:#16e7ff'>{escape(metric.display_value)}</span>"
+            )
+        rendered_rows.append(
+            "<tr>"
+            f"<td style='color:#ffffff; padding-right:10px'>{escape(row.name)}</td>"
+            f"<td>{' <span style=\"color:#64748b\">·</span> '.join(metrics)}</td>"
+            "</tr>"
+        )
+    return (
+        f"<table cellspacing='0' cellpadding='0' style='text-shadow:{TEXT_SHADOW};'>"
+        f"{''.join(rendered_rows)}</table>"
+    )
+
+
+def _build_detailed_weapon_tracker_html(
+    rows: tuple[WeaponTrackerRow, ...],
+) -> str:
+    rendered_weapons = []
+    for row in rows:
+        metric_rows = "".join(
+            "<tr>"
+            f"<td style='color:#94a3b8; padding-right:10px'>{escape(str(metric.label))}</td>"
+            f"<td style='color:#16e7ff'>{escape(metric.display_value)}</td>"
+            "</tr>"
+            for metric in row.metrics
+        )
+        rendered_weapons.append(
+            f"<table cellspacing='0' cellpadding='0' style='text-shadow:{TEXT_SHADOW};'>"
+            "<tr>"
+            f"<td colspan='2' style='color:#ffffff; padding-top:2px'>{escape(row.name)} "
+            f"<span style='color:#94a3b8'>Lv.{escape(str(row.level))}</span></td>"
+            "</tr>"
+            f"{metric_rows}</table>"
+        )
+    return "<br>".join(rendered_weapons)
 
 
 def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: bool = False) -> str:
