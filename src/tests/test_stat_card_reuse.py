@@ -156,6 +156,53 @@ class StatCardReuseTests(unittest.TestCase):
         self.assertIs(second[0], first[1])
         self.assertIs(second[1], first[0])
 
+    def test_one_label_mode_updates_chaos_shrines_and_passives_in_place(self) -> None:
+        view = self._view()
+        projectile_speed = _stat(16, "Projectile Speed", 2, "+20%")
+        view.display_chaos_tome(
+            SimpleNamespace(
+                level=2,
+                ambiguous_rolls=0,
+                stats=(projectile_speed,),
+            )
+        )
+        view.display_charge_shrines(
+            SimpleNamespace(
+                charged=2,
+                selected=2,
+                pending=0,
+                ambiguous_matches=0,
+                stats=(projectile_speed,),
+            )
+        )
+        passive = SimpleNamespace(
+            character_id=1,
+            passive_id=2,
+            character_name="Dice",
+            passive_name="Gamba",
+            level=10,
+            status=SimpleNamespace(value="supported"),
+            coverage="full",
+            ambiguous=0,
+            pending=0,
+            effects=(_effect("stat:16", "Projectile Speed", "+20%", 2),),
+        )
+        view.display_character_passive(passive)
+        cards = (
+            view._chaos_grid._cards[0],
+            view._shrine_grid._cards[0],
+            view._character_passive_grid._cards[0],
+        )
+
+        view.set_expanded_stat_labels(False)
+        for card in cards:
+            self.assertIn("ProjSpeed", self._texts(card))
+            self.assertNotIn("Projectile Speed", self._texts(card))
+
+        view.set_expanded_stat_labels(True)
+        for card in cards:
+            self.assertIn("Projectile Speed", self._texts(card))
+
     def test_weapon_and_tome_outer_cards_survive_value_changes(self) -> None:
         view = self._view()
         weapon = SimpleNamespace(

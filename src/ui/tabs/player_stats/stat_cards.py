@@ -73,6 +73,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.stat_labels import abbreviate_stat_label
 from core.stats.types import TomeSnapshot, WeaponSnapshot
 from core.tracker.chaos import CHAOS_FINGERPRINTS, CHAOS_TOME_GAME_STAT_ORDER
 from core.tracker.shrines import SHRINE_RARITY_MULTIPLIERS
@@ -434,6 +435,7 @@ class _RollStatCard(QFrame):
         self._rolls_label = QLabel()
         layout.addWidget(self._rolls_label)
         self._quality_color: str | None = None
+        self._full_name = ""
 
     def update_stat(
         self,
@@ -442,8 +444,10 @@ class _RollStatCard(QFrame):
         name: str,
         quality: float | None,
         quality_tooltip: str,
+        expanded: bool = True,
     ) -> None:
-        _set_text(self._name_label, name)
+        self._full_name = str(name)
+        self.set_expanded_stat_label(expanded)
         _set_text(self._value_label, str(getattr(stat, "display_delta", "--")))
         rolls = max(0, int(getattr(stat, "rolls", 0) or 0))
         rolls_word = "roll" if rolls == 1 else "rolls"
@@ -460,6 +464,17 @@ class _RollStatCard(QFrame):
             ""
             if quality is None
             else f"{quality_tooltip}: {round(quality * 100)}% of this stat's range"
+        )
+
+    def set_expanded_stat_label(self, expanded: bool) -> None:
+        display_name = (
+            self._full_name
+            if expanded
+            else abbreviate_stat_label(self._full_name)
+        )
+        _set_text(self._name_label, display_name)
+        self._name_label.setToolTip(
+            self._full_name if display_name != self._full_name else ""
         )
 
 
@@ -577,9 +592,11 @@ class _CharacterPassiveEffectCard(QFrame):
         row.addWidget(self._value_label)
         self._layout.addLayout(row)
         self._count_label: QLabel | None = None
+        self._full_name = ""
 
-    def update_effect(self, effect) -> None:
-        _set_text(self._name_label, str(getattr(effect, "label", "Passive bonus")))
+    def update_effect(self, effect, *, expanded: bool = True) -> None:
+        self._full_name = str(getattr(effect, "label", "Passive bonus"))
+        self.set_expanded_stat_label(expanded)
         _set_text(self._value_label, str(getattr(effect, "display_delta", "--")))
         count = getattr(effect, "count", None)
         if count is None:
@@ -597,6 +614,17 @@ class _CharacterPassiveEffectCard(QFrame):
         word = "roll" if count == 1 else "rolls"
         _set_text(self._count_label, f"● {count} {word}")
         self._count_label.show()
+
+    def set_expanded_stat_label(self, expanded: bool) -> None:
+        display_name = (
+            self._full_name
+            if expanded
+            else abbreviate_stat_label(self._full_name)
+        )
+        _set_text(self._name_label, display_name)
+        self._name_label.setToolTip(
+            self._full_name if display_name != self._full_name else ""
+        )
 
 
 #: Which detail tab each deferrable panel lives on, by that tab's title. Only
@@ -775,6 +803,7 @@ class StatCardsView:
         character_passive_layout=None,
         character_passive_status_label=None,
         section_visible: Callable[[str], bool] | None = None,
+        expanded_stat_labels: bool = True,
     ) -> None:
         # Rebuilding a panel nobody is looking at is the whole cost of a scrub
         # frame: measured on a 713-snapshot recording, the card panels here
@@ -799,6 +828,7 @@ class StatCardsView:
         self._character_passive_status_label = character_passive_status_label
         self._damage_sources_layout = damage_sources_layout
         self._damage_sources_status_label = damage_sources_status_label
+        self._expanded_stat_labels = bool(expanded_stat_labels)
 
         self._weapon_signature = None
         self._tome_signature = None
@@ -873,6 +903,19 @@ class StatCardsView:
         self._shrine_signature = None
         self._character_passive_signature = None
         self._damage_source_signature = None
+
+    def set_expanded_stat_labels(self, expanded: bool) -> None:
+        """Apply one label mode to the Stats-adjacent roll-card panels."""
+        expanded = bool(expanded)
+        if self._expanded_stat_labels == expanded:
+            return
+        self._expanded_stat_labels = expanded
+        for card in (
+            *self._chaos_stat_cards.values(),
+            *self._shrine_stat_cards.values(),
+            *self._character_passive_effect_cards.values(),
+        ):
+            card.set_expanded_stat_label(expanded)
 
     # -- weapons --------------------------------------------------------------
 
@@ -1093,6 +1136,7 @@ class StatCardsView:
                 name=chaos_stat_label(stat),
                 quality=chaos_average_roll_quality(stat),
                 quality_tooltip="Average roll quality",
+                expanded=self._expanded_stat_labels,
             )
             ordered_cards.append(card)
         self._chaos_grid.set_cards(ordered_cards)
@@ -1236,6 +1280,7 @@ class StatCardsView:
                 name=str(getattr(stat, "label", "Shrine bonus")),
                 quality=shrine_average_roll_quality(stat),
                 quality_tooltip="Average shrine roll quality",
+                expanded=self._expanded_stat_labels,
             )
             ordered_cards.append(card)
         self._shrine_grid.set_cards(ordered_cards)
@@ -1362,7 +1407,7 @@ class StatCardsView:
             if card is None:
                 card = _CharacterPassiveEffectCard()
                 self._character_passive_effect_cards[key] = card
-            card.update_effect(effect)
+            card.update_effect(effect, expanded=self._expanded_stat_labels)
             ordered_cards.append(card)
         self._character_passive_grid.set_cards(ordered_cards)
         if ordered_cards:

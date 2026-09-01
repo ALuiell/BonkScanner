@@ -1178,7 +1178,7 @@ class LiveStatsTab:
             bool(config.user_config.get(LIVE_STATS_EXPANDED_CONFIG_KEY, False))
         )
         self._stats_expanded_toggle.setToolTip(
-            "Show the full stat names in detailed label/value rows"
+            "Show full stat names in Stats, Chaos, Shrines, and Passives"
         )
         self._detail_tabs.setHeaderControl(self._stats_expanded_toggle)
         player_stats_scroll, _player_stats_scroll_content, player_stats_scroll_layout = _make_scroll_section()
@@ -1456,18 +1456,17 @@ class LiveStatsTab:
             character_passive_status_label=character_passive_status_label,
             damage_sources_layout=player_damage_sources_scroll_layout,
             damage_sources_status_label=damage_sources_status_label,
+            expanded_stat_labels=self._stats_expanded_toggle.isChecked(),
             # Same waste as the Recordings tab, on a one-second refresh instead
             # of a scrub: four panels rebuilt every tick while at most one of
             # them is on screen, and the tab opens on Stats where none is.
             section_visible=section_visibility_over(lambda: self._detail_tabs),
         )
         self._detail_tabs.currentChanged.connect(
-            lambda _index: (
-                self._stat_cards.flush_pending(),
-                self._stats_expanded_toggle.setVisible(
-                    self._detail_tabs.currentIndex() == 0
-                ),
-            )
+            lambda _index: self._stat_cards.flush_pending()
+        )
+        self._stats_expanded_toggle.toggled.connect(
+            self._stat_cards.set_expanded_stat_labels
         )
         self._detail_tabs.addTab(player_stats_tab, "Stats")
         self._detail_tabs.addTab(loot_tab, "Loot")

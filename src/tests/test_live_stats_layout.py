@@ -201,6 +201,7 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 view._detail_tabs.setCurrentIndex(index)
                 for _ in range(3):
                     app.processEvents()
+                assert expanded_toggle.isVisible()
                 geometry_by_tab.append((
                     view._detail_tabs.width(),
                     view._detail_tabs.height(),
@@ -213,7 +214,7 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             chaos_stats = tuple(
                 SimpleNamespace(
                     stat_id=30 + index,
-                    label=f"Chaos stat {index}",
+                    label="Projectile Speed" if index == 0 else f"Chaos stat {index}",
                     value=float(index + 1),
                     display_delta=f"+{index + 1}%",
                     rolls=index + 1,
@@ -240,6 +241,14 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 )
             ]
             assert len(chaos_cards) == 6
+            chaos_names = [card.findChildren(QLabel)[0].text() for card in chaos_cards]
+            assert "ProjSpeed" in chaos_names
+            expanded_toggle.setChecked(True)
+            app.processEvents()
+            chaos_names = [card.findChildren(QLabel)[0].text() for card in chaos_cards]
+            assert "Projectile Speed" in chaos_names
+            expanded_toggle.setChecked(False)
+            app.processEvents()
             assert len({card.geometry().y() for card in chaos_cards[:4]}) == 1
             assert chaos_cards[4].geometry().y() > chaos_cards[0].geometry().y()
             chaos_scroll = chaos_page.findChild(QScrollArea)
