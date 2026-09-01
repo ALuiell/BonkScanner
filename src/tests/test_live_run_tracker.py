@@ -15,7 +15,7 @@ from core.tracker.live_run import (
 )
 from core.stats.formats import PlayerStatFormat
 from core import run_summary
-from projections.vod import build_vod_capture_kwargs
+from projections.vod import build_vod_capture_payload
 
 
 def snapshot(
@@ -94,13 +94,13 @@ class LiveRunTrackerTests(unittest.TestCase):
             )
         )
 
-        values = build_vod_capture_kwargs(tracker.runtime_snapshot())
+        values = build_vod_capture_payload(tracker.runtime_snapshot())
 
-        self.assertEqual(values["items"], ("Wrench x2",))
-        self.assertEqual(values["weapons"], (weapon,))
-        self.assertEqual(values["tomes"], (tome,))
-        self.assertEqual(values["banishes"], ("Clover",))
-        self.assertEqual(values["damage_sources"], (damage,))
+        self.assertEqual(values.items, ("Wrench x2",))
+        self.assertEqual(values.weapons, (weapon,))
+        self.assertEqual(values.tomes, (tome,))
+        self.assertEqual(values.banishes, ("Clover",))
+        self.assertEqual(values.damage_sources, (damage,))
 
     def test_vod_projection_prefers_fast_terminal_kill_total(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
@@ -114,13 +114,13 @@ class LiveRunTrackerTests(unittest.TestCase):
         )
 
         runtime = tracker.runtime_snapshot()
-        values = build_vod_capture_kwargs(runtime)
+        values = build_vod_capture_payload(runtime)
 
         self.assertEqual(runtime.mob_kills, 12_345)
-        self.assertEqual(values["mob_kills"], 12_345)
-        self.assertEqual(values["game_time_seconds"], 120.0)
-        self.assertEqual(values["stage_time_seconds"], 30.0)
-        self.assertEqual(values["stage_index"], 2)
+        self.assertEqual(values.mob_kills, 12_345)
+        self.assertEqual(values.game_time_seconds, 120.0)
+        self.assertEqual(values.stage_time_seconds, 30.0)
+        self.assertEqual(values.stage_index, 2)
 
     def test_tracker_counts_anvil_map_one_only_before_stage_transition(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

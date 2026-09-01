@@ -45,12 +45,13 @@ from gui_app import MegabonkApp
 
 unhandled = []
 def record_unhandled(exc_type, exc_value, exc_traceback):
-    unhandled.append(
-        "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    )
+    formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    unhandled.append(formatted)
+    print(formatted, file=sys.stderr)
 sys.excepthook = record_unhandled
 
 config.save_config = lambda *_args, **_kwargs: None
+config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
 app = MegabonkApp()
 qt = QApplication.instance()
 app.window.show()

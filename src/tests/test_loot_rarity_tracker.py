@@ -20,7 +20,7 @@ from core.luck_rarity import calculate_luck_rarity_probabilities
 from core.tracker import loot
 from core.tracker.live_run import LiveRunSnapshot, LiveRunTracker
 from core.tracker.snapshots import ItemGainEvent
-from projections.vod import build_vod_capture_kwargs
+from projections.vod import build_vod_capture_payload
 
 # One item per tier, plus the two the design names outright. `Corrupt Artefact`
 # is in no metadata table on purpose: it stands in both for a Corrupt-chest item
@@ -887,20 +887,20 @@ class LootStatsInRecordingsTests(unittest.TestCase):
         run.acquire(LEGENDARY_ITEMS[0])
         run.acquire(COMMON_ITEM)
 
-        values = build_vod_capture_kwargs(run.tracker.runtime_snapshot())
+        values = build_vod_capture_payload(run.tracker.runtime_snapshot())
 
-        self.assertEqual(1, values["loot_actual"]["LEGENDARY"])
-        self.assertEqual(1, values["loot_actual"]["COMMON"])
-        self.assertGreater(values["loot_expected"]["LEGENDARY"], 0.0)
+        self.assertEqual(1, values.loot_actual["LEGENDARY"])
+        self.assertEqual(1, values.loot_actual["COMMON"])
+        self.assertGreater(values.loot_expected["LEGENDARY"], 0.0)
 
     def test_an_unmeasurable_run_records_nothing_rather_than_zeros(self) -> None:
         run = LootRun(start_time=600.0).begin((LEGENDARY_ITEMS[0],))
         run.acquire(COMMON_ITEM)
 
-        values = build_vod_capture_kwargs(run.tracker.runtime_snapshot())
+        values = build_vod_capture_payload(run.tracker.runtime_snapshot())
 
-        self.assertIsNone(values["loot_actual"])
-        self.assertIsNone(values["loot_expected"])
+        self.assertIsNone(values.loot_actual)
+        self.assertIsNone(values.loot_expected)
 
 
 def _gain(item_name: str, *, captured_at: float, luck: float = DEFAULT_LUCK) -> ItemGainEvent:

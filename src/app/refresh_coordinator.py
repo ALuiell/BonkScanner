@@ -130,6 +130,16 @@ class RefreshTaskDiagnostics:
     last_error: str | None
     failure_count: int
     next_due_at: float | None
+    last_duration_ms: float | None
+    state_changed_at: float | None
+
+
+@dataclass(frozen=True)
+class RefreshHealthEvent:
+    task_id: str
+    state: str
+    occurred_at: float
+    error: str | None
 
 
 @dataclass
@@ -138,17 +148,28 @@ class RefreshTask:
     interval_ms: int
     required: Callable[[], bool]
     run: Callable[[RefreshTickContext], bool | None]
+    phase: int = 0
+    after: tuple[str, ...] = ()
     failure_retry_ms: int | None = None
     last_started_at: float | None = None
     last_succeeded_at: float | None = None
     last_error: str | None = None
     failure_count: int = 0
+    last_duration_ms: float | None = None
+    state_changed_at: float | None = None
+    last_health_event_at: float | None = None
+    last_health_error: str | None = None
 
 
 class RefreshCoordinator:
     """Runs each demanded task at most once per configured interval."""
 
-    def __init__(self, *, clock: Callable[[], float] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], float] | None = None,
+        health_event: Callable[[RefreshHealthEvent], None] | None = None,
+    ) -> None:
         # Resolved per call rather than captured here: binding ``time.monotonic``
         # as a default argument would freeze the real clock at import time, so a
         # test patching ``time.monotonic`` would move its own clock while the
@@ -156,7 +177,9 @@ class RefreshCoordinator:
         # silently never come due again. Callers wanting a deterministic clock
         # still pass one explicitly.
         self._clock = clock
+        self._health_event = health_event or self._journal_health_event
         self._tasks: dict[str, RefreshTask] = {}
+        self._execution_order: tuple[RefreshTask, ...] | None = None
         # The pass counter. Owned by the coordinator, not the context (step 28
         # plan section 12.3/28a): a context that numbered itself would hand
         # every pass the same id, which is the one property `pass_id` exists to
@@ -182,40 +205,54 @@ class RefreshCoordinator:
             raise ValueError("Refresh task failure retry interval must be positive")
         if task.task_id in self._tasks:
             raise ValueError(f"Refresh task already registered: {task.task_id}")
+        if not isinstance(task.phase, int):
+            raise ValueError("Refresh task phase must be an integer")
+        task.after = tuple(task.after)
         self._tasks[task.task_id] = task
+        self._execution_order = None
 
     def tick(self) -> tuple[str, ...]:
         now = self._now()
         self._pass_id += 1
         context = RefreshTickContext(pass_id=self._pass_id, started_at=now, clock=self._now)
         ran: list[str] = []
-        for task in self._tasks.values():
+        for task in self._ordered_tasks():
             try:
                 required = bool(task.required())
             except Exception as exc:
-                self._record_failure(task, exc, prefix="required check failed")
+                self._record_failure(task, exc, now=now, prefix="required check failed")
                 continue
             if not required or not self._is_due(task, now):
                 continue
             task.last_started_at = now
+            task_run_started_at = self._now()
             try:
                 succeeded = task.run(context)
             except Exception as exc:  # Diagnostics must not stop other tasks.
-                self._record_failure(task, exc)
+                self._record_failure(task, exc, now=self._now())
             else:
                 if succeeded is False:
-                    task.failure_count += 1
-                    task.last_error = "refresh returned failure"
+                    self._record_failure(
+                        task,
+                        RuntimeError("refresh returned failure"),
+                        now=self._now(),
+                    )
                 else:
-                    task.last_succeeded_at = now
-                    task.last_error = None
+                    finished_at = self._now()
+                    task.last_succeeded_at = finished_at
+                    self._record_recovery(task, finished_at)
+            finally:
+                finished_at = self._now()
+                task.last_duration_ms = max(
+                    0.0, (finished_at - task_run_started_at) * 1000.0
+                )
             ran.append(task.task_id)
         return tuple(ran)
 
     def diagnostics(self) -> tuple[RefreshTaskDiagnostics, ...]:
         now = self._now()
         result: list[RefreshTaskDiagnostics] = []
-        for task in self._tasks.values():
+        for task in self._ordered_tasks():
             try:
                 active = bool(task.required())
             except Exception:
@@ -229,15 +266,18 @@ class RefreshCoordinator:
                     last_error=task.last_error,
                     failure_count=task.failure_count,
                     next_due_at=self._next_due_at(task, now),
+                    last_duration_ms=task.last_duration_ms,
+                    state_changed_at=task.state_changed_at,
                 )
             )
         return tuple(result)
 
-    @staticmethod
     def _record_failure(
+        self,
         task: RefreshTask,
         exc: Exception,
         *,
+        now: float,
         prefix: str | None = None,
     ) -> None:
         task.failure_count += 1
@@ -246,7 +286,92 @@ class RefreshCoordinator:
         except Exception:
             detail = "<error message unavailable>"
         message = f"{type(exc).__name__}: {detail}"
-        task.last_error = f"{prefix}: {message}" if prefix else message
+        error = f"{prefix}: {message}" if prefix else message
+        previous_error = task.last_error
+        task.last_error = error
+        if previous_error is None:
+            task.state_changed_at = now
+        repeated_same = previous_error == error
+        should_emit = (
+            not repeated_same
+            or task.last_health_event_at is None
+            or now - task.last_health_event_at >= 60.0
+        )
+        if should_emit:
+            self._emit_health(task, "failure", now, error)
+
+    def _record_recovery(self, task: RefreshTask, now: float) -> None:
+        if task.last_error is not None:
+            task.state_changed_at = now
+            task.last_error = None
+            self._emit_health(task, "recovery", now, None)
+        else:
+            task.last_error = None
+
+    def _emit_health(
+        self,
+        task: RefreshTask,
+        state: str,
+        now: float,
+        error: str | None,
+    ) -> None:
+        event = RefreshHealthEvent(
+            task_id=task.task_id,
+            state=state,
+            occurred_at=now,
+            error=error,
+        )
+        task.last_health_event_at = now
+        task.last_health_error = error
+        try:
+            self._health_event(event)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _journal_health_event(event: RefreshHealthEvent) -> None:
+        from infra.crash_journal import log_runtime_event
+
+        log_runtime_event(
+            "refresh.health",
+            task_id=event.task_id,
+            state=event.state,
+            error=event.error,
+            occurred_at=event.occurred_at,
+        )
+
+    def _ordered_tasks(self) -> tuple[RefreshTask, ...]:
+        cached = self._execution_order
+        if cached is not None:
+            return cached
+        tasks = self._tasks
+        unknown = sorted(
+            {dependency for task in tasks.values() for dependency in task.after if dependency not in tasks}
+        )
+        if unknown:
+            raise ValueError(f"Unknown refresh task dependencies: {', '.join(unknown)}")
+        registration = {task_id: index for index, task_id in enumerate(tasks)}
+        outgoing = {task_id: [] for task_id in tasks}
+        indegree = {task_id: 0 for task_id in tasks}
+        for task in tasks.values():
+            for dependency in task.after:
+                outgoing[dependency].append(task.task_id)
+                indegree[task.task_id] += 1
+        ready = [task_id for task_id, count in indegree.items() if count == 0]
+        result: list[RefreshTask] = []
+        while ready:
+            ready.sort(key=lambda task_id: (tasks[task_id].phase, registration[task_id]))
+            task_id = ready.pop(0)
+            result.append(tasks[task_id])
+            for dependent in outgoing[task_id]:
+                indegree[dependent] -= 1
+                if indegree[dependent] == 0:
+                    ready.append(dependent)
+        if len(result) != len(tasks):
+            cycle = sorted(task_id for task_id, count in indegree.items() if count > 0)
+            raise ValueError(f"Refresh task dependency cycle: {', '.join(cycle)}")
+        self._execution_order = tuple(result)
+        return self._execution_order
 
     @staticmethod
     def _is_due(task: RefreshTask, now: float) -> bool:

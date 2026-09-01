@@ -267,8 +267,9 @@ class LocalOverlayServer:
                 if self._server is server:
                     self.last_error = str(exc)
 
-    def stop(self) -> None:
+    def stop(self, *, timeout_seconds: float = 2.0) -> bool:
         errors: list[Exception] = []
+        thread_alive = False
         with self._lifecycle_lock:
             server = self._server
             thread = self._thread
@@ -289,14 +290,16 @@ class LocalOverlayServer:
                 and thread.is_alive()
             ):
                 try:
-                    thread.join(timeout=2.0)
+                    thread.join(timeout=max(0.0, float(timeout_seconds)))
                 except Exception as exc:
                     errors.append(exc)
+                thread_alive = thread.is_alive()
             if errors:
                 # Shutdown is best-effort during both an interactive stop and
                 # application teardown. Preserve diagnostics without letting a
                 # cleanup exception escape through a Qt slot.
                 self.last_error = "; ".join(str(error) for error in errors)
+        return not thread_alive
 
 
 class OverlayRequestHandler(BaseHTTPRequestHandler):
@@ -397,7 +400,13 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
 
                 # The store takes the lock; this is the read-modify-write it
                 # used to do inline under config.config_lock.
-                self._settings.update(apply_widget_geometry)
+                save_result = self._settings.update(apply_widget_geometry)
+                if getattr(save_result, "success", True) is False:
+                    self._send_text(
+                        500,
+                        f"Could not save overlay settings: {getattr(save_result, 'reason', '')}",
+                    )
+                    return
                 
                 # Response
                 body = dumps_strict_json({"status": "success"}).encode("utf-8")
@@ -421,7 +430,13 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                     overlay["canvas_width"] = max(400, min(width, 7680))
                     overlay["canvas_height"] = max(300, min(height, 4320))
 
-                self._settings.update(apply_canvas_size)
+                save_result = self._settings.update(apply_canvas_size)
+                if getattr(save_result, "success", True) is False:
+                    self._send_text(
+                        500,
+                        f"Could not save overlay settings: {getattr(save_result, 'reason', '')}",
+                    )
+                    return
                 
                 # Response
                 body = dumps_strict_json({"status": "success"}).encode("utf-8")

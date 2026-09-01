@@ -25,6 +25,7 @@ from core.settings import (
 )
 from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
+from core.vod_capture import VodCapturePayload
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, ChargeShrineSnapshot, ChargeShrineStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
@@ -35,19 +36,42 @@ VOD_FORMAT_VERSION = 10
 RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
 LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
-_VOD_METADATA_INDEX_CONFIG_KEY = "_VOD_METADATA_INDEX"
 _VOD_INDEX_LOCK = threading.RLock()
-
-# Injected by app/ at startup. None means "no persistent index": the metadata
-# is still correct, it is just recomputed from disk instead of cached, which is
-# what the tests exercise.
-_settings: RecordingSettings | None = None
-
-
-def use_settings(settings: RecordingSettings | None) -> None:
-    global _settings
-    _settings = settings
 SNAPSHOT_FLUSH_EVERY = 3
+
+
+class VodFormatError(ValueError):
+    """The recording declares a malformed format version."""
+
+
+class UnsupportedVodVersionError(VodFormatError):
+    """The recording is well-formed but newer than this application."""
+
+
+def _identity_vod_normalizer(record: dict[str, Any]) -> dict[str, Any]:
+    return record
+
+
+VOD_NORMALIZERS = {
+    version: _identity_vod_normalizer for version in range(1, VOD_FORMAT_VERSION + 1)
+}
+
+
+def _vod_version(metadata_record: dict[str, Any]) -> int:
+    raw_version = metadata_record.get("version", 1)
+    if type(raw_version) is not int or raw_version <= 0:
+        raise VodFormatError(f"Invalid VOD format version: {raw_version!r}")
+    if raw_version > VOD_FORMAT_VERSION:
+        raise UnsupportedVodVersionError(
+            f"Unsupported VOD format version {raw_version}; maximum is {VOD_FORMAT_VERSION}"
+        )
+    if raw_version not in VOD_NORMALIZERS:
+        raise UnsupportedVodVersionError(f"Unsupported VOD format version {raw_version}")
+    return raw_version
+
+
+def _normalize_vod_record(record: dict[str, Any], version: int) -> dict[str, Any]:
+    return VOD_NORMALIZERS[version](record)
 
 
 def format_recording_kill_count(value: int) -> str:
@@ -219,7 +243,7 @@ def _metadata_from_index_record(record: dict[str, Any]) -> tuple[Path, int, int,
     return path, int(record.get("mtime_ns") or 0), int(record.get("size") or 0), metadata
 
 
-def minimum_snapshot_count() -> int:
+def minimum_snapshot_count(settings: RecordingSettings | None = None) -> int:
     """Shortest run the recorder keeps, in snapshots.
 
     Falls back to the default when there is no settings store, which is what a
@@ -227,9 +251,9 @@ def minimum_snapshot_count() -> int:
     would silently disable the discard rule in exactly the configuration that
     is hardest to notice it in.
     """
-    if _settings is None:
+    if settings is None:
         return DEFAULT_MINIMUM_SNAPSHOT_COUNT
-    reader = getattr(_settings, "read_minimum_snapshot_count", None)
+    reader = getattr(settings, "read_minimum_snapshot_count", None)
     if not callable(reader):
         return DEFAULT_MINIMUM_SNAPSHOT_COUNT
     try:
@@ -238,21 +262,21 @@ def minimum_snapshot_count() -> int:
         return DEFAULT_MINIMUM_SNAPSHOT_COUNT
 
 
-def _load_index_records() -> list[dict[str, Any]]:
-    if _settings is None:
+def _load_index_records(settings: RecordingSettings | None) -> list[dict[str, Any]]:
+    if settings is None:
         return []
-    payload = _settings.read_metadata_index()
+    payload = settings.read_metadata_index()
     if not isinstance(payload, dict):
         return []
     records = payload.get("records", [])
     return records if isinstance(records, list) else []
 
 
-def load_cached_vods() -> list[VodMetadata]:
+def load_cached_vods(settings: RecordingSettings | None = None) -> list[VodMetadata]:
     """Return the last valid metadata index without scanning recording payloads."""
     with _VOD_INDEX_LOCK:
         result = []
-        for record in _load_index_records():
+        for record in _load_index_records(settings):
             try:
                 path, _mtime_ns, _size, metadata = _metadata_from_index_record(record)
             except (TypeError, ValueError, KeyError):
@@ -262,12 +286,14 @@ def load_cached_vods() -> list[VodMetadata]:
         return sorted(result, key=lambda vod: vod.created_at, reverse=True)
 
 
-def refresh_vod_metadata_index() -> list[VodMetadata]:
+def refresh_vod_metadata_index(
+    settings: RecordingSettings | None = None,
+) -> list[VodMetadata]:
     """Refresh changed metadata entries and persist the lightweight VOD index."""
     roots = [RECORDINGS_DIR, LEGACY_VODS_DIR]
     with _VOD_INDEX_LOCK:
         previous: dict[Path, tuple[int, int, VodMetadata]] = {}
-        for record in _load_index_records():
+        for record in _load_index_records(settings):
             try:
                 path, mtime_ns, size, metadata = _metadata_from_index_record(record)
                 previous[path] = (mtime_ns, size, metadata)
@@ -298,8 +324,8 @@ def refresh_vod_metadata_index() -> list[VodMetadata]:
             _metadata_to_index_record(metadata, mtime_ns=mtime_ns, size=size)
             for mtime_ns, size, metadata in current.values()
         ]
-        if _settings is not None:
-            _settings.write_metadata_index({"version": 1, "records": records})
+        if settings is not None:
+            settings.write_metadata_index({"version": 1, "records": records})
         return sorted((entry[2] for entry in current.values()), key=lambda vod: vod.created_at, reverse=True)
 
 
@@ -310,10 +336,12 @@ class VodRecorder:
         vods_dir: Path | None = None,
         interval_seconds: int = 30,
         clock=time.monotonic,
+        settings: RecordingSettings | None = None,
     ) -> None:
         self.vods_dir = vods_dir or RECORDINGS_DIR
         self.interval_seconds = interval_seconds
         self.clock = clock
+        self._settings = settings
         self.path: Path | None = None
         self.name = ""
         self.start_time: float | None = None
@@ -436,7 +464,7 @@ class VodRecorder:
                     stop_error = stop_error or exc
             if stop_error is not None:
                 raise stop_error
-        threshold = minimum_snapshot_count()
+        threshold = minimum_snapshot_count(self._settings)
         if self.path is not None and self.snapshot_count < threshold:
             self.path.unlink(missing_ok=True)
             clear_vod_metadata_cache()
@@ -474,47 +502,16 @@ class VodRecorder:
 
     def capture(
         self,
-        stats: dict[str, PlayerStatValue],
-        items: tuple[str, ...] = (),
-        weapons: tuple[WeaponSnapshot, ...] = (),
-        tomes: tuple[TomeSnapshot, ...] = (),
-        banishes: tuple[str, ...] = (),
-        damage_sources: tuple[DamageSourceSnapshot, ...] = (),
-        *,
-        chaos_tome: ChaosTomeSnapshot | None = None,
-        shrines: ChargeShrineSnapshot | None = None,
-        character_passive: CharacterPassiveSnapshot | None = None,
-        chests_per_minute: float | None = None,
-        game_time_seconds: float | None = None,
-        mob_kills: int | None = None,
-        kps_at_capture: int | None = None,
-        minute_avg_kps_at_capture: int | None = None,
-        five_minute_avg_kps_at_capture: int | None = None,
-        run_avg_kps_at_capture: int | None = None,
-        player_level: int | None = None,
-        map_seed: int | None = None,
-        stage_ptr: int = 0,
-        stage_index: int | None = None,
-        stage_time_seconds: float | None = None,
-        chests_opened: int | None = None,
-        chests_total: int | None = None,
-        pots_total: int | None = None,
-        paid_chests: int | None = None,
-        key_procs: int | None = None,
-        free_chests: int | None = None,
-        keys_count: int | None = None,
-        expected_key_procs: float | None = None,
-        chests_opened_by_stage: dict[int, int] | None = None,
-        chests_total_by_stage: dict[int, int] | None = None,
-        loot_actual: dict[str, int] | None = None,
-        loot_expected: dict[str, float] | None = None,
+        payload: VodCapturePayload,
     ) -> VodSnapshot:
+        if not isinstance(payload, VodCapturePayload):
+            raise TypeError("capture() requires VodCapturePayload")
         if not self.is_recording or self._file is None:
             raise RuntimeError("VOD recorder is not active.")
 
         now = self.clock()
-        if mob_kills is not None:
-            current_mob_kills = max(0, int(mob_kills))
+        if payload.mob_kills is not None:
+            current_mob_kills = max(0, int(payload.mob_kills))
             if (
                 self._max_mob_kills is None
                 or current_mob_kills > self._max_mob_kills
@@ -525,45 +522,49 @@ class VodRecorder:
             captured_at=now,
             stats={
                 label: VodStatValue(value=stat.value, display_value=stat.display_value)
-                for label, stat in stats.items()
+                for label, stat in payload.stats.items()
             },
-            items=tuple(items),
-            weapons=tuple(weapons),
-            tomes=tuple(tomes),
-            chaos_tome=chaos_tome,
-            shrines=shrines,
-            character_passive=character_passive,
-            banishes=tuple(banishes),
-            damage_sources=tuple(damage_sources),
-            chests_per_minute=chests_per_minute,
+            items=payload.items,
+            weapons=payload.weapons,
+            tomes=payload.tomes,
+            chaos_tome=payload.chaos_tome,
+            shrines=payload.shrines,
+            character_passive=payload.character_passive,
+            banishes=payload.banishes,
+            damage_sources=payload.damage_sources,
+            chests_per_minute=payload.chests_per_minute,
             chests_per_minute_recorded=True,
-            game_time_seconds=game_time_seconds,
-            mob_kills=mob_kills,
-            kps_at_capture=kps_at_capture,
-            minute_avg_kps_at_capture=minute_avg_kps_at_capture,
-            five_minute_avg_kps_at_capture=five_minute_avg_kps_at_capture,
-            run_avg_kps_at_capture=run_avg_kps_at_capture,
-            player_level=player_level,
-            map_seed=map_seed,
-            stage_ptr=stage_ptr,
-            stage_index=stage_index,
-            stage_time_seconds=stage_time_seconds,
-            chests_opened=chests_opened,
-            chests_total=chests_total,
-            pots_total=pots_total,
-            paid_chests=paid_chests,
-            key_procs=key_procs,
-            free_chests=free_chests,
-            keys_count=keys_count,
-            expected_key_procs=expected_key_procs,
+            game_time_seconds=payload.game_time_seconds,
+            mob_kills=payload.mob_kills,
+            kps_at_capture=payload.kps_at_capture,
+            minute_avg_kps_at_capture=payload.minute_avg_kps_at_capture,
+            five_minute_avg_kps_at_capture=payload.five_minute_avg_kps_at_capture,
+            run_avg_kps_at_capture=payload.run_avg_kps_at_capture,
+            player_level=payload.player_level,
+            map_seed=payload.map_seed,
+            stage_ptr=payload.stage_ptr,
+            stage_index=payload.stage_index,
+            stage_time_seconds=payload.stage_time_seconds,
+            chests_opened=payload.chests_opened,
+            chests_total=payload.chests_total,
+            pots_total=payload.pots_total,
+            paid_chests=payload.paid_chests,
+            key_procs=payload.key_procs,
+            free_chests=payload.free_chests,
+            keys_count=payload.keys_count,
+            expected_key_procs=payload.expected_key_procs,
             chests_opened_by_stage=(
-                dict(chests_opened_by_stage) if chests_opened_by_stage is not None else None
+                dict(payload.chests_opened_by_stage)
+                if payload.chests_opened_by_stage is not None
+                else None
             ),
             chests_total_by_stage=(
-                dict(chests_total_by_stage) if chests_total_by_stage is not None else None
+                dict(payload.chests_total_by_stage)
+                if payload.chests_total_by_stage is not None
+                else None
             ),
-            loot_actual=dict(loot_actual) if loot_actual is not None else None,
-            loot_expected=dict(loot_expected) if loot_expected is not None else None,
+            loot_actual=dict(payload.loot_actual) if payload.loot_actual is not None else None,
+            loot_expected=dict(payload.loot_expected) if payload.loot_expected is not None else None,
         )
         self.snapshot_count += 1
         self._write_record(
@@ -616,14 +617,16 @@ def load_vod(path: Path) -> LoadedVod:
     # See `_record_to_snapshot`, which is where the sharing happens.
     pool: dict[str, str] = {}
 
+    version = 1
     for record in _iter_records(path):
         record_type = record.get("type")
         if record_type == "metadata":
+            version = _vod_version(record)
             metadata_record = record
         elif record_type == "summary":
-            summary_record = record
+            summary_record = _normalize_vod_record(record, version)
         elif record_type == "snapshot":
-            snapshots.append(_record_to_snapshot(record, pool))
+            snapshots.append(_record_to_snapshot(_normalize_vod_record(record, version), pool))
 
     if metadata_record is None:
         raise ValueError(f"VOD metadata is missing in {path}")
@@ -643,6 +646,8 @@ def load_vod_metadata(path: Path) -> VodMetadata:
 
     first_record = _read_first_record(path)
     last_record = _read_last_record(path)
+    if first_record.get("type") == "metadata":
+        _vod_version(first_record)
     if (
         first_record.get("type") == "metadata"
         and last_record.get("type") == "summary"
@@ -665,6 +670,7 @@ def load_vod_metadata(path: Path) -> VodMetadata:
     for record in _iter_records(path):
         record_type = record.get("type")
         if record_type == "metadata":
+            _vod_version(record)
             metadata_record = record
         elif record_type == "summary":
             summary_record = record

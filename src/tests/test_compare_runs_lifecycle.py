@@ -26,22 +26,14 @@ class _FakeLabel:
         return self.value
 
 
-class _ImmediateThread:
-    def __init__(self, *, target, **_kwargs) -> None:
-        self._target = target
-
-    def start(self) -> None:
-        self._target()
-
-
 class CompareRunsLifecycleTests(unittest.TestCase):
     def test_loader_thread_start_failure_becomes_visible_state(self) -> None:
         view = build_compare_runs_tab(schedule=lambda callback: callback())
         view._run_a_status_label = _FakeLabel()
 
         with patch.object(
-            compare_runs_tab.threading,
-            "Thread",
+            view._load_lanes["a"]._executor,
+            "submit",
             side_effect=RuntimeError("thread unavailable"),
         ):
             view.load_compare_run("a", "run-a.jsonl")
@@ -59,7 +51,9 @@ class CompareRunsLifecycleTests(unittest.TestCase):
         loaded = SimpleNamespace(snapshots=())
 
         with patch.object(compare_runs_tab, "load_vod", return_value=loaded), patch.object(
-            compare_runs_tab.threading, "Thread", _ImmediateThread
+            view._load_lanes["a"]._executor,
+            "submit",
+            side_effect=lambda callback, request: callback(request),
         ):
             view.load_compare_run("a", "run-a.jsonl")
 

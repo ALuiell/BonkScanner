@@ -8,6 +8,51 @@ from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTick
 
 
 class RefreshCoordinatorTests(unittest.TestCase):
+    def test_dependencies_override_phase_and_preserve_stable_registration_order(self) -> None:
+        calls = []
+        coordinator = RefreshCoordinator(clock=lambda: 10.0)
+        coordinator.register(RefreshTask("second", 1, lambda: True, lambda _ctx: calls.append("second"), phase=0, after=("first",)))
+        coordinator.register(RefreshTask("peer", 1, lambda: True, lambda _ctx: calls.append("peer"), phase=0))
+        coordinator.register(RefreshTask("first", 1, lambda: False, lambda _ctx: self.fail("inactive predecessor must not run"), phase=10))
+
+        self.assertEqual(coordinator.tick(), ("peer", "second"))
+        self.assertEqual(calls, ["peer", "second"])
+
+    def test_unknown_dependency_is_rejected_before_any_task_runs(self) -> None:
+        calls = []
+        coordinator = RefreshCoordinator(clock=lambda: 10.0)
+        coordinator.register(RefreshTask("task", 1, lambda: True, lambda _ctx: calls.append(1), after=("missing",)))
+        with self.assertRaisesRegex(ValueError, "Unknown refresh task dependencies"):
+            coordinator.tick()
+        self.assertEqual(calls, [])
+
+    def test_dependency_cycle_is_rejected_before_any_task_runs(self) -> None:
+        coordinator = RefreshCoordinator(clock=lambda: 10.0)
+        coordinator.register(RefreshTask("a", 1, lambda: True, lambda _ctx: None, after=("b",)))
+        coordinator.register(RefreshTask("b", 1, lambda: True, lambda _ctx: None, after=("a",)))
+        with self.assertRaisesRegex(ValueError, "dependency cycle"):
+            coordinator.tick()
+
+    def test_failure_events_are_throttled_and_recovery_is_always_emitted(self) -> None:
+        now = [10.0]
+        events = []
+        outcomes = [False, False, False, True]
+        coordinator = RefreshCoordinator(clock=lambda: now[0], health_event=events.append)
+        coordinator.register(RefreshTask("health", 1, lambda: True, lambda _ctx: outcomes.pop(0)))
+
+        coordinator.tick()
+        now[0] += 1.0
+        coordinator.tick()
+        now[0] += 60.0
+        coordinator.tick()
+        now[0] += 1.0
+        coordinator.tick()
+
+        self.assertEqual([event.state for event in events], ["failure", "failure", "recovery"])
+        diagnostics = coordinator.diagnostics()[0]
+        self.assertIsNotNone(diagnostics.last_duration_ms)
+        self.assertEqual(diagnostics.state_changed_at, now[0])
+
     def test_runs_demanded_task_once_per_interval(self) -> None:
         now = [10.0]
         calls: list[str] = []

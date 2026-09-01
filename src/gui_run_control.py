@@ -25,7 +25,6 @@ from ctypes import wintypes
 from typing import Any, Callable
 
 from app import config
-from app.vod_capture import vod_capture
 from infra.hotkeys import HotkeyBinding, ModifierAwareHotkeyManager
 from infra.keyboard_run_control import KeyboardRunControlProvider
 from infra import process
@@ -511,7 +510,7 @@ def build_run_control(app: Any) -> RunControl:
         abort_requested=lambda: app._scanner._scan_abort_requested(),
         toggle_scan=lambda: app._scanner.toggle_scan_event(),
         player_movement=lambda: app._scanner.handle_player_movement(),
-        toggle_recording=lambda: vod_capture(app).toggle_recording(),
+        toggle_recording=lambda: app.runtime.vod_capture.toggle_recording(),
         # Present, so F9 is registered. `hotkey_toggle_in_game_overlay_edit` is
         # `MegabonkApp`'s step-24 delegator into the in-game overlay component;
         # naming it here is what makes the binding's condition a wiring

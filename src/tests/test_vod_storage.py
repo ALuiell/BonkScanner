@@ -18,7 +18,8 @@ from core.character_passives import (
 )
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot, WeaponStatValue
-from infra.vod_storage import LEGACY_VODS_DIR, RECORDINGS_DIR, VodRecorder, delete_vod, delete_vods_below_snapshot_count, list_vods, load_cached_vods, load_vod, load_vod_metadata, rename_vod, refresh_vod_metadata_index
+from core.vod_capture import VodCapturePayload
+from infra.vod_storage import LEGACY_VODS_DIR, RECORDINGS_DIR, UnsupportedVodVersionError, VodFormatError, VodRecorder, delete_vod, delete_vods_below_snapshot_count, list_vods, load_cached_vods, load_vod, load_vod_metadata, rename_vod, refresh_vod_metadata_index
 from projections import formatting
 
 
@@ -35,7 +36,43 @@ class FakeRecordingSettings:
         self.index = payload
 
 
+def capture(recorder, stats, *values, **fields):
+    for name, value in zip(
+        ("items", "weapons", "tomes", "banishes", "damage_sources"),
+        values,
+    ):
+        fields[name] = value
+    return recorder.capture(VodCapturePayload(stats=stats, **fields))
+
+
 class VodStorageTests(unittest.TestCase):
+    def test_vod_versions_one_through_ten_and_missing_version_are_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for version in (None, *range(1, 11)):
+                suffix = "" if version is None else f',"version":{version}'
+                path = Path(temp_dir) / f"v{version or 'missing'}.jsonl"
+                path.write_text(
+                    f'{{"type":"metadata"{suffix},"name":"Run","created_at":"2026-01-01T00:00:00","snapshot_interval_seconds":30}}\n',
+                    encoding="utf-8",
+                )
+                self.assertEqual(load_vod(path).metadata.name, "Run")
+
+    def test_future_and_malformed_vod_versions_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            future = Path(temp_dir) / "future.jsonl"
+            future.write_text('{"type":"metadata","version":11,"name":"Run"}\n', encoding="utf-8")
+            with self.assertRaises(UnsupportedVodVersionError):
+                load_vod(future)
+
+            for index, value in enumerate(('"10"', "0", "-1", "1.5", "true")):
+                malformed = Path(temp_dir) / f"malformed-{index}.jsonl"
+                malformed.write_text(
+                    f'{{"type":"metadata","version":{value},"name":"Run"}}\n',
+                    encoding="utf-8",
+                )
+                with self.assertRaises(VodFormatError):
+                    load_vod(malformed)
+
     def test_recording_kill_count_uses_compact_suffixes(self) -> None:
         expected = {
             0: "0",
@@ -84,14 +121,14 @@ class VodStorageTests(unittest.TestCase):
                 character_id=18,
                 character_name="Dice",
             )
-            recorder.capture(
+            capture(recorder,
                 {},
                 character_passive=passive,
                 mob_kills=970_000,
             )
             # A disappearing process can expose a reset counter during the
             # best-effort final capture. The completed name keeps the run max.
-            recorder.capture({}, mob_kills=12)
+            capture(recorder, {}, mob_kills=12)
             recorder.stop()
 
             loaded = load_vod(path)
@@ -113,7 +150,7 @@ class VodStorageTests(unittest.TestCase):
                 character_name="Fox",
             )
             for _ in range(3):
-                recorder.capture({}, mob_kills=16_000_000)
+                capture(recorder, {}, mob_kills=16_000_000)
             recorder.stop()
             self.assertEqual(load_vod_metadata(path).name, "My challenge")
 
@@ -146,30 +183,27 @@ class VodStorageTests(unittest.TestCase):
             # Injected rather than reached for: this used to patch the real
             # config.user_config, so the test mutated the developer's own config.
             settings = FakeRecordingSettings()
-            old_recordings, old_legacy, old_settings = (
+            old_recordings, old_legacy = (
                 vod_storage.RECORDINGS_DIR,
                 vod_storage.LEGACY_VODS_DIR,
-                vod_storage._settings,
             )
             try:
                 vod_storage.RECORDINGS_DIR = root
                 vod_storage.LEGACY_VODS_DIR = Path(temp_dir) / "missing-legacy"
-                vod_storage.use_settings(settings)
-                refreshed = refresh_vod_metadata_index()
+                refreshed = refresh_vod_metadata_index(settings)
                 self.assertEqual([vod.name for vod in refreshed], ["Indexed run"])
-                self.assertEqual([vod.name for vod in load_cached_vods()], ["Indexed run"])
+                self.assertEqual([vod.name for vod in load_cached_vods(settings)], ["Indexed run"])
                 self.assertEqual(settings.index.get("version"), 1)
                 self.assertEqual(len(settings.index.get("records", [])), 1)
 
                 path.unlink()
-                refreshed = refresh_vod_metadata_index()
+                refreshed = refresh_vod_metadata_index(settings)
                 self.assertEqual(refreshed, [])
-                self.assertEqual(load_cached_vods(), [])
+                self.assertEqual(load_cached_vods(settings), [])
                 self.assertEqual(settings.index.get("records"), [])
             finally:
                 vod_storage.RECORDINGS_DIR = old_recordings
                 vod_storage.LEGACY_VODS_DIR = old_legacy
-                vod_storage.use_settings(old_settings)
 
     def test_recorder_batches_snapshot_flushes_but_flushes_metadata_and_summary(self) -> None:
         class FakeFile:
@@ -290,7 +324,7 @@ class VodStorageTests(unittest.TestCase):
             )
 
             path = recorder.start(name="Test run", seed=12345)
-            recorder.capture(
+            capture(recorder,
                 {
                     "Damage": SimpleNamespace(value=1.25, display_value="1.25x"),
                     "Armor": SimpleNamespace(value=0.15, display_value="15%"),
@@ -385,7 +419,7 @@ class VodStorageTests(unittest.TestCase):
                 chests_total_by_stage={1: 46},
             )
             now += 60
-            recorder.capture(
+            capture(recorder,
                 {
                     "Damage": SimpleNamespace(value=1.5, display_value="1.5x"),
                     "Armor": SimpleNamespace(value=0.2, display_value="20%"),
@@ -483,7 +517,7 @@ class VodStorageTests(unittest.TestCase):
                 vods_dir=Path(temp_dir), interval_seconds=60, clock=lambda: 1000.0
             )
             path = recorder.start(name="Overflow run")
-            recorder.capture(
+            capture(recorder,
                 {
                     "Damage": SimpleNamespace(
                         value=float("nan"), display_value="--"
@@ -708,7 +742,7 @@ class VodStorageTests(unittest.TestCase):
                 vods_dir=Path(temp_dir), interval_seconds=60, clock=lambda: 1000.0
             )
             path = recorder.start(name="Unknown chest rate")
-            recorder.capture(
+            capture(recorder,
                 {
                     "Elite Spawn Increase": SimpleNamespace(
                         value=15.0,
@@ -758,7 +792,7 @@ class VodStorageTests(unittest.TestCase):
                 vods_dir=Path(temp_dir), interval_seconds=60, clock=lambda: 1000.0
             )
             path = recorder.start(name="Loot run")
-            recorder.capture(
+            capture(recorder,
                 {},
                 loot_actual={"LEGENDARY": 116, "RARE": 78, "UNCOMMON": 38, "COMMON": 45},
                 loot_expected={"LEGENDARY": 118.4, "RARE": 78.0, "UNCOMMON": 36.2, "COMMON": 45.0},

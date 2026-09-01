@@ -44,7 +44,7 @@ class BuildProgressionLifecycleTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_config_write_rolls_back_runtime_memory_and_disk_on_failed_result(self) -> None:
+    def test_config_write_does_not_publish_runtime_memory_on_failed_result(self) -> None:
         previous = _library()
         candidate = deepcopy(previous)
         candidate["active_build_id"] = "two"
@@ -54,15 +54,15 @@ class BuildProgressionLifecycleTests(unittest.TestCase):
         }
         writes = []
 
-        def save(payload):
-            writes.append(deepcopy(payload))
-            if len(writes) == 1:
-                return config.ConfigSaveResult(False, "disk full")
-            return config.ConfigSaveResult(True)
+        def update(mutate):
+            payload = deepcopy(user_config)
+            mutate(payload)
+            writes.append(payload)
+            return config.ConfigSaveResult(False, "disk full")
 
         with patch.object(config, "BUILD_PROGRESSION", previous), patch.object(
             config, "user_config", user_config
-        ), patch.object(config, "save_config", side_effect=save):
+        ), patch.object(config, "update_config", side_effect=update):
             with self.assertRaisesRegex(OSError, "disk full"):
                 ConfigBuildProgressionSettings().write(candidate)
 
@@ -70,7 +70,6 @@ class BuildProgressionLifecycleTests(unittest.TestCase):
             self.assertEqual(previous, config.user_config["BUILD_PROGRESSION"])
 
         self.assertEqual("two", writes[0]["BUILD_PROGRESSION"]["active_build_id"])
-        self.assertEqual("one", writes[1]["BUILD_PROGRESSION"]["active_build_id"])
 
     def test_config_write_commits_verified_result(self) -> None:
         previous = _library()
@@ -82,7 +81,7 @@ class BuildProgressionLifecycleTests(unittest.TestCase):
             config, "user_config", user_config
         ), patch.object(
             config,
-            "save_config",
+            "update_config",
             return_value=config.ConfigSaveResult(True),
         ):
             saved = ConfigBuildProgressionSettings().write(candidate)
@@ -104,8 +103,8 @@ class BuildProgressionLifecycleTests(unittest.TestCase):
             {"BUILD_PROGRESSION": deepcopy(previous)},
         ), patch.object(
             config,
-            "save_config",
-            side_effect=[OSError(), config.ConfigSaveResult(True)],
+            "update_config",
+            side_effect=OSError(),
         ):
             with self.assertRaisesRegex(OSError, "OSError"):
                 ConfigBuildProgressionSettings().write(candidate)

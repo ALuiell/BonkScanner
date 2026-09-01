@@ -6,7 +6,9 @@ import json
 import socket
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -418,6 +420,40 @@ class OverlayServerTests(unittest.TestCase):
 
         self.assertEqual(321, overlay_config["widgets"][0]["width"])
         self.assertEqual(74, overlay_config["widgets"][0]["height"])
+
+    def test_persistence_failure_returns_http_500(self) -> None:
+        overlay_config = {"widgets": [{"id": "kps"}]}
+
+        class Settings:
+            def read(self):
+                return overlay_config
+
+            def update(self, mutate):
+                candidate = deepcopy(overlay_config)
+                mutate(candidate)
+                return SimpleNamespace(success=False, reason="read only")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asset_dir = Path(temp_dir)
+            (asset_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            server = LocalOverlayServer(
+                port=free_port(), asset_dir=asset_dir, settings=Settings()
+            )
+            server.start()
+            try:
+                request = Request(
+                    f"http://127.0.0.1:{server.port}/api/save-widget-positions",
+                    data=json.dumps({"id": "kps", "x": 12, "y": 34}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(HTTPError) as raised:
+                    urlopen(request, timeout=2)
+                self.assertEqual(raised.exception.code, 500)
+            finally:
+                server.stop()
+
+        self.assertNotIn("x", overlay_config["widgets"][0])
 
     def test_server_binds_to_loopback_host(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

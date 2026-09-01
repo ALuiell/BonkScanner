@@ -8,10 +8,8 @@ from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
 from app import config
-from app.coordinator import AppCoordinator
+from app.runtime import AppRuntime, AppRuntimePorts
 from app.version import CURRENT_VERSION
-from app.player_stats_memory import player_stats_memory
-from app.player_stats_refresh import player_stats_refresh
 from ui.dialogs import AutoRerollSetupGuideDialog, HelpDialog, SettingsDialog
 from ui.layout import build_layout, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
@@ -24,7 +22,11 @@ from ui.shared import UiInvoker, _AppWindow, resource_path
 from ui.dialogs.update_prompt import start_supporters_load, start_update_check
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
-from app.vod_library import VodLibrary
+from app.shutdown import (
+    FORCED_SHUTDOWN_EXIT_CODE,
+    ShutdownDeadline,
+    ShutdownReport,
+)
 from infra.crash_journal import log_runtime_event
 from session_stats import SessionStats
 
@@ -58,7 +60,7 @@ class MegabonkApp:
         cls._qt_app = app
         return app
 
-    def __init__(self):
+    def __init__(self, *, terminate_process=None):
         self._ensure_qt_application()
         self.window = _AppWindow(self)
         self._window_shown = False
@@ -68,6 +70,9 @@ class MegabonkApp:
         self._is_shutting_down = False
         self._close_in_progress = False
         self._shutdown_errors: list[tuple[str, str]] = []
+        self._shutdown_report: ShutdownReport | None = None
+        self._terminate_process = terminate_process
+        self._started = False
         self._background_threads = set()
         # Reuse one Settings dialog for the application's lifetime. Repeatedly
         # destroying and rebuilding its large child-widget tree can leave a
@@ -109,6 +114,8 @@ class MegabonkApp:
         self._tab_router = None
         self._recordings_view = None
         self._compare_runs_view = None
+        self._player_stats_view = None
+        self._recordings_list_view = None
         self.tabview = None
         self.tab_logs = None
         # `self.tab_stats = None` and `self.tab_vods = None` stood here and are
@@ -225,13 +232,49 @@ class MegabonkApp:
                 self.__dict__.get("_scanner") is not None and self._scanner.is_scanning()
             ),
         )
-        # client / player_stats_client / player_stats_game_data_client are owned by
-        # AppCoordinator (step 12b); it initialises them to None in its __init__,
-        # reached here through the client properties below and the scanner mixin.
-        # The two memory-reconnect streaks that stood here are `PlayerStatsMemory`'s
-        # fields now (step 20): nothing outside its reconnect policy read them.
-        # The coordinator is built a few lines below.
-        self.coordinator = AppCoordinator(
+        runtime_ports = AppRuntimePorts(
+            shutdown_requested=lambda: self._is_shutting_down,
+            live_stats_tab_active=self._is_live_stats_tab_active,
+            twitch_bot_active=self._is_twitch_bot_active,
+            overlay_refresh_wanted=self.overlay_should_refresh_live_stats,
+            overlay_widget_refresh_active=self._overlay_widget_refresh_active,
+            read_disabled_items_cache=lambda: self.player_stats_disabled_items_cache,
+            write_disabled_items_cache=lambda value: setattr(
+                self, "player_stats_disabled_items_cache", value
+            ),
+            read_disabled_items_refresh_pending=lambda: self.player_stats_disabled_items_refresh_pending,
+            write_disabled_items_refresh_pending=lambda value: setattr(
+                self, "player_stats_disabled_items_refresh_pending", value
+            ),
+            player_stats_view=lambda: self._require_runtime_port(
+                "player_stats_view", self._player_stats_view
+            ),
+            overlay_view=lambda: self._require_runtime_port(
+                "overlay_view", self._overlay_view
+            ),
+            recordings_list_view=lambda: self._require_runtime_port(
+                "recordings_list_view", self._recordings_list_view
+            ),
+            snapshot_buffer=lambda: self.player_stats_vod_snapshots,
+            reset_snapshot_buffer=self._reset_player_stats_snapshot_buffer,
+            selected_snapshot_index=lambda: self.player_stats_selected_snapshot_index,
+            select_snapshot=lambda value: setattr(
+                self, "player_stats_selected_snapshot_index", value
+            ),
+            snapshot_pinned=lambda: bool(self.player_stats_snapshot_pinned),
+            sync_overlay_state=self.update_overlay_state_from_tracker,
+            sync_in_game_kps=self.refresh_in_game_overlay_kps,
+            refresh_session_tracked_items=self.refresh_session_tracked_item_stats_ui,
+            log=self.log,
+            stop_hotkeys=lambda: self._run_control.stop_hotkeys(),
+            stop_in_game_overlay=self.shutdown_in_game_overlay,
+            stop_scanner=lambda deadline: self._scanner.shutdown(deadline),
+            stop_twitch=self.stop_twitch_bot,
+            wait_background_threads=self._wait_for_background_threads,
+            close_overlay_server=self.close_overlay_server,
+        )
+        self.runtime = AppRuntime.create(
+            ports=runtime_ports,
             tracked_item_rules=combined_tracked_item_rules(),
             stale_after_seconds=max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5),
             overlay_host=config.OVERLAY.get("host", "127.0.0.1"),
@@ -242,12 +285,13 @@ class MegabonkApp:
                 config.DEFAULT_PLAYER_STATS_RECORD_INTERVAL_SECONDS,
             ),
         )
-        # Aliases, not copies: the coordinator owns these, the mixins still reach
-        # them through the shared `self`. Step 12 removes the aliases.
-        self.player_stats_vod_recorder = self.coordinator.vod_recorder
-        self.overlay_state_store = self.coordinator.overlay_state_store
-        self.live_run_tracker = self.coordinator.live_run_tracker
-        self.overlay_server = self.coordinator.overlay_server
+        # Compatibility references are non-owning; AppRuntime is the composition
+        # root and the only object that constructs and tears down these services.
+        self.coordinator = self.runtime.coordinator
+        self.player_stats_vod_recorder = self.runtime.vod_recorder
+        self.overlay_state_store = self.runtime.coordinator.overlay_state_store
+        self.live_run_tracker = self.runtime.live_run_tracker
+        self.overlay_server = self.runtime.coordinator.overlay_server
         # The two step-25 components, built before every collaborator that
         # names them. They are mutually referential -- the scanner asks run
         # control where the game window is, run control asks the scanner
@@ -301,7 +345,7 @@ class MegabonkApp:
         # Results are always marshalled through the UI invoker.  A worker that
         # finishes after shutdown starts must drop its callback, never run it
         # inline on the worker thread after Qt's object tree has begun teardown.
-        self.vod_library = VodLibrary(
+        self.vod_library = self.runtime.create_vod_library(
             schedule=self.marshal_to_ui,
         )
 
@@ -316,8 +360,6 @@ class MegabonkApp:
                 self._twitch_tab,
                 session_snapshot=self._session_stats.snapshot,
             )
-            self._twitch_session.start()
-            self.apply_overlay_autostart()
             self._templates_panel.refresh_templates()
             self._templates_panel.refresh_scores_templates_list()
             self._templates_panel.refresh_scores_ui()
@@ -327,23 +369,6 @@ class MegabonkApp:
             # Restoring any earlier would come up with a rail of zero tiles.
             if config.LEFT_RAIL_COLLAPSED:
                 self._left_rail.collapse(restoring=True)
-            self.setup_hotkeys()
-            self.update_timer()
-            self.coordinator.start_refresh_loop(
-                tick=self.update_player_stats_timer,
-                schedule=self.after,
-                is_active=lambda: not self._is_shutting_down,
-                interval_ms=lambda: int(
-                    getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)
-                ),
-            )
-            self.check_admin_rights()
-            self.log(f"[*] Welcome to BonkScanner v{CURRENT_VERSION}!", tag="success")
-            self.log(f"[*] Target Process: {config.PROCESS_NAME}")
-            self._log_reset_hold_duration_correction()
-            self.log("[*] Ready! Select templates and start the main process loop.")
-            self.apply_run_control_mode(detach_hooks=False)
-            self.after(1500, self.deferred_update_check)
         except Exception as exc:
             log_runtime_event(
                 "application.construction.failed",
@@ -351,6 +376,51 @@ class MegabonkApp:
             )
             self.on_closing()
             raise
+
+    def start(self) -> None:
+        """Start background owners after construction has completed."""
+        if self._started or self._is_shutting_down:
+            return
+        self._started = True
+        self._twitch_session.start()
+        self.apply_overlay_autostart()
+        self.setup_hotkeys()
+        self.update_timer()
+        self.runtime.start(
+            schedule=self.after,
+            is_active=lambda: not self._is_shutting_down,
+            interval_ms=lambda: int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)),
+        )
+        self.check_admin_rights()
+        self.log(f"[*] Welcome to BonkScanner v{CURRENT_VERSION}!", tag="success")
+        self.log(f"[*] Target Process: {config.PROCESS_NAME}")
+        self._log_reset_hold_duration_correction()
+        self.log("[*] Ready! Select templates and start the main process loop.")
+        self.apply_run_control_mode(detach_hooks=False)
+        self.after(1500, self.deferred_update_check)
+
+    @staticmethod
+    def _require_runtime_port(name: str, value):
+        if value is None:
+            raise RuntimeError(f"Runtime UI port is not ready: {name}")
+        return value
+
+    def _reset_player_stats_snapshot_buffer(self) -> None:
+        self.player_stats_vod_snapshots = []
+        self.player_stats_selected_snapshot_index = None
+        self.player_stats_snapshot_pinned = False
+
+    def _overlay_widget_refresh_active(self, widget_id: str) -> bool:
+        server = self.overlay_server
+        if server is None or not bool(getattr(server, "is_running", False)):
+            return False
+        overlay = getattr(config, "OVERLAY", {}) or {}
+        return any(
+            isinstance(widget, dict)
+            and str(widget.get("id") or "") == widget_id
+            and bool(widget.get("enabled", False))
+            for widget in overlay.get("widgets", ()) or ()
+        )
 
     def _log_reset_hold_duration_correction(self) -> None:
         """Say so when the stored reset hold was below the game's threshold.
@@ -364,12 +434,6 @@ class MegabonkApp:
         )
         if notice is not None:
             self.log(notice, tag="warning")
-
-    def __getattr__(self, name: str):
-        window = self.__dict__.get("window")
-        if window is not None and hasattr(window, name):
-            return getattr(window, name)
-        raise AttributeError(name)
 
     # -- coordinator-owned memory clients (step 12b) ----------------------
     #
@@ -515,10 +579,19 @@ class MegabonkApp:
     # fault, and `stop_twitch_bot` was reached under `hasattr` before -- a
     # delegator that raised where the mixin's method did not would be a
     # behaviour change smuggled in as plumbing.
-    def stop_twitch_bot(self) -> None:
+    def stop_twitch_bot(
+        self,
+        deadline: ShutdownDeadline | None = None,
+    ) -> tuple[str, ...]:
         session = self.__dict__.get("_twitch_session")
         if session is not None:
-            session.shutdown()
+            result = (
+                session.shutdown()
+                if deadline is None
+                else session.shutdown(deadline)
+            )
+            return tuple(result or ())
+        return ()
 
     # Called on the app by `app/refresh_tasks.py` (twice) and
     # `app/player_stats_memory.py`, and defined **nowhere** until now. It was
@@ -562,10 +635,11 @@ class MegabonkApp:
     def apply_overlay_autostart(self) -> None:
         self._overlay.apply_overlay_autostart()
 
-    def close_overlay_server(self) -> None:
+    def close_overlay_server(self, deadline=None):
         overlay = self.__dict__.get("_overlay")
         if overlay is not None:
-            overlay.close_overlay_server()
+            return overlay.close_overlay_server(deadline)
+        return True
 
     def update_overlay_state_from_tracker(self) -> None:
         overlay = self.__dict__.get("_overlay")
@@ -624,10 +698,19 @@ class MegabonkApp:
         if overlay is not None:
             overlay.stop_in_game_overlay()
 
-    def shutdown_in_game_overlay(self) -> None:
+    def shutdown_in_game_overlay(
+        self,
+        deadline: ShutdownDeadline | None = None,
+    ) -> tuple[str, ...]:
         overlay = self.__dict__.get("_in_game_overlay")
         if overlay is not None:
-            overlay.shutdown()
+            result = (
+                overlay.shutdown()
+                if deadline is None
+                else overlay.shutdown(deadline)
+            )
+            return tuple(result or ())
+        return ()
 
     # The overlay layout hotkey is edited in two places -- the In-Game Overlay
     # tab and the Settings dialog -- so whichever one saved has to tell the
@@ -806,10 +889,10 @@ class MegabonkApp:
     # that package's import DAG. They already receive this as an
     # owner-resolved lambda.
     def update_player_stats_timer(self) -> None:
-        return player_stats_refresh(self).tick()
+        return self.runtime.player_stats_refresh.tick()
 
     def refresh_live_player_stats_now(self, **kwargs) -> bool:
-        return player_stats_refresh(self).refresh_now(**kwargs)
+        return self.runtime.player_stats_refresh.refresh_now(**kwargs)
 
     # -- the four recording-tab delegators (steps 21c/21d), deleted at 26 ---
     #
@@ -907,89 +990,64 @@ class MegabonkApp:
     # missing component internally, which is where that decision belongs.
     def on_closing(self):
         if getattr(self, "_is_shutting_down", False):
-            return not bool(self.__dict__.get("_shutdown_errors", ()))
+            report = self.__dict__.get("_shutdown_report")
+            return report.completed if report is not None else not bool(
+                self.__dict__.get("_shutdown_errors", ())
+            )
         self._is_shutting_down = True
+        deadline = ShutdownDeadline.after()
         log_runtime_event("application.shutdown.begin")
-        # Stop the two GUI timers and close the parentless Qt.Tool window before
-        # any blocking worker joins.  Nothing should be able to enqueue another
-        # overlay paint while the rest of the object tree is being dismantled.
-        self._run_shutdown_step("in_game_overlay", self.shutdown_in_game_overlay)
-        # `self._cancel_right_tab_transition()` stood here and is deleted
-        # rather than moved. It was one of two methods on `GuiLayoutMixin`
-        # whose entire body was `return None`, and it had been that since it
-        # was written: there has never been a tab transition to cancel. Its
-        # sibling `_show_right_tab_transition_cover` was the first line of
-        # `on_right_tab_changed` and is gone for the same reason.
-        #
-        # `test_on_closing_stops_supported_runtime_resources` replaced this
-        # with a recorder and asserted `"transition"` came **first** in the
-        # teardown order. The assertion is updated rather than dropped: the
-        # remaining six steps are still asserted in order, and what the test
-        # was pinning here was the position of a no-op.
-        self._run_shutdown_step("scanner", lambda: self._scanner.shutdown())
-        # The coordinator owns the three memory clients (step 12b), so it closes
-        # them (step 12c). App doubles built without a coordinator fall back to the
-        # mixin close methods, preserving the shutdown order those tests assert.
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            self._run_shutdown_step("coordinator", coordinator.shutdown)
-        else:
-            self._run_shutdown_step(
-                "scanner_client",
-                lambda: self._scanner.close_client(),
-            )
-            self._run_shutdown_step(
-                "player_stats_client",
-                lambda: player_stats_memory(self).close_player_stats_client(),
-            )
-            self._run_shutdown_step(
-                "player_stats_game_data_client",
-                lambda: player_stats_memory(self).close_player_stats_game_data_client(),
-            )
-        self._run_shutdown_step("overlay_server", self.close_overlay_server)
-        self._run_shutdown_step("twitch", self.stop_twitch_bot)
-        self._run_shutdown_step("background_threads", self._wait_for_background_threads)
-        player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
-        if player_stats_vod_recorder is not None:
-            self._run_shutdown_step(
-                "vod_recorder",
-                lambda: (
-                    player_stats_vod_recorder.stop()
-                    if player_stats_vod_recorder.is_recording
-                    else player_stats_vod_recorder.close()
-                ),
-            )
-        self._run_shutdown_step("hotkeys", lambda: self._run_control.stop_hotkeys())
+        report = self.runtime.shutdown(deadline)
+        self._shutdown_report = report
         log_runtime_event(
             "application.shutdown.resources_stopped",
-            errors=len(self.__dict__.get("_shutdown_errors", ())),
+            errors=len(report.errors),
+            timed_out=report.timed_out_resources,
+            elapsed_ms=report.elapsed_ms,
         )
-        self._run_shutdown_step("window", self.destroy)
-        return not bool(self.__dict__.get("_shutdown_errors", ()))
-
-    def _run_shutdown_step(self, name: str, callback) -> bool:
-        """Run one teardown owner without letting it strand the remaining ones."""
-        try:
-            callback()
-        except Exception as exc:
-            detail = f"{type(exc).__name__}: {exc}"
-            self.__dict__.setdefault("_shutdown_errors", []).append((name, detail))
+        if report.timed_out_resources:
             log_runtime_event(
-                "application.shutdown.step_failed",
-                step=name,
-                error=detail,
+                "application.shutdown.forced",
+                durable=True,
+                resources=report.timed_out_resources,
+                elapsed_ms=report.elapsed_ms,
+            )
+            terminate = self.__dict__.get("_terminate_process")
+            if callable(terminate):
+                terminate(FORCED_SHUTDOWN_EXIT_CODE)
+            return False
+        if report.errors:
+            log_runtime_event(
+                "application.shutdown.incomplete",
+                durable=True,
+                errors=report.errors,
+                elapsed_ms=report.elapsed_ms,
             )
             return False
-        return True
+        try:
+            self.destroy()
+        except Exception as exc:
+            log_runtime_event(
+                "application.shutdown.step_failed",
+                step="window",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            return False
+        return report.completed
 
-    def _wait_for_background_threads(self) -> None:
+    def _wait_for_background_threads(
+        self,
+        deadline: ShutdownDeadline | None = None,
+    ) -> tuple[str, ...]:
+        timed_out: list[str] = []
         for thread in list(getattr(self, "_background_threads", ())):
             is_alive = getattr(thread, "is_alive", None)
             join = getattr(thread, "join", None)
             if not callable(is_alive) or not callable(join) or not is_alive():
                 continue
             name = getattr(thread, "name", type(thread).__name__)
-            join(timeout=12.0)
+            wait_seconds = 12.0 if deadline is None else deadline.remaining_seconds()
+            join(timeout=wait_seconds)
             running = bool(is_alive())
             log_runtime_event(
                 "application.background_thread.wait",
@@ -997,16 +1055,20 @@ class MegabonkApp:
                 running=running,
             )
             if running:
-                log_runtime_event(
-                    "application.background_thread.wait_extended",
-                    worker=name,
-                )
-                join()
-                log_runtime_event(
-                    "application.background_thread.wait_extended_complete",
-                    worker=name,
-                    running=bool(is_alive()),
-                )
+                if deadline is None:
+                    log_runtime_event(
+                        "application.background_thread.wait_extended",
+                        worker=name,
+                    )
+                    join()
+                    log_runtime_event(
+                        "application.background_thread.wait_extended_complete",
+                        worker=name,
+                        running=bool(is_alive()),
+                    )
+                else:
+                    timed_out.append(str(name))
+        return tuple(timed_out)
 
     # Scheduled 1.5s into `__init__`. It hands *the application* to the update
     # flow, which reaches back for `log`, the window and the settings it
@@ -1021,6 +1083,18 @@ class MegabonkApp:
     @property
     def qt_app(self) -> QApplication:
         return self._ensure_qt_application()
+
+    def setWindowTitle(self, title: str) -> None:
+        self.window.setWindowTitle(title)
+
+    def resize(self, width: int, height: int) -> None:
+        self.window.resize(width, height)
+
+    def setMinimumSize(self, width: int, height: int) -> None:
+        self.window.setMinimumSize(width, height)
+
+    def setWindowIcon(self, icon: QIcon) -> None:
+        self.window.setWindowIcon(icon)
 
     def protocol(self, name: str, callback: object) -> None:
         if name == "WM_DELETE_WINDOW":
@@ -1082,8 +1156,11 @@ class MegabonkApp:
         self.window.close()
 
     def _handle_window_close(self, event: QCloseEvent) -> None:
-        if self._close_in_progress or self._is_shutting_down:
+        if self._close_in_progress:
             event.accept()
+            return
+        if self._is_shutting_down:
+            event.ignore()
             return
         handler = self._close_protocol_handler or getattr(self, "on_closing", None)
         if callable(handler):

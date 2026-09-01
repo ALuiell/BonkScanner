@@ -1,6 +1,6 @@
 # Functional Updates
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-01
 
 This file tracks open and partially completed functional/runtime work that does not fit cleanly into UI-only or performance-only buckets.
 
@@ -11,6 +11,77 @@ Status legend:
 - `[Open]` not implemented yet
 
 ## Open Updates
+
+### Engineering & Delivery
+
+#### 1. Windows CI and Release Automation
+
+Status: `[Open]`
+
+Goal:
+
+- Add a GitHub Actions workflow for the Windows application so pull requests and
+  changes on `main` run the same meaningful checks used locally before release.
+- Turn the current manual EXE/release procedure into an observable, repeatable
+  release path without changing the application's runtime behavior.
+
+Planned implementation notes:
+
+- Run the unit and architecture-ratchet suites on a Windows runner, including
+  bootstrap/config import-safety checks and the shutdown/VOD compatibility set.
+- Keep desktop-only WinAPI/game integration tests outside ordinary hosted CI;
+  expose them as a documented manual or self-hosted validation stage instead.
+- Add a release job that uses the repository's existing build entry point,
+  validates the produced `BonkScanner.exe`, publishes checksums and attaches the
+  verified artifact to a tagged GitHub release.
+- Pin Python and build dependencies deliberately, cache only reproducible inputs,
+  and make failures retain useful test/build diagnostics.
+- Add signing as a separate gated step once certificate ownership and secret
+  storage are decided; do not silently publish an unsigned artifact as signed.
+- Keep the existing crypto-support Pages deployment independent from the desktop
+  application CI/release workflow.
+
+Acceptance direction:
+
+- pull requests cannot merge with failing application tests;
+- a tagged release produces one traceable artifact from a clean checkout;
+- the release reports test, build, checksum and signing status explicitly;
+- packaged-EXE smoke validation remains visible as either verified or pending,
+  never inferred from a successful source test run.
+
+#### 2. Behavior-Preserving Decomposition of Large Modules
+
+Status: `[Open]`
+
+Goal:
+
+- Split the remaining oversized production and test modules along the ownership
+  boundaries established by the runtime/config/shutdown refactor.
+- Improve navigation and reviewability without combining the work with feature
+  changes or another architectural rewrite.
+
+Planned implementation notes:
+
+- Re-measure the largest modules after the current architectural cycle lands and
+  prioritize files with multiple independent responsibilities or very broad test
+  fixtures.
+- Extract cohesive components behind the existing typed ports and DTOs; preserve
+  public imports through explicit compatibility exports only where callers still
+  require them.
+- Move tests with their owning subsystem and replace monolithic shared fixtures
+  with focused builders, while retaining the current architecture ratchets.
+- Perform the work in small, behavior-neutral steps with targeted tests after
+  every extraction and the full suite at the end.
+- Do not use line-count reduction alone as success: ownership, dependency
+  direction and discoverability must improve, with no new ambient state or
+  owner-based service resolution.
+
+Acceptance direction:
+
+- each extracted module has one clear responsibility and an explicit owner;
+- no user-visible behavior, config/VOD format or refresh cadence changes;
+- architecture ratchets and the full Windows test suite remain green;
+- compatibility facades introduced for migration are tracked for later removal.
 
 ### Twitch Commands
 

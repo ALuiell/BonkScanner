@@ -31,7 +31,6 @@ Note for whoever moves this again: ``ui.tabs.player_stats.recordings`` is in
 """
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
@@ -73,6 +72,7 @@ from app.vod_library import (
     set_recording_library_width,
     set_recording_sort_mode,
 )
+from app.latest_wins_loader import LatestWinsLoader
 from core.run_summary import item_counts
 from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS
@@ -432,6 +432,10 @@ class RecordingsTab:
         self._list_signature = None
         self._load_generation = 0
         self._load_in_progress = False
+        self._load_lane = LatestWinsLoader(
+            schedule=lambda callback: self._marshal(callback),
+            thread_name="recordings-loader",
+        )
 
         self._rows = {}
         self._compact_rows = {}
@@ -755,8 +759,6 @@ class RecordingsTab:
         self._refresh_vod_compare_controls()
     def load_selected_vod(self, path):
         path = Path(path)
-        generation = int(self._load_generation) + 1
-        self._load_generation = generation
         self._loaded_vod = None
         self._snapshot_index = None
         # A queued frame describes the recording being replaced.
@@ -769,8 +771,6 @@ class RecordingsTab:
         _set_text(self._status_label, "Loading recording…")
 
         def finish(loaded_vod, error) -> None:
-            if generation != self._load_generation:
-                return
             if error is not None:
                 self._clear_loaded_vod_selection()
                 _set_text(self._status_label, f"Could not load recording: {error}")
@@ -798,31 +798,13 @@ class RecordingsTab:
                     False, guided=False, remember=False
                 )
 
-        def load() -> None:
-            try:
-                loaded = load_vod(path)
-                error = None
-            except Exception as exc:
-                loaded = None
-                error = exc
-            self._marshal(lambda: finish(loaded, error))
-
-        # Background only when there is somewhere to marshal the result back to.
-        # The mixin decided this by reading `self.after` and `self._invoker` off
-        # the shared namespace on every load; it is one injected callable now,
-        # and the two branches are the same two.
         if callable(self._schedule):
-            try:
-                threading.Thread(
-                    target=load, name="vod-loader", daemon=True
-                ).start()
-            except Exception as exc:
-                # Resource exhaustion or interpreter teardown can reject a new
-                # native thread. Restore an interactive, explicit error state
-                # instead of leaving the tab disabled on "Loading…" forever.
-                finish(None, exc)
+            self._load_lane.submit(path, load=load_vod, complete=finish)
         else:
-            load()
+            try:
+                finish(load_vod(path), None)
+            except Exception as exc:
+                finish(None, exc)
 
     def _marshal(self, callback) -> None:
         schedule = self._schedule
@@ -1836,6 +1818,7 @@ class RecordingsTab:
             workspace_object_name="RecordingsWorkspace",
         )
         self._tab.setObjectName("RecordingsPage")
+        self._tab.destroyed.connect(lambda *_args: self._load_lane.dispose())
         self._tabview.addTab(self._tab, "Recordings")
 
     def build_now(self) -> None:

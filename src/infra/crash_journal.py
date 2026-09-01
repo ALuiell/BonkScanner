@@ -98,9 +98,9 @@ def _write(event: str, *, durable: bool = False, **fields: Any) -> None:
         pass
 
 
-def log_runtime_event(event: str, **fields: Any) -> None:
+def log_runtime_event(event: str, *, durable: bool = False, **fields: Any) -> None:
     """Append lifecycle context to the pending journal, if it is installed."""
-    _write(event, **fields)
+    _write(event, durable=durable, **fields)
 
 
 def _prune_crash_logs(directory: Path) -> None:

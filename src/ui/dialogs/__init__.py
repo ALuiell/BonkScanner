@@ -91,8 +91,6 @@ from core.template_colors import (
 )
 
 from app import config
-from app.player_stats_view import overlay_view, player_stats_view
-from app.vod_capture import vod_capture
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
 CRYPTO_SUPPORT_URL = config.CRYPTO_SUPPORT_URL
@@ -2083,14 +2081,15 @@ class SettingsDialog(QDialog):
             except Exception as exc:
                 runtime_errors.append(f"{name}: {type(exc).__name__}: {exc}")
 
-        if auto_start_recording:
+        runtime = getattr(self.master, "runtime", None)
+        if auto_start_recording and runtime is not None:
             # Was `hasattr(self.master, ...)` + a direct assignment. The service
             # always has the flag, so the guard is gone -- and with it the
             # step-19 failure shape where a `hasattr` goes quietly false and
             # re-enabling auto-start silently stops clearing a suppression.
             apply_runtime_step(
                 "recording auto-start",
-                lambda: vod_capture(self.master).clear_auto_recording_suppression(),
+                lambda: runtime.vod_capture.clear_auto_recording_suppression(),
             )
 
         def update_recorder_interval() -> None:
@@ -2108,7 +2107,9 @@ class SettingsDialog(QDialog):
             # settings save -- no exception, green suite. The guard stays
             # because the suite drives this dialog with stand-in masters.
             def refresh_timeline() -> None:
-                timeline = player_stats_view(self.master)
+                if runtime is None:
+                    return
+                timeline = runtime.ports.player_stats_view()
                 refresh = getattr(timeline, "refresh_player_stats_timeline_ui", None)
                 if callable(refresh):
                     refresh(update_slider=False)
@@ -2120,10 +2121,11 @@ class SettingsDialog(QDialog):
             # value -- but the tab's checkbox is long-lived and has no way to
             # learn that this save happened. Unguarded and through the named
             # port on purpose: see `OverlayView.refresh_scanner_reminder_ui`.
-            apply_runtime_step(
-                "OBS reminder",
-                lambda: overlay_view(self.master).refresh_scanner_reminder_ui(),
-            )
+            if runtime is not None:
+                apply_runtime_step(
+                    "OBS reminder",
+                    lambda: runtime.ports.overlay_view().refresh_scanner_reminder_ui(),
+                )
             # Same shape, for the same reason: the In-Game Overlay tab shows
             # this hotkey in a field *and* in the tip that is now the only place
             # explaining how to enter layout mode. A stale tip there tells the

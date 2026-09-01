@@ -36,7 +36,6 @@ from app import config
 from infra.crash_journal import log_runtime_event
 from app.map_scoring import calculate_map_score, evaluate_candidate, format_stats
 from ui.tabs.session_stats import SessionStatsTab
-from app.player_stats_view import player_stats_view
 from app.template_filters import TemplateRuntimeFilters
 # Top-level, not deferred into the builder. `gui_dialogs` imports nothing from
 # here, so there is no cycle to dodge, and a function-body import is invisible
@@ -55,6 +54,7 @@ from ui.styles import _set_widget_style_role
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.run_control import RunControlError
 from core.runtime_stats import adapt_map_stats
+from app.shutdown import ShutdownDeadline
 
 
 class Scanner:
@@ -222,7 +222,9 @@ class Scanner:
 
         with self._restart_lock:
             if (
-                not self.is_running
+                self._stop_pending
+                or self.stop_event.is_set()
+                or not self.is_running
                 or not self.scan_event.is_set()
                 or not self.is_scanning()
             ):
@@ -234,7 +236,7 @@ class Scanner:
         self.log("[SAFETY] Player movement detected. Auto-reroll paused.", tag="warning")
         self._schedule(0, self.update_status_ui)
 
-    def shutdown(self) -> None:
+    def shutdown(self, deadline: ShutdownDeadline | None = None) -> bool:
         """The scanner's two steps of `MegabonkApp.on_closing`.
 
         Setting both events is what releases the worker: `stop_event` ends the
@@ -242,43 +244,41 @@ class Scanner:
         flush is forced because the 15s throttle would otherwise drop a reroll
         count on the way out.
         """
-        self._start_pending = False
-        self._stop_pending = True
-        self.stop_event.set()
-        self.scan_event.set()
+        deadline = deadline or ShutdownDeadline.after(12.0)
+        with self._restart_lock:
+            self._start_pending = False
+            self._stop_pending = True
+            self.is_running = False
+            self.stop_event.set()
+            self.scan_event.set()
         self._flush_total_rerolls(force=True)
         worker = self.scanner_thread
         if worker is None:
-            self._stop_pending = False
-            return
+            return True
         if worker is threading.current_thread():
-            return
+            return False
         is_alive = getattr(worker, "is_alive", None)
         join = getattr(worker, "join", None)
         if not callable(is_alive) or not callable(join) or not is_alive():
             if self.scanner_thread is worker:
                 self.scanner_thread = None
-            self._stop_pending = False
-            return
+            return True
         started_at = time.monotonic()
-        join(timeout=12.0)
+        join(timeout=deadline.remaining_seconds())
         alive_after = bool(is_alive())
         log_runtime_event(
             "scanner.worker.wait",
             running=alive_after,
             elapsed_ms=round((time.monotonic() - started_at) * 1000),
         )
-        if alive_after:
-            log_runtime_event("scanner.worker.wait_extended")
-            join()
-            log_runtime_event(
-                "scanner.worker.wait_extended_complete",
-                running=bool(is_alive()),
-                elapsed_ms=round((time.monotonic() - started_at) * 1000),
-            )
         if not is_alive() and self.scanner_thread is worker:
             self.scanner_thread = None
-        self._stop_pending = False
+        if alive_after:
+            log_runtime_event(
+                "scanner.worker.wait_timeout",
+                elapsed_ms=round((time.monotonic() - started_at) * 1000),
+            )
+        return not alive_after
 
     def _score_tier_color_tag(self, tier: str) -> str:
         colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
@@ -959,7 +959,8 @@ class Scanner:
                     continue
 
             was_waiting = not self.scan_event.is_set()
-            self.scan_event.wait()
+            if not self.scan_event.wait(timeout=0.25):
+                continue
             if was_waiting:
                 is_first_scan = True
                 last_state = None
@@ -1174,7 +1175,7 @@ def build_scanner(
         refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(),
         open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(),
         is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording),
-        refresh_timeline=lambda: player_stats_view(app).refresh_player_stats_timeline_ui(
+        refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(
             update_slider=False
         ),
         is_shutting_down=lambda: bool(app._is_shutting_down),

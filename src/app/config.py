@@ -12,9 +12,11 @@ from core.json_safety import dumps_strict_json, load_legacy_json
 from core.map_markers import normalize_map_marker_settings
 from core.settings import MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS
 from infra import paths
+from app.config_repository import ConfigLoadResult, ConfigRepository
 
 colorama.init(autoreset=True)
 config_lock = threading.RLock()
+_repository: ConfigRepository | None = None
 
 # ==========================================
 # CONSTANTS & SETTINGS
@@ -599,7 +601,7 @@ def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
 # LOAD JSON CONFIG
 # ==========================================
 config_path = os.path.join(application_path, "config.json")
-CONFIG_FILE_EXISTED_AT_STARTUP = os.path.isfile(config_path)
+CONFIG_FILE_EXISTED_AT_STARTUP = False
 
 def load_config():
     with config_lock:
@@ -628,6 +630,12 @@ def _atomic_write_text(path, payload):
 
 
 def save_config(cfg_dict) -> ConfigSaveResult:
+    repository = _repository
+    if repository is not None and os.path.normcase(str(repository.path)) == os.path.normcase(config_path):
+        result = repository.commit(cfg_dict)
+        if not result.success and cfg_dict is user_config:
+            _restore_runtime_snapshot(repository.snapshot())
+        return ConfigSaveResult(result.success, result.reason)
     with config_lock:
         try:
             payload = dumps_strict_json(cfg_dict, indent=4)
@@ -648,6 +656,48 @@ def save_config(cfg_dict) -> ConfigSaveResult:
                 False,
                 f"BonkScanner could not save config.json: {exc}",
             )
+
+
+def _restore_runtime_snapshot(snapshot: dict) -> None:
+    """Restore the compatibility facade after a legacy in-place write failed."""
+
+    restored: dict = {}
+    module_globals = globals()
+    for key, value in deepcopy(snapshot).items():
+        current = module_globals.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            current.clear()
+            current.update(value)
+            restored[key] = current
+        elif isinstance(current, list) and isinstance(value, list):
+            current[:] = value
+            restored[key] = current
+        elif key.isupper() and key in module_globals:
+            module_globals[key] = value
+            restored[key] = value
+        else:
+            restored[key] = value
+    user_config.clear()
+    user_config.update(restored)
+
+
+def update_config(mutate) -> ConfigSaveResult:
+    """Commit one mutation without publishing it before verified persistence."""
+
+    with config_lock:
+        before = deepcopy(user_config)
+        candidate = deepcopy(user_config)
+        mutate(candidate)
+        result = save_config(candidate)
+        if not result.success:
+            return result
+        removed = set(before) - set(candidate)
+        for key in removed:
+            user_config.pop(key, None)
+        for key, value in candidate.items():
+            if key not in before or before[key] != value:
+                user_config[key] = deepcopy(value)
+        return result
 
 
 def save_settings_with_game_reset(
@@ -785,8 +835,10 @@ def cleanup_legacy_native_hook_cache(saved_dll_path: str | None = None) -> None:
     except Exception:
         pass
 
-user_config = load_config()
-cleanup_legacy_native_hook_cache(user_config.get("NATIVE_HOOK_DLL_PATH"))
+# Defaults are normalised at import without touching disk. The bootstrap calls
+# ``initialize_config`` before importing the GUI and replaces this mapping with
+# the persisted snapshot.
+user_config = {}
 
 def coerce_nonnegative_int(value, default=0):
     try:
@@ -1454,7 +1506,7 @@ def resolve_reset_hold_duration(
 
 # Load RESET_HOLD_DURATION from user_config first, fallback to game config,
 # fallback to the default -- then hold it to the game's floor either way.
-GAME_RESET_HOLD_FLOOR = get_game_reset_time()
+GAME_RESET_HOLD_FLOOR = None
 RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM = resolve_reset_hold_duration(
     user_config.get("RESET_HOLD_DURATION"),
     GAME_RESET_HOLD_FLOOR,
@@ -1704,6 +1756,155 @@ user_config.pop("TOGGLE_PARTICLES_OPACITY_HOTKEY", None)
 user_config.pop("CHAOS_TOME_TRACKER_INTERVAL_MS", None)
 
 
-# If the config.json file did not exist initially (or did not contain TEMPLATES),
-# we immediately save the current structure to disk so that the user has something to edit.
-save_config(user_config)
+# Persisted configuration is loaded and normalised explicitly by the process
+# bootstrap. Importing this module is intentionally side-effect free.
+
+
+def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
+    """Publish one loaded snapshot through the legacy ``config.*`` facade."""
+
+    global RESET_HOLD_SAFETY_MARGIN
+    global AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED
+    global GAME_RESET_HOLD_FLOOR, RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM
+    global HOTKEY, HOTKEY_GAME_KEY_WHITELIST
+    global PLAYER_STATS_RECORD_HOTKEY, IN_GAME_OVERLAY_EDIT_HOTKEY
+    global PLAYER_STATS_RECORD_INTERVAL_SECONDS, FAST_TRACKER_INTERVAL_MS
+    global AUTO_START_RECORDING, SHOW_OBS_REMINDER_ON_START_SCANNER
+    global STOP_SCANNING_ON_PLAYER_MOVEMENT, LEFT_RAIL_COLLAPSED
+    global MENU_HOTKEY, RESET_HOTKEY, PROCESS_NAME, TOTAL_REROLLS
+    global SKIPPED_UPDATE_VERSION, TEMPLATES, ACTIVE_TEMPLATES
+    global EVALUATION_MODE, SCORES_SYSTEM, OVERLAY, IN_GAME_OVERLAY
+    global SESSION_TRACKED_ITEMS, TWITCH_BOT, BUILD_PROGRESSION
+
+    user_config.clear()
+    user_config.update(deepcopy(loaded if isinstance(loaded, dict) else {}))
+    saved_native_hook_path = user_config.get("NATIVE_HOOK_DLL_PATH")
+
+    RESET_HOLD_SAFETY_MARGIN = normalize_reset_hold_safety_margin(
+        user_config.get("RESET_HOLD_SAFETY_MARGIN")
+    )
+    user_config["RESET_HOLD_SAFETY_MARGIN"] = RESET_HOLD_SAFETY_MARGIN
+    user_config.pop("MIN_RESET_HOLD_DURATION", None)
+
+    AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = (
+        resolve_auto_reroll_setup_guide_acknowledged(
+            user_config.get("AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"),
+            config_existed=config_existed,
+            saved_version=user_config.get("AUTO_REROLL_SETUP_GUIDE_VERSION"),
+            current_version=AUTO_REROLL_SETUP_GUIDE_VERSION,
+        )
+    )
+    user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"] = (
+        AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED
+    )
+    user_config["AUTO_REROLL_SETUP_GUIDE_VERSION"] = AUTO_REROLL_SETUP_GUIDE_VERSION
+    user_config.pop("MIN_DELAY", None)
+    user_config.pop("MAP_LOAD_DELAY", None)
+
+    GAME_RESET_HOLD_FLOOR = get_game_reset_time()
+    RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM = resolve_reset_hold_duration(
+        user_config.get("RESET_HOLD_DURATION"),
+        GAME_RESET_HOLD_FLOOR,
+    )
+
+    HOTKEY = user_config.get("HOTKEY", "f6")
+    HOTKEY_GAME_KEY_WHITELIST = normalize_hotkey_game_key_whitelist(
+        user_config.get("HOTKEY_GAME_KEY_WHITELIST", DEFAULT_HOTKEY_GAME_KEY_WHITELIST)
+    )
+    PLAYER_STATS_RECORD_HOTKEY = user_config.get("PLAYER_STATS_RECORD_HOTKEY", "f8")
+    IN_GAME_OVERLAY_EDIT_HOTKEY = user_config.get("IN_GAME_OVERLAY_EDIT_HOTKEY", "f9")
+    PLAYER_STATS_RECORD_INTERVAL_SECONDS = resolve_player_stats_record_interval_seconds(
+        user_config
+    )
+    FAST_TRACKER_INTERVAL_MS = resolve_fast_tracker_interval_ms(user_config)
+    AUTO_START_RECORDING = bool(user_config.get("AUTO_START_RECORDING", False))
+    SHOW_OBS_REMINDER_ON_START_SCANNER = bool(
+        user_config.get("SHOW_OBS_REMINDER_ON_START_SCANNER", False)
+    )
+    STOP_SCANNING_ON_PLAYER_MOVEMENT = resolve_stop_scanning_on_player_movement(
+        user_config.get("STOP_SCANNING_ON_PLAYER_MOVEMENT")
+    )
+    LEFT_RAIL_COLLAPSED = bool(user_config.get("LEFT_RAIL_COLLAPSED", False))
+    MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
+    RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
+    PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
+    TOTAL_REROLLS = coerce_nonnegative_int(user_config.get("TOTAL_REROLLS", 0))
+    SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
+
+    TEMPLATES = normalize_templates_config(user_config.get("TEMPLATES"))
+    _migrate_template_colors(TEMPLATES)
+    ACTIVE_TEMPLATES = user_config.get("ACTIVE_TEMPLATES")
+    if ACTIVE_TEMPLATES is None:
+        ACTIVE_TEMPLATES = [template["name"] for template in TEMPLATES]
+    EVALUATION_MODE = user_config.get("EVALUATION_MODE", "templates")
+    SCORES_SYSTEM = user_config.get("SCORES_SYSTEM", DEFAULT_SCORES_SYSTEM)
+    if not SCORES_SYSTEM:
+        SCORES_SYSTEM = DEFAULT_SCORES_SYSTEM
+    OVERLAY = normalize_overlay_config(user_config.get("OVERLAY"))
+    IN_GAME_OVERLAY = normalize_in_game_overlay_config(user_config.get("IN_GAME_OVERLAY"))
+    SESSION_TRACKED_ITEMS = normalize_session_tracked_items_config(
+        user_config.get("SESSION_TRACKED_ITEMS")
+    )
+    TWITCH_BOT = normalize_twitch_bot_config(user_config.get("TWITCH_BOT"))
+    BUILD_PROGRESSION = normalize_build_progression_config(
+        user_config.get("BUILD_PROGRESSION")
+    )
+
+    user_config.update(
+        {
+            "RESET_HOLD_DURATION": round(RESET_HOLD_DURATION, 2),
+            "HOTKEY": HOTKEY,
+            "HOTKEY_GAME_KEY_WHITELIST": HOTKEY_GAME_KEY_WHITELIST,
+            "PLAYER_STATS_RECORD_HOTKEY": PLAYER_STATS_RECORD_HOTKEY,
+            "IN_GAME_OVERLAY_EDIT_HOTKEY": IN_GAME_OVERLAY_EDIT_HOTKEY,
+            "PLAYER_STATS_RECORD_INTERVAL_SECONDS": PLAYER_STATS_RECORD_INTERVAL_SECONDS,
+            "FAST_TRACKER_INTERVAL_MS": FAST_TRACKER_INTERVAL_MS,
+            "AUTO_START_RECORDING": AUTO_START_RECORDING,
+            "SHOW_OBS_REMINDER_ON_START_SCANNER": SHOW_OBS_REMINDER_ON_START_SCANNER,
+            "STOP_SCANNING_ON_PLAYER_MOVEMENT": STOP_SCANNING_ON_PLAYER_MOVEMENT,
+            "LEFT_RAIL_COLLAPSED": LEFT_RAIL_COLLAPSED,
+            "MENU_HOTKEY": MENU_HOTKEY,
+            "RESET_HOTKEY": RESET_HOTKEY,
+            "PROCESS_NAME": PROCESS_NAME,
+            "TOTAL_REROLLS": TOTAL_REROLLS,
+            "TEMPLATES": TEMPLATES,
+            "ACTIVE_TEMPLATES": ACTIVE_TEMPLATES,
+            "SKIPPED_UPDATE_VERSION": SKIPPED_UPDATE_VERSION,
+            "EVALUATION_MODE": EVALUATION_MODE,
+            "SCORES_SYSTEM": SCORES_SYSTEM,
+            "OVERLAY": OVERLAY,
+            "IN_GAME_OVERLAY": IN_GAME_OVERLAY,
+            "SESSION_TRACKED_ITEMS": SESSION_TRACKED_ITEMS,
+            "TWITCH_BOT": TWITCH_BOT,
+            "BUILD_PROGRESSION": BUILD_PROGRESSION,
+        }
+    )
+    for obsolete_key in (
+        "NATIVE_HOOK_ENABLED",
+        "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED",
+        "NATIVE_HOOK_DLL_PATH",
+        "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY",
+        "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY",
+        "TOGGLE_PARTICLES_OPACITY_HOTKEY",
+        "CHAOS_TOME_TRACKER_INTERVAL_MS",
+    ):
+        user_config.pop(obsolete_key, None)
+    cleanup_legacy_native_hook_cache(saved_native_hook_path)
+
+
+def initialize_config(
+    repository: ConfigRepository | None = None,
+) -> ConfigLoadResult:
+    """Load, migrate and publish config explicitly during process bootstrap."""
+
+    global _repository, config_lock, CONFIG_FILE_EXISTED_AT_STARTUP, config_path
+    repository = repository or ConfigRepository(config_path)
+    result = repository.load()
+    _repository = repository
+    config_lock = repository.lock
+    config_path = str(repository.path)
+    CONFIG_FILE_EXISTED_AT_STARTUP = result.existed
+    with config_lock:
+        _apply_loaded_config(result.snapshot, config_existed=result.existed)
+        save_config(user_config)
+    return result

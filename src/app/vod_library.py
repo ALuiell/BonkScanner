@@ -72,17 +72,18 @@ from infra import vod_storage
 from typing import Callable, Sequence
 
 from app import config
+from app.settings import ConfigRecordingSettings
 from projections.recording_sort import normalize_recording_sort_mode
 
 from infra.vod_storage import (
     delete_vod,
     delete_vods_below_snapshot_count,
-    load_cached_vods,
     load_vod,
-    minimum_snapshot_count,
-    refresh_vod_metadata_index,
     rename_vod,
 )
+
+_load_cached_vods = vod_storage.load_cached_vods
+_refresh_vod_metadata_index = vod_storage.refresh_vod_metadata_index
 
 __all__ = [
     "VodLibrary",
@@ -168,13 +169,21 @@ def set_minimum_snapshot_count(value: int):
     Recordings tab is allowed to call. The reader is re-exported above for the
     same reason.
     """
-    settings = vod_storage._settings
-    if settings is None:
-        return
-    writer = getattr(settings, "write_minimum_snapshot_count", None)
-    if callable(writer):
-        return writer(max(0, int(value)))
-    return None
+    return ConfigRecordingSettings().write_minimum_snapshot_count(
+        max(0, int(value))
+    )
+
+
+def minimum_snapshot_count() -> int:
+    return ConfigRecordingSettings().read_minimum_snapshot_count()
+
+
+def load_cached_vods(settings=None):
+    return _load_cached_vods(settings or ConfigRecordingSettings())
+
+
+def refresh_vod_metadata_index(settings=None):
+    return _refresh_vod_metadata_index(settings or ConfigRecordingSettings())
 
 
 class VodLibrary:
@@ -187,15 +196,23 @@ class VodLibrary:
     def __init__(
         self,
         *,
-        load_cached: Callable[[], Sequence] = load_cached_vods,
-        refresh_index: Callable[[], Sequence] = refresh_vod_metadata_index,
+        settings=None,
+        load_cached: Callable[[], Sequence] | None = None,
+        refresh_index: Callable[[], Sequence] | None = None,
         schedule: Callable[[Callable[[], None]], None] | None = None,
     ) -> None:
+        self._settings = settings or ConfigRecordingSettings()
+        if load_cached is None:
+            load_cached = lambda: _load_cached_vods(self._settings)
+        if refresh_index is None:
+            refresh_index = lambda: _refresh_vod_metadata_index(self._settings)
         self._index = tuple(load_cached())
         self._refresh_index = refresh_index
         self._schedule = schedule
         self._refreshing = False
         self._refresh_generation = 0
+        self._disposed = False
+        self._thread = None
         self._subscribers: list[tuple[Callable[[], None], Callable[[], None]]] = []
         self._failure_listeners: list[Callable[[BaseException], None]] = []
 
@@ -230,7 +247,7 @@ class VodLibrary:
         and, because the repaint that follows a completed refresh calls straight
         back in here, it is also what stops the cycle from recursing.
         """
-        if self._refreshing:
+        if self._disposed or self._refreshing:
             return
         self._refreshing = True
         self._refresh_generation += 1
@@ -245,7 +262,7 @@ class VodLibrary:
                 error = exc
 
             def apply_result() -> None:
-                if generation != self._refresh_generation:
+                if self._disposed or generation != self._refresh_generation:
                     return
                 callback_error = None
                 try:
@@ -274,6 +291,9 @@ class VodLibrary:
                     # in-flight guard and disable every future library refresh.
                     self._refreshing = False
 
+            if self._disposed:
+                self._refreshing = False
+                return
             try:
                 scheduled = self._marshal(apply_result)
             except Exception:
@@ -286,12 +306,37 @@ class VodLibrary:
                 self._refreshing = False
 
         try:
-            threading.Thread(
+            thread = threading.Thread(
                 target=work, name="vod-metadata-index", daemon=True
-            ).start()
+            )
+            self._thread = thread
+            thread.start()
         except Exception as exc:
+            self._thread = None
             self._refreshing = False
             self._notify_failed(exc)
+
+    def shutdown(self, deadline) -> tuple[str, ...]:
+        """Dispose callbacks and wait for the single metadata worker."""
+
+        if self._disposed:
+            thread = self._thread
+        else:
+            self._disposed = True
+            self._refresh_generation += 1
+            self._subscribers.clear()
+            self._failure_listeners.clear()
+            thread = self._thread
+        is_alive = getattr(thread, "is_alive", None)
+        if thread is not None and callable(is_alive) and is_alive():
+            join = getattr(thread, "join", None)
+            if callable(join):
+                join(timeout=deadline.remaining_seconds())
+        self._refreshing = False
+        if thread is not None and callable(is_alive) and is_alive():
+            return ("vod-metadata-index",)
+        self._thread = None
+        return ()
 
     def _marshal(self, callback: Callable[[], None]) -> bool:
         schedule = self._schedule

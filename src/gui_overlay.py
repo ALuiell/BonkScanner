@@ -1255,10 +1255,15 @@ class Overlay:
             self.start_overlay_server()
         self.update_overlay_state_from_tracker()
 
-    def close_overlay_server(self) -> None:
+    def close_overlay_server(self, deadline=None):
         server = getattr(self, "overlay_server", None)
         if server is not None:
-            server.stop()
+            if deadline is None:
+                return server.stop()
+            return server.stop(
+                timeout_seconds=min(2.0, deadline.remaining_seconds())
+            )
+        return True
 
     def _overlay_widget_config_by_id(self) -> dict[str, dict[str, Any]]:
         widgets: dict[str, dict[str, Any]] = {}

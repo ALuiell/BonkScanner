@@ -24,7 +24,6 @@ from app.refresh_coordinator import RefreshCoordinator
 from app.settings import ConfigBuildProgressionSettings, ConfigOverlaySettings, ConfigRecordingSettings
 from app.build_progression import BuildProgressionService, active_definition_from_config
 from app.snapshot_store import LiveSnapshotStore
-from infra import vod_storage
 from infra.overlay_server import LocalOverlayServer, OverlayStateStore
 from infra.vod_storage import VodRecorder
 from core.tracker.live_run import LiveRunTracker
@@ -93,7 +92,7 @@ class AppCoordinator:
         # infra/ depends on the settings ports in core/; this is where the
         # config-backed implementations get injected (step 11c).
         self.overlay_settings = ConfigOverlaySettings()
-        vod_storage.use_settings(ConfigRecordingSettings())
+        self.recording_settings = ConfigRecordingSettings()
 
         self.overlay_state_store = OverlayStateStore()
         self.live_run_tracker = LiveRunTracker(
@@ -112,7 +111,10 @@ class AppCoordinator:
             settings=self.overlay_settings,
         )
         self.snapshot_store = LiveSnapshotStore()
-        self.vod_recorder = VodRecorder(interval_seconds=vod_interval_seconds)
+        self.vod_recorder = VodRecorder(
+            interval_seconds=vod_interval_seconds,
+            settings=self.recording_settings,
+        )
 
         # Memory-client instances (step 12b). The coordinator owns their storage;
         # MegabonkApp reaches them through property delegation. Creation and close
@@ -186,13 +188,19 @@ class AppCoordinator:
         if self.refresh_coordinator is not None:
             self.refresh_coordinator.tick()
 
-    def diagnostics(self) -> dict[str, Any]:
+    def diagnostics(self) -> tuple[Any, ...]:
         if self.refresh_coordinator is None:
-            return {}
+            return ()
         return self.refresh_coordinator.diagnostics()
 
-    def shutdown(self) -> None:
-        """Release the memory clients the coordinator owns. Idempotent.
+    def stop_refresh_loop(self) -> None:
+        """Close the scheduling gate without tearing down memory clients."""
+        refresh_loop, self.refresh_loop = getattr(self, "refresh_loop", None), None
+        if refresh_loop is not None:
+            refresh_loop.stop()
+
+    def shutdown(self) -> tuple[tuple[str, str], ...]:
+        """Release runtime memory clients and return contained close errors.
 
         Called from ``MegabonkApp.on_closing``. Closing them here -- rather than
         through three scattered mixin methods -- is what "the coordinator owns the
@@ -201,9 +209,8 @@ class AppCoordinator:
         teardown, so a callback already posted by the GUI becomes a no-op even
         when the supplied ``is_active`` predicate has not changed yet.
         """
-        refresh_loop, self.refresh_loop = getattr(self, "refresh_loop", None), None
-        if refresh_loop is not None:
-            refresh_loop.stop()
+        self.stop_refresh_loop()
+        errors: list[tuple[str, str]] = []
 
         for attr in ("client", "player_stats_client", "player_stats_game_data_client"):
             instance = getattr(self, attr)
@@ -211,6 +218,7 @@ class AppCoordinator:
                 continue
             try:
                 instance.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                errors.append((attr, f"{type(exc).__name__}: {exc}"))
             setattr(self, attr, None)
+        return tuple(errors)

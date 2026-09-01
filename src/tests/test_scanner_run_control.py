@@ -1663,6 +1663,23 @@ class SessionStatsTests(unittest.TestCase):
         self.assertEqual(worker.joins, [12.0])
         self.assertFalse(worker.is_alive())
 
+    def test_movement_callback_cannot_reclose_the_shutdown_gate(self) -> None:
+        scanner = build_scanner()
+        scanner.is_running = True
+        scanner.scan_event.set()
+        scanner.is_scanning = lambda: True
+
+        with scanner._restart_lock:
+            scanner._stop_pending = True
+            scanner.stop_event.set()
+            scanner.scan_event.set()
+
+        scanner.handle_player_movement()
+
+        self.assertTrue(scanner.stop_event.is_set())
+        self.assertTrue(scanner.scan_event.is_set())
+        self.assertTrue(scanner._stop_pending)
+
 
 class BoundaryStructureTests(unittest.TestCase):
     """One AST pass over both modules, rather than a test per forbidden name.

@@ -28,14 +28,25 @@ import infra.process as infra_process
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
 import ui.tabs.templates.panel as ui_tabs_templates_panel
-from app.snapshot_store import LiveSnapshotStore, live_snapshot_store
-from app.run_lifecycle import run_lifecycle
+from app.snapshot_store import LiveSnapshotStore
 from app.refresh_tasks import (
     PASSIVE_ITEMS_REFRESH_MS,
     TERMINAL_PERMANENT_SOURCE_RECOVERY_GRACE_SECONDS,
+)
+from tests.support.legacy_runtime import (
+    _read_owner_character_identity,
+    _runtime,
     ensure_refresh_coordinator,
+    live_snapshot_store,
+    overlay_view,
+    player_stats_memory,
+    player_stats_refresh,
     player_stats_refresh_required,
+    player_stats_view,
+    recordings_list_view,
     refresh_tasks,
+    run_lifecycle,
+    vod_capture,
 )
 from tests.support.compare_runs import build_compare_runs_tab
 from tests.support.scanner import build_pair
@@ -54,7 +65,6 @@ from tests.support.player_stats import (
 from ui.tabs.player_stats.stat_cards import StatCardsView, chaos_stats_in_game_order
 from ui.tabs.compare_runs import tab as compare_runs_tab
 from app import config, player_stats_refresh
-from app.player_stats_memory import player_stats_memory
 from gui_app import MegabonkApp
 from ui.dialogs import (
     SettingsDialog,
@@ -63,9 +73,7 @@ from ui.dialogs import (
 )
 from app.vod_capture import (
     PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
-    _read_owner_character_identity,
     _stage_index_signals_new_run,
-    vod_capture,
 )
 from tests.support.vod_capture import build_vod_capture
 from projections.item_sort import (
@@ -74,11 +82,11 @@ from projections.item_sort import (
     ITEM_SORT_RARITY_DESC,
 )
 from infra.memory.reader import MemoryReadError, ProcessNotFoundError
-from app.player_stats_view import player_stats_view
 from core.game_state import RuntimeGameMode, RuntimeGameState
 from core.tracker.live_run import LiveRunTracker
 from core.tracker.snapshots import LiveRunSnapshot
 from core.stats.types import ChargeShrineReading
+from core.vod_capture import VodCapturePayload
 from app.coordinator import AppCoordinator, RefreshLoop
 from app.refresh_coordinator import RefreshTickContext
 from PySide6.QtCore import QRect
@@ -577,6 +585,41 @@ class FakeRecordingRecorder:
         loot_actual=None,
         loot_expected=None,
     ):
+        if isinstance(stats, VodCapturePayload):
+            payload = stats
+            stats = payload.stats
+            items = payload.items
+            weapons = payload.weapons
+            tomes = payload.tomes
+            banishes = payload.banishes
+            damage_sources = payload.damage_sources
+            chaos_tome = payload.chaos_tome
+            shrines = payload.shrines
+            character_passive = payload.character_passive
+            chests_per_minute = payload.chests_per_minute
+            game_time_seconds = payload.game_time_seconds
+            mob_kills = payload.mob_kills
+            kps_at_capture = payload.kps_at_capture
+            minute_avg_kps_at_capture = payload.minute_avg_kps_at_capture
+            five_minute_avg_kps_at_capture = payload.five_minute_avg_kps_at_capture
+            run_avg_kps_at_capture = payload.run_avg_kps_at_capture
+            player_level = payload.player_level
+            map_seed = payload.map_seed
+            stage_ptr = payload.stage_ptr
+            stage_index = payload.stage_index
+            stage_time_seconds = payload.stage_time_seconds
+            chests_opened = payload.chests_opened
+            chests_total = payload.chests_total
+            pots_total = payload.pots_total
+            paid_chests = payload.paid_chests
+            key_procs = payload.key_procs
+            free_chests = payload.free_chests
+            keys_count = payload.keys_count
+            expected_key_procs = payload.expected_key_procs
+            chests_opened_by_stage = payload.chests_opened_by_stage
+            chests_total_by_stage = payload.chests_total_by_stage
+            loot_actual = payload.loot_actual
+            loot_expected = payload.loot_expected
         snapshot = SimpleNamespace(
             stats=stats,
             items=tuple(items),
@@ -1822,33 +1865,31 @@ class GuiRunControlTests(unittest.TestCase):
         app._status_label = FakeLabel()
         app.refresh_loaded_vod_ui = lambda: None
         app.refresh_vods_list = lambda: None
-        threads: list[object] = []
-
-        def make_thread(*, target, name, daemon):
-            del name, daemon
-            thread = types.SimpleNamespace(target=target, start=lambda: None)
-            threads.append(thread)
-            return thread
+        pending = []
+        app._load_lane.dispose()
+        app._load_lane = SimpleNamespace(
+            submit=lambda path, *, load, complete: pending.append((path, load, complete))
+        )
 
         with patch_everywhere("load_vod", return_value=loaded_vod):
-            with patch.object(threading, "Thread", side_effect=make_thread):
-                app.load_selected_vod("C:/tmp/new.jsonl")
+            app.load_selected_vod("C:/tmp/new.jsonl")
 
-                self.assertIsNone(app._loaded_vod)
-                self.assertFalse(app._name_entry.enabled)
-                self.assertFalse(app._rename_btn.isEnabled())
-                self.assertFalse(app._delete_btn.isEnabled())
-                # "Recording cleanup" is not in this list any more: it acts on the
-                # whole library, so a recording being mid-load says nothing
-                # about whether it should be available.
-                self.assertTrue(app._cleanup_btn.isEnabled())
-                self.assertFalse(app._scrubber.isEnabled())
+            self.assertIsNone(app._loaded_vod)
+            self.assertFalse(app._name_entry.enabled)
+            self.assertFalse(app._rename_btn.isEnabled())
+            self.assertFalse(app._delete_btn.isEnabled())
+            # "Recording cleanup" is not in this list any more: it acts on the
+            # whole library, so a recording being mid-load says nothing
+            # about whether it should be available.
+            self.assertTrue(app._cleanup_btn.isEnabled())
+            self.assertFalse(app._scrubber.isEnabled())
 
-                with patch_everywhere("rename_vod") as rename_vod:
-                    app.rename_selected_vod()
-                rename_vod.assert_not_called()
+            with patch_everywhere("rename_vod") as rename_vod:
+                app.rename_selected_vod()
+            rename_vod.assert_not_called()
 
-                threads[0].target()
+            path, load, complete = pending[0]
+            complete(load(path), None)
 
         self.assertIs(app._loaded_vod, loaded_vod)
         self.assertTrue(app._name_entry.enabled)
@@ -2415,7 +2456,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         memory = SimpleNamespace(_get_player_stats_client=lambda: client)
 
-        with patch("app.vod_capture.player_stats_memory", return_value=memory):
+        with patch("tests.support.legacy_runtime.player_stats_memory", return_value=memory):
             identity = _read_owner_character_identity(owner)
 
         self.assertEqual(identity, (0, "Fox"))
@@ -3927,7 +3968,7 @@ class GuiRunControlTests(unittest.TestCase):
         app = self.build_recording_app()
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True)
         app.player_stats_status_label.setText("Live player stats (recording)")
-        player_stats_memory(app)._read_live_player_stats_data = lambda: (_ for _ in ()).throw(
+        player_stats_memory(app).read_full_sample = lambda _context=None: (_ for _ in ()).throw(
             MemoryReadError("transient player read")
         )
 
@@ -6402,7 +6443,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(destroyed, [True])
         self.assertEqual(
             closed,
-            ["in_game_overlay", "client", "player_stats", "player_stats_game_data", "overlay", "twitch"],
+            ["in_game_overlay", "twitch", "client", "player_stats", "player_stats_game_data", "overlay"],
         )
 
     def test_app_coordinator_shutdown_closes_the_memory_clients(self) -> None:
@@ -6456,7 +6497,6 @@ class GuiRunControlTests(unittest.TestCase):
 
         class ShutdownHarness:
             on_closing = MegabonkApp.on_closing
-            _run_shutdown_step = MegabonkApp._run_shutdown_step
             _wait_for_background_threads = MegabonkApp._wait_for_background_threads
 
         app = ShutdownHarness()
@@ -6477,6 +6517,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.stop_twitch_bot = lambda: calls.append("twitch")
         app.player_stats_vod_recorder = None
         app.destroy = lambda: calls.append("destroy")
+        _runtime(app)
 
         clean = app.on_closing()
 
@@ -6484,26 +6525,83 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(
             calls,
             [
+                "hotkeys",
                 "in_game_overlay",
+                "twitch",
                 "coordinator",
                 "overlay",
-                "twitch",
-                "hotkeys",
-                "destroy",
             ],
         )
-        self.assertEqual(app._shutdown_errors[0][0], "scanner")
+        self.assertEqual(app._shutdown_report.errors[0][0], "scanner")
 
-    def test_late_constructor_failure_unwinds_a_started_twitch_session(self) -> None:
+    def test_shutdown_timeout_forces_exit_without_destroying_live_qt_objects(self) -> None:
+        terminated: list[int] = []
+        destroyed: list[bool] = []
+
+        class Deadline:
+            def remaining_seconds(self) -> float:
+                return 0.0
+
+            def remaining_ms(self) -> int:
+                return 0
+
+            def elapsed_ms(self) -> int:
+                return 15_000
+
+        class ShutdownHarness:
+            on_closing = MegabonkApp.on_closing
+            _wait_for_background_threads = MegabonkApp._wait_for_background_threads
+
+        app = ShutdownHarness()
+        app._is_shutting_down = False
+        app._shutdown_errors = []
+        app._background_threads = set()
+        app._terminate_process = terminated.append
+        app._run_control = SimpleNamespace(stop_hotkeys=lambda: None)
+        app._scanner = SimpleNamespace(shutdown=lambda _deadline: False)
+        app.shutdown_in_game_overlay = lambda _deadline: ()
+        app.stop_twitch_bot = lambda _deadline: ()
+        app.coordinator = SimpleNamespace(shutdown=lambda: None)
+        app.close_overlay_server = lambda: None
+        app.player_stats_vod_recorder = None
+        app.destroy = lambda: destroyed.append(True)
+        _runtime(app)
+
+        with patch.object(gui_app.ShutdownDeadline, "after", return_value=Deadline()), patch.object(
+            gui_app, "log_runtime_event"
+        ) as log_runtime_event:
+            clean = MegabonkApp.on_closing(app)
+
+        self.assertFalse(clean)
+        self.assertEqual(terminated, [3])
+        self.assertEqual(destroyed, [])
+        self.assertEqual(app._shutdown_report.timed_out_resources, ("scanner",))
+        forced = [
+            call
+            for call in log_runtime_event.call_args_list
+            if call.args and call.args[0] == "application.shutdown.forced"
+        ]
+        self.assertEqual(len(forced), 1)
+        self.assertTrue(forced[0].kwargs["durable"])
+
+    def test_start_failure_is_unwound_by_the_unified_shutdown_path(self) -> None:
         MegabonkApp._ensure_qt_application()
         events: list[str] = []
         session = SimpleNamespace(
             start=lambda: events.append("start"),
-            shutdown=lambda: events.append("shutdown"),
+            shutdown=lambda _deadline=None: events.append("shutdown"),
         )
 
         def build_minimal_layout(app) -> None:
             app._twitch_tab = object()
+            app._templates_panel = SimpleNamespace(
+                refresh_templates=lambda: None,
+                refresh_scores_templates_list=lambda: None,
+                refresh_scores_ui=lambda: None,
+            )
+            app._player_stats_view = SimpleNamespace()
+            app._recordings_list_view = SimpleNamespace()
+            app._left_rail = SimpleNamespace(collapse=lambda **_kwargs: None)
 
         with patch.object(gui_app, "build_layout", side_effect=build_minimal_layout), patch.object(
             gui_app,
@@ -6514,8 +6612,10 @@ class GuiRunControlTests(unittest.TestCase):
             "apply_overlay_autostart",
             side_effect=RuntimeError("late startup failure"),
         ):
+            app = MegabonkApp(terminate_process=lambda _code: None)
             with self.assertRaisesRegex(RuntimeError, "late startup failure"):
-                MegabonkApp()
+                app.start()
+            app.on_closing()
 
         self.assertEqual(events, ["start", "shutdown"])
 
@@ -7798,7 +7898,7 @@ class GuiRunControlTests(unittest.TestCase):
             "_ensure_live_snapshot_store is on MegabonkApp again; "
             "app.snapshot_store.live_snapshot_store replaced it",
         )
-        self.assertEqual(live_snapshot_store.__module__, "app.snapshot_store")
+        self.assertEqual(live_snapshot_store.__module__, "tests.support.legacy_runtime")
         for name in ("format_live_powerups", "format_live_powerups_card"):
             self.assertFalse(
                 hasattr(MegabonkApp, name),

@@ -368,7 +368,7 @@ class FastLaneTaskTests(unittest.TestCase):
         deleting the registration would leave them all passing while the feature
         is dead in the app. This is the test that fails when the task is removed
         or folded back onto the 10 s interval."""
-        from app.refresh_tasks import ensure_refresh_coordinator, refresh_tasks
+        from tests.support.legacy_runtime import ensure_refresh_coordinator, refresh_tasks
 
         owner = SimpleNamespace(coordinator=None)
         coordinator = ensure_refresh_coordinator(owner)

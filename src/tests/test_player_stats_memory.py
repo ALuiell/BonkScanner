@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app.snapshot_store import LiveSnapshotStore
+from app.player_stats_source import FullPlayerSample
 from infra.memory.reader import MemoryReadError
 from tests.support.player_stats_memory import build_player_stats_memory
 
@@ -30,6 +31,38 @@ class _CountingClient:
 
 
 class PlayerStatsMemoryTests(unittest.TestCase):
+    def test_full_sample_preserves_the_legacy_tuple_field_order(self) -> None:
+        values = (
+            {"Damage": 1},
+            ("Wrench x1",),
+            True,
+            (),
+            False,
+            (),
+            True,
+            ("Clover",),
+            True,
+            (),
+            False,
+            12.5,
+            3.0,
+            60.0,
+            42,
+            7,
+            1234,
+            0x3000,
+            2,
+            ("Forbidden",),
+            True,
+            False,
+        )
+
+        sample = FullPlayerSample(*values)
+
+        self.assertEqual(sample.as_legacy_tuple(), values)
+        with self.assertRaises(TypeError):
+            sample.stats["Damage"] = 2
+
     def test_memory_failure_streak_reconnects_at_threshold(self) -> None:
         client = _CountingClient()
         service, world = build_player_stats_memory(stats_client=client)

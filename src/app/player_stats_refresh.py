@@ -73,22 +73,11 @@ from typing import Any, Callable
 
 from app import config
 from app.read_sources import CHEST_COUNTERS, MAP_ACTIVITY_VALUES, read_source
-from app.player_stats_memory import player_stats_memory
-from app.player_stats_view import (
-    overlay_view,
-    player_stats_view,
-    recordings_list_view,
-)
-from app.run_lifecycle import run_lifecycle
-from app.snapshot_selection import player_stats_snapshot_is_pinned
-from app.snapshot_store import live_snapshot_store
-from app.vod_capture import vod_capture
-from app.refresh_tasks import ensure_refresh_coordinator
 from core.game_state import MapStat, RuntimeGameMode
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.tracker.live_run import LiveRunSnapshot, PowerupMapContext
-from projections.vod import build_vod_capture_kwargs
+from projections.vod import build_vod_capture_payload
 from projections import formatting
 
 # The per-source failure ledger's key for the map-activity read. Its own name
@@ -223,39 +212,33 @@ class PlayerStatsRefresh:
                 if callable(chaos_snapshot_reader)
                 else runtime_snapshot.chaos_tome
             )
-            capture_kwargs = build_vod_capture_kwargs(
+            capture_payload = build_vod_capture_payload(
                 runtime_snapshot,
                 chaos_tome=chaos_tome_snapshot,
             )
-            if not capture_kwargs:
+            if capture_payload is None:
                 return False
-            recorder.capture(**capture_kwargs)
+            recorder.capture(capture_payload)
             return True
         try:
-            (
-                stats,
-                items,
-                items_available,
-                weapons,
-                weapons_available,
-                tomes,
-                tomes_available,
-                banishes,
-                banishes_available,
-                damage_sources,
-                damage_sources_available,
-                run_timer_seconds,
-                stage_timer_seconds,
-                stage_duration_seconds,
-                mob_kills,
-                player_level,
-                map_seed,
-                stage_ptr,
-                stage_index,
-                disabled_items,
-                disabled_items_available,
-                is_final_boss_stage,
-            ) = self._memory_service()._read_live_player_stats_data(context)
+            sample = self._memory_service().read_full_sample(context)
+            # The source DTO exposes an immutable mapping. Runtime snapshots are
+            # deep-copied by the tracker, so cross that boundary as a plain dict.
+            stats = dict(sample.stats)
+            items, items_available = sample.items, sample.items_available
+            weapons, weapons_available = sample.weapons, sample.weapons_available
+            tomes, tomes_available = sample.tomes, sample.tomes_available
+            banishes, banishes_available = sample.banishes, sample.banishes_available
+            damage_sources = sample.damage_sources
+            damage_sources_available = sample.damage_sources_available
+            run_timer_seconds = sample.run_timer_seconds
+            stage_timer_seconds = sample.stage_timer_seconds
+            stage_duration_seconds = sample.stage_duration_seconds
+            mob_kills, player_level = sample.mob_kills, sample.player_level
+            map_seed, stage_ptr, stage_index = sample.map_seed, sample.stage_ptr, sample.stage_index
+            disabled_items = sample.disabled_items
+            disabled_items_available = sample.disabled_items_available
+            is_final_boss_stage = sample.is_final_boss_stage
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
             self._memory_service().record_memory_failure(exc)
             try:
@@ -504,11 +487,13 @@ class PlayerStatsRefresh:
             and runtime_state.mode is RuntimeGameMode.IN_GAME
         )
         if can_capture_recording and self._recorder_handle().should_capture():
-            capture_kwargs = build_vod_capture_kwargs(
+            capture_payload = build_vod_capture_payload(
                 self._live_tracker().runtime_snapshot(),
                 chaos_tome=chaos_tome_snapshot,
             )
-            snapshot = self._recorder_handle().capture(**capture_kwargs)
+            if capture_payload is None:
+                return False
+            snapshot = self._recorder_handle().capture(capture_payload)
             pinned = self._snapshot_is_pinned()
             self._snapshot_buffer().append(snapshot)
             if not pinned:
@@ -583,71 +568,3 @@ class PlayerStatsRefresh:
                 stage_summary_rows=live_stage_summary_rows,
             )
         return True
-
-
-def player_stats_refresh(owner) -> PlayerStatsRefresh:
-    """Resolve the owner's ``PlayerStatsRefresh``, building it on first use.
-
-    The same shape as ``player_stats_memory``, ``vod_capture``,
-    ``run_lifecycle`` and ``refresh_tasks``: the service's dependencies are the
-    owner's sibling services, tracker, recorder and view ports, so
-    ``AppCoordinator`` cannot construct it in its own ``__init__``. The
-    coordinator caches it when there is one; an app double built with
-    ``object.__new__`` has none and keeps it in ``__dict__``.
-
-    ``__dict__``, not ``getattr``: ``MegabonkApp.__getattr__`` forwards unknown
-    names to its ``window``, so a ``getattr`` would consult the widget before
-    deciding there is no coordinator.
-
-    Every argument is a lambda rather than a bound method or an attribute grab.
-    ``self.live_run_tracker`` was resolved eleven times in one method body and
-    ``MegabonkApp`` replaces it per run; capturing it here would freeze
-    whichever one existed when the service was first touched. Step 20 shipped
-    that difference as a bug twice.
-
-    Note the two **bare** attribute reads: ``owner._is_shutting_down`` and
-    ``owner.player_stats_game_data_client`` are not wrapped in ``getattr`` with
-    a default. That is deliberate -- the old code read them off ``self`` and let
-    a missing attribute raise, and the game-data read sits inside a
-    ``try``/``except Exception`` whose failure branch several test doubles rely
-    on reaching. A tolerant ``getattr`` here would silently move them onto the
-    success path.
-    """
-    coordinator = owner.__dict__.get("coordinator")
-    if coordinator is not None:
-        existing = getattr(coordinator, "player_stats_refresh", None)
-        if existing is not None:
-            return existing
-
-    existing = owner.__dict__.get("_player_stats_refresh")
-    if existing is not None:
-        return existing
-
-    service = PlayerStatsRefresh(
-        shutdown_requested=lambda: owner._is_shutting_down,
-        lifecycle_service=lambda: run_lifecycle(owner),
-        coordinator_tick=lambda: ensure_refresh_coordinator(owner).tick(),
-        memory_service=lambda: player_stats_memory(owner),
-        store=lambda: live_snapshot_store(owner),
-        live_stats_view=lambda: player_stats_view(owner),
-        overlay=lambda: overlay_view(owner),
-        recordings_list=lambda: recordings_list_view(owner),
-        capture_service=lambda: vod_capture(owner),
-        live_tracker=lambda: owner.live_run_tracker,
-        recorder_handle=lambda: owner.player_stats_vod_recorder,
-        tab_is_active=lambda: owner._is_live_stats_tab_active(),
-        snapshot_is_pinned=lambda: player_stats_snapshot_is_pinned(owner),
-        snapshot_buffer=lambda: owner.player_stats_vod_snapshots,
-        select_snapshot=lambda index: setattr(
-            owner, "player_stats_selected_snapshot_index", index
-        ),
-        game_data_client=lambda: owner.player_stats_game_data_client,
-        set_game_data_client=lambda value: setattr(
-            owner, "player_stats_game_data_client", value
-        ),
-    )
-    if coordinator is not None:
-        coordinator.player_stats_refresh = service
-    else:
-        owner.__dict__["_player_stats_refresh"] = service
-    return service

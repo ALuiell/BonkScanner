@@ -83,7 +83,6 @@ import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from app import config
-from app.player_stats_memory import player_stats_memory
 from app.read_sources import (
     CHARACTER_PASSIVE_READING,
     CHAOS_TRACKING_STATE,
@@ -104,13 +103,9 @@ from app.read_sources import (
     source_health_recorded,
 )
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
-from app.run_lifecycle import run_lifecycle
 from core.tracker.snapshots import PowerupMapContext
 from core.tracker.live_run import build_permanent_source_recovery
 from core import run_summary
-from app.player_stats_view import player_stats_view
-from app.snapshot_selection import player_stats_snapshot_is_pinned
-from app.vod_capture import vod_capture
 from core.settings import FULL_PLAYER_SNAPSHOT_INTERVAL_SECONDS
 from projections import formatting
 
@@ -236,21 +231,18 @@ class _PermanentSourceRecoveryJob:
         return self._done.is_set()
 
 
-def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
-    # The AppCoordinator owns this when there is one (step 11). There is not one
-    # on an app double built without __init__, which keeps the old attribute.
-    app_coordinator = getattr(owner, "coordinator", None)
-    if app_coordinator is not None and app_coordinator.refresh_coordinator is not None:
-        return app_coordinator.refresh_coordinator
-    coordinator = getattr(owner, "_refresh_coordinator", None)
-    if coordinator is not None:
-        return coordinator
-    coordinator = RefreshCoordinator()
+def build_refresh_coordinator(
+    service: "RefreshTasks",
+    *,
+    refresh_full_snapshot: Callable[..., bool],
+    coordinator: RefreshCoordinator | None = None,
+) -> RefreshCoordinator:
+    """Build the data-described refresh schedule from explicit collaborators."""
+    coordinator = coordinator or RefreshCoordinator()
     # The tasks are the **service's** bound methods now, not ``owner._refresh_*``.
     # Resolved once here because a RefreshTask holds the callable it was given;
     # the service itself re-resolves every collaborator per call, so nothing is
     # frozen by binding it here.
-    service = refresh_tasks(owner)
     # The lifecycle probe must run before every demand predicate and must share
     # the same pass as the tasks that consume its state. Its own one-second
     # cache controls the physical read cadence; interval 1 means only "call the
@@ -258,6 +250,7 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     coordinator.register(
         RefreshTask(
             task_id="run_lifecycle_probe",
+            phase=-100,
             interval_ms=1,
             required=lambda: True,
             run=service._refresh_run_lifecycle_probe_task,
@@ -271,6 +264,8 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     coordinator.register(
         RefreshTask(
             task_id="recording_lifecycle",
+            phase=-50,
+            after=("run_lifecycle_probe",),
             # 1 s, not the 10 s snapshot cadence this used to inherit. Seed,
             # stage_index and the run timer are what attribute kills to a stage,
             # so a transition noticed late files up to a full interval of kills
@@ -289,17 +284,14 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     coordinator.register(
         RefreshTask(
             task_id="full_player_snapshot",
+            phase=0,
+            after=("recording_lifecycle",),
             interval_ms=PLAYER_STATS_REFRESH_MS,
             # A failed startup read must not leave the slow lane asleep for ten
             # seconds while fast Expected begins collecting the same run.
             failure_retry_ms=1_000,
             required=service._should_refresh_full_player_snapshot,
-            # ``refresh_live_player_stats_now`` stays ``owner``-resolved: it is
-            # genuine ``MegabonkApp`` surface (``gui_layout``/``gui_twitch`` call
-            # it), the same finding the ``player_stats_client`` properties got.
-            # The status text it passes is the service's field now, initialised
-            # to the string this ``getattr`` used to default to.
-            run=lambda context: owner.refresh_live_player_stats_now(
+            run=lambda context: refresh_full_snapshot(
                 status_text=service._player_stats_refresh_status_text,
                 context=context,
             ),
@@ -358,6 +350,7 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
             # Reserve exact ShrineLogs pointers before the shared permanent
             # modifier lane runs on ticks where both tasks are due.
             task_id="charge_shrines",
+            phase=0,
             interval_ms=PASSIVE_ITEMS_REFRESH_MS,
             required=service._should_refresh_charge_shrines,
             run=service._refresh_charge_shrines_task,
@@ -366,6 +359,8 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     coordinator.register(
         RefreshTask(
             task_id="chaos_tome",
+            phase=0,
+            after=("charge_shrines",),
             # Dice and Chaos share the permanent-modifier attribution lane.
             # Keep it on the same one-second cadence as the Shrine reservation
             # pass immediately above: this halves the default read load while
@@ -376,26 +371,7 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
             run=service._refresh_chaos_tome_task,
         )
     )
-    if app_coordinator is not None:
-        app_coordinator.refresh_coordinator = coordinator
-    else:
-        owner._refresh_coordinator = coordinator
     return coordinator
-
-
-def overlay_widget_refresh_active(owner, widget_id: str) -> bool:
-    server = getattr(owner, "overlay_server", None)
-    if server is None or not bool(getattr(server, "is_running", False)):
-        return False
-    overlay = getattr(config, "OVERLAY", {}) or {}
-    return any(
-        isinstance(widget, dict)
-        and str(widget.get("id") or "") == widget_id
-        and bool(widget.get("enabled", False))
-        for widget in overlay.get("widgets", ()) or ()
-    )
-
-
 # The four predicates below came from ``PlayerStatsRefreshMixin`` in step 20e,
 # and the reason is the same one that moved the two memory streak recorders in
 # ``1a323e4``: they were filed in the module *above* their only consumer.
@@ -466,27 +442,6 @@ def in_game_overlay_luck_expected_frame_active() -> bool:
     widgets = (getattr(config, "IN_GAME_OVERLAY", {}) or {}).get("widgets", {}) or {}
     widget_cfg = widgets.get("luck_rarity", {}) if isinstance(widgets, dict) else {}
     return isinstance(widget_cfg, dict) and bool(widget_cfg.get("show_expected", False))
-
-
-def overlay_requires_player_snapshot(owner) -> bool:
-    return any(
-        overlay_widget_refresh_active(owner, widget_id)
-        for widget_id in ("stage_summary", "tracked_items", "stats", "banishes", "build_progression")
-    )
-
-
-def player_stats_refresh_required(owner) -> bool:
-    return not run_lifecycle(owner).completed_run and (
-        owner._is_live_stats_tab_active()
-        or owner.player_stats_vod_recorder.is_recording
-        or vod_capture(owner).is_recording_armed()
-        or bool(getattr(config, "AUTO_START_RECORDING", False))
-        or overlay_requires_player_snapshot(owner)
-        or in_game_overlay_requires_player_stats_refresh()
-        or owner._is_twitch_bot_active()
-    )
-
-
 class RefreshTasks:
     """The fast-tick task bodies and their demand predicates, constructible
     without Qt or ``MegabonkApp``.
@@ -1505,65 +1460,3 @@ class RefreshTasks:
             commands.get("stages", config.DEFAULT_TWITCH_BOT["commands"].get("stages", False))
         )
         return stages_enabled or bool(config.TWITCH_BOT.get("stage_announcements", True))
-
-
-def refresh_tasks(owner) -> RefreshTasks:
-    """Resolve the owner's ``RefreshTasks``, building it on first use.
-
-    The same shape as ``player_stats_memory``, ``vod_capture`` and
-    ``run_lifecycle``: the service's dependencies are the owner's sibling
-    services, tracker and demand predicates, so ``AppCoordinator`` cannot
-    construct it in its own ``__init__``. The coordinator caches it when there is
-    one; an app double built with ``object.__new__`` has none and keeps it in
-    ``__dict__``.
-
-    ``__dict__``, not ``getattr``: ``MegabonkApp.__getattr__`` forwards unknown
-    names to its ``window``, so a ``getattr`` would consult the widget before
-    deciding there is no coordinator.
-
-    Every argument is a lambda rather than a bound method or an attribute grab.
-    ``self.live_run_tracker`` resolved late, on every call; capturing the tracker
-    here would freeze whichever one existed when the service was first touched,
-    and ``MegabonkApp`` replaces it per run. Step 20 shipped that difference as a
-    bug twice.
-    """
-    coordinator = owner.__dict__.get("coordinator")
-    if coordinator is not None:
-        existing = getattr(coordinator, "refresh_tasks", None)
-        if existing is not None:
-            return existing
-
-    existing = owner.__dict__.get("_refresh_tasks")
-    if existing is not None:
-        return existing
-
-    service = RefreshTasks(
-        memory=lambda: player_stats_memory(owner),
-        lifecycle=lambda: run_lifecycle(owner),
-        view=lambda: player_stats_view(owner),
-        capture=lambda: vod_capture(owner),
-        tracker=lambda: owner.live_run_tracker,
-        # ``getattr`` with a ``None`` default, preserving ``_is_vod_recording``'s
-        # tolerance of an owner that has no recorder attribute at all.
-        vod_recorder=lambda: getattr(owner, "player_stats_vod_recorder", None),
-        tab_active=lambda: owner._is_live_stats_tab_active(),
-        twitch_active=lambda: owner._is_twitch_bot_active(),
-        pinned=lambda: player_stats_snapshot_is_pinned(owner),
-        widget_refresh_active=lambda widget_id: overlay_widget_refresh_active(owner, widget_id),
-        sync_overlay_state=lambda: owner.update_overlay_state_from_tracker(),
-        # The in-game overlay's counterpart to `sync_overlay_state`: one command
-        # on the other overlay component, resolved through the owner for the
-        # same reason.
-        sync_in_game_kps=lambda: owner.refresh_in_game_overlay_kps(),
-        # The same shape as `sync_overlay_state` above, and resolved through the
-        # owner for the same reason: it is one command on a component this
-        # service does not otherwise hold.
-        refresh_session_tracked_items=lambda: owner.refresh_session_tracked_item_stats_ui(),
-        refresh_required=lambda: player_stats_refresh_required(owner),
-        build_progression_service=lambda: getattr(owner, "build_progression_service", getattr(getattr(owner, "coordinator", None), "build_progression_service", None)),
-    )
-    if coordinator is not None:
-        coordinator.refresh_tasks = service
-    else:
-        owner.__dict__["_refresh_tasks"] = service
-    return service

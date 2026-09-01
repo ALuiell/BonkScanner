@@ -72,8 +72,8 @@ from app.read_sources import (
     read_source,
     source_health_recorded,
 )
-from app.snapshot_store import live_snapshot_store
 from core.stats.types import DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot
+from app.player_stats_source import FullPlayerSample
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.player_stats_client import PlayerStatsClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
@@ -286,7 +286,7 @@ class PlayerStatsMemory:
     def read_player_stats_recording_seed(self) -> int | None:
         return self.read_player_stats_recording_state().map_seed
 
-    def _read_live_player_stats_data(self, context=None):
+    def read_full_sample(self, context=None) -> FullPlayerSample:
         """``context`` is the current ``RefreshTickContext`` when this runs from
         the ``full_player_snapshot`` task, and ``None`` for the manual/off-tick
         entry points (step_28_plan.md section 12.8, 28c commit 2).
@@ -478,30 +478,34 @@ class PlayerStatsMemory:
         # Update last seed and run timer values for the next tick
         snapshot_store.record_match_tick(map_seed=map_seed, run_timer_seconds=run_timer_seconds)
 
-        return (
-            stats,
-            items,
-            items_available,
-            weapons,
-            weapons_available,
-            tomes,
-            tomes_available,
-            banishes,
-            banishes_available,
-            damage_sources,
-            damage_sources_available,
-            run_timer_seconds,
-            stage_timer_seconds,
-            stage_duration_seconds,
-            mob_kills,
-            player_level,
-            map_seed,
-            stage_ptr,
-            stage_index,
-            disabled_items,
-            disabled_items_available,
-            is_final_boss_stage,
+        return FullPlayerSample(
+            stats=stats,
+            items=tuple(items),
+            items_available=items_available,
+            weapons=tuple(weapons),
+            weapons_available=weapons_available,
+            tomes=tuple(tomes),
+            tomes_available=tomes_available,
+            banishes=tuple(banishes),
+            banishes_available=banishes_available,
+            damage_sources=tuple(damage_sources),
+            damage_sources_available=damage_sources_available,
+            run_timer_seconds=run_timer_seconds,
+            stage_timer_seconds=stage_timer_seconds,
+            stage_duration_seconds=stage_duration_seconds,
+            mob_kills=mob_kills,
+            player_level=player_level,
+            map_seed=map_seed,
+            stage_ptr=stage_ptr,
+            stage_index=stage_index,
+            disabled_items=tuple(disabled_items),
+            disabled_items_available=disabled_items_available,
+            is_final_boss_stage=is_final_boss_stage,
         )
+
+    def _read_live_player_stats_data(self, context=None):
+        """Compatibility wrapper for old fixtures; production uses the DTO."""
+        return self.read_full_sample(context).as_legacy_tuple()
 
     def _read_player_stats_recording_seed_safe(self) -> int | None:
         try:
@@ -608,60 +612,3 @@ class PlayerStatsMemory:
             self._write_game_data_client(None)
         self._player_stats_game_data_memory_error_streak = 0
         self._game_data_source_error_streaks.clear()
-
-
-def player_stats_memory(owner) -> PlayerStatsMemory:
-    """Resolve the owner's ``PlayerStatsMemory``, building it on first use.
-
-    The same shape as ``vod_capture`` and ``run_lifecycle``: the service's
-    dependencies are the owner's clients, snapshot store, recorder, demand
-    predicates and disabled-items cache, so ``AppCoordinator`` cannot construct
-    it in its own ``__init__``. The coordinator caches it when there is one; an
-    app double built with ``object.__new__`` has none and keeps it in
-    ``__dict__``.
-
-    ``__dict__``, not ``getattr``: ``MegabonkApp.__getattr__`` forwards unknown
-    names to its ``window``, so a ``getattr`` would consult the widget before
-    deciding there is no coordinator.
-
-    Every argument is a lambda rather than a bound method or attribute grab:
-    ``self.player_stats_client`` resolved late, on every call; capturing the
-    client here would freeze whichever one happened to exist when the service
-    was first touched. Step 20 shipped that difference as a bug twice.
-    """
-    coordinator = owner.__dict__.get("coordinator")
-    if coordinator is not None:
-        existing = getattr(coordinator, "player_stats_memory", None)
-        if existing is not None:
-            return existing
-
-    existing = owner.__dict__.get("_player_stats_memory")
-    if existing is not None:
-        return existing
-
-    service = PlayerStatsMemory(
-        read_stats_client=lambda: owner.player_stats_client,
-        write_stats_client=lambda value: setattr(owner, "player_stats_client", value),
-        read_game_data_client=lambda: owner.player_stats_game_data_client,
-        write_game_data_client=lambda value: setattr(owner, "player_stats_game_data_client", value),
-        snapshot_store=lambda: live_snapshot_store(owner),
-        recording_active=lambda: owner.player_stats_vod_recorder.is_recording,
-        live_stats_tab_active=lambda: owner._is_live_stats_tab_active(),
-        twitch_bot_active=lambda: owner._is_twitch_bot_active(),
-        overlay_refresh_wanted=lambda: owner.overlay_should_refresh_live_stats(),
-        read_disabled_items_cache=lambda: getattr(owner, "player_stats_disabled_items_cache", None),
-        write_disabled_items_cache=lambda value: setattr(
-            owner, "player_stats_disabled_items_cache", value
-        ),
-        read_disabled_items_refresh_pending=lambda: getattr(
-            owner, "player_stats_disabled_items_refresh_pending", False
-        ),
-        write_disabled_items_refresh_pending=lambda value: setattr(
-            owner, "player_stats_disabled_items_refresh_pending", value
-        ),
-    )
-    if coordinator is not None:
-        coordinator.player_stats_memory = service
-    else:
-        owner.__dict__["_player_stats_memory"] = service
-    return service

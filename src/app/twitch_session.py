@@ -34,6 +34,8 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
+from app.shutdown import ShutdownDeadline
+
 from app import config
 from infra.crash_journal import log_runtime_event
 from infra.twitch_credentials import (
@@ -398,7 +400,7 @@ class TwitchSession:
             self._view.show_bot_status("Stopping...")
         self._stop_bot(wait_ms=0)
 
-    def _stop_bot(self, *, wait_ms: int, ensure_finished: bool = False) -> None:
+    def _stop_bot(self, *, wait_ms: int, ensure_finished: bool = False) -> bool:
         worker = self._bot_worker
         if worker:
             log_runtime_event(
@@ -411,37 +413,75 @@ class TwitchSession:
                 if self._bot_worker is worker:
                     self._bot_worker = None
                 self._log(f"Twitch worker was already disposed: {exc}", tag="warning")
-                return
+                return True
             if wait_ms > 0 or ensure_finished:
-                self._wait_for_worker(
+                return self._wait_for_worker(
                     worker,
                     wait_ms,
                     ensure_finished=ensure_finished,
                 )
+        return True
 
-    def shutdown(self) -> None:
+    def shutdown(self, deadline: ShutdownDeadline | None = None) -> tuple[str, ...]:
         """Stop every Twitch-owned timer and worker before the Qt app exits."""
         if self._shutting_down:
-            return
+            return self._running_worker_names()
         self._shutting_down = True
+        hard_barrier = deadline is None
         log_runtime_event("twitch.shutdown.begin")
         self._start_bot_after_validation = False
         self._validation_timer.stop()
-        self._stop_bot(
-            wait_ms=_BOT_SHUTDOWN_WAIT_MS,
-            ensure_finished=True,
+        bot_finished = self._stop_bot(
+            wait_ms=self._bounded_wait_ms(_BOT_SHUTDOWN_WAIT_MS, deadline),
+            ensure_finished=hard_barrier,
         )
-        self._stop_auth_thread()
-        self._wait_for_worker(
+        auth_finished = self._stop_auth_thread(deadline=deadline)
+        validation_finished = self._wait_for_worker(
             self._validation_worker,
-            _REQUEST_SHUTDOWN_WAIT_MS,
-            ensure_finished=True,
+            self._bounded_wait_ms(_REQUEST_SHUTDOWN_WAIT_MS, deadline),
+            ensure_finished=hard_barrier,
         )
-        self._wait_for_worker(
+        revoke_finished = self._wait_for_worker(
             self._revoke_worker,
-            _REQUEST_SHUTDOWN_WAIT_MS,
-            ensure_finished=True,
+            self._bounded_wait_ms(_REQUEST_SHUTDOWN_WAIT_MS, deadline),
+            ensure_finished=hard_barrier,
         )
+        finished_by_attribute = {
+            "_auth_thread": auth_finished,
+            "_bot_worker": bot_finished,
+            "_validation_worker": validation_finished,
+            "_revoke_worker": revoke_finished,
+        }
+        for attribute, finished in finished_by_attribute.items():
+            worker = getattr(self, attribute, None)
+            if worker is not None and finished:
+                setattr(self, attribute, None)
+                self._delete_worker_later(worker)
+        pending = self._running_worker_names()
+        log_runtime_event("twitch.shutdown.complete", pending=pending)
+        return pending
+
+    def _stop_auth_thread(self, *, deadline: ShutdownDeadline | None = None) -> bool:
+        worker = self._auth_thread
+        if worker is None:
+            return True
+        shutdown_server = getattr(worker, "_shutdown_server", None)
+        if callable(shutdown_server):
+            shutdown_server()
+        return self._wait_for_worker(
+            worker,
+            self._bounded_wait_ms(_AUTH_SHUTDOWN_WAIT_MS, deadline),
+            ensure_finished=deadline is None,
+        )
+
+    @staticmethod
+    def _bounded_wait_ms(wait_ms: int, deadline: ShutdownDeadline | None) -> int:
+        if deadline is None:
+            return int(wait_ms)
+        return min(int(wait_ms), deadline.remaining_ms())
+
+    def _running_worker_names(self) -> tuple[str, ...]:
+        result: list[str] = []
         for attribute in (
             "_auth_thread",
             "_bot_worker",
@@ -449,23 +489,10 @@ class TwitchSession:
             "_revoke_worker",
         ):
             worker = getattr(self, attribute, None)
-            setattr(self, attribute, None)
-            if worker is not None:
-                self._delete_worker_later(worker)
-        log_runtime_event("twitch.shutdown.complete")
-
-    def _stop_auth_thread(self) -> None:
-        worker = self._auth_thread
-        if worker is None:
-            return
-        shutdown_server = getattr(worker, "_shutdown_server", None)
-        if callable(shutdown_server):
-            shutdown_server()
-        self._wait_for_worker(
-            worker,
-            _AUTH_SHUTDOWN_WAIT_MS,
-            ensure_finished=True,
-        )
+            is_running = getattr(worker, "isRunning", None)
+            if worker is not None and callable(is_running) and bool(is_running()):
+                result.append(self._worker_name(worker))
+        return tuple(result)
 
     @staticmethod
     def _worker_name(worker) -> str:

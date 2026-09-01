@@ -87,5 +87,8 @@ def install_run_lifecycle(app, **overrides) -> RunLifecycle:
     exactly what the resolver's cache does on first use.
     """
     lifecycle = build_run_lifecycle(**overrides)
-    app._run_lifecycle = lifecycle
+    from tests.support.legacy_runtime import _runtime
+
+    runtime = _runtime(app)
+    runtime.run_lifecycle = lifecycle
     return lifecycle

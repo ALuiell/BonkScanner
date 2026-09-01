@@ -16,6 +16,7 @@ the *library*, not the filtered view. A three-letter search must not turn
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,7 @@ from unittest.mock import patch
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app.vod_library import VodLibrary
+from app.shutdown import ShutdownDeadline
 from ui.tabs.player_stats.recordings import (
     RecordingsTab,
     _format_bytes,
@@ -152,6 +154,33 @@ class FormatBytesTests(unittest.TestCase):
 
 
 class VodLibraryLifecycleTests(unittest.TestCase):
+    def test_shutdown_joins_with_deadline_and_drops_the_ui_callback(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        scheduled = []
+
+        def refresh():
+            started.set()
+            release.wait(2.0)
+            return (_vod("late"),)
+
+        library = VodLibrary(
+            load_cached=tuple,
+            refresh_index=refresh,
+            schedule=scheduled.append,
+        )
+        self.addCleanup(release.set)
+        library.ensure_refresh()
+        self.assertTrue(started.wait(1.0))
+
+        pending = library.shutdown(ShutdownDeadline.after(0.0))
+        release.set()
+        finished = library.shutdown(ShutdownDeadline.after(1.0))
+
+        self.assertEqual(pending, ("vod-metadata-index",))
+        self.assertEqual(finished, ())
+        self.assertEqual(scheduled, [])
+
     @staticmethod
     def _run_threads_inline():
         class ImmediateThread:

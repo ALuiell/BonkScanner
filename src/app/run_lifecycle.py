@@ -57,7 +57,6 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
-from app.player_stats_memory import player_stats_memory
 from core.game_state import RuntimeGameMode, RuntimeGameState
 
 # The cadence at which the core run-lifecycle probe re-reads runtime state.
@@ -235,49 +234,3 @@ class RunLifecycle:
             if self._now() - checked_at <= CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS:
                 return cached_state
         return self.state_or_unknown(context)
-
-
-def run_lifecycle(owner) -> RunLifecycle:
-    """Resolve the owner's ``RunLifecycle``, building it on first use.
-
-    The same shape as ``ensure_refresh_coordinator`` in ``app/refresh_tasks.py``
-    and for the same reason: the service's dependencies are the owner's memory
-    readers, so ``AppCoordinator`` cannot construct it in its own ``__init__``.
-    The coordinator caches it when there is one; an app double built with
-    ``object.__new__`` has none and keeps it in ``__dict__``.
-
-    Still an owner-taking resolver, not yet a constructor argument. The later
-    step-20 commits that convert ``vod_capture``, ``player_stats_refresh`` and
-    ``refresh_tasks`` into constructed services take this as an argument, and
-    this function loses those callers then.
-
-    ``__dict__``, not ``getattr``: ``MegabonkApp.__getattr__`` forwards unknown
-    names to its ``window``, so a ``getattr`` would consult the widget before
-    deciding there is no coordinator.
-    """
-    coordinator = owner.__dict__.get("coordinator")
-    if coordinator is not None:
-        existing = getattr(coordinator, "run_lifecycle", None)
-        if existing is not None:
-            return existing
-
-    existing = owner.__dict__.get("_run_lifecycle")
-    if existing is not None:
-        return existing
-
-    # Bound through lambdas rather than by grabbing the bound methods here.
-    # `self._read_..._safe()` resolved late, on every call; capturing the bound
-    # method at construction would resolve it once and require **both** readers
-    # to exist the moment the service is first touched, even for an owner that
-    # only ever calls one. The suite has such owners, and one of them found
-    # this within a minute of it being written.
-    lifecycle = RunLifecycle(
-        read_activity_state=lambda context=None: player_stats_memory(owner)._read_player_stats_runtime_activity_state_safe(context),
-        read_game_state=lambda context=None: player_stats_memory(owner)._read_player_stats_runtime_game_state_safe(context),
-        live_run_tracker=lambda: owner.live_run_tracker,
-    )
-    if coordinator is not None:
-        coordinator.run_lifecycle = lifecycle
-    else:
-        owner.__dict__["_run_lifecycle"] = lifecycle
-    return lifecycle

@@ -25,9 +25,11 @@ from unittest.mock import patch
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app import config
-from app.player_stats_memory import player_stats_memory
+from tests.support.legacy_runtime import player_stats_memory
 from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.snapshot_store import LiveSnapshotStore
+from app.player_stats_source import FullPlayerSample
+from core.vod_capture import VodCapturePayload
 from tests.support.run_lifecycle import install_run_lifecycle
 from core.game_state import RuntimeGameMode, RuntimeGameState
 from gui_app import MegabonkApp
@@ -43,7 +45,7 @@ class FakeRecorder:
     def should_capture(self) -> bool:
         return self._should_capture
 
-    def capture(self, **kwargs):
+    def capture(self, _payload):
         self.captures += 1
         return SimpleNamespace(time_label=f"cap{self.captures}", stats={}, items=())
 
@@ -111,10 +113,10 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
     # now, so the whole-tuple stub lands on the resolved service rather than the
     # app double. The resolver takes the `__dict__` branch (no coordinator) and
     # caches the same instance the refresh path re-resolves.
-    player_stats_memory(app)._read_live_player_stats_data = lambda _context=None: (
+    player_stats_memory(app).read_full_sample = lambda _context=None: FullPlayerSample(*(
         {}, (), True, (), True, (), True, (), True, (), True,
         21.5, None, None, 37, 2, 111, 0, None, (), True, False,
-    )
+    ))
     # A real `RunLifecycle` with its game-state read faked, not a stubbed
     # method: `state_for_refresh` with a cold cache falls through to the
     # uncached read, so this drives the service's own branch rather than
@@ -149,10 +151,11 @@ def snap(label):
 
 class PinnedSnapshotSurvivesRefreshTests(unittest.TestCase):
     def _refresh(self, app):
-        # `build_vod_capture_kwargs` reads a real RuntimeStateSnapshot; the
+        # `build_vod_capture_payload` reads a real RuntimeStateSnapshot; the
         # capture payload is not what these tests are about.
         with patch.object(config, "AUTO_START_RECORDING", False), patch(
-            "app.player_stats_refresh.build_vod_capture_kwargs", lambda *a, **k: {}
+            "app.player_stats_refresh.build_vod_capture_payload",
+            lambda *a, **k: VodCapturePayload(stats={}),
         ):
             return MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -359,7 +362,7 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
         the success and the failure path of the task called it unguarded.
         """
         from app.refresh_coordinator import RefreshTickContext
-        from app.refresh_tasks import refresh_tasks
+        from tests.support.legacy_runtime import refresh_tasks
 
         for pinned, expected in ((True, 0), (False, 1)):
             owner, recorded = self.build_owner(pinned=pinned)
@@ -372,7 +375,7 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
 
     def test_event_timer_task_does_not_repaint_stage_summary_while_pinned(self) -> None:
         from app.refresh_coordinator import RefreshTickContext
-        from app.refresh_tasks import refresh_tasks
+        from tests.support.legacy_runtime import refresh_tasks
 
         owner, recorded = self.build_owner(pinned=True)
         refresh_tasks(owner)._refresh_event_timer_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0))
@@ -384,7 +387,7 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
 
     def test_combat_metrics_task_does_not_repaint_stage_summary_while_pinned(self) -> None:
         from app.refresh_coordinator import RefreshTickContext
-        from app.refresh_tasks import refresh_tasks
+        from tests.support.legacy_runtime import refresh_tasks
 
         owner, recorded = self.build_owner(pinned=True)
         refresh_tasks(owner)._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0))

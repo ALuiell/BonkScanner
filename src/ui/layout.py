@@ -61,8 +61,6 @@ from ui.dialogs import (
 )
 
 from app import config
-from app.snapshot_store import live_snapshot_store
-from app.vod_capture import vod_capture
 
 
 def _is_tab_active(tabview, label: str) -> bool:
@@ -1445,10 +1443,10 @@ def _build_live_stats_view(app):
         vod_recorder=lambda: app.player_stats_vod_recorder,
         vod_snapshots=lambda: app.player_stats_vod_snapshots,
         selected_snapshot_index=lambda: app.player_stats_selected_snapshot_index,
-        recording_waiting_mode=lambda: vod_capture(app).recording_waiting_mode,
-        ensure_live_snapshot_store=lambda: live_snapshot_store(app),
-        is_recording_armed=lambda: vod_capture(app).is_recording_armed(),
-        on_toggle_recording=lambda: vod_capture(app).toggle_recording(),
+        recording_waiting_mode=lambda: app.runtime.vod_capture.recording_waiting_mode,
+        ensure_live_snapshot_store=lambda: app.runtime.snapshot_store,
+        is_recording_armed=lambda: app.runtime.vod_capture.is_recording_armed(),
+        on_toggle_recording=lambda: app.runtime.vod_capture.toggle_recording(),
         on_snapshot_selected=_select_snapshot,
         build_progression_snapshot=lambda: app.coordinator.build_progression_service.snapshot(),
         open_build_progression_settings=lambda: _open_build_progression_settings(app),

@@ -27,7 +27,7 @@ step 25) and the tab, which `gui_layout.py` adds to the tab bar (step 26).
 from __future__ import annotations
 
 from collections import deque
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from concurrent.futures import Executor, Future, ThreadPoolExecutor, TimeoutError
 from typing import Any, Callable
 
 from PySide6.QtCore import QPoint, QRect, QTimer
@@ -36,6 +36,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 from app import config
 from app.map_marker_hotkeys import MapMarkerHotkeyController
 from app.map_marker_tracker import MapMarkerTracker
+from app.shutdown import ShutdownDeadline
 from core.map_markers import MapMarkerSnapshot
 from infra.crash_journal import log_runtime_event
 from infra.map_marker_input import WindowsMapMarkerInput
@@ -279,20 +280,23 @@ class InGameOverlay:
                 tag="warning",
             )
 
-    def shutdown(self) -> None:
+    def shutdown(self, deadline: ShutdownDeadline | None = None) -> tuple[str, ...]:
         """Permanently stop callbacks and dispose the parentless tool window."""
         if self._shutting_down:
-            return
+            return () if self._map_marker_worker_shutdown else ("map_marker",)
         self._shutting_down = True
         self.stop_in_game_overlay()
-        self._shutdown_map_marker_worker()
+        worker_stopped = self._shutdown_map_marker_worker(deadline=deadline)
+        if not worker_stopped:
+            return ("map_marker",)
 
         window, self.in_game_overlay_window = self.in_game_overlay_window, None
         if window is None:
-            return
+            return ()
         window.parent_mixin = None
         window.close()
         window.deleteLater()
+        return ()
 
     def _on_in_game_overlay_window_destroyed(self, expected=None) -> None:
         if expected is None or self.in_game_overlay_window is expected:
@@ -720,7 +724,12 @@ class InGameOverlay:
         finally:
             self._map_marker_worker_active = False
 
-    def _stop_map_marker_worker(self, *, wait: bool = False) -> None:
+    def _stop_map_marker_worker(
+        self,
+        *,
+        wait: bool = False,
+        deadline: ShutdownDeadline | None = None,
+    ) -> bool:
         """Invalidate pending work and queue client cleanup without blocking Qt.
 
         The production executor has one worker, so ``close`` is serialized
@@ -757,32 +766,46 @@ class InGameOverlay:
         # future is nonblocking and keeps deterministic tests and state tidy.
         self._collect_map_marker_close_future()
         if not wait:
-            return
+            return True
 
+        completed = True
         future = self._map_marker_future
         if future is not None:
             try:
-                future.result()
+                timeout = None if deadline is None else deadline.remaining_seconds()
+                future.result(timeout=timeout)
+            except TimeoutError:
+                completed = False
             except Exception:
                 pass
-            self._map_marker_future = None
+            if future.done():
+                self._map_marker_future = None
         close_future = self._map_marker_close_future
         if close_future is not None:
             try:
-                close_future.result()
+                timeout = None if deadline is None else deadline.remaining_seconds()
+                close_future.result(timeout=timeout)
+            except TimeoutError:
+                completed = False
             except Exception:
                 pass
-            self._map_marker_close_future = None
-        self._map_marker_worker_active = False
+            if close_future.done():
+                self._map_marker_close_future = None
+        self._map_marker_worker_active = not completed
+        return completed
 
-    def _shutdown_map_marker_worker(self) -> None:
+    def _shutdown_map_marker_worker(
+        self,
+        deadline: ShutdownDeadline | None = None,
+    ) -> bool:
         if self._map_marker_worker_shutdown:
-            return
-        self._stop_map_marker_worker(wait=True)
-        self._map_marker_worker_shutdown = True
+            return True
+        completed = self._stop_map_marker_worker(wait=True, deadline=deadline)
+        self._map_marker_worker_shutdown = completed
         executor, self._map_marker_executor = self._map_marker_executor, None
         if executor is not None:
-            executor.shutdown(wait=True, cancel_futures=True)
+            executor.shutdown(wait=completed, cancel_futures=True)
+        return completed
 
     def _set_map_marker_snapshot(self, snapshot: MapMarkerSnapshot) -> None:
         window = self.in_game_overlay_window

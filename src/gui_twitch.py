@@ -117,7 +117,6 @@ def build_twitch_session(app, view, *, session_snapshot):
     statistics model. Twitch owns the command formatting; neither overlay is
     involved in the `!session` path.
     """
-    from app.player_stats_memory import player_stats_memory
     from app.twitch_session import TwitchSession
     from ui.dialogs import TwitchCommandSettingsDialog, TwitchCommandsHelpDialog
 
@@ -130,7 +129,7 @@ def build_twitch_session(app, view, *, session_snapshot):
         (`gui_dialogs.py:1405`). Kept verbatim, including the bare swallow.
         """
         try:
-            client = player_stats_memory(app)._get_player_stats_client()
+            client = app.runtime.player_stats_memory._get_player_stats_client()
             result = client.get_disabled_items()
             if result.available:
                 app.player_stats_disabled_items_cache = result.items

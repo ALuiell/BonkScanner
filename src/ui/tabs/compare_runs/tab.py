@@ -35,7 +35,6 @@ generic names: once the tab left, that mixin had no callers of any of them.
 from __future__ import annotations
 
 import bisect
-import threading
 from collections import OrderedDict
 from math import isfinite
 from pathlib import Path
@@ -62,6 +61,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
+from app.latest_wins_loader import LatestWinsLoader
 from app.vod_library import (
     RECORDING_SORT_CONFIG_KEY,
     load_vod,
@@ -444,6 +444,13 @@ class CompareRunsTab:
         self._item_details_expanded = False
         self._syncing = False
         self._load_generations = {}
+        self._load_lanes = {
+            side: LatestWinsLoader(
+                schedule=lambda callback: self._marshal(callback),
+                thread_name=f"compare-{side}-loader",
+            )
+            for side in ("a", "b")
+        }
         self._timeline_compact = bool(
             config.user_config.get(COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY, False)
         )
@@ -730,14 +737,10 @@ class CompareRunsTab:
         if self._disposed:
             return
         path = Path(path)
-        generations = self._load_generations
-        generation = int(generations.get(side, 0)) + 1
-        generations[side] = generation
-        self._load_generations = generations
         self._report_compare_run_state(side, "Loading recording…")
 
         def finish(loaded_vod, error) -> None:
-            if self._disposed or generation != self._load_generations.get(side):
+            if self._disposed:
                 return
             if error is not None:
                 self._report_compare_run_state(
@@ -768,30 +771,13 @@ class CompareRunsTab:
                     side, f"Could not display recording: {exc}"
                 )
 
-        def load() -> None:
-            try:
-                loaded = load_vod(path)
-                error = None
-            except Exception as exc:
-                loaded = None
-                error = exc
-            self._marshal(lambda: finish(loaded, error))
-
-        # Background only when there is somewhere to marshal the result back
-        # to -- the same two branches the mixin chose between by reading
-        # `self.after` and `self._invoker` off the shared namespace, now one
-        # injected callable.
         if callable(self._schedule):
+            self._load_lanes[side].submit(path, load=load_vod, complete=finish)
+        else:
             try:
-                threading.Thread(
-                    target=load,
-                    name=f"compare-{side}-loader",
-                    daemon=True,
-                ).start()
+                finish(load_vod(path), None)
             except Exception as exc:
                 finish(None, exc)
-        else:
-            load()
 
     def _marshal(self, callback) -> bool:
         schedule = self._schedule
@@ -2136,6 +2122,8 @@ class CompareRunsTab:
     def _on_tab_destroyed(self, _object=None) -> None:
         """Invalidate trailing work without touching widgets being destroyed."""
         self._disposed = True
+        for lane in self._load_lanes.values():
+            lane.dispose()
         self._load_generations = {
             side: int(self._load_generations.get(side, 0)) + 1
             for side in ("a", "b")

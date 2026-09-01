@@ -6,6 +6,9 @@ AGENT.md
 AGENTS.md
 Instructions_*.txt
 config.json
+vod_metadata_index.json
+config.json.*.tmp
+vod_metadata_index.json.*.tmp
 
 # === AGENT SCRATCH ===
 .scratch_diffs/

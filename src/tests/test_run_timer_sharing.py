@@ -144,7 +144,7 @@ class TasksThreadTheContextDownTests(unittest.TestCase):
         """`full_player_snapshot` is registered as an owner-resolved lambda, so
         the context has to survive `MegabonkApp.refresh_live_player_stats_now`'s
         `**kwargs` hop to reach `PlayerStatsRefresh.refresh_now`."""
-        from app.refresh_tasks import ensure_refresh_coordinator
+        from tests.support.legacy_runtime import ensure_refresh_coordinator
 
         received: list = []
 

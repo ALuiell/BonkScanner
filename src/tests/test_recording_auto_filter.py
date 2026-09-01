@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT
+from core.vod_capture import VodCapturePayload
 from infra import vod_storage
 
 
@@ -41,52 +42,61 @@ class FakeRecordingSettings:
 
 class _SettingsFixture(unittest.TestCase):
     def setUp(self) -> None:
-        self.addCleanup(vod_storage.use_settings, None)
+        self.settings = None
 
     def use(self, settings) -> None:
-        vod_storage.use_settings(settings)
+        self.settings = settings
+
+    def minimum(self) -> int:
+        return vod_storage.minimum_snapshot_count(self.settings)
 
 
 class MinimumSnapshotCountTests(_SettingsFixture):
     def test_the_default_is_the_old_hard_coded_rule(self) -> None:
         """`< 1` is exactly the `== 0` this replaced, so nothing changes."""
         self.use(None)
-        self.assertEqual(vod_storage.minimum_snapshot_count(), 1)
+        self.assertEqual(self.minimum(), 1)
         self.assertEqual(DEFAULT_MINIMUM_SNAPSHOT_COUNT, 1)
 
     def test_a_configured_threshold_is_used(self) -> None:
         self.use(FakeRecordingSettings(minimum=30))
-        self.assertEqual(vod_storage.minimum_snapshot_count(), 30)
+        self.assertEqual(self.minimum(), 30)
 
     def test_zero_is_honoured_as_keep_everything(self) -> None:
         """A deliberate choice, unlike a negative or a corrupt value."""
         self.use(FakeRecordingSettings(minimum=0))
-        self.assertEqual(vod_storage.minimum_snapshot_count(), 0)
+        self.assertEqual(self.minimum(), 0)
 
     def test_a_corrupt_value_falls_back_rather_than_crashing(self) -> None:
         self.use(FakeRecordingSettings(minimum="not a number"))
-        self.assertEqual(vod_storage.minimum_snapshot_count(), DEFAULT_MINIMUM_SNAPSHOT_COUNT)
+        self.assertEqual(self.minimum(), DEFAULT_MINIMUM_SNAPSHOT_COUNT)
 
     def test_a_negative_value_cannot_disable_the_filter(self) -> None:
         self.use(FakeRecordingSettings(minimum=-5))
-        self.assertEqual(vod_storage.minimum_snapshot_count(), 0)
+        self.assertEqual(self.minimum(), 0)
 
     def test_a_settings_store_without_the_reader_falls_back(self) -> None:
         """An older settings object must not silently disable the filter."""
         self.use(object())
-        self.assertEqual(vod_storage.minimum_snapshot_count(), DEFAULT_MINIMUM_SNAPSHOT_COUNT)
+        self.assertEqual(self.minimum(), DEFAULT_MINIMUM_SNAPSHOT_COUNT)
 
 
 class RecorderDiscardTests(_SettingsFixture):
     def _recorder(self, directory: Path):
-        return vod_storage.VodRecorder(vods_dir=directory, interval_seconds=1)
+        return vod_storage.VodRecorder(
+            vods_dir=directory,
+            interval_seconds=1,
+            settings=self.settings,
+        )
 
     def _run(self, directory: Path, snapshots: int):
         recorder = self._recorder(directory)
         recorder.start(name="Run")
         for _ in range(snapshots):
             recorder.capture(
-                {"Damage": SimpleNamespace(value=1.0, display_value="1")},
+                VodCapturePayload(
+                    stats={"Damage": SimpleNamespace(value=1.0, display_value="1")}
+                ),
             )
         path = recorder.path
         return path, recorder.stop()

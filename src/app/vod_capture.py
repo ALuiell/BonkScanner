@@ -68,9 +68,6 @@ import time
 from typing import Any, Callable
 
 from app import config
-from app.player_stats_memory import player_stats_memory
-from app.player_stats_view import player_stats_view, recordings_list_view
-from app.run_lifecycle import run_lifecycle as resolve_run_lifecycle
 from core.game_state import RuntimeGameMode
 from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 
@@ -615,97 +612,3 @@ class VodCapture:
         )
         self._log(f"[*] Player stats recording auto-started: {vod_path.name}", tag="success")
         return True
-
-
-def _reset_owner_snapshot_buffer(owner) -> None:
-    """Discard the app-owned snapshot buffer and selection for a new file.
-
-    The owner keeps these three names -- see the class docstring for why they
-    did not move -- so the service asks rather than writes.
-    """
-    owner.player_stats_vod_snapshots = []
-    owner.player_stats_selected_snapshot_index = None
-    owner.player_stats_snapshot_pinned = False
-
-
-def _read_owner_character_identity(owner) -> tuple[int, str] | None:
-    # Recording can start from the armed/waiting state before the first full
-    # snapshot resets the previous run. Read the active process first so a
-    # cached Dice snapshot cannot name a new Fox recording. The tracker remains
-    # a best-effort fallback for a transient start-time memory failure.
-    try:
-        memory = player_stats_memory(owner)
-        client = memory._get_player_stats_client()
-        owner_stats = client.resolve_owner_stats()
-        identity_reader = getattr(client, "get_character_identity", None)
-        if callable(identity_reader):
-            character_id, character_name = identity_reader(owner_stats)
-        else:
-            reading = client.get_character_passive_reading(owner_stats)
-            character_id = reading.character_id
-            character_name = reading.character_name
-        if int(character_id) >= 0 and str(character_name).strip():
-            return int(character_id), str(character_name).strip()
-    except Exception:
-        pass
-
-    tracker = getattr(owner, "live_run_tracker", None)
-    snapshot_reader = getattr(tracker, "character_passive_snapshot", None)
-    if callable(snapshot_reader):
-        snapshot = snapshot_reader()
-        if snapshot is not None and int(getattr(snapshot, "character_id", -1)) >= 0:
-            name = str(getattr(snapshot, "character_name", "") or "").strip()
-            if name:
-                return int(snapshot.character_id), name
-    return None
-
-
-def vod_capture(owner) -> VodCapture:
-    """Resolve the owner's ``VodCapture``, building it on first use.
-
-    The same shape as ``run_lifecycle`` in ``app/run_lifecycle.py`` and
-    ``ensure_refresh_coordinator`` in ``app/refresh_tasks.py``, and for the same
-    reason: the service's dependencies are the owner's memory readers, view
-    ports and log, so ``AppCoordinator`` cannot construct it in its own
-    ``__init__``. The coordinator caches it when there is one; an app double
-    built with ``object.__new__`` has none and keeps it in ``__dict__``.
-
-    ``__dict__``, not ``getattr``: ``MegabonkApp.__getattr__`` forwards unknown
-    names to its ``window``, so a ``getattr`` would consult the widget before
-    deciding there is no coordinator.
-
-    Every argument below is a lambda rather than a bound method. Grabbing
-    ``owner.log`` here would resolve it once, at whatever moment the service is
-    first touched; ``self.log(...)`` resolved it on every call. That difference
-    is this conversion's most common silent behaviour change and step 20 has
-    already shipped it twice.
-    """
-    coordinator = owner.__dict__.get("coordinator")
-    if coordinator is not None:
-        existing = getattr(coordinator, "vod_capture", None)
-        if existing is not None:
-            return existing
-
-    existing = owner.__dict__.get("_vod_capture")
-    if existing is not None:
-        return existing
-
-    service = VodCapture(
-        recorder=lambda: owner.player_stats_vod_recorder,
-        read_recording_state=lambda context=None: player_stats_memory(owner)._read_player_stats_recording_state_safe(context),
-        read_run_timer=lambda context=None: player_stats_memory(owner)._read_player_stats_recording_run_timer_safe(context),
-        close_game_data_client=lambda: player_stats_memory(owner).close_player_stats_game_data_client(),
-        run_lifecycle=lambda: resolve_run_lifecycle(owner),
-        refresh_now=lambda **kwargs: owner.refresh_live_player_stats_now(**kwargs),
-        player_stats_view=lambda: player_stats_view(owner),
-        recordings_list_view=lambda: recordings_list_view(owner),
-        is_live_stats_tab_active=lambda: owner._is_live_stats_tab_active(),
-        log=lambda message, tag=None: owner.log(message, tag=tag),
-        reset_snapshot_buffer=lambda: _reset_owner_snapshot_buffer(owner),
-        read_character_identity=lambda: _read_owner_character_identity(owner),
-    )
-    if coordinator is not None:
-        coordinator.vod_capture = service
-    else:
-        owner.__dict__["_vod_capture"] = service
-    return service
