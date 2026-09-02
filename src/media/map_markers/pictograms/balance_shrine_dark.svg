@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
   <title>Shrine of Balance</title>
-  <path d="M10 4h12l3 4-1 8-4 5h-8l-4-5-1-8Z" stroke="#17202A" stroke-width="2.4" stroke-linejoin="round"/>
-  <path d="M11 10.5h3m4 0h3M16 11v4l-2 1h4m-5 2h6" stroke="#17202A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M10 21h12l5 7H5Z" stroke="#17202A" stroke-width="2.4" stroke-linejoin="round"/>
-  <path d="M11 25h10m-5-3v6" stroke="#17202A" stroke-width="2" stroke-linecap="round"/>
+  <path d="M10 4h12l3 4-1 8-4 5h-8l-4-5-1-8Z" stroke="#03080F" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M11 10.5h3m4 0h3M16 11v4l-2 1h4m-5 2h6" stroke="#03080F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M10 21h12l5 7H5Z" stroke="#03080F" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M11 25h10m-5-3v6" stroke="#03080F" stroke-width="2" stroke-linecap="round"/>
 </svg>

@@ -115,6 +115,7 @@ _SHADY_GUY_COLORS = {
     "purple": "#E04FFF",
     "gold": "#FF9F0A",
 }
+_DARK_PICTOGRAM_OUTLINE_COLOR = "#F5F7FA"
 
 
 MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
@@ -123,8 +124,9 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         family="microwave",
         label="Microwave",
         variant=rarity_label,
-        icon_name="microwave_dark" if rarity_id == "white" else "microwave",
+        icon_name="microwave_dark",
         color=color,
+        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
     )
     for rarity_id, rarity_label, color in _RARITIES
 ) + tuple(
@@ -135,7 +137,7 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         variant=rarity_label,
         icon_name="shady_guy_dark",
         color=_SHADY_GUY_COLORS[rarity_id],
-        outline_color="#03080F",
+        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
     )
     for rarity_id, rarity_label, _color in _RARITIES
 ) + (
@@ -144,8 +146,9 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         family="magnet_shrine",
         label="Magnet Shrine",
         variant=None,
-        icon_name="magnet",
+        icon_name="magnet_dark",
         color="#55D6BE",
+        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
     ),
     MapMarkerAction(
         id="moai",
@@ -154,6 +157,7 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         variant=None,
         icon_name="moai_dark",
         color="#B7C0CA",
+        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
     ),
     MapMarkerAction(
         id="balance_shrine",
@@ -162,22 +166,25 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         variant=None,
         icon_name="balance_shrine_dark",
         color="#D8BC78",
+        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
     ),
     MapMarkerAction(
         id="challenge_shrine",
         family="challenge_shrine",
         label="Challenge Shrine",
         variant=None,
-        icon_name="challenge",
+        icon_name="challenge_dark",
         color="#EF6A5B",
+        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
     ),
     MapMarkerAction(
         id="boss_curse",
         family="boss_curse",
         label="Boss Curse",
         variant=None,
-        icon_name="boss_curse",
+        icon_name="boss_curse_dark",
         color="#D85CFF",
+        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
     ),
     MapMarkerAction(
         id="egg",

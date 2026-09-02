@@ -158,32 +158,19 @@ class MapMarkerProjectionTests(unittest.TestCase):
         self.assertFalse(MAP_MARKER_ACTION_BY_ID["sus_bush"].manual_only)
         self.assertFalse(MAP_MARKER_ACTION_BY_ID["challenge_shrine"].manual_only)
 
-    def test_light_marker_fills_use_dark_pictograms(self) -> None:
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["microwave_white"].icon_name,
-            "microwave_dark",
-        )
-        self.assertEqual(MAP_MARKER_ACTION_BY_ID["moai"].icon_name, "moai_dark")
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["balance_shrine"].icon_name,
-            "balance_shrine_dark",
-        )
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["microwave_white"].settings_icon_name,
-            "microwave",
-        )
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["shady_guy_white"].settings_icon_name,
-            "shady_guy",
-        )
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["moai"].settings_icon_name,
-            "moai",
-        )
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["balance_shrine"].settings_icon_name,
-            "balance_shrine",
-        )
+    def test_circle_markers_use_dark_pictograms_except_multicolor_assets(self) -> None:
+        multicolor_icons = {"egg": "egg", "sus_bush": "sus_bush"}
+        for action_id, action in MAP_MARKER_ACTION_BY_ID.items():
+            if action_id in multicolor_icons:
+                self.assertEqual(action.icon_name, multicolor_icons[action_id])
+                self.assertEqual(action.outline_color, "#03080F")
+                continue
+            self.assertTrue(action.icon_name.endswith("_dark"), action_id)
+            self.assertEqual(action.outline_color, "#F5F7FA")
+            self.assertEqual(
+                action.settings_icon_name,
+                action.icon_name.removesuffix("_dark"),
+            )
 
     def test_shady_guy_matches_neon_marker_mockup(self) -> None:
         expected_colors = {
@@ -195,12 +182,12 @@ class MapMarkerProjectionTests(unittest.TestCase):
         for rarity_id, expected_color in expected_colors.items():
             action = MAP_MARKER_ACTION_BY_ID[f"shady_guy_{rarity_id}"]
             self.assertEqual(action.color, expected_color)
-            self.assertEqual(action.outline_color, "#03080F")
+            self.assertEqual(action.outline_color, "#F5F7FA")
             self.assertEqual(action.icon_name, "shady_guy_dark")
 
         microwave = MAP_MARKER_ACTION_BY_ID["microwave_white"]
         self.assertEqual(microwave.color, "#F2F2E9")
-        self.assertEqual(microwave.outline_color, "#03080F")
+        self.assertEqual(microwave.outline_color, "#F5F7FA")
 
     def test_complete_palette_fits_small_full_map_at_large_scale(self) -> None:
         viewport = MapViewport(20.0, 30.0, 800.0, 800.0)
