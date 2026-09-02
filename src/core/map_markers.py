@@ -109,7 +109,12 @@ _RARITIES = (
     ("gold", "Gold", "#F5C84B"),
 )
 _RARITY_IDS = tuple(rarity_id for rarity_id, _label, _color in _RARITIES)
-_SHADY_GUY_BASE_COLOR = "#3A925F"
+_SHADY_GUY_COLORS = {
+    "white": "#16F28B",
+    "blue": "#00D7FF",
+    "purple": "#E04FFF",
+    "gold": "#FF9F0A",
+}
 
 
 MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
@@ -128,11 +133,11 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         family="shady_guy",
         label="Shady Guy",
         variant=rarity_label,
-        icon_name="shady_guy",
-        color=_SHADY_GUY_BASE_COLOR if rarity_id == "white" else color,
-        outline_color="#FFFFFF",
+        icon_name="shady_guy_dark",
+        color=_SHADY_GUY_COLORS[rarity_id],
+        outline_color="#03080F",
     )
-    for rarity_id, rarity_label, color in _RARITIES
+    for rarity_id, rarity_label, _color in _RARITIES
 ) + (
     MapMarkerAction(
         id="magnet_shrine",

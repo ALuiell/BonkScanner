@@ -185,18 +185,18 @@ class MapMarkerProjectionTests(unittest.TestCase):
             "balance_shrine",
         )
 
-    def test_shady_guy_uses_colored_fills_with_white_outlines(self) -> None:
+    def test_shady_guy_matches_neon_marker_mockup(self) -> None:
         expected_colors = {
-            "white": "#3A925F",
-            "blue": "#48A9FF",
-            "purple": "#B378FF",
-            "gold": "#F5C84B",
+            "white": "#16F28B",
+            "blue": "#00D7FF",
+            "purple": "#E04FFF",
+            "gold": "#FF9F0A",
         }
         for rarity_id, expected_color in expected_colors.items():
             action = MAP_MARKER_ACTION_BY_ID[f"shady_guy_{rarity_id}"]
             self.assertEqual(action.color, expected_color)
-            self.assertEqual(action.outline_color, "#FFFFFF")
-            self.assertEqual(action.icon_name, "shady_guy")
+            self.assertEqual(action.outline_color, "#03080F")
+            self.assertEqual(action.icon_name, "shady_guy_dark")
 
         microwave = MAP_MARKER_ACTION_BY_ID["microwave_white"]
         self.assertEqual(microwave.color, "#F2F2E9")
