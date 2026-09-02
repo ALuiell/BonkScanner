@@ -1602,7 +1602,7 @@ QFrame#dialogHeadRule {
     min-height: 1px;
     max-height: 1px;
 }
-QWidget#dialogHead, QWidget#dialogFooter { background: transparent; }
+QWidget#dialogHead, QWidget#dialogTitleRow, QWidget#dialogFooter { background: transparent; }
 /* Одинаковая минимальная ширина: иначе кнопка «OK» вдвое уже «Cancel» рядом,
    и пара читается как разные по весу. */
 QWidget#dialogFooter QPushButton { min-width: 96px; }
@@ -1639,40 +1639,94 @@ QFrame#DangerInfoCard {
 /* The updater stays inside the same modal surface from release notes through
    download, verification and restart. Its hierarchy mirrors the compact cards
    elsewhere in the app instead of introducing a separate installer style. */
+QDialog#UpdateDialog {
+    background-color: #0E1217;
+    color: #EDF1F5;
+    font-family: "Segoe UI";
+    font-size: 12px;
+}
+QDialog#UpdateDialog QWidget { font-family: "Segoe UI"; }
+QDialog#UpdateDialog QLabel#dialogTitle {
+    font-size: 18px;
+    font-weight: 600;
+}
+QDialog#UpdateDialog QLabel#dialogSubtitle {
+    font-size: 12px;
+    font-weight: 400;
+}
 QFrame#UpdateSummaryCard {
     background-color: #101820;
     border: 1px solid #263746;
     border-radius: 10px;
 }
+QLabel#UpdateVersionBadge {
+    color: #FF8377;
+    background-color: #251719;
+    border: 1px solid #64353A;
+    border-radius: 10px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
 QLabel#UpdateVersionOld {
     color: #8A94A3;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 400;
 }
 QLabel#UpdateVersionArrow {
     color: #5C6675;
-    font-size: 15px;
+    font-size: 13px;
+    font-weight: 400;
 }
 QLabel#UpdateVersionNew {
     color: #7DE68C;
-    font-size: 14px;
-    font-weight: 800;
+    font-size: 12px;
+    font-weight: 600;
 }
 QLabel#UpdateTrustNote {
     color: #6FAF86;
-    font-size: 11px;
-}
-QLabel#UpdateSectionTitle {
-    color: #B9C2CE;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 400;
 }
 QTextEdit#UpdateReleaseNotes {
-    background-color: #0B0F14;
-    border: 1px solid #1B222B;
-    border-radius: 10px;
-    padding: 10px;
+    background-color: #0E151D;
+    border: 1px solid #273340;
+    border-radius: 7px;
+    padding: 12px;
+    color: #CBD4DE;
+    font-family: "Segoe UI";
+    font-size: 13px;
+}
+QFrame#UpdateSupportCard {
+    background-color: #111821;
+    border: 1px solid #27313D;
+    border-left: 3px solid #FF6F61;
+    border-radius: 8px;
+}
+QFrame#UpdateSupportCard QLabel { background: transparent; }
+QLabel#UpdateSupportHeart {
+    color: #FF6F61;
+    font-size: 15px;
+    font-weight: 600;
+}
+QLabel#UpdateSupportMessage {
     color: #D7DEE8;
+    font-size: 12px;
+    font-weight: 400;
+}
+QPushButton#PatreonButton[updateSupportAction="true"],
+QPushButton#CryptoButton[updateSupportAction="true"] {
+    min-width: 0px;
+    padding: 5px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+}
+QFrame#UpdateFooterRule {
+    background-color: #242D38;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
 }
 QFrame#UpdateProgressPanel {
     background-color: #111B25;
@@ -1689,12 +1743,13 @@ QFrame#UpdateProgressPanel[state="error"] {
 }
 QLabel#UpdateProgressStatus {
     color: #EDF1F5;
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 600;
 }
 QLabel#UpdateProgressDetail {
     color: #8A94A3;
     font-size: 11px;
+    font-weight: 400;
 }
 QProgressBar#UpdateDownloadProgress {
     min-height: 8px;
@@ -1714,6 +1769,18 @@ QProgressBar#UpdateDownloadProgress[state="verified"]::chunk {
 }
 QProgressBar#UpdateDownloadProgress[state="error"]::chunk {
     background-color: #F87171;
+}
+QDialog#UpdateDialog QWidget#dialogFooter QPushButton {
+    font-family: "Segoe UI";
+    font-size: 12px;
+    font-weight: 400;
+}
+QDialog#UpdateDialog QWidget#dialogFooter QPushButton#primary {
+    font-weight: 600;
+}
+QDialog#UpdateDialog QWidget#dialogFooter QPushButton#ghost[footerEdge="true"] {
+    font-size: 11px;
+    font-weight: 400;
 }
 
 /* ======================================================================
@@ -1800,6 +1867,45 @@ QPushButton#footerSupportLink {
     qproperty-restColor: #FF6F61;
     qproperty-hoverColor: #FF978C;
     qproperty-lineColor: #FF978C;
+}
+
+/* Periodic reminder: it is an overlay anchored to the Support link, not a
+   second footer row, so the working area never changes size when it appears. */
+QFrame#supportReminder {
+    background-color: #111821;
+    border: 1px solid #27313D;
+    border-left: 3px solid #FF6F61;
+    border-radius: 8px;
+}
+QFrame#supportReminder QLabel { background: transparent; }
+QWidget#supportReminderHeart {
+    background: transparent;
+    font-size: 15px;
+    font-weight: 600;
+    qproperty-heartColor: #FF6F61;
+}
+QLabel#supportReminderText {
+    color: #D7DEE8;
+    font-size: 13px;
+    font-weight: 400;
+}
+QPushButton#supportReminderButton {
+    min-width: 0px;
+    color: #FF8377;
+    background-color: #22181A;
+    border: 1px solid #4B2B2F;
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 13px;
+    font-weight: 600;
+}
+QPushButton#supportReminderButton:hover {
+    color: #FF9C93;
+    background-color: #2B1D20;
+    border-color: #6A393F;
+}
+QPushButton#supportReminderButton:pressed {
+    background-color: #341F23;
 }
 
 /* Всплывашка выбора площадки. Площадок две, и выбирать за пользователя

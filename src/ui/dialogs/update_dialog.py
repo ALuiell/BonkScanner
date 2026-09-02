@@ -1,21 +1,27 @@
 from __future__ import annotations
 
+import ctypes
 import re
+import sys
+import webbrowser
 from typing import Callable, Literal
 
 from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QColor, QCloseEvent, QFont, QPalette, QShowEvent
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
+from app import config
 from app.version import CURRENT_VERSION
 from core.update_types import PreparedUpdate, ReleaseInfo
 from ui.dialogs.shell import DIALOG_REGULAR, dialog_body, dialog_footer
@@ -27,6 +33,157 @@ StartDownload = Callable[
     object,
 ]
 InstallUpdate = Callable[[PreparedUpdate], None]
+
+SUPPORT_MESSAGE = (
+    "Updates like this are fueled by the BonkScanner supporters. Thank you!"
+)
+RELEASE_NOTES_STYLESHEET = """
+body {
+    color: #CBD4DE;
+    font-family: "Segoe UI";
+    font-size: 13px;
+    font-weight: 400;
+}
+h2 {
+    color: #F1F4F8;
+    font-family: "Segoe UI";
+    font-size: 17px;
+    font-weight: 500;
+    margin: 0 0 14px 0;
+}
+h3 {
+    color: #EDF2F7;
+    font-family: "Segoe UI";
+    font-size: 13px;
+    font-weight: 500;
+    margin: 14px 0 8px 0;
+}
+p {
+    color: #CBD4DE;
+    font-family: "Segoe UI";
+    font-size: 13px;
+    margin: 0 0 10px 0;
+}
+ul {
+    margin: 0 0 10px 0;
+    padding-left: 20px;
+}
+li {
+    font-family: "Segoe UI";
+    font-size: 13px;
+    margin-bottom: 6px;
+}
+code {
+    color: #A9D7FF;
+    background-color: #151F2A;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    padding: 1px 3px;
+}
+strong {
+    color: #F1F4F8;
+    font-family: "Segoe UI";
+    font-weight: 500;
+}
+hr {
+    border: none;
+    border-top: 1px solid #273340;
+    margin: 12px 0;
+}
+a {
+    color: #60A5FA;
+    font-family: "Segoe UI";
+    text-decoration: none;
+}
+""".strip()
+
+
+def _dark_update_palette(base: QPalette) -> QPalette:
+    """Return a complete dark palette independent of the Windows colour mode."""
+    palette = QPalette(base)
+    colors = {
+        QPalette.Window: "#0E1217",
+        QPalette.WindowText: "#EDF1F5",
+        QPalette.Base: "#0B0F14",
+        QPalette.AlternateBase: "#101820",
+        QPalette.ToolTipBase: "#141A22",
+        QPalette.ToolTipText: "#EDF1F5",
+        QPalette.Text: "#D7DEE8",
+        QPalette.Button: "#141A22",
+        QPalette.ButtonText: "#EDF1F5",
+        QPalette.BrightText: "#FFFFFF",
+        QPalette.Link: "#60A5FA",
+        QPalette.Highlight: "#2F6FB0",
+        QPalette.HighlightedText: "#FFFFFF",
+        QPalette.PlaceholderText: "#5C6675",
+    }
+    for role, color in colors.items():
+        palette.setColor(role, QColor(color))
+    for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
+        palette.setColor(QPalette.Disabled, role, QColor("#5C6675"))
+    return palette
+
+
+def _enable_windows_dark_title_bar(window: QDialog) -> bool:
+    """Force a dark native caption, independent of the Windows colour mode."""
+    if sys.platform != "win32":
+        return False
+    try:
+        hwnd = int(window.winId())
+        dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+        set_window_attribute = dwmapi.DwmSetWindowAttribute
+        set_window_attribute.argtypes = (
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.c_uint,
+        )
+        set_window_attribute.restype = ctypes.c_long
+
+        def set_attribute(attribute: int, value: int) -> bool:
+            data = ctypes.c_uint(value)
+            return (
+                set_window_attribute(
+                    ctypes.c_void_p(hwnd),
+                    ctypes.c_uint(attribute),
+                    ctypes.byref(data),
+                    ctypes.c_uint(ctypes.sizeof(data)),
+                )
+                == 0
+            )
+
+        applied = False
+        for attribute in (20, 19):
+            if set_attribute(attribute, 1):
+                applied = True
+                break
+
+        # Immersive dark mode can still follow the user's Windows theme on some
+        # builds. Explicit DWM colours keep the native caption consistent with
+        # the updater client area. COLORREF values use 0x00BBGGRR ordering.
+        for attribute, colorref in (
+            (35, 0x00211811),  # DWMWA_CAPTION_COLOR  -> #111821
+            (36, 0x00F5F1ED),  # DWMWA_TEXT_COLOR     -> #EDF1F5
+            (34, 0x0041352B),  # DWMWA_BORDER_COLOR   -> #2B3541
+        ):
+            applied = set_attribute(attribute, colorref) or applied
+        return applied
+    except (AttributeError, OSError, TypeError, ValueError, ctypes.ArgumentError):
+        pass
+    return False
+
+
+def _apply_grayscale_text_rendering(root: QWidget) -> None:
+    """Match the mockup's grayscale antialiasing instead of Windows ClearType."""
+    strategy = QFont.PreferAntialias | QFont.NoSubpixelAntialias
+    for widget in (root, *root.findChildren(QWidget)):
+        font = widget.font()
+        font.setStyleStrategy(strategy)
+        widget.setFont(font)
+    for text_edit in root.findChildren(QTextEdit):
+        document_font = text_edit.document().defaultFont()
+        document_font.setStyleStrategy(strategy)
+        text_edit.document().setDefaultFont(document_font)
 
 
 class UpdateDialog(QDialog):
@@ -45,6 +202,9 @@ class UpdateDialog(QDialog):
         install_update: InstallUpdate,
     ) -> None:
         super().__init__(parent)
+        self.setObjectName("UpdateDialog")
+        self.setAutoFillBackground(True)
+        self.setPalette(_dark_update_palette(self.palette()))
         self.release = release
         self.decision: UpdateDecision = "later"
         self._start_download = start_download
@@ -54,12 +214,17 @@ class UpdateDialog(QDialog):
         self._prepared: PreparedUpdate | None = None
         self._installer_scheduled = False
         self._installer_launched = False
+        self._dark_title_bar_applied = False
 
         self.setWindowTitle("BonkScanner Update")
+        version_badge = QLabel(f"v{release.version}", self)
+        version_badge.setObjectName("UpdateVersionBadge")
+        version_badge.setAlignment(Qt.AlignCenter)
         layout = dialog_body(
             self,
-            title="BonkScanner update",
+            title="A new update is available",
             subtitle="A verified update is ready to download.",
+            title_trailing=version_badge,
             width=DIALOG_REGULAR,
             height=540,
         )
@@ -75,7 +240,7 @@ class UpdateDialog(QDialog):
         arrow.setObjectName("UpdateVersionArrow")
         latest = QLabel(f"v{release.version}", summary)
         latest.setObjectName("UpdateVersionNew")
-        verified = QLabel("SHA-256 verified before restart", summary)
+        verified = QLabel("✓ SHA-256 verified before restart", summary)
         verified.setObjectName("UpdateTrustNote")
         summary_row.addWidget(current)
         summary_row.addWidget(arrow)
@@ -84,16 +249,48 @@ class UpdateDialog(QDialog):
         summary_row.addWidget(verified)
         layout.addWidget(summary)
 
-        notes_title = QLabel("What’s new", self)
-        notes_title.setObjectName("UpdateSectionTitle")
-        layout.addWidget(notes_title)
-
         self.notes = QTextEdit(self)
         self.notes.setObjectName("UpdateReleaseNotes")
         self.notes.setReadOnly(True)
         self.notes.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.notes.document().setDefaultStyleSheet(RELEASE_NOTES_STYLESHEET)
         _set_release_notes_content(self.notes, release.notes)
         layout.addWidget(self.notes, 1)
+
+        self.support_card = QFrame(self)
+        self.support_card.setObjectName("UpdateSupportCard")
+        support_layout = QHBoxLayout(self.support_card)
+        support_layout.setContentsMargins(12, 10, 12, 10)
+        support_layout.setSpacing(8)
+
+        support_heart = QLabel("♥", self.support_card)
+        support_heart.setObjectName("UpdateSupportHeart")
+        support_heart.setAlignment(Qt.AlignCenter)
+        support_layout.addWidget(support_heart, 0, Qt.AlignVCenter)
+
+        support_message = QLabel(SUPPORT_MESSAGE, self.support_card)
+        support_message.setObjectName("UpdateSupportMessage")
+        support_message.setWordWrap(True)
+        support_message.setMinimumWidth(0)
+        support_layout.addWidget(support_message, 1)
+
+        self.patreon_button = QPushButton("Patreon", self.support_card)
+        self.patreon_button.setObjectName("PatreonButton")
+        self.patreon_button.setProperty("updateSupportAction", True)
+        self.patreon_button.setCursor(Qt.PointingHandCursor)
+        self.patreon_button.clicked.connect(self._open_patreon)
+        support_layout.addWidget(self.patreon_button, 0, Qt.AlignVCenter)
+
+        self.crypto_button = QPushButton("Crypto", self.support_card)
+        self.crypto_button.setObjectName("CryptoButton")
+        self.crypto_button.setProperty("updateSupportAction", True)
+        self.crypto_button.setCursor(Qt.PointingHandCursor)
+        self.crypto_button.clicked.connect(self._open_crypto)
+        self.crypto_button.setEnabled(bool(config.CRYPTO_SUPPORT_URL))
+        if not config.CRYPTO_SUPPORT_URL:
+            self.crypto_button.setToolTip("Crypto support page is coming soon.")
+        support_layout.addWidget(self.crypto_button, 0, Qt.AlignVCenter)
+        layout.addWidget(self.support_card)
 
         self.progress_panel = QFrame(self)
         self.progress_panel.setObjectName("UpdateProgressPanel")
@@ -115,6 +312,11 @@ class UpdateDialog(QDialog):
         self.progress_panel.hide()
         layout.addWidget(self.progress_panel)
 
+        footer_rule = QFrame(self)
+        footer_rule.setObjectName("UpdateFooterRule")
+        footer_rule.setFrameShape(QFrame.NoFrame)
+        layout.addWidget(footer_rule)
+
         self.skip_button = QPushButton(f"Skip v{release.version}", self)
         self.skip_button.setObjectName("ghost")
         self.skip_button.setProperty("footerEdge", True)
@@ -133,6 +335,37 @@ class UpdateDialog(QDialog):
         self.progress_changed.connect(self._on_progress)
         self.download_ready.connect(self._on_download_ready)
         self.download_failed.connect(self._on_download_failed)
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 - Qt API
+        super().showEvent(event)
+        self._refresh_window_appearance()
+        # Qt can recreate/repolish native window chrome at the end of the first
+        # show cycle. Reapply once after that cycle so DWM does not restore the
+        # light system caption.
+        QTimer.singleShot(0, self, self._refresh_window_appearance)
+
+    def _refresh_window_appearance(self) -> None:
+        _apply_grayscale_text_rendering(self)
+        self._dark_title_bar_applied = (
+            _enable_windows_dark_title_bar(self) or self._dark_title_bar_applied
+        )
+
+    def _open_support_page(self, name: str, url: str) -> None:
+        if not url:
+            return
+        if _open_browser_page(url):
+            return
+        QMessageBox.warning(
+            self,
+            "Could not open support page",
+            f"BonkScanner could not open the {name} page in your browser.\n\n{url}",
+        )
+
+    def _open_patreon(self) -> None:
+        self._open_support_page("Patreon", config.PATREON_SUPPORT_URL)
+
+    def _open_crypto(self) -> None:
+        self._open_support_page("crypto support", config.CRYPTO_SUPPORT_URL)
 
     def _choose_skip(self) -> None:
         if self._busy:
@@ -288,6 +521,13 @@ def _format_bytes(value: int) -> str:
     if size >= 1024:
         return f"{size / 1024:.1f} KB"
     return f"{size} B"
+
+
+def _open_browser_page(url: str) -> bool:
+    try:
+        return bool(webbrowser.open(url))
+    except Exception:
+        return False
 
 
 def _set_release_notes_content(notes: QTextEdit, release_notes: str) -> None:

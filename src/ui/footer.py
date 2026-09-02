@@ -19,12 +19,18 @@ a footer inset from the edges reads as a floating bar, not as the window's base.
 """
 from __future__ import annotations
 
+import math
+import random
+import time
 import webbrowser
 
 from PySide6.QtCore import (
+    QAbstractAnimation,
+    QEvent,
     Property,
     QEasingCurve,
     QLineF,
+    QParallelAnimationGroup,
     QPoint,
     QRectF,
     QPropertyAnimation,
@@ -43,6 +49,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -78,6 +85,67 @@ HEART_PASSIVE_PAUSE_MS = 3000
 HEART_PASSIVE_FIRST_SCALE = 1.08
 HEART_PASSIVE_SECOND_SCALE = 1.04
 HEART_HOVER_SCALE = 1.09
+
+SUPPORT_REMINDER_MIN_INTERVAL_MS = 30 * 60 * 1000
+SUPPORT_REMINDER_MAX_INTERVAL_MS = 40 * 60 * 1000
+SUPPORT_REMINDER_RETRY_MS = 60 * 1000
+SUPPORT_REMINDER_ACTIVATION_DELAY_MS = 900
+SUPPORT_REMINDER_STARTUP_MIN_DELAY_MS = 4 * 1000
+SUPPORT_REMINDER_STARTUP_MAX_DELAY_MS = 4 * 1000
+SUPPORT_REMINDER_COOLDOWN_SECONDS = 30 * 60
+SUPPORT_REMINDER_LONG_INACTIVE_SECONDS = 20 * 60
+SUPPORT_REMINDER_SLIDE_IN_MS = 320
+SUPPORT_REMINDER_SLIDE_OUT_MS = 260
+SUPPORT_REMINDER_BEAT_LEAD_IN_MS = 260
+SUPPORT_REMINDER_BETWEEN_BEATS_MS = 1550
+# Four double-heartbeats still leave the complete sequence at eight seconds.
+SUPPORT_REMINDER_BEAT_TAIL_MS = 990
+SUPPORT_REMINDER_MAX_WIDTH = 520
+SUPPORT_REMINDER_EDGE_MARGIN = 15
+SUPPORT_REMINDER_GAP = 8
+SUPPORT_REMINDER_FIRST_SCALE = 1.18
+SUPPORT_REMINDER_SECOND_SCALE = 1.09
+SUPPORT_REMINDER_FOOTER_FIRST_SCALE = 1.12
+SUPPORT_REMINDER_FOOTER_SECOND_SCALE = 1.06
+SUPPORT_REMINDER_FIRST_LIFT = 4.0
+SUPPORT_REMINDER_SECOND_LIFT = 2.0
+SUPPORT_REMINDER_STATE_CONFIG_KEY = "SUPPORT_REMINDER_STATE"
+
+
+def _read_support_reminder_state() -> float:
+    with config.config_lock:
+        raw = config.user_config.get(SUPPORT_REMINDER_STATE_CONFIG_KEY)
+        state = dict(raw) if isinstance(raw, dict) else {}
+
+    try:
+        last_shown_at = float(state.get("last_shown_at", 0.0))
+    except (TypeError, ValueError, OverflowError):
+        last_shown_at = 0.0
+    if not math.isfinite(last_shown_at) or last_shown_at < 0.0:
+        last_shown_at = 0.0
+    now = time.time()
+    if math.isfinite(now) and now >= 0.0 and last_shown_at > now:
+        # A corrected system clock must not turn one reminder into an
+        # indefinite sequence of fresh 30-minute waits.
+        last_shown_at = now
+    return last_shown_at
+
+
+def _update_support_reminder_state(
+    *,
+    last_shown_at: float,
+):
+    """Persist the cooldown timestamp and discard the obsolete launch counter."""
+
+    def mutate(candidate: dict) -> None:
+        raw = candidate.get(SUPPORT_REMINDER_STATE_CONFIG_KEY)
+        state = dict(raw) if isinstance(raw, dict) else {}
+        state.pop("launch_count", None)
+        shown_at = float(last_shown_at)
+        state["last_shown_at"] = shown_at if math.isfinite(shown_at) else 0.0
+        candidate[SUPPORT_REMINDER_STATE_CONFIG_KEY] = state
+
+    return config.update_config(mutate)
 
 
 def _mix_color(start: QColor, end: QColor, progress: float) -> QColor:
@@ -262,6 +330,7 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._caption = ""
         self._heart_scale = 1.0
         self._hovered = False
+        self._heartbeat_suspended = False
         super().__init__("", parent)
         self.setText(text)
 
@@ -391,17 +460,39 @@ class _SupportFooterLink(_AnimatedFooterLink):
     def _restart_ambient_heartbeat(self) -> None:
         self._ambient_heartbeat.stop()
         self._set_heart_scale(1.0)
-        if self.isVisible() and not self._hovered:
+        if (
+            self.isVisible()
+            and not self._hovered
+            and not self._heartbeat_suspended
+        ):
             # The pause is the first animation, so every restart waits before
             # drawing the next passive beat instead of answering a hover twice.
             self._ambient_heartbeat.start()
+
+    def suspend_heartbeat(self) -> None:
+        """Let a larger support animation drive this heart temporarily."""
+        self._heartbeat_suspended = True
+        self._ambient_heartbeat.stop()
+        self._hover_heartbeat.stop()
+        self._set_heart_scale(1.0)
+
+    def resume_heartbeat(self) -> None:
+        """Return ownership to the usual hover/passive heartbeat."""
+        self._heartbeat_suspended = False
+        self._hover_heartbeat.stop()
+        self._set_heart_scale(1.0)
+        if self._hovered and self.isVisible():
+            self._hover_heartbeat.start()
+        else:
+            self._restart_ambient_heartbeat()
 
     def enterEvent(self, event) -> None:  # noqa: N802 -- Qt's name
         self._hovered = True
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
-        self._hover_heartbeat.start()
+        if not self._heartbeat_suspended:
+            self._hover_heartbeat.start()
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802 -- Qt's name
@@ -409,7 +500,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
         super().leaveEvent(event)
-        self._restart_ambient_heartbeat()
+        if not self._heartbeat_suspended:
+            self._restart_ambient_heartbeat()
 
     def showEvent(self, event) -> None:  # noqa: N802 -- Qt's name
         super().showEvent(event)
@@ -421,6 +513,553 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
         super().hideEvent(event)
+
+
+class _SupportReminderHeart(QWidget):
+    """A fixed-size heart that can pulse without reflowing the reminder."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._heart_scale = 1.0
+        self._heart_color = QColor("#FF6F61")
+        self.setObjectName("supportReminderHeart")
+
+    def _get_heart_scale(self) -> float:
+        return self._heart_scale
+
+    def _set_heart_scale(self, value: float) -> None:
+        self._heart_scale = max(1.0, float(value))
+        self.update()
+
+    heartScale = Property(float, _get_heart_scale, _set_heart_scale)
+
+    def _get_heart_color(self) -> QColor:
+        return QColor(self._heart_color)
+
+    def _set_heart_color(self, color: QColor) -> None:
+        self._heart_color = QColor(color)
+        self.update()
+
+    heartColor = Property(QColor, _get_heart_color, _set_heart_color)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 -- Qt's name
+        metrics = QFontMetricsF(self.font())
+        return QSize(
+            max(20, round(metrics.horizontalAdvance("♥") * 1.35)),
+            max(24, round(metrics.height() * 1.35)),
+        )
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 -- Qt's name
+        return self.sizeHint()
+
+    def paintEvent(self, _event) -> None:  # noqa: N802 -- Qt's name
+        painter = QPainter(self)
+        try:
+            if not painter.isActive():
+                return
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setRenderHint(QPainter.TextAntialiasing, True)
+            rect = QRectF(self.rect())
+            centre = rect.center()
+            painter.translate(centre)
+            painter.scale(self._heart_scale, self._heart_scale)
+            painter.translate(-centre)
+            painter.setFont(self.font())
+
+            pulse = min(
+                1.0,
+                (self._heart_scale - 1.0) / (SUPPORT_REMINDER_FIRST_SCALE - 1.0),
+            )
+            if pulse > 0.0:
+                glow = QColor(self._heart_color)
+                glow.setAlpha(round(76 * pulse))
+                painter.setPen(glow)
+                for dx, dy in (
+                    (-1.0, 0.0),
+                    (1.0, 0.0),
+                    (0.0, -1.0),
+                    (0.0, 1.0),
+                ):
+                    painter.drawText(
+                        rect.translated(dx, dy),
+                        Qt.AlignCenter | Qt.TextSingleLine,
+                        "♥",
+                    )
+            painter.setPen(self._heart_color)
+            painter.drawText(rect, Qt.AlignCenter | Qt.TextSingleLine, "♥")
+        finally:
+            if painter.isActive():
+                painter.end()
+
+
+class _SupportReminder(QFrame):
+    """A periodic support card that rises out of the footer and beats with it."""
+
+    def __init__(
+        self,
+        *,
+        parent: QWidget,
+        footer_frame: QFrame,
+        support_link: _SupportFooterLink,
+        activate,
+        can_show,
+        last_shown_at: float,
+        record_show,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("supportReminder")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+
+        self._footer_frame = footer_frame
+        self._support_link = support_link
+        self._activate = activate
+        self._can_show = can_show
+        self._last_shown_at = max(0.0, float(last_shown_at))
+        self._last_shown_monotonic: float | None = None
+        if self._last_shown_at > 0.0:
+            wall_elapsed = time.time() - self._last_shown_at
+            if math.isfinite(wall_elapsed):
+                self._last_shown_monotonic = time.monotonic() - max(
+                    0.0,
+                    wall_elapsed,
+                )
+        self._record_show = record_show
+        self._host_window = parent.window()
+        self._lift_progress = 0.0
+        self._pulse_offset = 0.0
+        self._playing = False
+        self._due = False
+        self._due_bypasses_cooldown = False
+        self._last_interval_ms = 0
+        self._last_startup_delay_ms = 0
+        self._inactive_since: float | None = None
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(10, 7, 9, 7)
+        row.setSpacing(8)
+
+        self._heart = _SupportReminderHeart(self)
+        row.addWidget(self._heart, 0, Qt.AlignVCenter)
+
+        self._message = QLabel(
+            "Updates are fueled by BonkScanner supporters. Thank you!",
+            self,
+        )
+        self._message.setObjectName("supportReminderText")
+        self._message.setWordWrap(True)
+        row.addWidget(self._message, 1, Qt.AlignVCenter)
+
+        self._action = QPushButton("Support", self)
+        self._action.setObjectName("supportReminderButton")
+        self._action.setCursor(Qt.PointingHandCursor)
+        self._action.setFocusPolicy(Qt.NoFocus)
+        self._action.clicked.connect(self._activate_clicked)
+        row.addWidget(self._action, 0, Qt.AlignVCenter)
+
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setTimerType(Qt.PreciseTimer)
+        self._timer.timeout.connect(self._mark_due)
+
+        self._startup_timer = QTimer(self)
+        self._startup_timer.setSingleShot(True)
+        self._startup_timer.setTimerType(Qt.PreciseTimer)
+        self._startup_timer.timeout.connect(self._mark_startup_due)
+
+        self._activation_timer = QTimer(self)
+        self._activation_timer.setSingleShot(True)
+        self._activation_timer.setTimerType(Qt.PreciseTimer)
+        self._activation_timer.setInterval(SUPPORT_REMINDER_ACTIVATION_DELAY_MS)
+        self._activation_timer.timeout.connect(self._play_if_due)
+
+        self._animation = self._build_animation()
+        self._animation.finished.connect(self._animation_finished)
+
+        parent.installEventFilter(self)
+        if self._host_window is not parent:
+            self._host_window.installEventFilter(self)
+        application = QApplication.instance()
+        self._application = application
+        if application is not None:
+            application.applicationStateChanged.connect(
+                self._application_state_changed
+            )
+            if application.applicationState() != Qt.ApplicationActive:
+                self._inactive_since = time.monotonic()
+        self.hide()
+
+    @staticmethod
+    def _animation_step(
+        target,
+        property_name: bytes,
+        start,
+        end,
+        duration: int,
+        easing: QEasingCurve.Type,
+    ) -> QPropertyAnimation:
+        animation = QPropertyAnimation(target, property_name)
+        animation.setStartValue(start)
+        animation.setEndValue(end)
+        animation.setDuration(duration)
+        animation.setEasingCurve(easing)
+        return animation
+
+    def _pulse_step(
+        self,
+        *,
+        card_start: float,
+        card_end: float,
+        footer_start: float,
+        footer_end: float,
+        lift_start: float,
+        lift_end: float,
+        duration: int,
+        easing: QEasingCurve.Type,
+    ) -> QParallelAnimationGroup:
+        group = QParallelAnimationGroup()
+        group.addAnimation(
+            self._animation_step(
+                self._heart,
+                b"heartScale",
+                card_start,
+                card_end,
+                duration,
+                easing,
+            )
+        )
+        group.addAnimation(
+            self._animation_step(
+                self._support_link,
+                b"heartScale",
+                footer_start,
+                footer_end,
+                duration,
+                easing,
+            )
+        )
+        group.addAnimation(
+            self._animation_step(
+                self,
+                b"pulseOffset",
+                lift_start,
+                lift_end,
+                duration,
+                easing,
+            )
+        )
+        return group
+
+    def _heartbeat(self) -> QSequentialAnimationGroup:
+        heartbeat = QSequentialAnimationGroup()
+        heartbeat.addAnimation(
+            self._pulse_step(
+                card_start=1.0,
+                card_end=SUPPORT_REMINDER_FIRST_SCALE,
+                footer_start=1.0,
+                footer_end=SUPPORT_REMINDER_FOOTER_FIRST_SCALE,
+                lift_start=0.0,
+                lift_end=SUPPORT_REMINDER_FIRST_LIFT,
+                duration=80,
+                easing=QEasingCurve.OutCubic,
+            )
+        )
+        heartbeat.addAnimation(
+            self._pulse_step(
+                card_start=SUPPORT_REMINDER_FIRST_SCALE,
+                card_end=1.0,
+                footer_start=SUPPORT_REMINDER_FOOTER_FIRST_SCALE,
+                footer_end=1.0,
+                lift_start=SUPPORT_REMINDER_FIRST_LIFT,
+                lift_end=0.0,
+                duration=100,
+                easing=QEasingCurve.InCubic,
+            )
+        )
+        heartbeat.addPause(40)
+        heartbeat.addAnimation(
+            self._pulse_step(
+                card_start=1.0,
+                card_end=SUPPORT_REMINDER_SECOND_SCALE,
+                footer_start=1.0,
+                footer_end=SUPPORT_REMINDER_FOOTER_SECOND_SCALE,
+                lift_start=0.0,
+                lift_end=SUPPORT_REMINDER_SECOND_LIFT,
+                duration=70,
+                easing=QEasingCurve.OutCubic,
+            )
+        )
+        heartbeat.addAnimation(
+            self._pulse_step(
+                card_start=SUPPORT_REMINDER_SECOND_SCALE,
+                card_end=1.0,
+                footer_start=SUPPORT_REMINDER_FOOTER_SECOND_SCALE,
+                footer_end=1.0,
+                lift_start=SUPPORT_REMINDER_SECOND_LIFT,
+                lift_end=0.0,
+                duration=90,
+                easing=QEasingCurve.InCubic,
+            )
+        )
+        return heartbeat
+
+    def _build_animation(self) -> QSequentialAnimationGroup:
+        animation = QSequentialAnimationGroup(self)
+        animation.addAnimation(
+            self._animation_step(
+                self,
+                b"liftProgress",
+                0.0,
+                1.0,
+                SUPPORT_REMINDER_SLIDE_IN_MS,
+                QEasingCurve.OutCubic,
+            )
+        )
+        animation.addPause(SUPPORT_REMINDER_BEAT_LEAD_IN_MS)
+        animation.addAnimation(self._heartbeat())
+        animation.addPause(SUPPORT_REMINDER_BETWEEN_BEATS_MS)
+        animation.addAnimation(self._heartbeat())
+        animation.addPause(SUPPORT_REMINDER_BETWEEN_BEATS_MS)
+        animation.addAnimation(self._heartbeat())
+        animation.addPause(SUPPORT_REMINDER_BETWEEN_BEATS_MS)
+        animation.addAnimation(self._heartbeat())
+        animation.addPause(SUPPORT_REMINDER_BEAT_TAIL_MS)
+        animation.addAnimation(
+            self._animation_step(
+                self,
+                b"liftProgress",
+                1.0,
+                0.0,
+                SUPPORT_REMINDER_SLIDE_OUT_MS,
+                QEasingCurve.InCubic,
+            )
+        )
+        return animation
+
+    def _get_lift_progress(self) -> float:
+        return self._lift_progress
+
+    def _set_lift_progress(self, value: float) -> None:
+        self._lift_progress = max(0.0, min(1.0, float(value)))
+        self._reposition()
+
+    liftProgress = Property(float, _get_lift_progress, _set_lift_progress)
+
+    def _get_pulse_offset(self) -> float:
+        return self._pulse_offset
+
+    def _set_pulse_offset(self, value: float) -> None:
+        self._pulse_offset = max(0.0, float(value))
+        self._reposition()
+
+    pulseOffset = Property(float, _get_pulse_offset, _set_pulse_offset)
+
+    def start(self) -> None:
+        self._schedule_next()
+        self._last_startup_delay_ms = random.randint(
+            SUPPORT_REMINDER_STARTUP_MIN_DELAY_MS,
+            SUPPORT_REMINDER_STARTUP_MAX_DELAY_MS,
+        )
+        self._startup_timer.start(self._last_startup_delay_ms)
+
+    def _schedule_next(self) -> None:
+        self._timer.stop()
+        self._startup_timer.stop()
+        self._activation_timer.stop()
+        self._due = False
+        self._due_bypasses_cooldown = False
+        self._last_interval_ms = random.randint(
+            SUPPORT_REMINDER_MIN_INTERVAL_MS,
+            SUPPORT_REMINDER_MAX_INTERVAL_MS,
+        )
+        self._timer.start(self._last_interval_ms)
+
+    def _mark_due(self, *, bypass_cooldown: bool = False) -> None:
+        # Once a trigger wins, the other timer must no longer postpone retries
+        # when the window is temporarily unavailable. A startup retry keeps its
+        # cooldown exemption; periodic and inactivity triggers never acquire it.
+        was_due = self._due
+        self._timer.stop()
+        self._startup_timer.stop()
+        self._due = True
+        if bypass_cooldown or not was_due:
+            self._due_bypasses_cooldown = bypass_cooldown
+        self._play_if_due()
+
+    def _mark_startup_due(self) -> None:
+        self._mark_due(bypass_cooldown=True)
+
+    def _window_is_ready(self) -> bool:
+        window = self._host_window
+        return (
+            window.isVisible()
+            and window.isActiveWindow()
+            and not bool(window.windowState() & Qt.WindowMinimized)
+            and not self._support_link.underMouse()
+            and self._can_show()
+        )
+
+    def _cooldown_remaining_ms(self) -> int:
+        if self._last_shown_at <= 0.0:
+            return 0
+        if self._last_shown_monotonic is not None:
+            elapsed = time.monotonic() - self._last_shown_monotonic
+        else:
+            now = time.time()
+            elapsed = now - self._last_shown_at
+            if math.isfinite(now) and elapsed < 0.0:
+                self._last_shown_at = now
+                self._last_shown_monotonic = time.monotonic()
+                elapsed = 0.0
+        if not math.isfinite(elapsed):
+            elapsed = 0.0
+        remaining = SUPPORT_REMINDER_COOLDOWN_SECONDS - max(0.0, elapsed)
+        return max(0, math.ceil(remaining * 1000.0))
+
+    def _play_if_due(self) -> bool:
+        if not self._due:
+            return False
+        if not self._due_bypasses_cooldown:
+            cooldown_remaining_ms = self._cooldown_remaining_ms()
+            if cooldown_remaining_ms > 0:
+                self._timer.start(cooldown_remaining_ms)
+                return False
+        if not self._window_is_ready():
+            if not self._timer.isActive():
+                self._timer.start(SUPPORT_REMINDER_RETRY_MS)
+            return False
+        return self.play()
+
+    def play(self, *, force: bool = False) -> bool:
+        if self._playing or self._animation.state() != QAbstractAnimation.Stopped:
+            return False
+        if not force:
+            if not self._due or not self._window_is_ready():
+                return False
+            if (
+                not self._due_bypasses_cooldown
+                and self._cooldown_remaining_ms() > 0
+            ):
+                return False
+
+        self._timer.stop()
+        self._startup_timer.stop()
+        self._activation_timer.stop()
+        self._due = False
+        self._due_bypasses_cooldown = False
+        self._playing = True
+        shown_at = time.time()
+        self._last_shown_at = shown_at
+        self._last_shown_monotonic = time.monotonic()
+        self._record_show(shown_at)
+        self._set_lift_progress(0.0)
+        self._set_pulse_offset(0.0)
+        self._heart._set_heart_scale(1.0)
+        self._support_link.suspend_heartbeat()
+        self._sync_geometry()
+        self.show()
+        self.raise_()
+        self._animation.start()
+        return True
+
+    def dismiss(self) -> None:
+        self._timer.stop()
+        self._startup_timer.stop()
+        self._activation_timer.stop()
+        self._due = False
+        self._due_bypasses_cooldown = False
+        if self._animation.state() != QAbstractAnimation.Stopped:
+            self._animation.stop()
+        self._finish_playback(schedule_next=True)
+
+    def _activate_clicked(self) -> None:
+        self._activate()
+
+    def _animation_finished(self) -> None:
+        self._finish_playback(schedule_next=True)
+
+    def _finish_playback(self, *, schedule_next: bool) -> None:
+        self._playing = False
+        self.hide()
+        self._set_lift_progress(0.0)
+        self._set_pulse_offset(0.0)
+        self._heart._set_heart_scale(1.0)
+        self._support_link.resume_heartbeat()
+        if schedule_next:
+            self._schedule_next()
+
+    def _sync_geometry(self) -> None:
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        available = max(1, parent.width() - 2 * SUPPORT_REMINDER_EDGE_MARGIN)
+        self.setFixedWidth(min(SUPPORT_REMINDER_MAX_WIDTH, available))
+        self.ensurePolished()
+        if self.layout() is not None:
+            self.layout().invalidate()
+            self.layout().activate()
+        self.adjustSize()
+        self._reposition()
+
+    def _reposition(self) -> None:
+        parent = self.parentWidget()
+        if parent is None or self.width() <= 0 or self.height() <= 0:
+            return
+        try:
+            footer_top = self._footer_frame.mapTo(parent, QPoint(0, 0)).y()
+            anchor_right = self._support_link.mapTo(
+                parent,
+                QPoint(self._support_link.width(), 0),
+            ).x()
+        except RuntimeError:
+            return
+
+        min_x = SUPPORT_REMINDER_EDGE_MARGIN
+        max_x = max(
+            min_x,
+            parent.width() - SUPPORT_REMINDER_EDGE_MARGIN - self.width(),
+        )
+        x = min(max(anchor_right - self.width(), min_x), max_x)
+        visible_y = footer_top - self.height() - SUPPORT_REMINDER_GAP
+        hidden_y = parent.height() + 1
+        y = hidden_y + (visible_y - hidden_y) * self._lift_progress
+        y -= self._pulse_offset
+        self.move(round(x), round(y))
+
+    def _schedule_activation_attempt(self) -> None:
+        if not self._due:
+            return
+        self._timer.stop()
+        self._startup_timer.stop()
+        self._activation_timer.start()
+
+    def _application_state_changed(self, state) -> None:
+        if state != Qt.ApplicationActive:
+            self._activation_timer.stop()
+            if self._inactive_since is None:
+                self._inactive_since = time.monotonic()
+            return
+
+        inactive_since = self._inactive_since
+        self._inactive_since = None
+        if inactive_since is not None:
+            inactive_for = max(0.0, time.monotonic() - inactive_since)
+            if inactive_for >= SUPPORT_REMINDER_LONG_INACTIVE_SECONDS:
+                if not self._due:
+                    self._due_bypasses_cooldown = False
+                self._due = True
+        self._schedule_activation_attempt()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 -- Qt's name
+        event_type = event.type()
+        if event_type in {QEvent.Resize, QEvent.LayoutRequest, QEvent.Show}:
+            if self.isVisible():
+                self._sync_geometry()
+        if watched is self._host_window:
+            if event_type == QEvent.WindowDeactivate:
+                self._activation_timer.stop()
+            elif event_type == QEvent.WindowActivate:
+                self._schedule_activation_attempt()
+        return super().eventFilter(watched, event)
 
 
 def _separator() -> QFrame:
@@ -1034,6 +1673,58 @@ class FooterView:
         self._support_btn = support_btn
         self._popup: SupportPopup | None = None
         self._supporters: tuple = ()
+        self._reminder: _SupportReminder | None = None
+
+    def _initialize_support_reminder(self) -> None:
+        """Build the overlay once the footer has been parented by the root layout."""
+        if self._reminder is not None:
+            return
+        parent = self.frame.parentWidget()
+        if parent is None:
+            return
+        last_shown_at = _read_support_reminder_state()
+        self._save_support_reminder_state(last_shown_at)
+        self._reminder = _SupportReminder(
+            parent=parent,
+            footer_frame=self.frame,
+            support_link=self._support_btn,
+            activate=self.open_support_popup,
+            can_show=self._support_reminder_can_show,
+            last_shown_at=last_shown_at,
+            record_show=self._record_support_reminder_shown,
+        )
+        self._reminder.start()
+
+    def _save_support_reminder_state(
+        self,
+        last_shown_at: float,
+    ) -> bool:
+        try:
+            result = _update_support_reminder_state(last_shown_at=last_shown_at)
+        except Exception as exc:
+            self._log_warning(
+                "Support reminder state could not be saved: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return False
+        if not result.success:
+            reason = result.reason or "the configuration file was not writable"
+            self._log_warning(f"Support reminder state could not be saved: {reason}")
+            return False
+        return True
+
+    def _record_support_reminder_shown(self, shown_at: float) -> None:
+        self._save_support_reminder_state(shown_at)
+
+    def _support_reminder_can_show(self) -> bool:
+        popup = self._popup
+        if popup is None:
+            return True
+        try:
+            return not popup.isVisible()
+        except RuntimeError:
+            self._popup = None
+            return True
 
     def set_update_status(self, state: str, version: str = "") -> None:
         """Say what the update check found, and stay pressable.
@@ -1111,6 +1802,8 @@ class FooterView:
         # has asked for yet, and the same discipline `LazyPage` applies to the
         # tabs. Kept afterwards, so clicking twice does not leak a second one.
         try:
+            if self._reminder is not None:
+                self._reminder.dismiss()
             if self._popup is None:
                 self._popup = SupportPopup(
                     self.frame.window(),
@@ -1216,4 +1909,5 @@ def build_footer(app) -> QFrame:
     )
     support_btn.clicked.connect(app.footer.open_support_popup)
     update_btn.clicked.connect(app.footer.check_for_updates)
+    QTimer.singleShot(0, frame, app.footer._initialize_support_reminder)
     return frame

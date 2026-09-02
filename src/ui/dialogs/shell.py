@@ -62,6 +62,7 @@ def dialog_body(
     *,
     title: str,
     subtitle: str = "",
+    title_trailing: QWidget | None = None,
     width: int = DIALOG_REGULAR,
     height: int | None = None,
 ) -> QVBoxLayout:
@@ -76,6 +77,9 @@ def dialog_body(
     wider than its class, and holding it to the scale would clip the field
     instead. What the scale fixes is the floor, which is what made a
     confirmation 223px wide and the one after it 348.
+
+    ``title_trailing`` is an optional compact status or badge aligned with the
+    title. The default path keeps the original one-label header unchanged.
     """
     dialog.setMinimumWidth(int(width))
     if height is not None:
@@ -93,7 +97,19 @@ def dialog_body(
 
     title_label = QLabel(str(title), head)
     title_label.setObjectName("dialogTitle")
-    head_layout.addWidget(title_label)
+    if title_trailing is None:
+        head_layout.addWidget(title_label)
+    else:
+        title_row = QWidget(head)
+        title_row.setObjectName("dialogTitleRow")
+        title_row_layout = QHBoxLayout(title_row)
+        title_row_layout.setContentsMargins(0, 0, 0, 0)
+        title_row_layout.setSpacing(8)
+        title_row_layout.addWidget(title_label)
+        title_row_layout.addStretch(1)
+        title_trailing.setParent(title_row)
+        title_row_layout.addWidget(title_trailing, 0, Qt.AlignRight | Qt.AlignVCenter)
+        head_layout.addWidget(title_row)
 
     if subtitle:
         subtitle_label = QLabel(str(subtitle), head)
