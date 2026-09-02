@@ -183,7 +183,7 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         label="Boss Curse",
         variant=None,
         icon_name="boss_curse_dark",
-        color="#D85CFF",
+        color="#FF3B3B",
         outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
     ),
     MapMarkerAction(
