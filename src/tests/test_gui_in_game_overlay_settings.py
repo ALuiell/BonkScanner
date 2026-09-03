@@ -14,6 +14,8 @@ from gui_in_game_overlay_settings import (
     WEAPON_TRACKER_LAYOUT_DEBOUNCE_MS,
     WeaponTrackerSettingsDialog,
     _igo_widget_options,
+    _open_map_marker_settings_dialog,
+    refresh_map_marker_settings_summary,
     refresh_weapon_tracker_settings_summary,
 )
 from gui_in_game_overlay import InGameOverlay
@@ -221,6 +223,84 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
         parent.igo_weapon_tracker_layout_apply_timer.stop.assert_called_once_with()
         parent.apply_in_game_overlay_settings.assert_called_once_with()
         save_config.assert_called_once_with(config.user_config)
+
+    def test_map_marker_dialog_saves_classic_style_and_updates_summary(self) -> None:
+        marker_config = {
+            "enabled": True,
+            "automatic_discovery": False,
+            "style": "modern",
+            "scale": 1.0,
+            "hotkeys": [],
+        }
+        overlay = {"map_markers": marker_config}
+        dialog = SimpleNamespace(
+            exec=MagicMock(return_value=QDialog.Accepted),
+            bindings=[{"input": "f10", "action": "moai"}],
+            automatic_discovery=True,
+            marker_style="classic",
+            deleteLater=MagicMock(),
+        )
+        parent = SimpleNamespace(
+            tab_in_game_overlay=None,
+            igo_map_markers_summary=QLabel(),
+            _rebind_hotkeys=MagicMock(),
+        )
+        with patch.object(config, "IN_GAME_OVERLAY", overlay), patch(
+            "gui_in_game_overlay_settings.MapMarkerSettingsDialog",
+            return_value=dialog,
+        ) as dialog_factory, patch.object(config, "save_config") as save_config:
+            _open_map_marker_settings_dialog(parent)
+
+        dialog_factory.assert_called_once_with(
+            [],
+            None,
+            automatic_discovery=False,
+            style="modern",
+        )
+        self.assertTrue(marker_config["automatic_discovery"])
+        self.assertEqual(marker_config["style"], "classic")
+        self.assertEqual(marker_config["hotkeys"], dialog.bindings)
+        self.assertIn("Classic", parent.igo_map_markers_summary.text())
+        parent._rebind_hotkeys.assert_called_once_with()
+        save_config.assert_called_once_with(config.user_config)
+        dialog.deleteLater.assert_called_once_with()
+
+    def test_runtime_forwards_map_marker_style_to_painter(self) -> None:
+        setter = MagicMock()
+        parent = SimpleNamespace(
+            in_game_overlay_window=SimpleNamespace(
+                map_marker_layer=SimpleNamespace(set_snapshot=setter)
+            )
+        )
+        snapshot = object()
+        overlay = {
+            "map_markers": {
+                "scale": 1.3,
+                "style": "classic",
+            }
+        }
+        with patch.object(config, "IN_GAME_OVERLAY", overlay):
+            InGameOverlay._set_map_marker_snapshot(parent, snapshot)
+
+        setter.assert_called_once_with(
+            snapshot,
+            scale=1.3,
+            style="classic",
+        )
+
+    def test_map_marker_summary_names_new_style_by_default(self) -> None:
+        parent = SimpleNamespace(igo_map_markers_summary=QLabel())
+        with patch.object(
+            config,
+            "IN_GAME_OVERLAY",
+            {"map_markers": {"hotkeys": [], "style": "modern"}},
+        ):
+            refresh_map_marker_settings_summary(parent)
+
+        self.assertEqual(
+            parent.igo_map_markers_summary.text(),
+            "Manual only · New style · 0 hotkeys",
+        )
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from core.map_markers import (
     MapViewport,
     action_id_for_interactable,
     build_marker_palette,
+    map_marker_screen_geometry,
     project_world_to_map,
     unproject_map_to_world,
 )
@@ -95,6 +96,46 @@ class FakeLifecycleMemory:
 
 
 class MapMarkerProjectionTests(unittest.TestCase):
+    def test_marker_scale_uses_larger_48_pixel_baseline(self) -> None:
+        viewport = MapViewport(0.0, 0.0, 600.0, 600.0)
+        expected_sizes = {
+            0.5: 24.0,
+            1.0: 48.0,
+            1.7: 82.0,
+            3.0: 144.0,
+        }
+        for scale, expected_size in expected_sizes.items():
+            with self.subTest(scale=scale):
+                geometry = map_marker_screen_geometry(
+                    0.0,
+                    0.0,
+                    world_size=600.0,
+                    viewport=viewport,
+                    scale=scale,
+                )
+                self.assertIsNotNone(geometry)
+                self.assertEqual(geometry[2], expected_size)
+
+    def test_edge_marker_keeps_exact_projected_center(self) -> None:
+        viewport = MapViewport(20.0, 30.0, 600.0, 600.0)
+        top_left = map_marker_screen_geometry(
+            -300.0,
+            300.0,
+            world_size=600.0,
+            viewport=viewport,
+            scale=1.0,
+        )
+        bottom_right = map_marker_screen_geometry(
+            300.0,
+            -300.0,
+            world_size=600.0,
+            viewport=viewport,
+            scale=1.0,
+        )
+
+        self.assertEqual(top_left, (viewport.left, viewport.top, 48.0))
+        self.assertEqual(bottom_right, (viewport.right, viewport.bottom, 48.0))
+
     def test_live_calibration_projects_to_recorded_player_arrow(self) -> None:
         viewport = MapViewport(33.333296, 286.666654, 1000.00003, 1000.00003)
         point = project_world_to_map(
@@ -158,19 +199,42 @@ class MapMarkerProjectionTests(unittest.TestCase):
         self.assertFalse(MAP_MARKER_ACTION_BY_ID["sus_bush"].manual_only)
         self.assertFalse(MAP_MARKER_ACTION_BY_ID["challenge_shrine"].manual_only)
 
-    def test_circle_markers_use_dark_pictograms_except_multicolor_assets(self) -> None:
+    def test_marker_actions_use_filled_pngs_except_existing_multicolor_assets(
+        self,
+    ) -> None:
         multicolor_icons = {"egg": "egg", "sus_bush": "sus_bush"}
+        classic_icons = {
+            "magnet_shrine": "magnet_dark.svg",
+            "moai": "moai_dark.svg",
+            "balance_shrine": "balance_shrine_dark.svg",
+            "challenge_shrine": "challenge_dark.svg",
+            "boss_curse": "boss_curse_dark.svg",
+        }
         for action_id, action in MAP_MARKER_ACTION_BY_ID.items():
             if action_id in multicolor_icons:
                 self.assertEqual(action.icon_name, multicolor_icons[action_id])
                 self.assertEqual(action.outline_color, "#03080F")
+                self.assertIsNone(action.icon_file)
+                self.assertEqual(action.pictogram_file, f"{action_id}.svg")
+                self.assertEqual(action.classic_pictogram_file, f"{action_id}.svg")
                 continue
-            self.assertTrue(action.icon_name.endswith("_dark"), action_id)
+            expected_name = "bald_head" if action_id == "balance_shrine" else action_id
+            self.assertEqual(action.icon_file, f"filled/{expected_name}.png")
+            self.assertEqual(action.pictogram_file, action.icon_file)
+            self.assertEqual(action.settings_pictogram_file, action.icon_file)
             self.assertEqual(action.outline_color, "#F5F7FA")
-            self.assertEqual(
-                action.settings_icon_name,
-                action.icon_name.removesuffix("_dark"),
+            expected_classic = classic_icons.get(
+                action_id,
+                "microwave_dark.svg"
+                if action.family == "microwave"
+                else "shady_guy_dark.svg",
             )
+            self.assertEqual(action.classic_pictogram_file, expected_classic)
+
+        balance = MAP_MARKER_ACTION_BY_ID["balance_shrine"]
+        self.assertEqual(balance.label, "Bald Head")
+        self.assertEqual(balance.icon_name, "bald_head")
+        self.assertEqual(balance.icon_file, "filled/bald_head.png")
 
     def test_shady_guy_matches_neon_marker_mockup(self) -> None:
         expected_colors = {
@@ -182,12 +246,19 @@ class MapMarkerProjectionTests(unittest.TestCase):
         for rarity_id, expected_color in expected_colors.items():
             action = MAP_MARKER_ACTION_BY_ID[f"shady_guy_{rarity_id}"]
             self.assertEqual(action.color, expected_color)
-            self.assertEqual(action.outline_color, "#F5F7FA")
-            self.assertEqual(action.icon_name, "shady_guy_dark")
+            self.assertEqual(action.icon_name, f"shady_guy_{rarity_id}")
+            self.assertEqual(
+                action.icon_file,
+                f"filled/shady_guy_{rarity_id}.png",
+            )
 
         microwave = MAP_MARKER_ACTION_BY_ID["microwave_white"]
         self.assertEqual(microwave.color, "#F2F2E9")
-        self.assertEqual(microwave.outline_color, "#F5F7FA")
+        self.assertEqual(microwave.icon_file, "filled/microwave_white.png")
+
+        magnet = MAP_MARKER_ACTION_BY_ID["magnet_shrine"]
+        self.assertEqual(magnet.color, "#3478F6")
+        self.assertEqual(magnet.icon_file, "filled/magnet_shrine.png")
 
     def test_boss_curse_uses_red_fill_distinct_from_challenge(self) -> None:
         challenge = MAP_MARKER_ACTION_BY_ID["challenge_shrine"]
@@ -325,7 +396,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
 
         self.assertEqual(tracker.snapshot.markers, ())
 
-    def test_manual_marker_hit_area_uses_scaled_clamped_visual_icon(self) -> None:
+    def test_manual_marker_hit_area_uses_scaled_projected_visual_icon(self) -> None:
         client = FakeMarkerClient([self.frame()])
         tracker = MapMarkerTracker("game", client_factory=lambda _name: client)
         tracker.tick(client_height=600)
@@ -333,13 +404,13 @@ class MapMarkerTrackerTests(unittest.TestCase):
         tracker.place_manual_marker("moai", screen_x=0, screen_y=300)
         self.assertEqual(len(tracker.snapshot.markers), 1)
 
-        # A marker on the boundary is painted inward. Clicking that visible
-        # centre must remove it even though it is not the raw projected point.
+        # The centre remains on the map boundary; clicking the visible half of
+        # the clipped marker must still remove it.
         tracker.place_manual_marker(
             "moai",
-            screen_x=50,
+            screen_x=10,
             screen_y=300,
-            scale=3.0,
+            scale=1.0,
         )
         self.assertEqual(tracker.snapshot.markers, ())
 

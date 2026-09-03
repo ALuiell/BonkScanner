@@ -40,7 +40,7 @@ from ui.shared import _make_scroll_section, resource_path
 def _action_icon(action: MapMarkerAction) -> QIcon:
     return QIcon(
         resource_path(
-            f"media/map_markers/pictograms/{action.settings_icon_name}.svg"
+            f"media/map_markers/pictograms/{action.settings_pictogram_file}"
         )
     )
 
@@ -249,6 +249,7 @@ class MapMarkerSettingsDialog(QDialog):
         parent: QWidget | None = None,
         *,
         automatic_discovery: bool = False,
+        style: str = "modern",
         binding_dialog_factory=MapMarkerBindingDialog,
     ) -> None:
         super().__init__(parent)
@@ -262,7 +263,7 @@ class MapMarkerSettingsDialog(QDialog):
             title="Map Activity Markers",
             subtitle="Configure manual placement and optionally enable automatic discovery for supported activities.",
             width=DIALOG_WIDE,
-            height=520,
+            height=610,
         )
 
         explanation = QFrame()
@@ -296,6 +297,24 @@ class MapMarkerSettingsDialog(QDialog):
         automatic_note.setWordWrap(True)
         automatic_layout.addWidget(automatic_note)
         layout.addWidget(automatic_card)
+
+        appearance_card = QFrame()
+        appearance_card.setObjectName("card")
+        appearance_layout = QVBoxLayout(appearance_card)
+        appearance_layout.setContentsMargins(14, 11, 14, 11)
+        appearance_layout.setSpacing(4)
+        self.classic_style_cb = QCheckBox("Use classic circle marker style")
+        self.classic_style_cb.setObjectName("classicMarkerStyleCheck")
+        self.classic_style_cb.setChecked(str(style).lower() == "classic")
+        appearance_layout.addWidget(self.classic_style_cb)
+        appearance_note = QLabel(
+            "Off uses the new detailed pictograms. On restores colored circles "
+            "with a white outline and dark activity symbols."
+        )
+        appearance_note.setObjectName("dialogNote")
+        appearance_note.setWordWrap(True)
+        appearance_layout.addWidget(appearance_note)
+        layout.addWidget(appearance_card)
 
         header = QWidget()
         header_row = QHBoxLayout(header)
@@ -340,6 +359,10 @@ class MapMarkerSettingsDialog(QDialog):
     @property
     def automatic_discovery(self) -> bool:
         return self.automatic_discovery_cb.isChecked()
+
+    @property
+    def marker_style(self) -> str:
+        return "classic" if self.classic_style_cb.isChecked() else "modern"
 
     def _clear_rows(self) -> None:
         while self.bindings_layout.count():

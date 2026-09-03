@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
     QResizeEvent,
     QScreen,
 )
@@ -20,7 +21,10 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy, QV
 
 from app import config
 from core.map_markers import (
+    CLASSIC_MAP_MARKER_BASE_ICON_SIZE,
     MAP_MARKER_ACTION_BY_ID,
+    MAP_MARKER_BASE_ICON_SIZE,
+    MapMarkerAction,
     MarkerPalette,
     MapMarkerSnapshot,
     map_marker_screen_geometry,
@@ -46,25 +50,43 @@ class MapMarkerLayer(QWidget):
         self._snapshot = MapMarkerSnapshot()
         self._palette: MarkerPalette | None = None
         self._scale = 1.0
+        self._style = "modern"
         self._icons = {
-            action.icon_name: QIcon(
+            (style, action.id): QIcon(
                 resource_path(
-                    f"media/map_markers/pictograms/{action.icon_name}.svg"
+                    f"media/map_markers/pictograms/{pictogram_file}"
                 )
             )
             for action in MAP_MARKER_ACTION_BY_ID.values()
+            for style, pictogram_file in (
+                ("modern", action.pictogram_file),
+                ("classic", action.classic_pictogram_file),
+            )
         }
+        self._pictogram_cache: dict[tuple[str, str, int], QPixmap] = {}
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setStyleSheet("background: transparent;")
         self.hide()
 
-    def set_snapshot(self, snapshot: MapMarkerSnapshot, *, scale: float) -> None:
+    def set_snapshot(
+        self,
+        snapshot: MapMarkerSnapshot,
+        *,
+        scale: float,
+        style: str = "modern",
+    ) -> None:
         normalized_scale = max(0.5, min(float(scale), 3.0))
-        changed = snapshot != self._snapshot or normalized_scale != self._scale
+        normalized_style = "classic" if str(style).lower() == "classic" else "modern"
+        changed = (
+            snapshot != self._snapshot
+            or normalized_scale != self._scale
+            or normalized_style != self._style
+        )
         was_shown = not self.isHidden()
         self._snapshot = snapshot
         self._scale = normalized_scale
+        self._style = normalized_style
         if not snapshot.map_open:
             self._palette = None
         should_show = self._should_show()
@@ -93,6 +115,30 @@ class MapMarkerLayer(QWidget):
             and self._snapshot.viewport is not None
             and (self._snapshot.markers or self._palette is not None)
         )
+
+    def _pictogram_pixmap(
+        self,
+        action: MapMarkerAction,
+        size: int,
+        *,
+        style: str | None = None,
+    ) -> QPixmap:
+        normalized_size = max(1, int(size))
+        resolved_style = self._style if style is None else style
+        resolved_style = "classic" if resolved_style == "classic" else "modern"
+        cache_key = (resolved_style, action.id, normalized_size)
+        cached = self._pictogram_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        icon = self._icons.get((resolved_style, action.id))
+        if icon is None:
+            pixmap = QPixmap()
+        else:
+            pixmap = icon.pixmap(normalized_size, normalized_size)
+
+        self._pictogram_cache[cache_key] = pixmap
+        return pixmap
 
     def paintEvent(self, event) -> None:
         snapshot = self._snapshot
@@ -135,33 +181,48 @@ class MapMarkerLayer(QWidget):
                 continue
             center_x, center_y, icon_size_value = geometry
             icon_size = int(icon_size_value)
-            pictogram_size = max(12, int(round(icon_size * 0.68)))
-            half = icon_size / 2.0
-            bounds = QRectF(
-                center_x - half,
-                center_y - half,
-                float(icon_size),
-                float(icon_size),
+            if self._style == "classic":
+                marker_size = max(
+                    18,
+                    int(
+                        round(
+                            icon_size
+                            * CLASSIC_MAP_MARKER_BASE_ICON_SIZE
+                            / MAP_MARKER_BASE_ICON_SIZE
+                        )
+                    ),
+                )
+                pictogram_size = max(12, int(round(marker_size * 0.68)))
+                half = marker_size / 2.0
+                bounds = QRectF(
+                    center_x - half,
+                    center_y - half,
+                    float(marker_size),
+                    float(marker_size),
+                )
+                outline = QColor(action.outline_color)
+                outline.setAlpha(225)
+                painter.setPen(QPen(outline, max(2, marker_size // 11)))
+                fill = QColor(action.color)
+                fill.setAlpha(232)
+                painter.setBrush(fill)
+                painter.drawEllipse(bounds)
+
+                if marker.source == "manual":
+                    manual_pen = QPen(QColor(255, 255, 255, 205), 1.4)
+                    manual_pen.setStyle(Qt.DashLine)
+                    painter.setBrush(Qt.NoBrush)
+                    painter.setPen(manual_pen)
+                    painter.drawEllipse(bounds.adjusted(-2, -2, 2, 2))
+            else:
+                pictogram_size = max(18, icon_size)
+
+            pixmap = self._pictogram_pixmap(
+                action,
+                pictogram_size,
+                style=self._style,
             )
-
-            outline = QColor(action.outline_color)
-            outline.setAlpha(225)
-            painter.setPen(QPen(outline, max(2, icon_size // 11)))
-            fill = QColor(action.color)
-            fill.setAlpha(232)
-            painter.setBrush(fill)
-            painter.drawEllipse(bounds)
-
-            if marker.source == "manual":
-                manual_pen = QPen(QColor(255, 255, 255, 205), 1.4)
-                manual_pen.setStyle(Qt.DashLine)
-                painter.setBrush(Qt.NoBrush)
-                painter.setPen(manual_pen)
-                painter.drawEllipse(bounds.adjusted(-2, -2, 2, 2))
-
-            icon = self._icons.get(action.icon_name)
-            if icon is not None:
-                pixmap = icon.pixmap(pictogram_size, pictogram_size)
+            if not pixmap.isNull():
                 painter.drawPixmap(
                     int(round(center_x - pictogram_size / 2.0)),
                     int(round(center_y - pictogram_size / 2.0)),
@@ -205,19 +266,25 @@ class MapMarkerLayer(QWidget):
                 swatch_size,
                 swatch_size,
             )
-            outline = QColor(action.outline_color)
-            outline.setAlpha(220)
-            painter.setPen(QPen(outline, 1.2))
-            painter.setBrush(QColor(action.color))
-            painter.drawEllipse(swatch)
-
-            icon = self._icons.get(action.icon_name)
-            if icon is not None:
+            if self._style == "classic":
+                outline = QColor(action.outline_color)
+                outline.setAlpha(220)
+                painter.setPen(QPen(outline, 1.2))
+                painter.setBrush(QColor(action.color))
+                painter.drawEllipse(swatch)
                 pictogram = max(10, int(round(swatch_size * 0.72)))
+            else:
+                pictogram = max(12, int(round(swatch_size)))
+            pixmap = self._pictogram_pixmap(
+                action,
+                pictogram,
+                style=self._style,
+            )
+            if not pixmap.isNull():
                 painter.drawPixmap(
                     int(round(swatch.center().x() - pictogram / 2.0)),
                     int(round(swatch.center().y() - pictogram / 2.0)),
-                    icon.pixmap(pictogram, pictogram),
+                    pixmap,
                 )
 
             font = painter.font()

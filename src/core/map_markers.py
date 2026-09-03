@@ -22,6 +22,8 @@ class MapMarkerAction:
     color: str
     outline_color: str = "#03080F"
     manual_only: bool = False
+    icon_file: str | None = None
+    classic_icon_file: str | None = None
 
     @property
     def display_name(self) -> str:
@@ -37,6 +39,20 @@ class MapMarkerAction:
             if self.icon_name.endswith(suffix)
             else self.icon_name
         )
+
+    @property
+    def pictogram_file(self) -> str:
+        return self.icon_file or f"{self.icon_name}.svg"
+
+    @property
+    def settings_pictogram_file(self) -> str:
+        if self.icon_file:
+            return self.icon_file
+        return f"{self.settings_icon_name}.svg"
+
+    @property
+    def classic_pictogram_file(self) -> str:
+        return self.classic_icon_file or f"{self.icon_name}.svg"
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +131,10 @@ _SHADY_GUY_COLORS = {
     "purple": "#E04FFF",
     "gold": "#FF9F0A",
 }
-_DARK_PICTOGRAM_OUTLINE_COLOR = "#F5F7FA"
+MAP_MARKER_BASE_ICON_SIZE = 48
+CLASSIC_MAP_MARKER_BASE_ICON_SIZE = 28
+MAP_MARKER_STYLES = frozenset({"modern", "classic"})
+_CLASSIC_PICTOGRAM_OUTLINE_COLOR = "#F5F7FA"
 
 
 MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
@@ -124,9 +143,11 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         family="microwave",
         label="Microwave",
         variant=rarity_label,
-        icon_name="microwave_dark",
+        icon_name=f"microwave_{rarity_id}",
         color=color,
-        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
+        outline_color=_CLASSIC_PICTOGRAM_OUTLINE_COLOR,
+        icon_file=f"filled/microwave_{rarity_id}.png",
+        classic_icon_file="microwave_dark.svg",
     )
     for rarity_id, rarity_label, color in _RARITIES
 ) + tuple(
@@ -135,9 +156,11 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         family="shady_guy",
         label="Shady Guy",
         variant=rarity_label,
-        icon_name="shady_guy_dark",
+        icon_name=f"shady_guy_{rarity_id}",
         color=_SHADY_GUY_COLORS[rarity_id],
-        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
+        outline_color=_CLASSIC_PICTOGRAM_OUTLINE_COLOR,
+        icon_file=f"filled/shady_guy_{rarity_id}.png",
+        classic_icon_file="shady_guy_dark.svg",
     )
     for rarity_id, rarity_label, _color in _RARITIES
 ) + (
@@ -146,45 +169,55 @@ MAP_MARKER_ACTIONS: tuple[MapMarkerAction, ...] = tuple(
         family="magnet_shrine",
         label="Magnet Shrine",
         variant=None,
-        icon_name="magnet_dark",
-        color="#55D6BE",
-        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
+        icon_name="magnet_shrine",
+        color="#3478F6",
+        outline_color=_CLASSIC_PICTOGRAM_OUTLINE_COLOR,
+        icon_file="filled/magnet_shrine.png",
+        classic_icon_file="magnet_dark.svg",
     ),
     MapMarkerAction(
         id="moai",
         family="moai",
         label="Moai",
         variant=None,
-        icon_name="moai_dark",
+        icon_name="moai",
         color="#B7C0CA",
-        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
+        outline_color=_CLASSIC_PICTOGRAM_OUTLINE_COLOR,
+        icon_file="filled/moai.png",
+        classic_icon_file="moai_dark.svg",
     ),
     MapMarkerAction(
         id="balance_shrine",
         family="balance_shrine",
-        label="Shrine of Balance",
+        label="Bald Head",
         variant=None,
-        icon_name="balance_shrine_dark",
+        icon_name="bald_head",
         color="#D8BC78",
-        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
+        outline_color=_CLASSIC_PICTOGRAM_OUTLINE_COLOR,
+        icon_file="filled/bald_head.png",
+        classic_icon_file="balance_shrine_dark.svg",
     ),
     MapMarkerAction(
         id="challenge_shrine",
         family="challenge_shrine",
         label="Challenge Shrine",
         variant=None,
-        icon_name="challenge_dark",
+        icon_name="challenge_shrine",
         color="#EF6A5B",
-        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
+        outline_color=_CLASSIC_PICTOGRAM_OUTLINE_COLOR,
+        icon_file="filled/challenge_shrine.png",
+        classic_icon_file="challenge_dark.svg",
     ),
     MapMarkerAction(
         id="boss_curse",
         family="boss_curse",
         label="Boss Curse",
         variant=None,
-        icon_name="boss_curse_dark",
+        icon_name="boss_curse",
         color="#FF3B3B",
-        outline_color=_DARK_PICTOGRAM_OUTLINE_COLOR,
+        outline_color=_CLASSIC_PICTOGRAM_OUTLINE_COLOR,
+        icon_file="filled/boss_curse.png",
+        classic_icon_file="boss_curse_dark.svg",
     ),
     MapMarkerAction(
         id="egg",
@@ -359,11 +392,15 @@ def normalize_map_marker_settings(value: Any) -> dict[str, Any]:
         scale = float(source.get("scale", 1.0))
     except (TypeError, ValueError, OverflowError):
         scale = 1.0
+    style = str(source.get("style") or "").strip().lower()
+    if style not in MAP_MARKER_STYLES:
+        style = "classic" if source.get("classic_style") is True else "modern"
     return {
         "enabled": bool(source.get("enabled", False)),
         # Automatic discovery is deliberately opt-in. Manual placement still
         # needs the Full Map projection, so it remains available independently.
         "automatic_discovery": bool(source.get("automatic_discovery", False)),
+        "style": style,
         "scale": max(0.5, min(scale, 3.0)),
         "hotkeys": normalize_map_marker_hotkeys(source.get("hotkeys")),
     }
@@ -425,7 +462,12 @@ def map_marker_screen_geometry(
     viewport: MapViewport,
     scale: float = 1.0,
 ) -> tuple[float, float, float] | None:
-    """Return the clamped visual centre and diameter of a map marker."""
+    """Return the exact projected centre and diameter of a map marker.
+
+    The painter clips to the Full Map viewport. Keeping the projected centre
+    unchanged lets markers at the world boundary extend naturally beneath the
+    map frame instead of drifting inward by half of their visual size.
+    """
 
     point = project_world_to_map(
         world_x,
@@ -436,21 +478,13 @@ def map_marker_screen_geometry(
     if point is None:
         return None
     normalized_scale = max(0.5, min(float(scale), 3.0))
-    icon_size = float(max(18, int(round(28 * normalized_scale))))
-    half = icon_size / 2.0
-    center_x, center_y = point
-    inset = half + max(2.0, icon_size / 11.0)
-    if viewport.width >= inset * 2.0:
-        center_x = min(
-            max(center_x, viewport.left + inset),
-            viewport.right - inset,
+    icon_size = float(
+        max(
+            MAP_MARKER_BASE_ICON_SIZE // 2,
+            int(round(MAP_MARKER_BASE_ICON_SIZE * normalized_scale)),
         )
-    if viewport.height >= inset * 2.0:
-        center_y = min(
-            max(center_y, viewport.top + inset),
-            viewport.bottom - inset,
-        )
-    return center_x, center_y, icon_size
+    )
+    return point[0], point[1], icon_size
 
 
 def unproject_map_to_world(

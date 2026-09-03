@@ -187,8 +187,8 @@ class MapMarkerTracker:
         # action here would instead stack a new icon over the existing one.
         # Walk newest-first because insertion order is also painting order, so
         # this removes the visible topmost icon from any legacy overlap.
-        # Test against the clamped visual centre, not the raw world point:
-        # markers near a map edge are shifted inward when painted.
+        # Test against the projected visual centre. Edge markers keep their
+        # exact world position and the painter clips the part outside the map.
         for marker_id, marker in reversed(tuple(self._markers.items())):
             if marker.source != "manual":
                 continue
