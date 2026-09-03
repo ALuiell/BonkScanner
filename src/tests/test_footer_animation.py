@@ -25,9 +25,8 @@ from ui.footer import (
     SUPPORT_REMINDER_COOLDOWN_SECONDS,
     SUPPORT_REMINDER_EDGE_MARGIN,
     SUPPORT_REMINDER_LONG_INACTIVE_SECONDS,
-    SUPPORT_REMINDER_MAX_INTERVAL_MS,
+    SUPPORT_REMINDER_INTERVAL_MS,
     SUPPORT_REMINDER_MAX_WIDTH,
-    SUPPORT_REMINDER_MIN_INTERVAL_MS,
     SUPPORT_REMINDER_RETRY_MS,
     SUPPORT_REMINDER_SLIDE_IN_MS,
     SUPPORT_REMINDER_STATE_CONFIG_KEY,
@@ -226,7 +225,7 @@ class FooterAnimationTests(unittest.TestCase):
         self.assertEqual(self.support.heartScale, 1.0)
         self.assertEqual(self.support.hoverProgress, 0.0)
 
-    def test_periodic_reminder_starts_with_a_random_thirty_to_forty_minute_wait(self):
+    def test_periodic_reminder_starts_with_a_fixed_one_hour_wait(self):
         reminder = self.host.footer._reminder
 
         self.assertIsNotNone(reminder)
@@ -237,14 +236,8 @@ class FooterAnimationTests(unittest.TestCase):
         self.assertEqual(reminder._timer.timerType(), Qt.PreciseTimer)
         self.assertEqual(reminder._startup_timer.timerType(), Qt.PreciseTimer)
         self.assertEqual(reminder._activation_timer.timerType(), Qt.PreciseTimer)
-        self.assertGreaterEqual(
-            reminder._last_interval_ms,
-            SUPPORT_REMINDER_MIN_INTERVAL_MS,
-        )
-        self.assertLessEqual(
-            reminder._last_interval_ms,
-            SUPPORT_REMINDER_MAX_INTERVAL_MS,
-        )
+        self.assertEqual(reminder._last_interval_ms, SUPPORT_REMINDER_INTERVAL_MS)
+        self.assertEqual(reminder._timer.interval(), 60 * 60 * 1000)
         self.assertEqual(reminder._action.objectName(), "supportReminderButton")
         self.assertIn("Updates are fueled", reminder._message.text())
         reminder._message.ensurePolished()

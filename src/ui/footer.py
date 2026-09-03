@@ -86,8 +86,7 @@ HEART_PASSIVE_FIRST_SCALE = 1.08
 HEART_PASSIVE_SECOND_SCALE = 1.04
 HEART_HOVER_SCALE = 1.09
 
-SUPPORT_REMINDER_MIN_INTERVAL_MS = 30 * 60 * 1000
-SUPPORT_REMINDER_MAX_INTERVAL_MS = 40 * 60 * 1000
+SUPPORT_REMINDER_INTERVAL_MS = 60 * 60 * 1000
 SUPPORT_REMINDER_RETRY_MS = 60 * 1000
 SUPPORT_REMINDER_ACTIVATION_DELAY_MS = 900
 SUPPORT_REMINDER_STARTUP_MIN_DELAY_MS = 4 * 1000
@@ -867,10 +866,7 @@ class _SupportReminder(QFrame):
         self._activation_timer.stop()
         self._due = False
         self._due_bypasses_cooldown = False
-        self._last_interval_ms = random.randint(
-            SUPPORT_REMINDER_MIN_INTERVAL_MS,
-            SUPPORT_REMINDER_MAX_INTERVAL_MS,
-        )
+        self._last_interval_ms = SUPPORT_REMINDER_INTERVAL_MS
         self._timer.start(self._last_interval_ms)
 
     def _mark_due(self, *, bypass_cooldown: bool = False) -> None:
