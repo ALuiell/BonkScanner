@@ -26,12 +26,13 @@ from infra.memory.reader import MemoryReadError
 
 
 class FakeMarkerClient:
-    def __init__(self, frames: list[MapMemoryFrame]) -> None:
+    def __init__(self, frames: list[MapMemoryFrame | Exception]) -> None:
         self.frames = list(frames)
         self.active: dict[int, bool] = {}
         self.automatic_discovery_values: list[bool] = []
         self.automatic_sample_values: list[bool] = []
         self.active_checks: list[int] = []
+        self.active_identity_checks: list[tuple[int, int | None, str | None]] = []
         self.closed = False
 
     def poll(
@@ -46,12 +47,22 @@ class FakeMarkerClient:
         _ = client_height, client_width, display_scale
         self.automatic_discovery_values.append(bool(automatic_discovery))
         self.automatic_sample_values.append(bool(sample_automatic_discovery))
-        if len(self.frames) > 1:
-            return self.frames.pop(0)
-        return self.frames[0]
+        frame = self.frames.pop(0) if len(self.frames) > 1 else self.frames[0]
+        if isinstance(frame, Exception):
+            raise frame
+        return frame
 
-    def activity_is_active(self, object_ptr: int) -> bool:
+    def activity_is_active(
+        self,
+        object_ptr: int,
+        *,
+        expected_class_ptr: int | None = None,
+        expected_class_name: str | None = None,
+    ) -> bool:
         self.active_checks.append(object_ptr)
+        self.active_identity_checks.append(
+            (object_ptr, expected_class_ptr, expected_class_name)
+        )
         return self.active.get(object_ptr, True)
 
     def close(self) -> None:
@@ -490,6 +501,92 @@ class MapMarkerTrackerTests(unittest.TestCase):
         self.assertEqual(client.automatic_discovery_values, [True] * 5)
         self.assertAlmostEqual(tracker._next_automatic_scan_at, 10.2)
 
+    def test_reconnect_rehydrates_activity_identity_without_losing_marker(self) -> None:
+        now = [10.0]
+        activity = DetectedMapActivity(
+            object_ptr=0xABC,
+            class_ptr=0x100,
+            class_name="InteractableShrineMoai",
+            action_id="moai",
+            world_x=20.0,
+            world_z=-30.0,
+        )
+        first_client = FakeMarkerClient(
+            [self.frame(activity=activity), MemoryReadError("transient poll failure")]
+        )
+        replacement_client = FakeMarkerClient([self.frame()])
+        clients = [first_client, replacement_client]
+        tracker = MapMarkerTracker(
+            "game",
+            client_factory=lambda _name: clients.pop(0),
+            clock=lambda: now[0],
+            reconnect_interval=1.0,
+            automatic_scan_interval=0.0,
+        )
+
+        discovered = tracker.tick(client_height=600, automatic_discovery=True)
+        self.assertEqual(
+            [marker.marker_id for marker in discovered.markers],
+            ["auto:ABC"],
+        )
+
+        failed = tracker.tick(client_height=600, automatic_discovery=True)
+        self.assertEqual(
+            [marker.marker_id for marker in failed.markers],
+            ["auto:ABC"],
+        )
+        self.assertTrue(first_client.closed)
+
+        now[0] = 11.0
+        recovered = tracker.tick(client_height=600, automatic_discovery=True)
+
+        self.assertEqual(
+            [marker.marker_id for marker in recovered.markers],
+            ["auto:ABC"],
+        )
+        self.assertEqual(
+            replacement_client.active_identity_checks,
+            [(0xABC, 0x100, "InteractableShrineMoai")],
+        )
+
+    def test_transient_activity_read_failure_preserves_marker(self) -> None:
+        activity = DetectedMapActivity(
+            object_ptr=0xABC,
+            class_ptr=0x100,
+            class_name="InteractableShrineMoai",
+            action_id="moai",
+            world_x=20.0,
+            world_z=-30.0,
+        )
+
+        class FlakyLifecycleClient(FakeMarkerClient):
+            def __init__(self, frames: list[MapMemoryFrame]) -> None:
+                super().__init__(frames)
+                self.fail_next_lifecycle_read = True
+
+            def activity_is_active(self, object_ptr: int, **kwargs) -> bool:
+                if self.fail_next_lifecycle_read:
+                    self.fail_next_lifecycle_read = False
+                    raise MemoryReadError("transient lifecycle failure")
+                return super().activity_is_active(object_ptr, **kwargs)
+
+        client = FlakyLifecycleClient(
+            [self.frame(activity=activity), self.frame(), self.frame()]
+        )
+        tracker = MapMarkerTracker(
+            "game",
+            client_factory=lambda _name: client,
+            automatic_scan_interval=0.0,
+        )
+
+        tracker.tick(client_height=600, automatic_discovery=True)
+        after_failure = tracker.tick(client_height=600, automatic_discovery=True)
+        after_retry = tracker.tick(client_height=600, automatic_discovery=True)
+
+        self.assertEqual(len(after_failure.markers), 1)
+        self.assertEqual(len(after_retry.markers), 1)
+        self.assertEqual(client.active_checks, [activity.object_ptr])
+
     def test_full_map_wait_keeps_client_and_recovers_on_the_next_tick(self) -> None:
         frame = self.frame(open=True)
 
@@ -617,6 +714,26 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         client, memory, obj = self.client("InteractableShadyGuy")
         memory.u8s[obj + client.SHADY_DONE_OFFSET] = 1
         self.assertFalse(client.activity_is_active(obj))
+
+    def test_known_identity_rehydrates_replacement_client_cache(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        object_ptr = 0x1000
+        class_ptr = 0x2000
+        memory.ptrs[object_ptr] = class_ptr
+        memory.ptrs[object_ptr + client.MANAGED_NATIVE_OFFSET] = 0x3000
+
+        self.assertTrue(
+            client.activity_is_active(
+                object_ptr,
+                expected_class_ptr=class_ptr,
+                expected_class_name="InteractableShrineMoai",
+            )
+        )
+        self.assertEqual(
+            client._tracked_classes[object_ptr],
+            (class_ptr, "InteractableShrineMoai"),
+        )
 
     def test_egg_and_bush_use_their_own_done_flags(self) -> None:
         client, memory, obj = self.client("InteractableEgg")

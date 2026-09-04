@@ -36,6 +36,13 @@ class MapMarkerTracker:
         self._map_id = 0
         self._markers: dict[str, WorldMapMarker] = {}
         self._automatic_by_object: dict[int, str] = {}
+        # The memory client caches the class identity learned when an activity
+        # enters currentInteractable.  A transient poll failure replaces that
+        # client, but the already-discovered marker ledger intentionally
+        # survives the retry.  Keep the minimum identity here as well so the
+        # replacement client can safely resume lifecycle checks instead of
+        # treating every cache miss as an inactive object.
+        self._automatic_identity_by_object: dict[int, tuple[int, str]] = {}
         self._manual_counter = 0
         self._snapshot = MapMarkerSnapshot()
 
@@ -53,6 +60,10 @@ class MapMarkerTracker:
                 # overlay timer from being stopped during disable or shutdown.
                 pass
         self._next_automatic_scan_at = 0.0
+        self._map_id = 0
+        self._markers.clear()
+        self._automatic_by_object.clear()
+        self._automatic_identity_by_object.clear()
         self._snapshot = MapMarkerSnapshot()
 
     def tick(
@@ -109,12 +120,14 @@ class MapMarkerTracker:
             self._map_id = frame.map_id
             self._markers.clear()
             self._automatic_by_object.clear()
+            self._automatic_identity_by_object.clear()
 
         if not automatic_enabled:
             self._next_automatic_scan_at = 0.0
             for marker_id in self._automatic_by_object.values():
                 self._markers.pop(marker_id, None)
             self._automatic_by_object.clear()
+            self._automatic_identity_by_object.clear()
         elif sample_automatic:
             # FullMap projection and manual input stay on the 25 ms UI cadence.
             # Only automatic object discovery and lifecycle reads are throttled.
@@ -132,12 +145,25 @@ class MapMarkerTracker:
                 steps = max(1, int(math.floor(elapsed / interval)) + 1)
                 self._next_automatic_scan_at = previous_deadline + steps * interval
             for object_ptr, marker_id in tuple(self._automatic_by_object.items()):
+                expected_identity = self._automatic_identity_by_object.get(object_ptr)
                 try:
-                    active = client.activity_is_active(object_ptr)
+                    active = client.activity_is_active(
+                        object_ptr,
+                        expected_class_ptr=(
+                            expected_identity[0] if expected_identity is not None else None
+                        ),
+                        expected_class_name=(
+                            expected_identity[1] if expected_identity is not None else None
+                        ),
+                    )
                 except Exception:
-                    active = False
+                    # A failed ReadProcessMemory call is unknown state, not
+                    # proof that the player consumed the activity.  Preserve
+                    # the marker and retry on the next automatic sample.
+                    continue
                 if not active:
                     self._automatic_by_object.pop(object_ptr, None)
+                    self._automatic_identity_by_object.pop(object_ptr, None)
                     self._markers.pop(marker_id, None)
 
             detected = frame.current_activity
@@ -158,6 +184,10 @@ class MapMarkerTracker:
                     object_ptr=detected.object_ptr,
                 )
                 self._automatic_by_object[detected.object_ptr] = marker_id
+                self._automatic_identity_by_object[detected.object_ptr] = (
+                    detected.class_ptr,
+                    detected.class_name,
+                )
 
         self._snapshot = MapMarkerSnapshot(
             map_id=frame.map_id,
