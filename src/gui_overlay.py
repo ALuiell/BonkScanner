@@ -44,6 +44,7 @@ from app.coordinator import AppCoordinator
 from app.tracked_item_settings import SESSION, TrackedItemSettings, combine_rules
 from projections.obs import build_overlay_state
 from core.stats.types import PLAYER_STAT_GROUPS
+from core.stats.weapon_tracker import WEAPON_TRACKER_METRIC_ORDER, WEAPON_TRACKER_METRICS
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
 from session_stats import SessionStats
 from tracked_item_rules import tracked_item_rules_from_config
@@ -57,6 +58,7 @@ OVERLAY_WIDGET_LABELS = {
     "banishes": "Banishes",
     "luck_rarity": "Luck",
     "build_progression": "Build Progression",
+    "weapon_tracker": "Weapon Tracker",
 }
 
 #: How wide the URL row's field and the widget picker beside it may get. The
@@ -711,6 +713,39 @@ class Overlay:
         build_layout.addLayout(rows_line)
         advanced_layout.addWidget(build_group)
 
+        weapon_group = QGroupBox("Weapon Tracker", advanced_tab)
+        weapon_layout = QVBoxLayout(weapon_group)
+        weapon_cfg = self._overlay_widget_config_by_id().get("weapon_tracker", {})
+        self.overlay_weapon_checkboxes = {}
+        metric_grid = QGridLayout()
+        for index, key in enumerate(WEAPON_TRACKER_METRIC_ORDER):
+            checkbox = QCheckBox(WEAPON_TRACKER_METRICS[key].player_stat_label, weapon_group)
+            checkbox.setChecked(key in weapon_cfg.get("selected_stats", ()))
+            self.overlay_weapon_checkboxes[key] = checkbox
+            metric_grid.addWidget(checkbox, index // 2, index % 2)
+        weapon_layout.addLayout(metric_grid)
+        self.overlay_weapon_options = {}
+        for key, caption in (("show_caps", "Show caps"), ("show_header", "Show header"),
+                             ("show_border", "Show border"), ("background_opacity", "Show background")):
+            checkbox = QCheckBox(caption, weapon_group)
+            checkbox.setChecked(bool(weapon_cfg.get(key, False)))
+            self.overlay_weapon_options[key] = checkbox
+            weapon_layout.addWidget(checkbox)
+        self.overlay_weapon_layout_combo = QComboBox(weapon_group)
+        self.overlay_weapon_layout_combo.addItem("Compact", "compact")
+        self.overlay_weapon_layout_combo.addItem("Detailed", "detailed")
+        self.overlay_weapon_layout_combo.setCurrentIndex(
+            max(0, self.overlay_weapon_layout_combo.findData(weapon_cfg.get("layout", "compact")))
+        )
+        weapon_layout.addWidget(self.overlay_weapon_layout_combo)
+        # Connect only after every control has its saved value.
+        for checkbox in (*self.overlay_weapon_checkboxes.values(), *self.overlay_weapon_options.values()):
+            checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        self.overlay_weapon_layout_combo.currentIndexChanged.connect(
+            lambda _index: self.save_overlay_settings_from_ui()
+        )
+        advanced_layout.addWidget(weapon_group)
+
         banishes_group = QGroupBox("Banishes")
         banishes_layout = QVBoxLayout(banishes_group)
         banishes_layout.addWidget(QLabel("Configure the Banishes overlay widget."))
@@ -878,6 +913,9 @@ class Overlay:
         self.save_overlay_settings_from_ui()
 
     def _clear_overlay_widget_settings_dialog_refs(self) -> None:
+        self.overlay_weapon_checkboxes = None
+        self.overlay_weapon_options = None
+        self.overlay_weapon_layout_combo = None
         # These controls live inside the modal Widget Settings dialog. Qt has
         # already destroyed them when the dialog closes, so retaining their
         # Python wrappers makes the next server start raise ``Internal C++
@@ -1047,6 +1085,14 @@ class Overlay:
                     if getattr(self, "overlay_build_max_rows_spin", None) is not None:
                         widget["max_rows"] = self.overlay_build_max_rows_spin.value()
                     widget.pop("mode", None)
+                if widget_id == "weapon_tracker" and getattr(self, "overlay_weapon_checkboxes", None):
+                    widget = dict(widget)
+                    widget["selected_stats"] = [
+                        key for key, cb in self.overlay_weapon_checkboxes.items() if cb.isChecked()
+                    ]
+                    for key, cb in self.overlay_weapon_options.items():
+                        widget[key] = (0.4 if cb.isChecked() else 0.0) if key == "background_opacity" else cb.isChecked()
+                    widget["layout"] = self.overlay_weapon_layout_combo.currentData() or "compact"
                 widgets.append(widget)
             overlay["widgets"] = widgets
             # `tracked_items` and `tracked_items_source` need no branch here:

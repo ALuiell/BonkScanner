@@ -38,6 +38,20 @@ from __future__ import annotations
 
 from math import isfinite
 from typing import Any
+from core.stats.weapon_tracker import (
+    DEFAULT_WEAPON_TRACKER_SELECTED_STATS, normalize_weapon_tracker_metric_keys,
+)
+
+
+def normalize_weapon_tracker_settings(widget: dict[str, Any]) -> dict[str, Any]:
+    selected = widget.get("selected_stats", DEFAULT_WEAPON_TRACKER_SELECTED_STATS)
+    if not isinstance(selected, (list, tuple, set, frozenset)):
+        selected = DEFAULT_WEAPON_TRACKER_SELECTED_STATS
+    return {
+        "selected_stats": list(normalize_weapon_tracker_metric_keys(selected)),
+        "show_caps": widget.get("show_caps") is True,
+        "layout": "detailed" if widget.get("layout") == "detailed" else "compact",
+    }
 
 DEFAULT_STATS_WIDGET_LABELS = ("Damage", "Attack Speed", "Luck", "XP Gain")
 DEFAULT_KPS_WIDGET_METRIC_IDS = ("current", "minute_avg", "five_minute_avg", "run_avg")
@@ -148,4 +162,6 @@ def widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
             "height": _coerce_optional_int(raw_widget.get("height")),
             "scale": max(0.4, min(_coerce_optional_float(raw_widget.get("scale")) or 1.0, 4.0)),
         }
+        if widget_id == "weapon_tracker":
+            widgets[widget_id].update(normalize_weapon_tracker_settings(raw_widget))
     return widgets

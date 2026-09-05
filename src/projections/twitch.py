@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+from core.stats.weapon_tracker import WEAPON_TRACKER_METRIC_ORDER, calculate_weapon_tracker_rows
 
 from core.luck_rarity import (
     GAME_RARITY_NAMES,
@@ -14,6 +15,21 @@ from core.luck_rarity import (
 
 def truncate_chat_message(text: str) -> str:
     return text[:447] + "..." if len(text) > 450 else text
+
+
+def format_effective_weapons(snapshot) -> str:
+    rows = calculate_weapon_tracker_rows(
+        snapshot.weapons, snapshot.stats, WEAPON_TRACKER_METRIC_ORDER,
+    )
+    parts = [
+        f"{row.name} Lv{row.level} [" + ", ".join(
+            f"{metric.label}: {metric.display_value}" for metric in row.metrics
+        ) + "]"
+        for row in rows
+    ]
+    return truncate_chat_message(
+        "Weapons with global stats: " + (" | ".join(parts) or "Unavailable")
+    )
 
 
 def format_powerups(powerups: Any, *, include_left_word: bool = True) -> str:

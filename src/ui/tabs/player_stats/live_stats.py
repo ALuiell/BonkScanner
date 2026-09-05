@@ -635,6 +635,7 @@ class LiveStatsTab:
         banishes=(),
         damage_sources=(),
         weapons_available: bool = True,
+        include_weapon_globals: bool = True,
         tomes_available: bool = True,
         damage_sources_available: bool = True,
         status_text: str | None = None,
@@ -700,6 +701,7 @@ class LiveStatsTab:
         self._stat_cards.display_weapons(
             weapons if weapons_available else (),
             status_text=None if weapons_available else "Weapons unavailable",
+            general_stats=stats if include_weapon_globals else None,
         )
         self._stat_cards.display_tomes(
             tomes if tomes_available else (),
@@ -726,6 +728,7 @@ class LiveStatsTab:
         *,
         items_text: str | None = None,
         stage_summary_rows: list[dict[str, str]] | None = None,
+        live_capture: bool = False,
     ):
         snapshots = self._vod_snapshots()
         try:
@@ -743,6 +746,7 @@ class LiveStatsTab:
             snapshot.stats,
             snapshot.items,
             weapons=getattr(snapshot, "weapons", ()),
+            include_weapon_globals=live_capture,
             tomes=getattr(snapshot, "tomes", ()),
             chaos_tome=getattr(snapshot, "chaos_tome", None),
             shrines=getattr(snapshot, "shrines", None),

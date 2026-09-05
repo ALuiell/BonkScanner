@@ -187,6 +187,9 @@ class WeaponTrackerSettingsDialog(QDialog):
             self.metric_checkboxes[key] = checkbox
             grid_layout.addWidget(checkbox, index // 2, index % 2)
         layout.addWidget(grid_widget)
+        self.show_caps_checkbox = QCheckBox("Show caps", self)
+        self.show_caps_checkbox.setChecked(settings.get("show_caps", False))
+        layout.addWidget(self.show_caps_checkbox)
         layout.addStretch(1)
 
         cancel_btn = QPushButton("Cancel", self)
@@ -197,6 +200,7 @@ class WeaponTrackerSettingsDialog(QDialog):
 
     def _save_settings(self) -> None:
         settings = config.IN_GAME_OVERLAY["widgets"]["weapon_tracker"]
+        settings["show_caps"] = self.show_caps_checkbox.isChecked()
         settings["selected_stats"] = [
             key
             for key in WEAPON_TRACKER_METRIC_ORDER

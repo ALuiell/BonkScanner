@@ -39,6 +39,7 @@ class RecordingStatCardsView:
 
     def __init__(self) -> None:
         self.weapons: list[tuple[tuple, str | None]] = []
+        self.weapon_globals = []
         self.tomes: list[tuple[tuple, str | None]] = []
         self.chaos: list[tuple[object, str | None]] = []
         self.shrines: list[tuple[object, str | None]] = []
@@ -49,8 +50,9 @@ class RecordingStatCardsView:
     def invalidate(self) -> None:
         self.invalidations += 1
 
-    def display_weapons(self, weapons, *, status_text: str | None = None) -> None:
+    def display_weapons(self, weapons, *, status_text: str | None = None, general_stats=None) -> None:
         self.weapons.append((tuple(weapons or ()), status_text))
+        self.weapon_globals.append(general_stats)
 
     def display_tomes(self, tomes, *, status_text: str | None = None) -> None:
         self.tomes.append((tuple(tomes or ()), status_text))
@@ -356,6 +358,7 @@ class RecordingPlayerStatsView:
         *,
         items_text=None,
         stage_summary_rows=None,
+        live_capture=False,
     ) -> None:
         self.snapshots.append((snapshot, items_text))
 

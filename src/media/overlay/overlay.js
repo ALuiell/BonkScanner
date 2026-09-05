@@ -33,6 +33,7 @@ const HELD_STATE_FIELDS = [
   "banishes",
   "luck_rarity",
   "build_progression",
+  "weapon_tracker",
 ];
 // `reconnecting` is the tracker's quiet middle state: data is known frozen, but
 // a restart is the expected cause and the surface must not announce it.
@@ -165,9 +166,32 @@ function renderWidget(widget, state) {
         "wide build-progress-widget",
         widget,
       );
+    case "weapon_tracker":
+      return panel("Weapon Tracker", renderWeaponTracker(state, widget), "wide weapon-tracker-widget", widget);
     default:
       return "";
   }
+}
+
+function renderWeaponTracker(state, widget) {
+  const payload = state.weapon_tracker || {};
+  const selected = new Set(widget.selected_stats || ["damage", "projectile_count", "size"]);
+  if (!selected.size) return `<div class="muted">No Weapon Stats Selected</div>`;
+  if (!payload.available) return `<div class="muted">Waiting for Weapon Data</div>`;
+  const rows = (payload.rows || []).map((row) => ({
+    ...row, metrics: (row.metrics || []).filter((metric) => selected.has(metric.key)),
+  })).filter((row) => row.metrics.length);
+  if (!rows.length) return `<div class="muted">No Matching Weapon Stats</div>`;
+  return rows.map((row) => {
+    const metrics = row.metrics.map((metric) => {
+      const cap = widget.show_caps && metric.cap_text
+        ? `<small class="weapon-cap${metric.cap_reached ? " reached" : ""}" title="${escapeHtml(metric.cap_note)}">[${escapeHtml(metric.cap_text)}]</small>` : "";
+      return `<div class="stat-row"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(metric.display_value)}</strong>${cap}</div>`;
+    }).join("");
+    return `<div class="weapon-tracker-row ${widget.layout === "detailed" ? "detailed" : "compact"}">
+      <div class="weapon-tracker-name">${escapeHtml(row.name)} <span class="muted">Lv.${escapeHtml(row.level)}</span></div>
+      <div class="weapon-tracker-metrics">${metrics}</div></div>`;
+  }).join("");
 }
 
 function buildLabelColor(value) {
@@ -405,7 +429,8 @@ const DEFAULT_COORDINATES = {
   kps: { x: 1600, y: 260 },
   banishes: { x: 1600, y: 360 },
   luck_rarity: { x: 1600, y: 530 },
-  build_progression: { x: 20, y: 500 }
+  build_progression: { x: 20, y: 500 },
+  weapon_tracker: { x: 20, y: 650 }
 };
 
 // The canvas the coordinates above are written against. They used to be applied

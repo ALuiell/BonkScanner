@@ -62,6 +62,7 @@ def build_weapon_tracker_overlay_html(
     rows: tuple[WeaponTrackerRow, ...],
     *,
     layout: str = "compact",
+    show_caps: bool = False,
     edit_mode: bool = False,
     status_message: str | None = None,
 ) -> str:
@@ -85,14 +86,15 @@ def build_weapon_tracker_overlay_html(
         return "".join(parts)
 
     if layout == "detailed":
-        parts.append(_build_detailed_weapon_tracker_html(rows))
+        parts.append(_build_detailed_weapon_tracker_html(rows, show_caps=show_caps))
     else:
-        parts.append(_build_compact_weapon_tracker_html(rows))
+        parts.append(_build_compact_weapon_tracker_html(rows, show_caps=show_caps))
     return "".join(parts)
 
 
 def _build_compact_weapon_tracker_html(
     rows: tuple[WeaponTrackerRow, ...],
+    *, show_caps: bool = False,
 ) -> str:
     rendered_rows = []
     for row in rows:
@@ -100,7 +102,7 @@ def _build_compact_weapon_tracker_html(
         for metric in row.metrics:
             metrics.append(
                 f"<span style='color:#94a3b8'>{escape(str(metric.label))}</span> "
-                f"<span style='color:#16e7ff'>{escape(metric.display_value)}</span>"
+                f"<span style='color:#16e7ff'>{escape(metric.overlay_value(show_caps))}</span>"
             )
         rendered_rows.append(
             "<tr>"
@@ -116,13 +118,14 @@ def _build_compact_weapon_tracker_html(
 
 def _build_detailed_weapon_tracker_html(
     rows: tuple[WeaponTrackerRow, ...],
+    *, show_caps: bool = False,
 ) -> str:
     rendered_weapons = []
     for row in rows:
         metric_rows = "".join(
             "<tr>"
             f"<td style='color:#94a3b8; padding-right:10px'>{escape(str(metric.label))}</td>"
-            f"<td style='color:#16e7ff'>{escape(metric.display_value)}</td>"
+            f"<td style='color:#16e7ff'>{escape(metric.overlay_value(show_caps))}</td>"
             "</tr>"
             for metric in row.metrics
         )

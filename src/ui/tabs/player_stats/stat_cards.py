@@ -75,6 +75,9 @@ from PySide6.QtWidgets import (
 
 from core.stat_labels import abbreviate_stat_label
 from core.stats.types import TomeSnapshot, WeaponSnapshot
+from core.stats.weapon_tracker import (
+    WEAPON_TRACKER_METRIC_ORDER, WEAPON_TRACKER_METRICS, calculate_weapon_tracker_row,
+)
 from core.tracker.chaos import CHAOS_FINGERPRINTS, CHAOS_TOME_GAME_STAT_ORDER
 from core.tracker.shrines import SHRINE_RARITY_MULTIPLIERS
 from projections import formatting
@@ -146,8 +149,8 @@ def _show_if_parented(widget: QWidget | None) -> None:
 
 
 class _StatValueRow(QWidget):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -169,8 +172,8 @@ class _StatValueRow(QWidget):
 
 
 class _WeaponCard(QFrame):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self.setObjectName("StatCard")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -192,17 +195,44 @@ class _WeaponCard(QFrame):
         header_layout.addWidget(self._level_label)
         layout.addLayout(header_layout)
 
+        self._weapon_heading = None
         self._rows_layout = QVBoxLayout()
         self._rows_layout.setContentsMargins(0, 0, 0, 0)
         self._rows_layout.setSpacing(6)
         layout.addLayout(self._rows_layout)
         self._empty_label = QLabel("No upgraded stats decoded")
         layout.addWidget(self._empty_label)
+        self._effective_section = None
         layout.addStretch(1)
         self._row_ids: tuple[object, ...] = ()
         self._row_widgets: list[_StatValueRow] = []
 
-    def update_weapon(self, weapon: WeaponSnapshot) -> None:
+    def _ensure_effective_section(self) -> None:
+        if self._effective_section is not None:
+            return
+        # Recordings shares this card but does not opt into the new live view.
+        # Allocate these widgets only when Live Stats supplies global values.
+        self._weapon_heading = QLabel("Weapon", self)
+        self._weapon_heading.setStyleSheet(self._level_label.styleSheet())
+        self.layout().insertWidget(1, self._weapon_heading)
+        self._effective_section = QWidget(self)
+        effective_layout = QVBoxLayout(self._effective_section)
+        effective_layout.setContentsMargins(0, 4, 0, 0)
+        effective_layout.setSpacing(6)
+        heading = QLabel("With global stats", self._effective_section)
+        heading.setStyleSheet(self._level_label.styleSheet())
+        effective_layout.addWidget(heading)
+        self._effective_rows = {}
+        for key in WEAPON_TRACKER_METRIC_ORDER:
+            row = _StatValueRow(self._effective_section)
+            effective_layout.addWidget(row)
+            self._effective_rows[key] = row
+        self._effective_empty = QLabel("Effective stats unavailable", self._effective_section)
+        effective_layout.addWidget(self._effective_empty)
+        self._effective_section.hide()
+        self.layout().insertWidget(self.layout().count() - 1, self._effective_section)
+
+    def update_weapon(self, weapon: WeaponSnapshot, effective=None, *, show_effective=False) -> None:
         _set_text(self._name_label, str(weapon.name))
         _set_text(self._level_label, f"Lv. {weapon.level}")
         stats = tuple(
@@ -222,6 +252,19 @@ class _WeaponCard(QFrame):
         for row, (_stat_id, stat) in zip(self._row_widgets, stats):
             row.set_values(str(stat.label), str(stat.display_value))
         self._empty_label.setVisible(not stats)
+        if show_effective:
+            self._ensure_effective_section()
+        if self._effective_section is None:
+            return
+        self._weapon_heading.setVisible(show_effective)
+        self._effective_section.setVisible(show_effective)
+        metrics = {metric.key: metric for metric in effective.metrics} if effective else {}
+        for key, row in self._effective_rows.items():
+            metric = metrics.get(key)
+            if metric is not None:
+                row.set_values(WEAPON_TRACKER_METRICS[key].player_stat_label, metric.display_value)
+            row.setVisible(metric is not None)
+        self._effective_empty.setVisible(not metrics)
 
 
 class _TomeCard(QFrame):
@@ -919,16 +962,20 @@ class StatCardsView:
 
     # -- weapons --------------------------------------------------------------
 
-    def display_weapons(self, weapons, *, status_text: str | None = None) -> None:
+    def display_weapons(self, weapons, *, status_text: str | None = None, general_stats=None) -> None:
         layout = self._weapons_layout
         status_label = self._weapons_status_label
         if layout is None or status_label is None:
             return
-        if self._defer("weapons", (weapons,), {"status_text": status_text}):
+        if self._defer("weapons", (weapons,), {"status_text": status_text, "general_stats": general_stats}):
             return
 
         weapons = tuple(weapons or ())
-        signature = self._weapon_signature_for(weapons)
+        effective = tuple(
+            calculate_weapon_tracker_row(weapon, general_stats, WEAPON_TRACKER_METRIC_ORDER)
+            if general_stats is not None else None for weapon in weapons
+        )
+        signature = (self._weapon_signature_for(weapons), effective, general_stats is not None)
         if self._weapon_signature == signature and status_text is None:
             return
 
@@ -965,15 +1012,16 @@ class StatCardsView:
             ),
         )
         cards = []
-        for key, weapon in zip(keys, weapons):
+        for key, weapon, effective_row in zip(keys, weapons, effective):
             card = self._weapon_card_pool.get(key)
             if card is None:
-                card = _WeaponCard()
+                card = _WeaponCard(self._weapon_grid)
                 self._weapon_card_pool[key] = card
-            card.update_weapon(weapon)
+            card.update_weapon(weapon, effective_row, show_effective=general_stats is not None)
             cards.append(card)
         self._weapon_cards = cards
         self._weapon_grid.set_cards(cards)
+        self._weapon_grid._reflow(self._weapon_grid.width())
         _show_if_parented(self._weapon_grid)
 
     def _build_weapon_card(self, weapon: WeaponSnapshot) -> QFrame:

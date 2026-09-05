@@ -2245,6 +2245,15 @@ class TwitchCommandSettingsDialog(QDialog):
             help_lbl.setWordWrap(True)
             entry_layout.addWidget(help_lbl)
 
+            if key == "weapons":
+                self.weapons_include_globals_cb = QCheckBox(
+                    "Include global stats (extended weapon output)", tab_templates,
+                )
+                self.weapons_include_globals_cb.setChecked(
+                    config.TWITCH_BOT.get("weapons_include_globals", False)
+                )
+                entry_layout.addWidget(self.weapons_include_globals_cb)
+
             templates_form.addRow(label_text, entry_layout)
 
         templates_scroll_layout.addLayout(templates_form)
@@ -2584,6 +2593,7 @@ class TwitchCommandSettingsDialog(QDialog):
 
     def reset_to_defaults(self):
         self._init_guard = True
+        self.weapons_include_globals_cb.setChecked(False)
         default_selected = set(config.DEFAULT_TWITCH_BOT["selected_stats"])
         for label, cb in self.stat_checkboxes.items():
             cb.setChecked(label in default_selected)
@@ -2648,6 +2658,7 @@ class TwitchCommandSettingsDialog(QDialog):
             return
 
         config.TWITCH_BOT["selected_stats"] = selected_stats
+        config.TWITCH_BOT["weapons_include_globals"] = self.weapons_include_globals_cb.isChecked()
         config.TWITCH_BOT["templates"] = config.TWITCH_BOT.get("templates", {})
         config.TWITCH_BOT["templates"]["stats"] = self.stats_tpl_entry.text().strip()
 

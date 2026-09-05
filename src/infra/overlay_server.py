@@ -31,6 +31,7 @@ WIDGET_ROUTE_NAMES = {
     "banishes",
     "luck_rarity",
     "build_progression",
+    "weapon_tracker",
 }
 
 #: The smallest a widget may be persisted at, in canvas pixels.

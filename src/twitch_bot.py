@@ -17,6 +17,7 @@ from core.tracker.items import fold_item_match_name
 from infra.twitch_credentials import get_twitch_oauth_token
 from core.stats.formatters import format_chaos_tome_stat_delta, format_shrine_stat_delta
 from projections.twitch import (
+    format_effective_weapons,
     format_kps,
     format_luck,
     format_powerups,
@@ -645,6 +646,8 @@ class TwitchBotWorker(QThread):
         if len(text) > 450:
             text = text[:447] + "..."
         self._send_chat(channel, text)
+        if config.TWITCH_BOT.get("weapons_include_globals", False):
+            self._send_chat(channel, format_effective_weapons(snap))
 
     def _handle_tomes(self, channel: str):
         snap = self._runtime_snapshot().latest_snapshot

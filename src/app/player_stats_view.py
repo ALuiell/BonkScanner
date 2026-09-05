@@ -82,8 +82,9 @@ class PlayerStatsView(Protocol):
         *,
         items_text,
         stage_summary_rows=None,
+        live_capture: bool = False,
     ) -> None:
-        """Render a captured recording snapshot into the Live Stats tab."""
+        """Render a captured snapshot; only a current live capture adds globals."""
 
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True) -> None:
         """Re-render the recording timeline after its snapshot list changed.

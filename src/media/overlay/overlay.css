@@ -439,6 +439,26 @@ body {
   color: var(--hud-cyan);
 }
 
+.weapon-tracker-row {
+  margin-bottom: calc(8px * var(--scale));
+}
+.weapon-tracker-row:last-child { margin-bottom: 0; }
+.weapon-tracker-name {
+  font-size: calc(14px * var(--scale));
+  font-weight: 800;
+  margin-bottom: calc(5px * var(--scale));
+}
+.weapon-tracker-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(5px * var(--scale)) calc(16px * var(--scale));
+}
+.weapon-tracker-row.detailed .weapon-tracker-metrics { flex-direction: column; }
+.weapon-tracker-widget .stat-row { flex-wrap: wrap; gap: calc(6px * var(--scale)); }
+.weapon-tracker-widget .stat-row span { flex: 0 0 auto; }
+.weapon-cap { color: rgba(255,255,255,.65); font-size: .85em; font-weight: 600; }
+.weapon-cap.reached { color: var(--hud-orange); }
+
 .banish-chip {
   display: flex;
   align-items: center;

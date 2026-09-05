@@ -1049,6 +1049,7 @@ class InGameOverlay:
                 html = build_weapon_tracker_overlay_html(
                     rows,
                     layout=weapon_cfg.get("layout", "compact"),
+                    show_caps=bool(weapon_cfg.get("show_caps", False)),
                     edit_mode=edit_mode,
                     status_message=status_message,
                 )

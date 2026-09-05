@@ -1613,6 +1613,7 @@ class GuiRunControlTests(unittest.TestCase):
             template_pool_entries={},
             disabled_item_checkboxes={"Anvil": FakeCheckbox(True), "Coin": FakeCheckbox(False)},
             commands_announcement_interval_spin=FakeSpinBox(42),
+            weapons_include_globals_cb=FakeCheckbox(True),
             accept=lambda: accepted.append(True),
         )
 
@@ -1620,6 +1621,7 @@ class GuiRunControlTests(unittest.TestCase):
             TwitchCommandSettingsDialog.save(dialog)
 
         self.assertEqual(config.TWITCH_BOT["commands_announcement_interval_minutes"], 42)
+        self.assertTrue(config.TWITCH_BOT["weapons_include_globals"])
         self.assertEqual(config.TWITCH_BOT["highlighted_disabled_items"], ["Anvil"])
         self.assertEqual(accepted, [True])
         save_config.assert_called_once_with(config.user_config)
@@ -1645,6 +1647,7 @@ class GuiRunControlTests(unittest.TestCase):
             template_pool_entries={},
             disabled_item_checkboxes={},
             commands_announcement_interval_spin=FakeSpinBox(30),
+            weapons_include_globals_cb=FakeCheckbox(False),
             master=master,
             accept=lambda: None,
         )
@@ -1721,9 +1724,11 @@ class GuiRunControlTests(unittest.TestCase):
             templates_entries={"stats": FakeEntry("custom"), "disabled": FakeEntry("custom")},
             template_pool_entries={},
             commands_announcement_interval_spin=FakeSpinBox(99),
+            weapons_include_globals_cb=FakeCheckbox(True),
         )
 
         TwitchCommandSettingsDialog.reset_to_defaults(dialog)
+        self.assertFalse(dialog.weapons_include_globals_cb.isChecked())
 
         self.assertEqual(
             dialog.commands_announcement_interval_spin.value(),
@@ -5289,6 +5294,9 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(calls[0]["kwargs"]["tomes"], snapshot.tomes)
         self.assertEqual(calls[0]["kwargs"]["banishes"], snapshot.banishes)
         self.assertIs(calls[0]["kwargs"]["stage_summary_rows"], live_rows)
+        self.assertFalse(calls[0]["kwargs"]["include_weapon_globals"])
+        view.display_player_stats_snapshot(snapshot, live_capture=True)
+        self.assertTrue(calls[1]["kwargs"]["include_weapon_globals"])
 
     def test_display_player_stats_snapshot_uses_compact_segment_compare_text(self) -> None:
         calls: list[dict[str, object]] = []
@@ -7261,6 +7269,7 @@ class GuiRunControlTests(unittest.TestCase):
                 "Damage": SimpleNamespace(value=2.0),
                 "Projectile Count": SimpleNamespace(value=1.0),
                 "Size": SimpleNamespace(value=1.5),
+                "Attack Speed": SimpleNamespace(value=2.0),
             },
             weapons=(
                 SimpleNamespace(
@@ -7294,6 +7303,12 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertNotIn("Lv.4", html)
         self.assertNotIn("Weapons", html)
         widget.setVisible.assert_called_with(True)
+        self.assertNotIn("cap", html)
+        with patch.object(
+            config, "IN_GAME_OVERLAY", self._weapon_tracker_overlay_cfg(show_caps=True)
+        ):
+            overlay._overlay_fast_tick()
+        self.assertIn("soft cap 12", widget.set_text.call_args.args[0])
 
     def test_weapon_tracker_fast_tick_uses_all_edit_layout_placeholders(self) -> None:
         cases = (

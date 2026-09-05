@@ -8,6 +8,7 @@ from math import isfinite
 from typing import Any, Iterable, Mapping
 
 from core.stats.types import WeaponSnapshot
+from core.stats.weapon_caps import WeaponCap, clamped_stat_cap, projectile_cap
 
 
 class WeaponTrackerValueFormat(str, Enum):
@@ -82,10 +83,25 @@ class WeaponTrackerMetric:
     stat_id: int
     label: str
     value: float
+    cap: WeaponCap = WeaponCap()
 
     @property
     def display_value(self) -> str:
         return format_weapon_tracker_value(self.key, self.value)
+
+    @property
+    def cap_text(self) -> str:
+        if self.cap.value is None:
+            return ""
+        kind = "hard" if self.cap.kind == "hard" else "soft"
+        if self.cap.kind == "special_soft":
+            kind = "pellet soft"
+        reached = " reached" if self.cap.reached else ""
+        return f"{kind} cap {format_weapon_tracker_value(self.key, self.cap.value)}{reached}"
+
+    def overlay_value(self, show_caps: bool = False) -> str:
+        annotation = self.cap_text if show_caps else ""
+        return f"{self.display_value} [{annotation}]" if annotation else self.display_value
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +155,7 @@ def calculate_weapon_tracker_row(
                 stat_id=spec.stat_id,
                 label=spec.short_label,
                 value=float(value),
+                cap=_metric_cap(key, weapon, value, general_stats),
             )
         )
 
@@ -228,6 +245,25 @@ def _calculate_metric_value(
         return 2.0 * (weapon_value + global_value)
 
     return None
+
+
+def _metric_cap(
+    key: str, weapon: WeaponSnapshot, value: float, general_stats: Mapping[object, Any],
+) -> WeaponCap:
+    if key == "projectile_count":
+        return projectile_cap(
+            weapon.weapon_id, value,
+            _lookup_general_value(general_stats, "Attack Speed", 15),
+        )
+    if key == "size":
+        return clamped_stat_cap(
+            _optional_finite_cap(weapon.max_size_multiplier), value, minimum=1.0,
+        )
+    if key == "duration":
+        return clamped_stat_cap(
+            _optional_finite_cap(weapon.max_duration), value, minimum=0.0,
+        )
+    return WeaponCap()
 
 
 def _general_stat_value(

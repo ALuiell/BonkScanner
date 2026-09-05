@@ -407,4 +407,44 @@ const liveState = {
   console.log("ok: rarity colours flow from the payload");
 }
 
+// The actual widget route, renderer and fresh presentation settings.
+{
+  const widget = { id: "weapon_tracker", enabled: true, order: 1,
+    selected_stats: ["projectile_count"], show_caps: false,
+    show_header: true, show_border: true, background_opacity: .4 };
+  const state = { ...liveState, widgets: { weapon_tracker: widget },
+    weapon_tracker: { available: true, rows: [{ name: "Katana <test>", level: 4, metrics: [
+      { key: "projectile_count", label: "PROJ", value: 25, display_value: "25",
+        cap_text: "soft cap 12 reached", cap_reached: true, cap_note: "" },
+      { key: "damage", label: "DMG", value: 100, display_value: "100" },
+    ] }] } };
+  const { t, rootEl } = makeContext({ pathname: "/overlay/weapon_tracker" });
+  t.render(state);
+  assert.ok(rootEl.innerHTML.includes("weapon-tracker-widget"));
+  assert.ok(rootEl.innerHTML.includes("panel-title"));
+  assert.ok(rootEl.innerHTML.includes("--widget-bg-opacity:0.4"));
+  assert.ok(rootEl.innerHTML.includes("Katana &lt;test&gt;"));
+  assert.ok(rootEl.innerHTML.includes("<strong>25</strong>"));
+  assert.ok(!rootEl.innerHTML.includes("soft cap"));
+  assert.ok(!rootEl.innerHTML.includes("DMG"));
+  widget.show_caps = true;
+  widget.layout = "detailed";
+  t.render(state);
+  assert.ok(rootEl.innerHTML.includes("soft cap 12 reached"));
+  assert.ok(rootEl.innerHTML.includes("<strong>25</strong>"));
+  assert.ok(rootEl.innerHTML.includes("weapon-tracker-row detailed"));
+  widget.selected_stats = [];
+  t.render(state);
+  assert.ok(rootEl.innerHTML.includes("No Weapon Stats Selected"));
+  widget.selected_stats = ["damage"];
+  state.weapon_tracker.available = false;
+  t.render(state);
+  assert.ok(rootEl.innerHTML.includes("Waiting for Weapon Data"));
+  state.weapon_tracker.available = true;
+  state.weapon_tracker.rows = [];
+  t.render(state);
+  assert.ok(rootEl.innerHTML.includes("No Matching Weapon Stats"));
+  console.log("ok: weapon tracker route, style and independent cap presentation");
+}
+
 console.log("\nall overlay.js checks passed");

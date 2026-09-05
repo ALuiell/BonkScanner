@@ -8,9 +8,9 @@ from uuid import uuid4
 from dataclasses import dataclass
 
 from core.build_progression import PROGRESS_TARGETS
+from core.overlay_config import normalize_weapon_tracker_settings
 from core.stats.weapon_tracker import (
     DEFAULT_WEAPON_TRACKER_SELECTED_STATS,
-    normalize_weapon_tracker_metric_keys,
 )
 from core.json_safety import dumps_strict_json, load_legacy_json
 from core.map_markers import normalize_map_marker_settings
@@ -97,6 +97,9 @@ DEFAULT_OVERLAY = {
         {"id": "kps", "enabled": False, "mode": "compact", "order": 60, "selected_kps_metrics": ["current", "minute_avg", "five_minute_avg", "run_avg"], "background_opacity": 0.0, "show_border": False, "show_header": False},
         {"id": "build_progression", "enabled": False, "order": 65, "max_rows": 6, "scale": 1.0, "show_completed": False, "background_opacity": 0.4, "show_border": True, "show_header": False},
         {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
+        {"id": "weapon_tracker", "enabled": False, "order": 90, "scale": 1.0,
+         "layout": "compact", "selected_stats": list(DEFAULT_WEAPON_TRACKER_SELECTED_STATS),
+         "show_caps": False, "background_opacity": 0.0, "show_border": False, "show_header": True},
         # Its own copy of both toggles rather than mirroring the in-game
         # widget's. Not duplication: "show it to chat but not to me" has to be
         # expressible, and a stream scene and a game HUD have genuinely
@@ -163,6 +166,7 @@ DEFAULT_IN_GAME_OVERLAY = {
         "build_progression": {"enabled": False, "x": 10, "y": 190, "scale": 1.0, "max_rows": 5, "show_completed": False},
         "weapon_tracker": {
             "enabled": False,
+            "show_caps": False,
             "x": 10,
             "y": 220,
             "scale": 1.0,
@@ -200,6 +204,7 @@ ALL_STAT_LABELS = [
 ]
 
 DEFAULT_TWITCH_BOT = {
+    "weapons_include_globals": False,
     "enabled": False,
     "auto_connect": False,
     "username": "",
@@ -1119,6 +1124,8 @@ def normalize_overlay_config(value):
     # We forcefully reset max_rows to 40 for stats and banishes in case they were saved as 8/12 in the past
     # so that the grid can expand properly without backend limitation.
     for widget in overlay["widgets"]:
+        if widget.get("id") == "weapon_tracker":
+            widget.update(normalize_weapon_tracker_settings(widget))
         if widget.get("id") == "build_progression":
             widget["enabled"] = bool(widget.get("enabled", False))
             widget["max_rows"] = max(1, min(coerce_nonnegative_int(widget.get("max_rows"), 6) or 6, 20))
@@ -1246,23 +1253,7 @@ def normalize_in_game_overlay_config(value):
                 widgets[key].pop("show_section_headings", None)
 
             if key == "weapon_tracker":
-                selected_stats_val = widgets[key].get("selected_stats")
-                if isinstance(
-                    selected_stats_val,
-                    (list, tuple, set, frozenset),
-                ):
-                    widgets[key]["selected_stats"] = list(
-                        normalize_weapon_tracker_metric_keys(selected_stats_val)
-                    )
-                else:
-                    widgets[key]["selected_stats"] = list(
-                        DEFAULT_WEAPON_TRACKER_SELECTED_STATS
-                    )
-                widgets[key]["layout"] = (
-                    widgets[key].get("layout")
-                    if widgets[key].get("layout") in ("compact", "detailed")
-                    else "compact"
-                )
+                widgets[key].update(normalize_weapon_tracker_settings(widgets[key]))
             
             if key == "kps":
                 metrics_val = widgets[key].get("metrics")
@@ -1349,6 +1340,7 @@ def normalize_twitch_bot_config(value):
         legacy_bonkhelp_template = str(raw_templates_cfg.get("commands"))
 
     bot_cfg = _merge_dict_defaults(value, DEFAULT_TWITCH_BOT)
+    bot_cfg["weapons_include_globals"] = bot_cfg.get("weapons_include_globals") is True
     bot_cfg["enabled"] = bool(bot_cfg.get("enabled", False))
     bot_cfg["auto_connect"] = bool(bot_cfg.get("auto_connect", False))
     bot_cfg["username"] = str(bot_cfg.get("username") or "")

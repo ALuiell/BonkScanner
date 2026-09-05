@@ -513,6 +513,7 @@ class PlayerStatsRefresh:
                     snapshot,
                     items_text=items_text,
                     stage_summary_rows=live_stage_summary_rows,
+                    live_capture=True,
                 )
             return True
 

@@ -9,6 +9,7 @@ from core.build_progression import BuildProgressionSnapshot
 from projections.build_progression import build_progression_payload
 from core.item_metadata import COLOR_MAP, ITEM_RARITY_COLOR_MAP
 from core.stat_labels import abbreviate_stat_label
+from core.stats.weapon_tracker import WEAPON_TRACKER_METRIC_ORDER, calculate_weapon_tracker_rows
 # Overlay-config normalization moved down to core/ in step 17b, so that
 # infra/overlay_server.py can consume it without an infra -> projections import.
 # The coercion helpers are still used throughout this module.
@@ -108,6 +109,7 @@ def build_overlay_state_from_snapshot(
     data["canvas_height"] = _coerce_int(overlay_config.get("canvas_height"), default=1080) or 1080
     data["style"] = dict(overlay_config.get("style") or {})
     data["stats"] = _snapshot_stats(snapshot, widgets)
+    data["weapon_tracker"] = weapon_tracker_payload(snapshot)
     data["banishes"] = _snapshot_banishes(snapshot, widgets)
     data["luck_rarity"] = _snapshot_luck_rarity(runtime, widgets)
     data["rarity_colors"] = _rarity_colors()
@@ -116,6 +118,31 @@ def build_overlay_state_from_snapshot(
         build_progression, widgets.get("build_progression") or {}
     )
     return data
+
+
+def weapon_tracker_payload(snapshot) -> dict[str, Any]:
+    """Publish all calculated metrics; fresh widget settings select presentation.
+
+    HTTP settings can change between tracker publications. Sending cap metadata
+    and all supported metrics keeps those toggles responsive without new reads.
+    """
+    weapons = getattr(snapshot, "weapons", ()) or ()
+    rows = calculate_weapon_tracker_rows(
+        weapons, getattr(snapshot, "stats", {}) or {}, WEAPON_TRACKER_METRIC_ORDER,
+    )
+    return {
+        "available": bool(weapons or getattr(snapshot, "weapons_available", False)),
+        "rows": [
+            {"weapon_id": row.weapon_id, "name": row.name, "level": row.level,
+             "metrics": [
+                 {"key": metric.key, "label": metric.label, "value": metric.value,
+                  "display_value": metric.display_value, "cap_text": metric.cap_text,
+                  "cap_kind": metric.cap.kind, "cap_value": metric.cap.value,
+                  "cap_reached": metric.cap.reached, "cap_note": metric.cap.note}
+                 for metric in row.metrics]}
+            for row in rows
+        ],
+    }
 
 
 def _rarity_colors() -> dict[str, str]:

@@ -89,6 +89,7 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
     def display_snapshot(snap, **kwargs):
         rendered["snapshot"].append(snap.time_label)
         rendered["snapshot_stage_rows"].append(kwargs.get("stage_summary_rows"))
+        rendered["live_capture"] = kwargs.get("live_capture", False)
 
     app._player_stats_view = SimpleNamespace(
         display_player_stats=lambda *a, **k: rendered.__setitem__("live", rendered["live"] + 1),
@@ -218,6 +219,7 @@ class PinnedSnapshotSurvivesRefreshTests(unittest.TestCase):
         self._refresh(app)
 
         self.assertEqual([live_rows], app.rendered["snapshot_stage_rows"])
+        self.assertTrue(app.rendered["live_capture"])
 
 
 class PinPredicateTests(unittest.TestCase):
