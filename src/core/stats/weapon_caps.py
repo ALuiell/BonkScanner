@@ -25,7 +25,7 @@ PROJECTILE_BURSTS = {
     13: (1.0, .10), 14: (.8, .04), 15: (1.0, .30),
     20: (1.0, .25), 21: (1.0, .20), 22: (1.5, .50), 23: (.5, .02),
     24: (.02, .02), 25: (1.1, .02), 26: (1.0, .15),
-    27: (.75, .15), 28: (.75, .15), 30: (1.5, .10),
+    27: (.75, .15), 28: (.8, .14), 30: (1.5, .10),
 }
 PROJECTILE_HARD_CAPS = {5: 80, 6: 80, 19: 49}
 
@@ -36,7 +36,7 @@ def projectile_cap(weapon_id: int, value: float, attack_speed: float | None) -> 
         return WeaponCap("hard", cap, value >= cap)
     if weapon_id == 29:
         return WeaponCap("special_soft", 18, value >= 18,
-                         "Pellets saturated; damage still scales")
+                         "Pellets stop increasing at this cap; damage still scales")
     if weapon_id == 7:
         return WeaponCap(note="No confirmed gameplay cap; renderer limit excluded")
     if weapon_id not in PROJECTILE_BURSTS:

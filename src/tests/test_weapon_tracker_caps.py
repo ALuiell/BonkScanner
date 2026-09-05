@@ -49,6 +49,22 @@ class WeaponCapsTests(unittest.TestCase):
             if cap:
                 self.assertTrue(metric.cap.reached)
 
+    def test_corrupt_sword_has_its_own_dynamic_burst_budget(self):
+        # Both sword variants have cap 5 at AS=1, masking a copied registry row.
+        # The documented 0.8-second Corrupt burst still fits 5 shots at AS=8;
+        # Hero's 0.75-second burst fits only 4. At AS=20 the caps are 2 vs 1.
+        for speed, expected in ((1, 5), (7, 5), (8, 5), (10, 4), (20, 2)):
+            with self.subTest(attack_speed=speed):
+                self.assertEqual(projectile_cap(28, 20, speed).value, expected)
+        for weapon_id, expected in ((27, 4), (28, 5)):
+            metric = calculate_weapon_tracker_row(
+                _weapon(weapon_id=weapon_id, upgrade_stat_ids=(16,), values={16: 3}),
+                _globals(**{"Attack Speed": 8}), ("projectile_count",),
+            ).metrics[0]
+            self.assertEqual(metric.value, 4)
+            self.assertEqual(metric.cap.value, expected)
+            self.assertEqual(metric.cap.reached, weapon_id == 27)
+
     def test_missing_attack_speed_does_not_invent_cap_or_hide_known_stat(self):
         for speed in (None, float("nan"), float("inf"), 0, -1):
             metric = calculate_weapon_tracker_row(_weapon(), _globals(**{"Attack Speed": speed}), ("projectile_count",)).metrics[0]

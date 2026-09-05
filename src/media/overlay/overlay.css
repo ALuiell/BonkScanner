@@ -456,6 +456,9 @@ body {
 .weapon-tracker-row.detailed .weapon-tracker-metrics { flex-direction: column; }
 .weapon-tracker-widget .stat-row { flex-wrap: wrap; gap: calc(6px * var(--scale)); }
 .weapon-tracker-widget .stat-row span { flex: 0 0 auto; }
+.weapon-tracker-row.detailed .stat-row span {
+  flex-basis: calc(80px * var(--scale));
+}
 .weapon-cap { color: rgba(255,255,255,.65); font-size: .85em; font-weight: 600; }
 .weapon-cap.reached { color: var(--hud-orange); }
 
