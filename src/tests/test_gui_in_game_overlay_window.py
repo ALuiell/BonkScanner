@@ -5,15 +5,18 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import src
-from PySide6.QtCore import QPoint, QRect
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
 from core.map_markers import (
+    MAP_MARKER_ACTION_BY_ID,
     MapMarkerSnapshot,
     MapViewport,
     WorldMapMarker,
     build_marker_palette,
+    map_marker_screen_geometry,
 )
 from gui_in_game_overlay_window import InGameOverlayWindow, MapMarkerLayer
 
@@ -67,6 +70,218 @@ class InGameOverlayWindowTests(unittest.TestCase):
             self.assertTrue(layer.isHidden())
         finally:
             layer.close()
+
+    def test_map_marker_layer_loads_filled_and_existing_multicolor_icons(
+        self,
+    ) -> None:
+        layer = MapMarkerLayer()
+        try:
+            for action_id, action in MAP_MARKER_ACTION_BY_ID.items():
+                with self.subTest(action=action_id):
+                    pixmap = layer._pictogram_pixmap(action, 64)
+                    self.assertFalse(pixmap.isNull())
+                    classic = layer._pictogram_pixmap(
+                        action,
+                        64,
+                        style="classic",
+                    )
+                    self.assertFalse(classic.isNull())
+                    if action.icon_file:
+                        image = pixmap.toImage()
+                        self.assertGreater(image.pixelColor(32, 32).alpha(), 0)
+                        self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+
+            shady = layer._pictogram_pixmap(
+                MAP_MARKER_ACTION_BY_ID["shady_guy_white"],
+                64,
+            ).toImage()
+            shady_colors = {
+                shady.pixelColor(x, y).name().upper()
+                for y in range(shady.height())
+                for x in range(shady.width())
+                if shady.pixelColor(x, y).alpha() >= 240
+            }
+            self.assertGreater(len(shady_colors), 10)
+            self.assertGreater(shady.pixelColor(32, 32).alpha(), 0)
+
+            def opaque_width(action_id: str) -> int:
+                image = layer._pictogram_pixmap(
+                    MAP_MARKER_ACTION_BY_ID[action_id],
+                    256,
+                ).toImage()
+                columns = {
+                    x
+                    for y in range(image.height())
+                    for x in range(image.width())
+                    if image.pixelColor(x, y).alpha() >= 128
+                }
+                return max(columns) - min(columns) + 1
+
+            self.assertGreaterEqual(opaque_width("boss_curse"), 170)
+            self.assertGreaterEqual(opaque_width("moai"), 175)
+
+            for action_id, background_color in (
+                ("magnet_shrine", "#0B1D42"),
+                ("challenge_shrine", "#431217"),
+            ):
+                with self.subTest(background=action_id):
+                    image = layer._pictogram_pixmap(
+                        MAP_MARKER_ACTION_BY_ID[action_id],
+                        256,
+                    ).toImage()
+                    matching_pixels = sum(
+                        image.pixelColor(x, y).name().upper()
+                        == background_color
+                        for y in range(image.height())
+                        for x in range(image.width())
+                    )
+                    self.assertGreater(matching_pixels, 1000)
+
+            egg = layer._pictogram_pixmap(
+                MAP_MARKER_ACTION_BY_ID["egg"],
+                64,
+            ).toImage()
+            egg_colors = {
+                egg.pixelColor(x, y).name().upper()
+                for y in range(egg.height())
+                for x in range(egg.width())
+                if egg.pixelColor(x, y).alpha() >= 240
+            }
+            self.assertGreater(len(egg_colors), 2)
+            self.assertIn("#FFFBEA", egg_colors)
+            self.assertIn("#55C94D", egg_colors)
+        finally:
+            layer.close()
+
+    def test_classic_style_paints_original_circle_and_dark_pictogram(self) -> None:
+        layer = MapMarkerLayer()
+        viewport = MapViewport(0, 0, 200, 200)
+        snapshot = MapMarkerSnapshot(
+            map_id=1,
+            map_open=True,
+            world_size=600,
+            viewport=viewport,
+            markers=(
+                WorldMapMarker("auto:classic", "shady_guy_white", 0, 0),
+            ),
+        )
+        layer.set_snapshot(snapshot, scale=1.0, style="classic")
+        image = QImage(200, 200, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        try:
+            layer._paint_snapshot(painter, snapshot, viewport)
+        finally:
+            if painter.isActive():
+                painter.end()
+            layer.close()
+
+        self.assertEqual(layer._style, "classic")
+        circle_fill = image.pixelColor(110, 100)
+        self.assertGreater(circle_fill.alpha(), 0)
+        self.assertLessEqual(abs(circle_fill.red() - 0x16), 1)
+        self.assertLessEqual(abs(circle_fill.green() - 0xF2), 1)
+        self.assertLessEqual(abs(circle_fill.blue() - 0x8B), 1)
+        dark_symbol = image.pixelColor(100, 100)
+        self.assertLess(dark_symbol.red(), 20)
+        self.assertLess(dark_symbol.green(), 100)
+        white_outline = image.pixelColor(114, 100)
+        self.assertGreater(white_outline.red(), 200)
+        self.assertGreater(white_outline.green(), 200)
+        self.assertGreater(white_outline.blue(), 200)
+        self.assertEqual(image.pixelColor(116, 100).alpha(), 0)
+
+    def test_map_marker_layer_paints_filled_pictogram_without_enclosing_plate(
+        self,
+    ) -> None:
+        layer = MapMarkerLayer()
+        viewport = MapViewport(0, 0, 200, 200)
+        snapshot = MapMarkerSnapshot(
+            map_id=1,
+            map_open=True,
+            world_size=600,
+            viewport=viewport,
+            markers=(
+                WorldMapMarker("auto:1", "shady_guy_white", 0, 0),
+            ),
+        )
+        image = QImage(200, 200, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        try:
+            layer._paint_snapshot(painter, snapshot, viewport)
+        finally:
+            if painter.isActive():
+                painter.end()
+            layer.close()
+
+        geometry = map_marker_screen_geometry(
+            0,
+            0,
+            world_size=600,
+            viewport=viewport,
+            scale=1.0,
+        )
+        self.assertIsNotNone(geometry)
+        center_x, center_y, icon_size = geometry
+        half = icon_size / 2.0 - 1
+        for delta_x, delta_y in (
+            (-half, -half),
+            (half, -half),
+            (-half, half),
+            (half, half),
+        ):
+            corner = image.pixelColor(
+                int(round(center_x + delta_x)),
+                int(round(center_y + delta_y)),
+            )
+            self.assertEqual(corner.alpha(), 0)
+
+        center = image.pixelColor(int(round(center_x)), int(round(center_y)))
+        self.assertGreater(center.alpha(), 0)
+
+        painted_colors = {
+            image.pixelColor(x, y).name().upper()
+            for y in range(
+                int(center_y - icon_size / 2),
+                int(center_y + icon_size / 2),
+            )
+            for x in range(
+                int(center_x - icon_size / 2),
+                int(center_x + icon_size / 2),
+            )
+            if image.pixelColor(x, y).alpha() >= 240
+        }
+        self.assertGreater(len(painted_colors), 10)
+
+    def test_map_marker_at_boundary_is_clipped_without_moving_its_center(
+        self,
+    ) -> None:
+        layer = MapMarkerLayer()
+        viewport = MapViewport(20, 30, 100, 100)
+        snapshot = MapMarkerSnapshot(
+            map_id=1,
+            map_open=True,
+            world_size=100,
+            viewport=viewport,
+            markers=(
+                WorldMapMarker("auto:edge", "shady_guy_white", -50, 50),
+            ),
+        )
+        image = QImage(160, 160, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        try:
+            layer._paint_snapshot(painter, snapshot, viewport)
+        finally:
+            if painter.isActive():
+                painter.end()
+            layer.close()
+
+        self.assertGreater(image.pixelColor(20, 30).alpha(), 0)
+        self.assertEqual(image.pixelColor(19, 30).alpha(), 0)
+        self.assertEqual(image.pixelColor(20, 29).alpha(), 0)
+        self.assertEqual(image.pixelColor(49, 49).alpha(), 0)
 
     def test_weapon_tracker_is_registered_as_one_draggable_widget(self) -> None:
         parent_mixin = SimpleNamespace(

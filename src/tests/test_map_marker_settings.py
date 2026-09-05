@@ -46,6 +46,7 @@ class MapMarkerConfigTests(unittest.TestCase):
             {
                 "enabled": False,
                 "automatic_discovery": False,
+                "style": "modern",
                 "scale": 3.0,
                 "hotkeys": [],
             },
@@ -54,6 +55,14 @@ class MapMarkerConfigTests(unittest.TestCase):
             normalize_map_marker_settings({"automatic_discovery": True})[
                 "automatic_discovery"
             ]
+        )
+        self.assertEqual(
+            normalize_map_marker_settings({"style": "classic"})["style"],
+            "classic",
+        )
+        self.assertEqual(
+            normalize_map_marker_settings({"style": "unknown"})["style"],
+            "modern",
         )
 
     def test_plain_game_controls_are_reserved_but_modified_keys_work(self) -> None:
@@ -93,6 +102,19 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
             self.assertTrue(dialog.automatic_discovery)
         finally:
             dialog.close()
+
+    def test_classic_marker_style_is_an_optional_checkbox(self) -> None:
+        modern = MapMarkerSettingsDialog([])
+        classic = MapMarkerSettingsDialog([], style="classic")
+        try:
+            self.assertEqual(modern.marker_style, "modern")
+            self.assertFalse(modern.classic_style_cb.isChecked())
+            self.assertEqual(classic.marker_style, "classic")
+            classic.classic_style_cb.setChecked(False)
+            self.assertEqual(classic.marker_style, "modern")
+        finally:
+            modern.close()
+            classic.close()
 
     def test_empty_state_text_and_add_button_use_the_available_space(self) -> None:
         dialog = MapMarkerSettingsDialog([])

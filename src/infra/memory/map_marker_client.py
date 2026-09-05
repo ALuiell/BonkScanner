@@ -238,10 +238,27 @@ class MapMarkerMemoryClient:
             current_activity=current_activity,
         )
 
-    def activity_is_active(self, object_ptr: int) -> bool:
-        tracked = self._tracked_classes.get(int(object_ptr))
+    def activity_is_active(
+        self,
+        object_ptr: int,
+        *,
+        expected_class_ptr: int | None = None,
+        expected_class_name: str | None = None,
+    ) -> bool:
+        object_ptr = int(object_ptr)
+        tracked = self._tracked_classes.get(object_ptr)
         if not tracked:
-            return False
+            # A replacement client has an empty discovery cache even though the
+            # tracker still owns valid run-scoped markers.  Rehydrate only from
+            # an identity that was previously proven through currentInteractable;
+            # callers without that proof keep the original fail-closed result.
+            if (
+                not expected_class_ptr
+                or expected_class_name not in self.ALLOWED_CLASSES
+            ):
+                return False
+            tracked = (int(expected_class_ptr), str(expected_class_name))
+            self._tracked_classes[object_ptr] = tracked
         expected_class_ptr, class_name = tracked
         if self.memory.read_ptr(object_ptr) != expected_class_ptr:
             return False

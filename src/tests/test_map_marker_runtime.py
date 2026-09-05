@@ -11,6 +11,7 @@ from core.map_markers import (
     MapViewport,
     action_id_for_interactable,
     build_marker_palette,
+    map_marker_screen_geometry,
     project_world_to_map,
     unproject_map_to_world,
 )
@@ -25,12 +26,13 @@ from infra.memory.reader import MemoryReadError
 
 
 class FakeMarkerClient:
-    def __init__(self, frames: list[MapMemoryFrame]) -> None:
+    def __init__(self, frames: list[MapMemoryFrame | Exception]) -> None:
         self.frames = list(frames)
         self.active: dict[int, bool] = {}
         self.automatic_discovery_values: list[bool] = []
         self.automatic_sample_values: list[bool] = []
         self.active_checks: list[int] = []
+        self.active_identity_checks: list[tuple[int, int | None, str | None]] = []
         self.closed = False
 
     def poll(
@@ -45,12 +47,22 @@ class FakeMarkerClient:
         _ = client_height, client_width, display_scale
         self.automatic_discovery_values.append(bool(automatic_discovery))
         self.automatic_sample_values.append(bool(sample_automatic_discovery))
-        if len(self.frames) > 1:
-            return self.frames.pop(0)
-        return self.frames[0]
+        frame = self.frames.pop(0) if len(self.frames) > 1 else self.frames[0]
+        if isinstance(frame, Exception):
+            raise frame
+        return frame
 
-    def activity_is_active(self, object_ptr: int) -> bool:
+    def activity_is_active(
+        self,
+        object_ptr: int,
+        *,
+        expected_class_ptr: int | None = None,
+        expected_class_name: str | None = None,
+    ) -> bool:
         self.active_checks.append(object_ptr)
+        self.active_identity_checks.append(
+            (object_ptr, expected_class_ptr, expected_class_name)
+        )
         return self.active.get(object_ptr, True)
 
     def close(self) -> None:
@@ -95,6 +107,46 @@ class FakeLifecycleMemory:
 
 
 class MapMarkerProjectionTests(unittest.TestCase):
+    def test_marker_scale_uses_larger_48_pixel_baseline(self) -> None:
+        viewport = MapViewport(0.0, 0.0, 600.0, 600.0)
+        expected_sizes = {
+            0.5: 24.0,
+            1.0: 48.0,
+            1.7: 82.0,
+            3.0: 144.0,
+        }
+        for scale, expected_size in expected_sizes.items():
+            with self.subTest(scale=scale):
+                geometry = map_marker_screen_geometry(
+                    0.0,
+                    0.0,
+                    world_size=600.0,
+                    viewport=viewport,
+                    scale=scale,
+                )
+                self.assertIsNotNone(geometry)
+                self.assertEqual(geometry[2], expected_size)
+
+    def test_edge_marker_keeps_exact_projected_center(self) -> None:
+        viewport = MapViewport(20.0, 30.0, 600.0, 600.0)
+        top_left = map_marker_screen_geometry(
+            -300.0,
+            300.0,
+            world_size=600.0,
+            viewport=viewport,
+            scale=1.0,
+        )
+        bottom_right = map_marker_screen_geometry(
+            300.0,
+            -300.0,
+            world_size=600.0,
+            viewport=viewport,
+            scale=1.0,
+        )
+
+        self.assertEqual(top_left, (viewport.left, viewport.top, 48.0))
+        self.assertEqual(bottom_right, (viewport.right, viewport.bottom, 48.0))
+
     def test_live_calibration_projects_to_recorded_player_arrow(self) -> None:
         viewport = MapViewport(33.333296, 286.666654, 1000.00003, 1000.00003)
         point = project_world_to_map(
@@ -158,49 +210,74 @@ class MapMarkerProjectionTests(unittest.TestCase):
         self.assertFalse(MAP_MARKER_ACTION_BY_ID["sus_bush"].manual_only)
         self.assertFalse(MAP_MARKER_ACTION_BY_ID["challenge_shrine"].manual_only)
 
-    def test_light_marker_fills_use_dark_pictograms(self) -> None:
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["microwave_white"].icon_name,
-            "microwave_dark",
-        )
-        self.assertEqual(MAP_MARKER_ACTION_BY_ID["moai"].icon_name, "moai_dark")
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["balance_shrine"].icon_name,
-            "balance_shrine_dark",
-        )
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["microwave_white"].settings_icon_name,
-            "microwave",
-        )
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["shady_guy_white"].settings_icon_name,
-            "shady_guy",
-        )
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["moai"].settings_icon_name,
-            "moai",
-        )
-        self.assertEqual(
-            MAP_MARKER_ACTION_BY_ID["balance_shrine"].settings_icon_name,
-            "balance_shrine",
-        )
+    def test_marker_actions_use_filled_pngs_except_existing_multicolor_assets(
+        self,
+    ) -> None:
+        multicolor_icons = {"egg": "egg", "sus_bush": "sus_bush"}
+        classic_icons = {
+            "magnet_shrine": "magnet_dark.svg",
+            "moai": "moai_dark.svg",
+            "balance_shrine": "balance_shrine_dark.svg",
+            "challenge_shrine": "challenge_dark.svg",
+            "boss_curse": "boss_curse_dark.svg",
+        }
+        for action_id, action in MAP_MARKER_ACTION_BY_ID.items():
+            if action_id in multicolor_icons:
+                self.assertEqual(action.icon_name, multicolor_icons[action_id])
+                self.assertEqual(action.outline_color, "#03080F")
+                self.assertIsNone(action.icon_file)
+                self.assertEqual(action.pictogram_file, f"{action_id}.svg")
+                self.assertEqual(action.classic_pictogram_file, f"{action_id}.svg")
+                continue
+            expected_name = "bald_head" if action_id == "balance_shrine" else action_id
+            self.assertEqual(action.icon_file, f"filled/{expected_name}.png")
+            self.assertEqual(action.pictogram_file, action.icon_file)
+            self.assertEqual(action.settings_pictogram_file, action.icon_file)
+            self.assertEqual(action.outline_color, "#F5F7FA")
+            expected_classic = classic_icons.get(
+                action_id,
+                "microwave_dark.svg"
+                if action.family == "microwave"
+                else "shady_guy_dark.svg",
+            )
+            self.assertEqual(action.classic_pictogram_file, expected_classic)
 
-    def test_shady_guy_uses_colored_fills_with_white_outlines(self) -> None:
+        balance = MAP_MARKER_ACTION_BY_ID["balance_shrine"]
+        self.assertEqual(balance.label, "Bald Head")
+        self.assertEqual(balance.icon_name, "bald_head")
+        self.assertEqual(balance.icon_file, "filled/bald_head.png")
+
+    def test_shady_guy_matches_neon_marker_mockup(self) -> None:
         expected_colors = {
-            "white": "#3A925F",
-            "blue": "#48A9FF",
-            "purple": "#B378FF",
-            "gold": "#F5C84B",
+            "white": "#16F28B",
+            "blue": "#00D7FF",
+            "purple": "#E04FFF",
+            "gold": "#FF9F0A",
         }
         for rarity_id, expected_color in expected_colors.items():
             action = MAP_MARKER_ACTION_BY_ID[f"shady_guy_{rarity_id}"]
             self.assertEqual(action.color, expected_color)
-            self.assertEqual(action.outline_color, "#FFFFFF")
-            self.assertEqual(action.icon_name, "shady_guy")
+            self.assertEqual(action.icon_name, f"shady_guy_{rarity_id}")
+            self.assertEqual(
+                action.icon_file,
+                f"filled/shady_guy_{rarity_id}.png",
+            )
 
         microwave = MAP_MARKER_ACTION_BY_ID["microwave_white"]
         self.assertEqual(microwave.color, "#F2F2E9")
-        self.assertEqual(microwave.outline_color, "#03080F")
+        self.assertEqual(microwave.icon_file, "filled/microwave_white.png")
+
+        magnet = MAP_MARKER_ACTION_BY_ID["magnet_shrine"]
+        self.assertEqual(magnet.color, "#3478F6")
+        self.assertEqual(magnet.icon_file, "filled/magnet_shrine.png")
+
+    def test_boss_curse_uses_red_fill_distinct_from_challenge(self) -> None:
+        challenge = MAP_MARKER_ACTION_BY_ID["challenge_shrine"]
+        boss_curse = MAP_MARKER_ACTION_BY_ID["boss_curse"]
+
+        self.assertEqual(challenge.color, "#EF6A5B")
+        self.assertEqual(boss_curse.color, "#FF3B3B")
+        self.assertNotEqual(boss_curse.color, challenge.color)
 
     def test_complete_palette_fits_small_full_map_at_large_scale(self) -> None:
         viewport = MapViewport(20.0, 30.0, 800.0, 800.0)
@@ -330,7 +407,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
 
         self.assertEqual(tracker.snapshot.markers, ())
 
-    def test_manual_marker_hit_area_uses_scaled_clamped_visual_icon(self) -> None:
+    def test_manual_marker_hit_area_uses_scaled_projected_visual_icon(self) -> None:
         client = FakeMarkerClient([self.frame()])
         tracker = MapMarkerTracker("game", client_factory=lambda _name: client)
         tracker.tick(client_height=600)
@@ -338,13 +415,13 @@ class MapMarkerTrackerTests(unittest.TestCase):
         tracker.place_manual_marker("moai", screen_x=0, screen_y=300)
         self.assertEqual(len(tracker.snapshot.markers), 1)
 
-        # A marker on the boundary is painted inward. Clicking that visible
-        # centre must remove it even though it is not the raw projected point.
+        # The centre remains on the map boundary; clicking the visible half of
+        # the clipped marker must still remove it.
         tracker.place_manual_marker(
             "moai",
-            screen_x=50,
+            screen_x=10,
             screen_y=300,
-            scale=3.0,
+            scale=1.0,
         )
         self.assertEqual(tracker.snapshot.markers, ())
 
@@ -423,6 +500,92 @@ class MapMarkerTrackerTests(unittest.TestCase):
         )
         self.assertEqual(client.automatic_discovery_values, [True] * 5)
         self.assertAlmostEqual(tracker._next_automatic_scan_at, 10.2)
+
+    def test_reconnect_rehydrates_activity_identity_without_losing_marker(self) -> None:
+        now = [10.0]
+        activity = DetectedMapActivity(
+            object_ptr=0xABC,
+            class_ptr=0x100,
+            class_name="InteractableShrineMoai",
+            action_id="moai",
+            world_x=20.0,
+            world_z=-30.0,
+        )
+        first_client = FakeMarkerClient(
+            [self.frame(activity=activity), MemoryReadError("transient poll failure")]
+        )
+        replacement_client = FakeMarkerClient([self.frame()])
+        clients = [first_client, replacement_client]
+        tracker = MapMarkerTracker(
+            "game",
+            client_factory=lambda _name: clients.pop(0),
+            clock=lambda: now[0],
+            reconnect_interval=1.0,
+            automatic_scan_interval=0.0,
+        )
+
+        discovered = tracker.tick(client_height=600, automatic_discovery=True)
+        self.assertEqual(
+            [marker.marker_id for marker in discovered.markers],
+            ["auto:ABC"],
+        )
+
+        failed = tracker.tick(client_height=600, automatic_discovery=True)
+        self.assertEqual(
+            [marker.marker_id for marker in failed.markers],
+            ["auto:ABC"],
+        )
+        self.assertTrue(first_client.closed)
+
+        now[0] = 11.0
+        recovered = tracker.tick(client_height=600, automatic_discovery=True)
+
+        self.assertEqual(
+            [marker.marker_id for marker in recovered.markers],
+            ["auto:ABC"],
+        )
+        self.assertEqual(
+            replacement_client.active_identity_checks,
+            [(0xABC, 0x100, "InteractableShrineMoai")],
+        )
+
+    def test_transient_activity_read_failure_preserves_marker(self) -> None:
+        activity = DetectedMapActivity(
+            object_ptr=0xABC,
+            class_ptr=0x100,
+            class_name="InteractableShrineMoai",
+            action_id="moai",
+            world_x=20.0,
+            world_z=-30.0,
+        )
+
+        class FlakyLifecycleClient(FakeMarkerClient):
+            def __init__(self, frames: list[MapMemoryFrame]) -> None:
+                super().__init__(frames)
+                self.fail_next_lifecycle_read = True
+
+            def activity_is_active(self, object_ptr: int, **kwargs) -> bool:
+                if self.fail_next_lifecycle_read:
+                    self.fail_next_lifecycle_read = False
+                    raise MemoryReadError("transient lifecycle failure")
+                return super().activity_is_active(object_ptr, **kwargs)
+
+        client = FlakyLifecycleClient(
+            [self.frame(activity=activity), self.frame(), self.frame()]
+        )
+        tracker = MapMarkerTracker(
+            "game",
+            client_factory=lambda _name: client,
+            automatic_scan_interval=0.0,
+        )
+
+        tracker.tick(client_height=600, automatic_discovery=True)
+        after_failure = tracker.tick(client_height=600, automatic_discovery=True)
+        after_retry = tracker.tick(client_height=600, automatic_discovery=True)
+
+        self.assertEqual(len(after_failure.markers), 1)
+        self.assertEqual(len(after_retry.markers), 1)
+        self.assertEqual(client.active_checks, [activity.object_ptr])
 
     def test_full_map_wait_keeps_client_and_recovers_on_the_next_tick(self) -> None:
         frame = self.frame(open=True)
@@ -551,6 +714,26 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         client, memory, obj = self.client("InteractableShadyGuy")
         memory.u8s[obj + client.SHADY_DONE_OFFSET] = 1
         self.assertFalse(client.activity_is_active(obj))
+
+    def test_known_identity_rehydrates_replacement_client_cache(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        object_ptr = 0x1000
+        class_ptr = 0x2000
+        memory.ptrs[object_ptr] = class_ptr
+        memory.ptrs[object_ptr + client.MANAGED_NATIVE_OFFSET] = 0x3000
+
+        self.assertTrue(
+            client.activity_is_active(
+                object_ptr,
+                expected_class_ptr=class_ptr,
+                expected_class_name="InteractableShrineMoai",
+            )
+        )
+        self.assertEqual(
+            client._tracked_classes[object_ptr],
+            (class_ptr, "InteractableShrineMoai"),
+        )
 
     def test_egg_and_bush_use_their_own_done_flags(self) -> None:
         client, memory, obj = self.client("InteractableEgg")

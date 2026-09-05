@@ -821,7 +821,11 @@ class InGameOverlay:
         setter = getattr(layer, "set_snapshot", None)
         if callable(setter):
             marker_cfg = config.IN_GAME_OVERLAY.get("map_markers", {}) or {}
-            setter(snapshot, scale=float(marker_cfg.get("scale", 1.0)))
+            setter(
+                snapshot,
+                scale=float(marker_cfg.get("scale", 1.0)),
+                style=str(marker_cfg.get("style", "modern")),
+            )
 
     def _set_map_marker_palette(self, palette) -> None:
         window = self.in_game_overlay_window

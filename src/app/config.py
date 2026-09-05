@@ -132,6 +132,7 @@ DEFAULT_IN_GAME_OVERLAY = {
     "map_markers": {
         "enabled": False,
         "automatic_discovery": False,
+        "style": "modern",
         "scale": 1.0,
         "hotkeys": [],
     },

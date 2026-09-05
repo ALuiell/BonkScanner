@@ -7,8 +7,10 @@ It observes the running game locally, evaluates each reset in real time, and can
 For most users, download the latest packaged Windows build from
 [GitHub Releases](https://github.com/ALuiell/BonkScanner/releases/latest).
 
-You can also support the project with activity and follow updates on
-[Patreon](https://www.patreon.com/cw/ALuiel).
+If you'd like to support the continued development of BonkScanner, you can grab a
+Supporter Pack or become a monthly supporter on
+[Patreon](https://www.patreon.com/cw/ALuiel). You can also make a
+[crypto donation](https://aluiell.github.io/BonkScanner/).
 
 BonkScanner uses functionality such as global hotkeys, local process memory reads,
 and a packaged `.exe` build. Because of that, some antivirus tools may warn about

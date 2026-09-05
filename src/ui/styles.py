@@ -279,6 +279,118 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     color: #607D8A;
                     border: 1px solid #263740;
                 }
+                QDialog#UpdateDialog {
+                    background: #0E1217;
+                    color: #EDF1F5;
+                    font-family: "Segoe UI";
+                    font-size: 12px;
+                }
+                QDialog#UpdateDialog QWidget {
+                    font-family: "Segoe UI";
+                }
+                QDialog#UpdateDialog QLabel#dialogTitle {
+                    font-size: 18px;
+                    font-weight: 600;
+                }
+                QDialog#UpdateDialog QLabel#dialogSubtitle {
+                    font-size: 12px;
+                    font-weight: 400;
+                }
+                QLabel#UpdateVersionBadge {
+                    color: #FF8377;
+                    background: #251719;
+                    border: 1px solid #64353A;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+                QLabel#UpdateVersionOld {
+                    color: #8A94A3;
+                    font-size: 12px;
+                    font-weight: 400;
+                }
+                QLabel#UpdateVersionArrow {
+                    color: #5C6675;
+                    font-size: 13px;
+                    font-weight: 400;
+                }
+                QLabel#UpdateVersionNew {
+                    color: #7DE68C;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+                QLabel#UpdateTrustNote {
+                    color: #6FAF86;
+                    font-size: 12px;
+                    font-weight: 400;
+                }
+                QFrame#UpdateSummaryCard {
+                    background: #101820;
+                    border: 1px solid #263746;
+                    border-radius: 10px;
+                }
+                QTextEdit#UpdateReleaseNotes {
+                    background: #0E151D;
+                    border: 1px solid #273340;
+                    border-radius: 7px;
+                    padding: 12px;
+                    color: #CBD4DE;
+                    font-family: "Segoe UI";
+                    font-size: 13px;
+                }
+                QFrame#UpdateSupportCard {
+                    background: #111821;
+                    border: 1px solid #27313D;
+                    border-left: 3px solid #FF6F61;
+                    border-radius: 8px;
+                }
+                QLabel#UpdateSupportHeart {
+                    color: #FF6F61;
+                    font-size: 15px;
+                    font-weight: 600;
+                }
+                QLabel#UpdateSupportMessage {
+                    color: #D7DEE8;
+                    font-size: 12px;
+                    font-weight: 400;
+                }
+                QPushButton#PatreonButton[updateSupportAction="true"],
+                QPushButton#CryptoButton[updateSupportAction="true"] {
+                    min-width: 0px;
+                    padding: 5px 9px;
+                    border-radius: 6px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+                QFrame#UpdateFooterRule {
+                    background: #242D38;
+                    border: none;
+                    min-height: 1px;
+                    max-height: 1px;
+                }
+                QLabel#UpdateProgressStatus {
+                    color: #EDF1F5;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+                QLabel#UpdateProgressDetail {
+                    color: #8A94A3;
+                    font-size: 11px;
+                    font-weight: 400;
+                }
+                QDialog#UpdateDialog QWidget#dialogFooter QPushButton {
+                    font-family: "Segoe UI";
+                    font-size: 12px;
+                    font-weight: 400;
+                }
+                QDialog#UpdateDialog QWidget#dialogFooter QPushButton#primary {
+                    font-weight: 600;
+                }
+                QDialog#UpdateDialog QWidget#dialogFooter QPushButton#ghost[footerEdge="true"] {
+                    font-size: 11px;
+                    font-weight: 400;
+                }
                 QPushButton#GithubButton {
                     background: #151B23;
                     color: #F0F6FC;

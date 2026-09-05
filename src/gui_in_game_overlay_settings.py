@@ -497,7 +497,8 @@ def refresh_map_marker_settings_summary(parent_mixin: Any) -> None:
         if marker_cfg.get("automatic_discovery", False)
         else "Manual only"
     )
-    summary.setText(f"{mode} · {hotkeys}")
+    style = "Classic" if marker_cfg.get("style") == "classic" else "New style"
+    summary.setText(f"{mode} · {style} · {hotkeys}")
 
 
 def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
@@ -507,12 +508,14 @@ def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
         marker_cfg.get("hotkeys", []),
         parent,
         automatic_discovery=bool(marker_cfg.get("automatic_discovery", False)),
+        style=str(marker_cfg.get("style", "modern")),
     )
     try:
         if dialog.exec() != QDialog.Accepted:
             return
         marker_cfg["hotkeys"] = dialog.bindings
         marker_cfg["automatic_discovery"] = dialog.automatic_discovery
+        marker_cfg["style"] = dialog.marker_style
         config.save_config(config.user_config)
         refresh_map_marker_settings_summary(parent_mixin)
         # Runtime registration is intentionally reached through the existing port;

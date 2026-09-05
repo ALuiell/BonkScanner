@@ -4,9 +4,10 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import src  # noqa: F401
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication, QFrame, QLabel
 
 from infra import updater
@@ -311,7 +312,7 @@ class UpdateDialogWidgetTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
-    def _dialog(self):
+    def _dialog(self, *, notes: str = "## Improvements"):
         callbacks = {}
 
         def start_download(progress, ready, failed):
@@ -320,7 +321,7 @@ class UpdateDialogWidgetTests(unittest.TestCase):
         installed = []
         dialog = update_dialog.UpdateDialog(
             None,
-            ReleaseInfo("3.2.1", "## Improvements", DOWNLOAD_URL, 100, "a" * 64),
+            ReleaseInfo("3.2.1", notes, DOWNLOAD_URL, 100, "a" * 64),
             start_download=start_download,
             install_update=installed.append,
         )
@@ -336,13 +337,254 @@ class UpdateDialogWidgetTests(unittest.TestCase):
     def test_dialog_uses_shared_chrome_and_clear_version_transition(self) -> None:
         dialog, _callbacks, _installed = self._dialog()
 
+        self.assertEqual("UpdateDialog", dialog.objectName())
         self.assertIsNotNone(dialog.findChild(QFrame, "dialogHeadRule"))
+        self.assertEqual(
+            "A new update is available",
+            dialog.findChild(QLabel, "dialogTitle").text(),
+        )
+        self.assertEqual(
+            "v3.2.1",
+            dialog.findChild(QLabel, "UpdateVersionBadge").text(),
+        )
         self.assertIsNotNone(dialog.findChild(QLabel, "UpdateVersionOld"))
         self.assertIsNotNone(dialog.findChild(QLabel, "UpdateVersionNew"))
+        self.assertIsNotNone(dialog.findChild(QFrame, "UpdateFooterRule"))
+        self.assertEqual("primary", dialog.update_button.objectName())
         self.assertEqual("Update and restart", dialog.update_button.text())
         self.assertEqual("Later", dialog.later_button.text())
         self.assertEqual("Skip v3.2.1", dialog.skip_button.text())
         self.assertTrue(dialog.skip_button.property("footerEdge"))
+
+    def test_dialog_forces_a_dark_palette_over_a_light_application_palette(self) -> None:
+        original_palette = self.app.palette()
+        light_palette = QPalette(original_palette)
+        light_palette.setColor(QPalette.Window, QColor("#FFFFFF"))
+        light_palette.setColor(QPalette.WindowText, QColor("#000000"))
+        light_palette.setColor(QPalette.Base, QColor("#FFFFFF"))
+        light_palette.setColor(QPalette.Text, QColor("#000000"))
+        self.app.setPalette(light_palette)
+        self.addCleanup(self.app.setPalette, original_palette)
+
+        dialog, _callbacks, _installed = self._dialog()
+        palette = dialog.palette()
+
+        self.assertEqual("#0e1217", palette.color(QPalette.Window).name())
+        self.assertEqual("#edf1f5", palette.color(QPalette.WindowText).name())
+        self.assertEqual("#0b0f14", palette.color(QPalette.Base).name())
+        self.assertEqual("#d7dee8", palette.color(QPalette.Text).name())
+        self.assertEqual("#2f6fb0", palette.color(QPalette.Highlight).name())
+
+    def test_dark_title_bar_is_applied_when_the_dialog_is_shown(self) -> None:
+        dialog, _callbacks, _installed = self._dialog()
+
+        with patch.object(
+            update_dialog,
+            "_enable_windows_dark_title_bar",
+            return_value=True,
+        ) as enable_dark_title_bar:
+            dialog.show()
+            self.app.processEvents()
+
+        self.assertGreaterEqual(enable_dark_title_bar.call_count, 1)
+        self.assertTrue(
+            all(call.args == (dialog,) for call in enable_dark_title_bar.call_args_list)
+        )
+        self.assertTrue(dialog._dark_title_bar_applied)
+
+    def test_dark_title_bar_requests_explicit_dwm_colours(self) -> None:
+        window = MagicMock()
+        window.winId.return_value = 123
+        set_window_attribute = MagicMock(return_value=0)
+        dwmapi = MagicMock(DwmSetWindowAttribute=set_window_attribute)
+
+        with (
+            patch.object(update_dialog.sys, "platform", "win32"),
+            patch.object(
+                update_dialog.ctypes,
+                "WinDLL",
+                return_value=dwmapi,
+                create=True,
+            ),
+        ):
+            applied = update_dialog._enable_windows_dark_title_bar(window)
+
+        self.assertTrue(applied)
+        attributes = [call.args[1].value for call in set_window_attribute.call_args_list]
+        self.assertEqual([20, 35, 36, 34], attributes)
+
+    def test_dialog_disables_subpixel_font_antialiasing(self) -> None:
+        dialog, _callbacks, _installed = self._dialog()
+
+        dialog.show()
+        self.app.processEvents()
+
+        widgets = (
+            dialog.findChild(QLabel, "dialogTitle"),
+            dialog.findChild(QLabel, "UpdateSupportMessage"),
+            dialog.update_button,
+            dialog.notes,
+        )
+        for widget in widgets:
+            with self.subTest(widget=widget.objectName() or widget.text()):
+                self.assertTrue(
+                    widget.font().styleStrategy() & QFont.NoSubpixelAntialias
+                )
+        self.assertTrue(
+            dialog.notes.document().defaultFont().styleStrategy()
+            & QFont.NoSubpixelAntialias
+        )
+
+    def test_release_notes_use_the_updater_html_stylesheet(self) -> None:
+        release_html = """
+        <h2>What's New in v3.2.1</h2>
+        <h3>ENG</h3>
+        <ul><li>Improved <code>Settings</code>.</li></ul>
+        <h3>RU</h3>
+        <p><strong>Важно:</strong> улучшены настройки.</p>
+        <hr><a href="https://example.invalid">Details</a>
+        """
+        dialog, _callbacks, _installed = self._dialog(notes=release_html)
+
+        self.assertEqual(
+            update_dialog.RELEASE_NOTES_STYLESHEET,
+            dialog.notes.document().defaultStyleSheet(),
+        )
+        for selector in ("h2", "h3", "p", "ul", "li", "code", "strong", "hr", "a"):
+            with self.subTest(selector=selector):
+                self.assertIn(f"{selector} {{", update_dialog.RELEASE_NOTES_STYLESHEET)
+        rendered_text = dialog.notes.toPlainText()
+        self.assertIn("What's New in v3.2.1", rendered_text)
+        self.assertIn("ENG", rendered_text)
+        self.assertIn("RU", rendered_text)
+
+    def test_dialog_typography_matches_the_approved_mockup(self) -> None:
+        dialog, _callbacks, _installed = self._dialog()
+        theme_path = (
+            Path(update_dialog.__file__).resolve().parents[2]
+            / "media"
+            / "bonkscanner_theme.qss"
+        )
+        theme = theme_path.read_text(encoding="utf-8")
+        dialog.setStyleSheet(theme)
+
+        expectations = (
+            (dialog.findChild(QLabel, "dialogTitle"), 18, QFont.DemiBold),
+            (dialog.findChild(QLabel, "dialogSubtitle"), 12, QFont.Normal),
+            (dialog.findChild(QLabel, "UpdateVersionBadge"), 11, QFont.DemiBold),
+            (dialog.findChild(QLabel, "UpdateVersionNew"), 12, QFont.DemiBold),
+            (dialog.findChild(QLabel, "UpdateTrustNote"), 12, QFont.Normal),
+            (dialog.findChild(QLabel, "UpdateSupportHeart"), 15, QFont.DemiBold),
+            (dialog.findChild(QLabel, "UpdateSupportMessage"), 12, QFont.Normal),
+            (dialog.patreon_button, 11, QFont.DemiBold),
+            (dialog.crypto_button, 11, QFont.DemiBold),
+            (dialog.later_button, 12, QFont.Normal),
+            (dialog.update_button, 12, QFont.DemiBold),
+            (dialog.skip_button, 11, QFont.Normal),
+        )
+        for widget, pixel_size, weight in expectations:
+            with self.subTest(widget=widget.objectName() or widget.text()):
+                widget.ensurePolished()
+                font = widget.font()
+                self.assertEqual("Segoe UI", font.family())
+                self.assertEqual(pixel_size, font.pixelSize())
+                self.assertEqual(weight, font.weight())
+
+        release_stylesheet = update_dialog.RELEASE_NOTES_STYLESHEET
+        self.assertRegex(
+            release_stylesheet,
+            r"(?s)h2\s*\{.*?font-size: 17px;.*?font-weight: 500;",
+        )
+        self.assertRegex(
+            release_stylesheet,
+            r"(?s)h3\s*\{.*?font-size: 13px;.*?font-weight: 500;",
+        )
+        self.assertRegex(release_stylesheet, r"(?s)li\s*\{.*?font-size: 13px;")
+        self.assertRegex(release_stylesheet, r"(?s)code\s*\{.*?font-size: 12px;")
+        self.assertIn("color: #CBD4DE;", release_stylesheet)
+        self.assertIn("background-color: #151F2A;", release_stylesheet)
+
+        for stylesheet_name, stylesheet in (
+            ("theme", theme),
+            ("dialog", dialog.styleSheet()),
+        ):
+            with self.subTest(stylesheet=stylesheet_name):
+                self.assertRegex(
+                    stylesheet,
+                    r"(?s)QTextEdit#UpdateReleaseNotes\s*\{"
+                    r".*?(?:background|background-color): #0E151D;"
+                    r".*?border: 1px solid #273340;"
+                    r".*?border-radius: 7px;"
+                    r".*?color: #CBD4DE;"
+                    r".*?font-size: 13px;",
+                )
+        self.assertNotIn("line-height:", release_stylesheet)
+
+    def test_support_card_uses_compact_text_routes(self) -> None:
+        dialog, _callbacks, _installed = self._dialog()
+
+        self.assertEqual(
+            update_dialog.SUPPORT_MESSAGE,
+            dialog.findChild(QLabel, "UpdateSupportMessage").text(),
+        )
+        self.assertEqual("♥", dialog.findChild(QLabel, "UpdateSupportHeart").text())
+        self.assertEqual("Patreon", dialog.patreon_button.text())
+        self.assertEqual("Crypto", dialog.crypto_button.text())
+        self.assertTrue(dialog.patreon_button.icon().isNull())
+        self.assertTrue(dialog.crypto_button.icon().isNull())
+        self.assertTrue(dialog.patreon_button.property("updateSupportAction"))
+        self.assertTrue(dialog.crypto_button.property("updateSupportAction"))
+
+    def test_support_routes_open_without_changing_the_update_decision(self) -> None:
+        dialog, _callbacks, _installed = self._dialog()
+
+        with patch.object(update_dialog, "_open_browser_page", return_value=True) as open_page:
+            dialog._open_patreon()
+            dialog._open_crypto()
+
+        self.assertEqual(
+            [
+                call(update_dialog.config.PATREON_SUPPORT_URL),
+                call(update_dialog.config.CRYPTO_SUPPORT_URL),
+            ],
+            open_page.call_args_list,
+        )
+        self.assertEqual("later", dialog.decision)
+
+    def test_failed_support_route_shows_the_url_and_keeps_the_dialog_state(self) -> None:
+        dialog, _callbacks, _installed = self._dialog()
+
+        with (
+            patch.object(update_dialog, "_open_browser_page", return_value=False),
+            patch.object(update_dialog.QMessageBox, "warning") as warning,
+        ):
+            dialog._open_patreon()
+
+        warning.assert_called_once()
+        self.assertIn(
+            update_dialog.config.PATREON_SUPPORT_URL,
+            warning.call_args.args[2],
+        )
+        self.assertEqual("later", dialog.decision)
+
+    def test_missing_crypto_url_disables_only_the_crypto_route(self) -> None:
+        with patch.object(update_dialog.config, "CRYPTO_SUPPORT_URL", ""):
+            dialog, _callbacks, _installed = self._dialog()
+
+        self.assertTrue(dialog.patreon_button.isEnabled())
+        self.assertFalse(dialog.crypto_button.isEnabled())
+        self.assertIn("coming soon", dialog.crypto_button.toolTip())
+
+    def test_support_card_remains_available_across_download_and_error_states(self) -> None:
+        dialog, callbacks, _installed = self._dialog()
+        self.assertFalse(dialog.support_card.isHidden())
+
+        dialog._begin_download()
+        self.assertFalse(dialog.support_card.isHidden())
+
+        callbacks["failed"]("network unavailable")
+        self.app.processEvents()
+        self.assertFalse(dialog.support_card.isHidden())
 
     def test_download_progress_and_verification_stay_in_the_dialog(self) -> None:
         dialog, callbacks, _installed = self._dialog()
