@@ -485,6 +485,11 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
     redesign_path = Path(resource_path("media/bonkscanner_theme.qss"))
     try:
         redesign_stylesheet = redesign_path.read_text(encoding="utf-8")
+        for variant in ("left", "right", "left_disabled", "right_disabled"):
+            chevron_path = resource_path(f"media/tab_chevron_{variant}.svg").replace("\\", "/")
+            redesign_stylesheet = redesign_stylesheet.replace(
+                f"__TAB_CHEVRON_{variant.upper()}__", chevron_path
+            )
     except OSError:
         # Keep source runs and partially upgraded installations usable even if
         # the optional redesign asset was not copied alongside the executable.

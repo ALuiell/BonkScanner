@@ -20,6 +20,108 @@ from ui.tabs.player_stats.stat_cards import (
 
 
 class LiveStatsResponsiveLayoutTests(unittest.TestCase):
+    def test_powerups_reflows_and_returns_without_losing_live_values(self) -> None:
+        script = textwrap.dedent(
+            """
+            import src
+            from pathlib import Path
+            from types import SimpleNamespace
+            from PySide6.QtGui import QFontDatabase
+            from PySide6.QtWidgets import QApplication, QGroupBox, QScrollArea, QTabWidget
+            from app import config
+            from ui.styles import build_qt_app_stylesheet
+            from ui.tabs.player_stats.live_stats import LiveStatsTab
+
+            config.save_config = lambda *args, **kwargs: None
+            app = QApplication([])
+            for filename in ("segoeui.ttf", "segoeuib.ttf", "seguisb.ttf"):
+                font_path = Path("C:/Windows/Fonts") / filename
+                if font_path.exists():
+                    QFontDatabase.addApplicationFont(str(font_path))
+            app.setStyleSheet(build_qt_app_stylesheet(''))
+            effects = tuple(
+                SimpleNamespace(name=name, remaining_seconds=149.5,
+                                pickup_ui="01:20:35", expires_ui="01:23:05")
+                for name in ("Rage", "Clock", "Shield", "Stonks")
+            )
+            tracker = SimpleNamespace(powerups_snapshot=lambda: SimpleNamespace(
+                available=True, powerup_multiplier_display="9.98x", active=effects,
+                standard_duration_seconds=150, clock_duration_seconds=120,
+            ))
+            tabview = QTabWidget()
+            view = LiveStatsTab(
+                tabview=tabview,
+                live_run_tracker=lambda: tracker,
+                vod_recorder=lambda: SimpleNamespace(is_recording=False, elapsed_label=lambda: "00:00"),
+                vod_snapshots=lambda: [], selected_snapshot_index=lambda: None,
+                recording_waiting_mode=lambda: None, ensure_live_snapshot_store=lambda: None,
+                is_recording_armed=lambda: False, on_toggle_recording=lambda: None,
+                on_snapshot_selected=lambda *args, **kwargs: None,
+            ).build()
+            view.set_stage_summary_rows([
+                dict(label=f"Stage {index}", time="01:01:14", kills="506,553",
+                     items="15 14 18 30")
+                for index in range(1, 5)
+            ])
+            view.refresh_powerups_card()
+            powerups = view._powerups_group
+            host = powerups.parentWidget()
+            stage = host.findChild(QGroupBox, "LiveStatsStageSummary")
+            run = host.findChild(QGroupBox, "LiveStatsRunSummary")
+            labels = tuple(view._powerup_labels.values())
+
+            def settle():
+                for _ in range(12):
+                    app.processEvents()
+
+            def check_width(width, below):
+                tabview.resize(width, 700)
+                tabview.show()
+                settle()
+                if below:
+                    assert powerups.y() > max(run.geometry().bottom(), stage.geometry().bottom())
+                    assert powerups.width() == host.width()
+                else:
+                    assert powerups.y() == stage.y() == run.y()
+                    assert powerups.x() > stage.geometry().right()
+                assert tuple(view._powerup_labels.values()) == labels
+                assert all(label.height() >= label.heightForWidth(label.width()) for label in labels)
+                assert not any(scroll.horizontalScrollBar().isVisible()
+                               for scroll in view.root_widget.findChildren(QScrollArea)
+                               if scroll.isVisible())
+                return len({label.x() for label in labels})
+
+            assert check_width(1800, False) == 1
+            assert check_width(970, True) == 4
+            assert check_width(660, True) == 2
+            # At the smallest available content width, each effect gets a row.
+            host.setFixedWidth(240)
+            settle()
+            assert len({label.x() for label in labels}) == 1
+            host.setMinimumWidth(0)
+            host.setMaximumWidth(16777215)
+            assert check_width(970, True) == 4
+            before = [label.geometry().getRect() for label in labels]
+            for effect in effects:
+                effect.remaining_seconds = 89
+            view.refresh_powerups_card()
+            settle()
+            assert [label.geometry().getRect() for label in labels] == before
+            assert all(label.text().endswith("01:23:05 (89s)") for label in labels)
+            assert powerups.title() == "Powerups (PM 9.98x)"
+            assert check_width(1800, False) == 1
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[2],
+            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_SCALE_FACTOR": "1"},
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_card_column_count_tracks_available_width(self) -> None:
         self.assertEqual(responsive_card_column_count(211), 1)
         self.assertEqual(responsive_card_column_count(432), 2)

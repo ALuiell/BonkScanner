@@ -51,7 +51,7 @@ from __future__ import annotations
 
 from typing import Callable, Sequence
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -133,6 +133,96 @@ def responsive_card_column_count(
     stride = max(1, int(minimum_card_width) + max(0, int(spacing)))
     columns = (usable_width + max(0, int(spacing))) // stride
     return max(1, min(max(1, int(maximum_columns)), columns))
+
+
+class _ResponsivePowerupsSummary(QWidget):
+    """Move Powerups below the summaries when the three-card row is too narrow."""
+
+    def __init__(
+        self,
+        run_summary: QGroupBox,
+        stage_summary: QGroupBox,
+        powerups: QGroupBox,
+        powerup_labels: Sequence[QLabel],
+        *,
+        parent: QWidget,
+    ) -> None:
+        super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._cards = (run_summary, stage_summary, powerups)
+        self._labels = tuple(powerup_labels)
+        self._placement: tuple[bool, int] | None = None
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(8)
+        self._powerups_grid = QGridLayout(powerups)
+        self._powerups_grid.setHorizontalSpacing(8)
+        self._powerups_margins = self._powerups_grid.contentsMargins()
+        self._reflow()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._reflow()
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.LayoutRequest:
+            self._reflow()
+        return super().event(event)
+
+    def _reflow(self) -> None:
+        run_summary, stage_summary, powerups = self._cards
+        margins = powerups.contentsMargins()
+        layout_margins = self._powerups_grid.contentsMargins()
+        insets = margins.left() + margins.right() + layout_margins.left() + layout_margins.right()
+        # Reserve room for a name and timestamp. Active effects can wrap at the
+        # arrow, without changing the column count on every countdown tick.
+        effect_width = max(
+            label.fontMetrics().horizontalAdvance(f"{label.text().split(':', 1)[0]}: 00:00:00 ->")
+            + 12
+            for label in self._labels
+        )
+        card_width = max(
+            run_summary.minimumSizeHint().width(),
+            stage_summary.minimumSizeHint().width(),
+            effect_width + insets,
+        )
+        below = self.width() < card_width * 3 + 2 * self._grid.horizontalSpacing()
+        columns = 1
+        if below:
+            columns = responsive_card_column_count(
+                self.width() - insets,
+                minimum_card_width=effect_width,
+                spacing=self._powerups_grid.horizontalSpacing(),
+            )
+            # Keep four effects balanced as one row, two pairs, or a column.
+            if columns == 3:
+                columns = 2
+        placement = (below, columns)
+        if placement == self._placement:
+            return
+        self._placement = placement
+        margins = self._powerups_margins
+        vertical_trim = 6 if below else 0
+        self._powerups_grid.setContentsMargins(
+            margins.left(),
+            max(0, margins.top() - vertical_trim),
+            margins.right(),
+            max(0, margins.bottom() - vertical_trim),
+        )
+        for card in self._cards:
+            self._grid.removeWidget(card)
+        self._grid.addWidget(run_summary, 0, 0)
+        self._grid.addWidget(stage_summary, 0, 1)
+        self._grid.addWidget(powerups, 1 if below else 0, 0 if below else 2, 1, 2 if below else 1)
+        for column, stretch in enumerate((2, 3, 0) if below else (1, 1, 1)):
+            self._grid.setColumnStretch(column, stretch)
+        for label in self._labels:
+            self._powerups_grid.removeWidget(label)
+        for index, label in enumerate(self._labels):
+            self._powerups_grid.addWidget(label, index // columns, index % columns)
+        for column in range(len(self._labels)):
+            self._powerups_grid.setColumnStretch(column, 1 if column < columns else 0)
+        self.updateGeometry()
 
 
 class _ResponsiveCardGrid(QWidget):
@@ -1076,11 +1166,7 @@ class LiveStatsTab:
         )
         items_layout.addWidget(banishes_section)
 
-        live_summary_grid = QGridLayout()
-        live_summary_grid.setContentsMargins(0, 0, 0, 0)
-        live_summary_grid.setHorizontalSpacing(8)
-        live_summary_grid.setVerticalSpacing(8)
-        chest_rate_group = QGroupBox("Run Summary")
+        chest_rate_group = QGroupBox("Run Summary", live_main)
         chest_rate_group.setObjectName("LiveStatsRunSummary")
         chest_rate_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         chest_rate_layout = QVBoxLayout(chest_rate_group)
@@ -1109,8 +1195,7 @@ class LiveStatsTab:
             self._kps_averages_label,
             self._level_label,
         )
-        live_summary_grid.addWidget(chest_rate_group, 0, 0)
-        live_stage_summary_group = QGroupBox("Stage Summary")
+        live_stage_summary_group = QGroupBox("Stage Summary", live_main)
         live_stage_summary_group.setObjectName("LiveStatsStageSummary")
         live_stage_summary_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         live_stage_summary_layout = QGridLayout(live_stage_summary_group)
@@ -1149,22 +1234,22 @@ class LiveStatsTab:
         live_stage_summary_layout.setColumnStretch(1, 2)
         live_stage_summary_layout.setColumnStretch(2, 1)
         live_stage_summary_layout.setColumnStretch(3, 1)
-        live_summary_grid.addWidget(live_stage_summary_group, 0, 1)
-        self._powerups_group = QGroupBox("Powerups")
+        self._powerups_group = QGroupBox("Powerups", live_main)
         self._powerups_group.setObjectName("LiveStatsPowerups")
         self._powerups_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        live_powerups_layout = QVBoxLayout(self._powerups_group)
         self._powerup_labels = {}
         for effect_name in ("Rage", "Clock", "Shield", "Stonks"):
-            label = QLabel(f"{effect_name}: --")
+            label = QLabel(f"{effect_name}: --", self._powerups_group)
             label.setWordWrap(True)
             _apply_summary_label_padding(label)
-            live_powerups_layout.addWidget(label)
             self._powerup_labels[effect_name] = label
-        live_summary_grid.addWidget(self._powerups_group, 0, 2)
-        for column in range(3):
-            live_summary_grid.setColumnStretch(column, 1)
-        live_main_layout.addLayout(live_summary_grid)
+        live_main_layout.addWidget(_ResponsivePowerupsSummary(
+            chest_rate_group,
+            live_stage_summary_group,
+            self._powerups_group,
+            tuple(self._powerup_labels.values()),
+            parent=live_main,
+        ))
         self._detail_tabs = FullWidthTabWidget()
         self._detail_tabs.setObjectName("subTabs")
         # The detail pages scroll their own contents. Their card grids must not

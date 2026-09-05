@@ -155,9 +155,22 @@ Implementation note:
 
 ## 4. Make The Live Stats Summary Row Responsive
 
-Status: `[Open]`
+Status: `[Partial]`
 
-Current issue:
+Implemented scope (2026-09-05):
+
+- `Powerups` stays beside the two summaries when the three cards fit. Otherwise
+  it moves below them as a full-width card, with four, two, or one effect columns
+  depending on the available content width. Widening the window restores the row.
+- The lower Powerups strip uses 6 px less inner spacing above and below its
+  effects; the side-card spacing is preserved.
+- The existing summary contents and powerup timer formats are preserved. In the
+  two-card row, `Run Summary` and `Stage Summary` share the freed width at 2:3.
+- Populated late-run data was checked at normal and narrow widths. Stage Summary
+  can still clip in very narrow windows; broader summary/card changes remain
+  outside this implementation. Recordings is unchanged.
+
+Original issue:
 
 - The top `Live Stats` row always gives equal width to `Run Summary`,
   `Stage Summary`, and `Powerups`, even though `Stage Summary` has a much wider
@@ -176,7 +189,7 @@ Goal:
 - Let the summary row adapt cleanly when less width is available instead of
   squeezing every card equally.
 
-Suggested behavior:
+Original broader proposal (not implemented):
 
 - When the three cards fit on one row, use content-aware proportions close to
   `1 : 2 : 1` for `Run Summary`, `Stage Summary`, and `Powerups`.
@@ -303,3 +316,22 @@ Acceptance checks:
   how to continue scrolling the surrounding page.
 - The layout remains stable with an empty inventory, a full inventory, and a
   populated banishes section.
+
+## 8. Blend Sub-Tab Scroll Arrows Into The Header
+
+Status: `[Implemented]`
+
+- Sub-tab scroll buttons share the header background, with rounded hover/press
+  states and thin SVG chevrons. Each button has a 24 px wide click target.
+- Existing tab scrolling and selection behavior is preserved. Checked through
+  direct Qt button calls at normal and narrow widths.
+
+## 9. Integrate Numeric Step Buttons Into Input Fields
+
+Status: `[Implemented]`
+
+- Numeric fields use one continuous outer border around the value and its step
+  buttons, with inset rounded buttons and local hover/press feedback.
+- After the Settings trial, the shared style now covers OBS Overlay, Twitch Bot
+  cooldowns, In-game Overlay widget settings, and the remaining numeric editors.
+- Numeric ranges, step sizes, and persistence behavior are unchanged.

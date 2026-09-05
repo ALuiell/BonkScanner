@@ -464,6 +464,45 @@ QTabWidget#subTabs QTabBar {
 QWidget#SubTabsCorner {
     background: transparent;
 }
+QTabWidget#subTabs QTabBar::scroller {
+    width: 48px;
+}
+QTabWidget#subTabs QTabBar QToolButton {
+    background-color: #0B0F14;
+    color: #98A7BA;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    margin: 6px 1px;
+    padding: 0;
+}
+QTabWidget#subTabs QTabBar QToolButton:hover {
+    background-color: #1B222D;
+    border-color: #2A3542;
+    color: #EDF1F5;
+}
+QTabWidget#subTabs QTabBar QToolButton:pressed {
+    background-color: #203B56;
+    border-color: #2F6FB0;
+}
+QTabWidget#subTabs QTabBar QToolButton:disabled {
+    color: #4A5462;
+}
+QTabWidget#subTabs QTabBar QToolButton::left-arrow {
+    width: 16px;
+    height: 16px;
+    image: url("__TAB_CHEVRON_LEFT__");
+}
+QTabWidget#subTabs QTabBar QToolButton::right-arrow {
+    width: 16px;
+    height: 16px;
+    image: url("__TAB_CHEVRON_RIGHT__");
+}
+QTabWidget#subTabs QTabBar QToolButton::left-arrow:disabled {
+    image: url("__TAB_CHEVRON_LEFT_DISABLED__");
+}
+QTabWidget#subTabs QTabBar QToolButton::right-arrow:disabled {
+    image: url("__TAB_CHEVRON_RIGHT_DISABLED__");
+}
 
 /* ----------------------------------------------------------- buttons ---- */
 /* secondary (по умолчанию) */
@@ -820,18 +859,22 @@ QComboBox QAbstractItemView {
     padding: 4px;
 }
 QSpinBox::up-button, QDoubleSpinBox::up-button {
-    subcontrol-origin: border; subcontrol-position: top right;
-    background: #161C24; border: none; border-top-right-radius: 8px;
-    width: 18px;
+    subcontrol-origin: padding; subcontrol-position: top right;
+    width: 22px; border: none; border-left: 1px solid #2A3542;
+    background: #141A22; border-top-right-radius: 7px;
 }
 QSpinBox::down-button, QDoubleSpinBox::down-button {
-    subcontrol-origin: border; subcontrol-position: bottom right;
-    background: #161C24; border: none; border-bottom-right-radius: 8px;
-    width: 18px;
+    subcontrol-origin: padding; subcontrol-position: bottom right;
+    width: 22px; border: none; border-left: 1px solid #2A3542;
+    background: #141A22; border-bottom-right-radius: 7px;
 }
 QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
 QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
-    background: #1B222D;
+    background: #203043;
+}
+QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
+QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {
+    background: #254F76;
 }
 QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
     width: 0; height: 0;
