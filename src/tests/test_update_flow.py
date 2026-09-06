@@ -21,8 +21,18 @@ def release(version: str) -> ReleaseInfo:
 
 
 class UpdateFlowTests(unittest.TestCase):
-    def _check(self, release_version: str, skipped_version: str, *, force=False):
+    def _check(
+        self,
+        release_version: str,
+        skipped_version: str,
+        *,
+        force=False,
+        current_version: str | None = None,
+    ):
+        if current_version is None:
+            current_version = update_flow.CURRENT_VERSION
         with (
+            patch.object(update_flow, "CURRENT_VERSION", current_version),
             patch.object(
                 update_flow.updater,
                 "frozen_exe_path",
@@ -43,6 +53,19 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertEqual("current", result.state)
         self.assertEqual(update_flow.CURRENT_VERSION, result.version)
         self.assertFalse(result.should_prompt)
+
+    def test_public_release_is_not_newer_than_its_test_revision(self):
+        result = self._check("3.1.2", "", current_version="3.1.2.1")
+
+        self.assertEqual("current", result.state)
+        self.assertEqual("3.1.2.1", result.version)
+
+    def test_next_public_release_is_newer_than_test_revision(self):
+        result = self._check("3.1.3", "", current_version="3.1.2.1")
+
+        self.assertEqual("available", result.state)
+        self.assertEqual("3.1.3", result.version)
+        self.assertTrue(result.should_prompt)
 
     def test_skipped_newer_version_remains_available_without_prompt(self):
         result = self._check("99.0.0", "99.0.0")
@@ -133,10 +156,17 @@ class UpdateFlowTests(unittest.TestCase):
             self.assertIs(result, failure)
             self.assertEqual("3.1.0", update_flow.config.SKIPPED_UPDATE_VERSION)
 
-    def test_version_parser_accepts_v_prefix_and_rejects_prerelease_text(self):
-        self.assertEqual((3, 2, 1), update_flow.parse_version("v3.2.1"))
+    def test_version_parser_normalizes_release_and_accepts_test_revision(self):
+        self.assertEqual((3, 2, 1, 0), update_flow.parse_version("v3.2.1"))
+        self.assertEqual((3, 2, 1, 4), update_flow.parse_version("3.2.1.4"))
+
+    def test_version_parser_rejects_unsupported_shapes(self):
         with self.assertRaises(ValueError):
             update_flow.parse_version("3.2.1-beta")
+        with self.assertRaises(ValueError):
+            update_flow.parse_version("3.2")
+        with self.assertRaises(ValueError):
+            update_flow.parse_version("3.2.1.4.5")
 
 
 if __name__ == "__main__":

@@ -107,6 +107,26 @@ class UpdaterBackendTests(unittest.TestCase):
         self.assertEqual(12345, release.exe_size)
         self.assertEqual(digest, release.exe_digest)
 
+    def test_release_accepts_four_part_test_version(self) -> None:
+        digest = "a" * 64
+        response = FakeResponse(
+            payload={
+                "tag_name": "v3.2.1.4",
+                "assets": [
+                    {
+                        "name": "BonkScanner.exe",
+                        "browser_download_url": DOWNLOAD_URL,
+                        "size": 12345,
+                        "digest": f"sha256:{digest}",
+                    }
+                ],
+            }
+        )
+        with patch("requests.get", return_value=response):
+            release = updater.fetch_latest_release()
+
+        self.assertEqual("3.2.1.4", release.version)
+
     def test_release_rejects_missing_digest(self) -> None:
         response = FakeResponse(
             payload={
