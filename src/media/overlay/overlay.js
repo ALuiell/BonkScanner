@@ -184,9 +184,10 @@ function renderWeaponTracker(state, widget) {
   if (!rows.length) return `<div class="muted">No Matching Weapon Stats</div>`;
   return rows.map((row) => {
     const metrics = row.metrics.map((metric) => {
-      const cap = widget.show_caps && metric.cap_text
-        ? `<small class="weapon-cap${metric.cap_reached ? " reached" : ""}" title="${escapeHtml(metric.cap_note)}">[${escapeHtml(metric.cap_text)}]</small>` : "";
-      return `<div class="stat-row"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(metric.display_value)}</strong>${cap}</div>`;
+      const displayValue = widget.show_caps
+        ? (metric.display_value_with_cap || metric.display_value)
+        : metric.display_value;
+      return `<div class="stat-row"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(displayValue)}</strong></div>`;
     }).join("");
     return `<div class="weapon-tracker-row ${widget.layout === "detailed" ? "detailed" : "compact"}">
       <div class="weapon-tracker-name">${escapeHtml(row.name)} <span class="muted">Lv.${escapeHtml(row.level)}</span></div>

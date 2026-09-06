@@ -415,7 +415,8 @@ const liveState = {
   const state = { ...liveState, widgets: { weapon_tracker: widget },
     weapon_tracker: { available: true, rows: [{ name: "Katana <test>", level: 4, metrics: [
       { key: "projectile_count", label: "PROJ", value: 25, display_value: "25",
-        cap_text: "soft cap 12 reached", cap_reached: true, cap_note: "" },
+        display_value_with_cap: "25 / 12 (SC)", cap_text: "soft cap 12 reached",
+        cap_reached: true, cap_note: "" },
       { key: "damage", label: "DMG", value: 100, display_value: "100" },
     ] }] } };
   const { t, rootEl } = makeContext({ pathname: "/overlay/weapon_tracker" });
@@ -428,10 +429,14 @@ const liveState = {
   assert.ok(!rootEl.innerHTML.includes("soft cap"));
   assert.ok(!rootEl.innerHTML.includes("DMG"));
   widget.show_caps = true;
+  t.render(state);
+  assert.ok(rootEl.innerHTML.includes("<strong>25 / 12 (SC)</strong>"));
+  assert.ok(!rootEl.innerHTML.includes("soft cap"));
+  assert.ok(!rootEl.innerHTML.includes("weapon-cap"));
+  assert.ok(rootEl.innerHTML.includes("weapon-tracker-row compact"));
   widget.layout = "detailed";
   t.render(state);
-  assert.ok(rootEl.innerHTML.includes("soft cap 12 reached"));
-  assert.ok(rootEl.innerHTML.includes("<strong>25</strong>"));
+  assert.ok(rootEl.innerHTML.includes("<strong>25 / 12 (SC)</strong>"));
   assert.ok(rootEl.innerHTML.includes("weapon-tracker-row detailed"));
   widget.selected_stats = [];
   t.render(state);

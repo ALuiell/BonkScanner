@@ -89,6 +89,17 @@ class WeaponCapsTests(unittest.TestCase):
         row = calculate_weapon_tracker_row(snapshot.weapons[0], snapshot.stats, WEAPON_TRACKER_METRIC_ORDER)
         payload = weapon_tracker_payload(snapshot)
         self.assertEqual([m["value"] for m in payload["rows"][0]["metrics"]], [m.value for m in row.metrics])
+        self.assertEqual(
+            [m["display_value_with_cap"] for m in payload["rows"][0]["metrics"]],
+            [m.overlay_value(True) for m in row.metrics],
+        )
+        payload_metrics = {
+            metric["key"]: metric for metric in payload["rows"][0]["metrics"]
+        }
+        self.assertEqual(
+            payload_metrics["projectile_count"]["display_value_with_cap"],
+            "2 / 12 (SC)",
+        )
         chat = format_effective_weapons(snapshot)
         for layout in ("compact", "detailed"):
             hidden = build_weapon_tracker_overlay_html((row,), layout=layout)
