@@ -187,9 +187,6 @@ class WeaponTrackerSettingsDialog(QDialog):
             self.metric_checkboxes[key] = checkbox
             grid_layout.addWidget(checkbox, index // 2, index % 2)
         layout.addWidget(grid_widget)
-        self.show_caps_checkbox = QCheckBox("Show caps", self)
-        self.show_caps_checkbox.setChecked(settings.get("show_caps", False))
-        layout.addWidget(self.show_caps_checkbox)
         layout.addStretch(1)
 
         cancel_btn = QPushButton("Cancel", self)
@@ -200,7 +197,6 @@ class WeaponTrackerSettingsDialog(QDialog):
 
     def _save_settings(self) -> None:
         settings = config.IN_GAME_OVERLAY["widgets"]["weapon_tracker"]
-        settings["show_caps"] = self.show_caps_checkbox.isChecked()
         settings["selected_stats"] = [
             key
             for key in WEAPON_TRACKER_METRIC_ORDER
@@ -720,6 +716,11 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
             parent_mixin._queue_igo_weapon_tracker_layout_change
         )
         row.addWidget(parent_mixin.igo_weapon_tracker_layout_combo)
+        parent_mixin.igo_weapon_tracker_caps_cb = _build_checkbox(
+            "Show caps", bool(settings.get("show_caps", False)),
+            parent_mixin._on_igo_settings_changed, parent=holder,
+        )
+        row.addWidget(parent_mixin.igo_weapon_tracker_caps_cb)
         row.addStretch(1)
         refresh_weapon_tracker_settings_summary(parent_mixin)
         return holder
@@ -867,8 +868,8 @@ def update_in_game_overlay_status_ui(parent_mixin: Any) -> None:
         _set_widget_style_role(toggle, "stopScanner" if wanted else "primary")
 
 
-def _build_checkbox(label: str, checked: bool, handler) -> QCheckBox:
-    checkbox = QCheckBox(label)
+def _build_checkbox(label: str, checked: bool, handler, *, parent=None) -> QCheckBox:
+    checkbox = QCheckBox(label, parent)
     checkbox.setChecked(checked)
     checkbox.stateChanged.connect(handler)
     return checkbox

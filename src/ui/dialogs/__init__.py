@@ -2213,10 +2213,10 @@ class TwitchCommandSettingsDialog(QDialog):
         tab_templates = QWidget()
         tab_templates_layout = QVBoxLayout(tab_templates)
 
-        templates_scroll, _, templates_scroll_layout = _make_scroll_section()
+        templates_scroll, templates_content, templates_scroll_layout = _make_scroll_section()
         tab_templates_layout.addWidget(templates_scroll)
+        templates_scroll_layout.setSpacing(10)
 
-        templates_form = QFormLayout()
         default_templates = config.DEFAULT_TWITCH_BOT.get("templates", {})
         templates_config = [
             ("bans", "!bans / !banishes:", "Bans ({count}): {items}", "Tags: {count}, {items}"),
@@ -2235,28 +2235,37 @@ class TwitchCommandSettingsDialog(QDialog):
         ]
 
         for key, label_text, default_val, help_text in templates_config:
-            current_val = config.TWITCH_BOT.get("templates", {}).get(key, default_val)
-            entry = QLineEdit(current_val)
-            self.templates_entries[key] = entry
+            card = QFrame(templates_content)
+            card.setObjectName("card")
+            entry_layout = QVBoxLayout(card)
+            entry_layout.setContentsMargins(12, 12, 12, 12)
+            entry_layout.setSpacing(8)
 
-            entry_layout = QVBoxLayout()
+            heading = QLabel(label_text.rstrip(":"), card)
+            heading.setObjectName("tableRowName")
+            entry_layout.addWidget(heading)
+
+            current_val = config.TWITCH_BOT.get("templates", {}).get(key, default_val)
+            entry = QLineEdit(current_val, card)
+            entry.setAccessibleName(f"{label_text.rstrip(':')} response template")
+            self.templates_entries[key] = entry
             entry_layout.addWidget(entry)
-            help_lbl = QLabel(f"<span style='color: #9CA3AF; font-size: 11px;'>{help_text}</span>")
+            help_lbl = QLabel(help_text, card)
+            help_lbl.setObjectName("dialogHint")
             help_lbl.setWordWrap(True)
             entry_layout.addWidget(help_lbl)
 
             if key == "weapons":
                 self.weapons_include_globals_cb = QCheckBox(
-                    "Include global stats (extended weapon output)", tab_templates,
+                    "Include global stats (extended weapon output)", card,
                 )
                 self.weapons_include_globals_cb.setChecked(
                     config.TWITCH_BOT.get("weapons_include_globals", False)
                 )
                 entry_layout.addWidget(self.weapons_include_globals_cb)
 
-            templates_form.addRow(label_text, entry_layout)
+            templates_scroll_layout.addWidget(card)
 
-        templates_scroll_layout.addLayout(templates_form)
         templates_scroll_layout.addStretch(1)
         self.tabs.addTab(tab_templates, "Response Templates")
 

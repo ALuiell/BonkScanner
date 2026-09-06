@@ -94,7 +94,8 @@ class WeaponCapsTests(unittest.TestCase):
             hidden = build_weapon_tracker_overlay_html((row,), layout=layout)
             shown = build_weapon_tracker_overlay_html((row,), layout=layout, show_caps=True)
             self.assertNotIn("cap", hidden)
-            self.assertIn("soft cap 12", shown)
+            self.assertIn("2 / 12 (SC)", shown)
+            self.assertNotIn("soft cap", shown)
             for metric in row.metrics:
                 self.assertIn(metric.display_value, hidden)
                 self.assertIn(metric.display_value, shown)
@@ -102,3 +103,24 @@ class WeaponCapsTests(unittest.TestCase):
         self.assertNotIn("cap", chat)
         self.assertFalse(weapon_tracker_payload(None)["available"])
         self.assertEqual(weapon_tracker_payload(SimpleNamespace(weapons=(), weapons_available=True))["rows"], [])
+
+    def test_native_cap_display_uses_value_slash_cap_for_soft_and_hard_caps(self):
+        soft = calculate_weapon_tracker_row(
+            _weapon(weapon_id=23, upgrade_stat_ids=(16,), values={16: 4}),
+            _globals(**{"Projectile Count": 1, "Attack Speed": 2}),
+            ("projectile_count",),
+        ).metrics[0]
+        hard = calculate_weapon_tracker_row(
+            _weapon(
+                weapon_id=5,
+                upgrade_stat_ids=(10,),
+                values={10: 2},
+                max_duration=8,
+            ),
+            _globals(Duration=2),
+            ("duration",),
+        ).metrics[0]
+
+        self.assertEqual(soft.overlay_value(True), "5 / 12 (SC)")
+        self.assertEqual(hard.overlay_value(True), "4s / 8s (HC)")
+        self.assertEqual(soft.overlay_value(False), "5")

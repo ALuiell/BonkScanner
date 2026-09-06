@@ -100,8 +100,11 @@ class WeaponTrackerMetric:
         return f"{kind} cap {format_weapon_tracker_value(self.key, self.cap.value)}{reached}"
 
     def overlay_value(self, show_caps: bool = False) -> str:
-        annotation = self.cap_text if show_caps else ""
-        return f"{self.display_value} [{annotation}]" if annotation else self.display_value
+        if not show_caps or self.cap.value is None:
+            return self.display_value
+        cap_value = format_weapon_tracker_value(self.key, self.cap.value)
+        cap_label = "HC" if self.cap.kind == "hard" else "SC"
+        return f"{self.display_value} / {cap_value} ({cap_label})"
 
 
 @dataclass(frozen=True, slots=True)

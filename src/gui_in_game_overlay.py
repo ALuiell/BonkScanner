@@ -1304,6 +1304,10 @@ class InGameOverlay:
             widgets["weapon_tracker"]["layout"] = (
                 self.igo_weapon_tracker_layout_combo.currentData() or "compact"
             )
+        if getattr(self, "igo_weapon_tracker_caps_cb", None) is not None:
+            widgets["weapon_tracker"]["show_caps"] = (
+                self.igo_weapon_tracker_caps_cb.isChecked()
+            )
 
         marker_cfg = cfg.setdefault("map_markers", {})
         if self.igo_map_markers_cb is not None:

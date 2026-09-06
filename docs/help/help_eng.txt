@@ -64,7 +64,7 @@ The `Live Stats` tab shows:
 
 Additional tabs inside `Live Stats`:
 - `Stats` - main character stats;
-- `Weapons` - current weapons, their levels, and upgraded weapon stats;
+- `Weapons` - current weapons, their levels, and upgraded weapon stats. Each row shows the muted weapon value under `Weapon`, then its brighter value with global stats under `With globals`, separated by `/`. A dash in the second column means that value is unavailable or its calculation is not supported;
 - `Tomes` - current tomes, their levels, and active effects;
 - `Chaos` - Chaos Tome level and total stat bonuses recovered from tracked rolls;
 - `Damage Sources` - detailed statistics for each damage source/weapon.
@@ -152,6 +152,8 @@ Twitch Bot
 ----------
 The `Twitch Bot` tab runs a built-in Twitch IRC chat bot for your channel.
 This allows chat viewers to inquire about your current progress in real time!
+
+In `Command Settings` → `Response Templates`, each command has its own card with the response template, supported tags, and related options. Use `Save Settings` to apply changes or `Cancel` to discard them.
 
 How to configure:
 1. Go to the `Twitch Bot` tab.

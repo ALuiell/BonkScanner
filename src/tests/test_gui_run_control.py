@@ -7308,7 +7308,9 @@ class GuiRunControlTests(unittest.TestCase):
             config, "IN_GAME_OVERLAY", self._weapon_tracker_overlay_cfg(show_caps=True)
         ):
             overlay._overlay_fast_tick()
-        self.assertIn("soft cap 12", widget.set_text.call_args.args[0])
+        cap_html = widget.set_text.call_args.args[0]
+        self.assertIn("2 / 12 (SC)", cap_html)
+        self.assertNotIn("soft cap", cap_html)
 
     def test_weapon_tracker_fast_tick_uses_all_edit_layout_placeholders(self) -> None:
         cases = (

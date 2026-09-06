@@ -171,6 +171,65 @@ class _StatValueRow(QWidget):
         _set_text(self._value_label, value)
 
 
+class _WeaponStatValueRow(_StatValueRow):
+    """Keep live weapon and effective values in aligned, distinct columns."""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self._original_name_style = self._name_label.styleSheet()
+        self._original_value_style = self._value_label.styleSheet()
+        self._weapon_value_label = QLabel(self)
+        self._weapon_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._weapon_value_label.setStyleSheet(
+            "font-size: 13px; color: #98A7BA; background: transparent;"
+        )
+        self._separator_label = QLabel("/", self)
+        self._separator_label.setAlignment(Qt.AlignCenter)
+        self._separator_label.setFixedWidth(8)
+        self._separator_label.setStyleSheet(
+            "font-size: 12px; color: #64748B; background: transparent;"
+        )
+        self.layout().insertWidget(1, self._weapon_value_label)
+        self.layout().insertWidget(2, self._separator_label)
+        self._weapon_value_label.hide()
+        self._separator_label.hide()
+
+    def set_values(self, name: str, value: str) -> None:
+        super().set_values(name, value)
+        self._weapon_value_label.hide()
+        self._separator_label.hide()
+        self._value_label.setMinimumWidth(0)
+        self._name_label.setStyleSheet(self._original_name_style)
+        self._value_label.setStyleSheet(self._original_value_style)
+        self.setToolTip("")
+
+    def set_pair_values(self, name: str, weapon_value: str, effective_value: str | None) -> None:
+        super().set_values(name, effective_value if effective_value is not None else "—")
+        _set_text(self._weapon_value_label, weapon_value)
+        self._name_label.setStyleSheet(
+            "font-size: 13px; color: #B5C0CE; background: transparent;"
+        )
+        self._value_label.setStyleSheet(
+            self._original_value_style if effective_value is not None
+            else "font-size: 14px; color: #64748B; background: transparent;"
+        )
+        self._weapon_value_label.show()
+        self._separator_label.show()
+
+    def set_column_widths(self, weapon_width: int, effective_width: int) -> None:
+        self._weapon_value_label.setMinimumWidth(weapon_width)
+        self._value_label.setMinimumWidth(effective_width)
+
+
+def _live_weapon_value(stat) -> str:
+    """Normalize live units without changing stored or historical values."""
+    value = str(stat.display_value)
+    if value.endswith("x"):
+        # Duration's legacy card format is a multiplier, but W[10] is seconds.
+        return f"{value[:-1]}s" if stat.stat_id == 10 else f"×{value[:-1]}"
+    return value
+
+
 class _WeaponCard(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -202,35 +261,9 @@ class _WeaponCard(QFrame):
         layout.addLayout(self._rows_layout)
         self._empty_label = QLabel("No upgraded stats decoded")
         layout.addWidget(self._empty_label)
-        self._effective_section = None
         layout.addStretch(1)
         self._row_ids: tuple[object, ...] = ()
-        self._row_widgets: list[_StatValueRow] = []
-
-    def _ensure_effective_section(self) -> None:
-        if self._effective_section is not None:
-            return
-        # Recordings shares this card but does not opt into the new live view.
-        # Allocate these widgets only when Live Stats supplies global values.
-        self._weapon_heading = QLabel("Weapon", self)
-        self._weapon_heading.setStyleSheet(self._level_label.styleSheet())
-        self.layout().insertWidget(1, self._weapon_heading)
-        self._effective_section = QWidget(self)
-        effective_layout = QVBoxLayout(self._effective_section)
-        effective_layout.setContentsMargins(0, 4, 0, 0)
-        effective_layout.setSpacing(6)
-        heading = QLabel("With global stats", self._effective_section)
-        heading.setStyleSheet(self._level_label.styleSheet())
-        effective_layout.addWidget(heading)
-        self._effective_rows = {}
-        for key in WEAPON_TRACKER_METRIC_ORDER:
-            row = _StatValueRow(self._effective_section)
-            effective_layout.addWidget(row)
-            self._effective_rows[key] = row
-        self._effective_empty = QLabel("Effective stats unavailable", self._effective_section)
-        effective_layout.addWidget(self._effective_empty)
-        self._effective_section.hide()
-        self.layout().insertWidget(self.layout().count() - 1, self._effective_section)
+        self._row_widgets: list[_WeaponStatValueRow] = []
 
     def update_weapon(self, weapon: WeaponSnapshot, effective=None, *, show_effective=False) -> None:
         _set_text(self._name_label, str(weapon.name))
@@ -246,25 +279,55 @@ class _WeaponCard(QFrame):
             _clear_layout(self._rows_layout)
             self._row_widgets = []
             for _stat_id, _stat in stats:
-                row = _StatValueRow()
+                row = _WeaponStatValueRow(self)
                 self._rows_layout.addWidget(row)
                 self._row_widgets.append(row)
-        for row, (_stat_id, stat) in zip(self._row_widgets, stats):
-            row.set_values(str(stat.label), str(stat.display_value))
+        metrics = {metric.stat_id: metric for metric in effective.metrics} if effective else {}
+        supported_ids = {spec.stat_id for spec in WEAPON_TRACKER_METRICS.values()}
+        for row, (stat_id, stat) in zip(self._row_widgets, stats):
+            value = str(stat.display_value)
+            if show_effective:
+                metric = metrics.get(stat_id)
+                row.set_pair_values(
+                    str(stat.label), _live_weapon_value(stat),
+                    metric.display_value if metric is not None else None,
+                )
+                if stat_id in supported_ids:
+                    tooltip = "Weapon value / Value with global stats"
+                    if metric is None:
+                        tooltip += " (unavailable)"
+                else:
+                    tooltip = "Value with global stats is not calculated for this stat"
+                row.setToolTip(tooltip)
+            else:
+                row.set_values(str(stat.label), value)
         self._empty_label.setVisible(not stats)
+        if show_effective and self._weapon_heading is None:
+            # Recordings keeps its original card, without a live-value legend.
+            self._weapon_heading = _WeaponStatValueRow(self)
+            self._weapon_heading.set_pair_values("", "Weapon", "With globals")
+            self._weapon_heading._separator_label.setText("")
+            for label in (
+                self._weapon_heading._weapon_value_label,
+                self._weapon_heading._value_label,
+            ):
+                label.setStyleSheet(
+                    "font-size: 11px; color: #98A7BA; background: transparent;"
+                )
+            self.layout().insertWidget(1, self._weapon_heading)
+        if self._weapon_heading is not None:
+            self._weapon_heading.setVisible(show_effective and bool(stats))
         if show_effective:
-            self._ensure_effective_section()
-        if self._effective_section is None:
-            return
-        self._weapon_heading.setVisible(show_effective)
-        self._effective_section.setVisible(show_effective)
-        metrics = {metric.key: metric for metric in effective.metrics} if effective else {}
-        for key, row in self._effective_rows.items():
-            metric = metrics.get(key)
-            if metric is not None:
-                row.set_values(WEAPON_TRACKER_METRICS[key].player_stat_label, metric.display_value)
-            row.setVisible(metric is not None)
-        self._effective_empty.setVisible(not metrics)
+            rows = [self._weapon_heading, *self._row_widgets]
+            widths = [
+                max(
+                    label.fontMetrics().horizontalAdvance(label.text()) + 2
+                    for row in rows for label in (getattr(row, attribute),)
+                )
+                for attribute in ("_weapon_value_label", "_value_label")
+            ]
+            for row in rows:
+                row.set_column_widths(*widths)
 
 
 class _TomeCard(QFrame):
@@ -874,6 +937,7 @@ class StatCardsView:
         self._expanded_stat_labels = bool(expanded_stat_labels)
 
         self._weapon_signature = None
+        self._weapon_pairs_enabled = False
         self._tome_signature = None
         self._chaos_signature = None
         self._shrine_signature = None
@@ -980,6 +1044,7 @@ class StatCardsView:
             return
 
         self._weapon_signature = signature
+        self._weapon_pairs_enabled = general_stats is not None
 
         if status_text is not None:
             _set_text(status_label, status_text)
@@ -997,7 +1062,7 @@ class StatCardsView:
             _clear_layout(layout)
             self._weapon_grid = _ResponsiveStatCardGrid(
                 object_name="WeaponCardGrid",
-                column_count=lambda _width: 2,
+                column_count=lambda width: 1 if self._weapon_pairs_enabled and width < 600 else 2,
                 minimum_card_width=160,
                 spacing=8,
                 maximum_columns=2,
