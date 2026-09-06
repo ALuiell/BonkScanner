@@ -9,7 +9,16 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import src
-from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QFrame,
+    QGroupBox,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
 from app import config
 from app.config_repository import ConfigRepository
 from core.overlay_config import widget_config_by_id
@@ -105,6 +114,19 @@ class WeaponIntegrationTests(unittest.TestCase):
         self.addCleanup(overlay.overlay_preview_timer.stop)
 
         def edit(_dialog):
+            weapon_group = next(
+                group
+                for group in _dialog.findChildren(QGroupBox)
+                if group.title() == "Weapon Tracker"
+            )
+            section_titles = [
+                label.text()
+                for label in weapon_group.findChildren(QLabel, "settingsSubsectionTitle")
+            ]
+            self.assertEqual(section_titles, ["APPEARANCE", "CAP DISPLAY", "DISPLAYED STATS"])
+            self.assertEqual(
+                len(weapon_group.findChildren(QFrame, "settingsSubsectionDivider")), 2
+            )
             self.assertFalse(overlay.overlay_weapon_options["show_caps"].isChecked())
             overlay.overlay_widget_checkboxes["weapon_tracker"].setChecked(True)
             overlay.overlay_weapon_options["show_caps"].setChecked(True)

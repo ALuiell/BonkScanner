@@ -698,6 +698,22 @@ QLabel#settingsCardTitle { font-size: 13px; font-weight: 700; color: #EDF1F5; }
 QLabel#settingsCardSubtitle { color: #5C6675; font-size: 10.5px; }
 QWidget#settingsCardBody { background: transparent; }
 
+/* Quiet subsections inside an existing settings card. The divider matches the
+   card border so it groups controls without introducing nested boxes. */
+QLabel#settingsSubsectionTitle {
+    color: #5C6675;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    background: transparent;
+}
+QFrame#settingsSubsectionDivider {
+    background-color: #1B222B;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}
+
 /* Обёртка вокруг нескольких контролов одной строки — поле плюс суффикс, спинбокс
    плюс подпись, четыре чекбокса опций. Голый QWidget красится в #0E1217 общим
    правилом окна, а тело карточки — #0B0F14, поэтому такая обёртка проступала

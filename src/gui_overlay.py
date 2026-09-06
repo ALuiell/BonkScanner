@@ -78,6 +78,22 @@ _URL_FIELD_CHROME = 20
 #: button. The mode picker above it is held to this so the two line up.
 _SOURCE_ROW_MAX_WIDTH = 690
 
+
+def _settings_subsection_title(text: str, parent: QWidget) -> QLabel:
+    """Small muted heading used to separate related controls inside a card."""
+    label = QLabel(str(text).upper(), parent)
+    label.setObjectName("settingsSubsectionTitle")
+    return label
+
+
+def _settings_subsection_divider(parent: QWidget) -> QFrame:
+    """Theme-controlled hairline between settings subsections."""
+    line = QFrame(parent)
+    line.setObjectName("settingsSubsectionDivider")
+    line.setFixedHeight(1)
+    return line
+
+
 def _fit_url_field(field) -> None:
     """Ask for the width this URL actually needs, up to the cap.
 
@@ -715,29 +731,54 @@ class Overlay:
 
         weapon_group = QGroupBox("Weapon Tracker", advanced_tab)
         weapon_layout = QVBoxLayout(weapon_group)
+        weapon_layout.setSpacing(10)
         weapon_cfg = self._overlay_widget_config_by_id().get("weapon_tracker", {})
-        self.overlay_weapon_checkboxes = {}
-        metric_grid = QGridLayout()
-        for index, key in enumerate(WEAPON_TRACKER_METRIC_ORDER):
-            checkbox = QCheckBox(WEAPON_TRACKER_METRICS[key].player_stat_label, weapon_group)
-            checkbox.setChecked(key in weapon_cfg.get("selected_stats", ()))
-            self.overlay_weapon_checkboxes[key] = checkbox
-            metric_grid.addWidget(checkbox, index // 2, index % 2)
-        weapon_layout.addLayout(metric_grid)
+
+        weapon_layout.addWidget(_settings_subsection_title("Appearance", weapon_group))
         self.overlay_weapon_options = {}
-        for key, caption in (("show_caps", "Show caps"), ("show_header", "Show header"),
-                             ("show_border", "Show border"), ("background_opacity", "Show background")):
+        for key, caption in (
+            ("show_header", "Show header"),
+            ("show_border", "Show border"),
+            ("background_opacity", "Show background"),
+        ):
             checkbox = QCheckBox(caption, weapon_group)
             checkbox.setChecked(bool(weapon_cfg.get(key, False)))
             self.overlay_weapon_options[key] = checkbox
             weapon_layout.addWidget(checkbox)
+
+        layout_row = QHBoxLayout()
+        layout_row.setSpacing(10)
+        layout_row.addWidget(QLabel("Layout", weapon_group))
         self.overlay_weapon_layout_combo = QComboBox(weapon_group)
         self.overlay_weapon_layout_combo.addItem("Compact", "compact")
         self.overlay_weapon_layout_combo.addItem("Detailed", "detailed")
         self.overlay_weapon_layout_combo.setCurrentIndex(
             max(0, self.overlay_weapon_layout_combo.findData(weapon_cfg.get("layout", "compact")))
         )
-        weapon_layout.addWidget(self.overlay_weapon_layout_combo)
+        layout_row.addWidget(self.overlay_weapon_layout_combo, 1)
+        weapon_layout.addLayout(layout_row)
+
+        weapon_layout.addWidget(_settings_subsection_divider(weapon_group))
+        weapon_layout.addWidget(_settings_subsection_title("Cap display", weapon_group))
+        show_caps = QCheckBox("Show caps", weapon_group)
+        show_caps.setChecked(bool(weapon_cfg.get("show_caps", False)))
+        self.overlay_weapon_options["show_caps"] = show_caps
+        weapon_layout.addWidget(show_caps)
+
+        weapon_layout.addWidget(_settings_subsection_divider(weapon_group))
+        weapon_layout.addWidget(_settings_subsection_title("Displayed stats", weapon_group))
+        self.overlay_weapon_checkboxes = {}
+        metric_grid = QGridLayout()
+        metric_grid.setHorizontalSpacing(24)
+        metric_grid.setVerticalSpacing(8)
+        for index, key in enumerate(WEAPON_TRACKER_METRIC_ORDER):
+            checkbox = QCheckBox(WEAPON_TRACKER_METRICS[key].player_stat_label, weapon_group)
+            checkbox.setChecked(key in weapon_cfg.get("selected_stats", ()))
+            self.overlay_weapon_checkboxes[key] = checkbox
+            metric_grid.addWidget(checkbox, index // 2, index % 2)
+        metric_grid.setColumnStretch(0, 1)
+        metric_grid.setColumnStretch(1, 1)
+        weapon_layout.addLayout(metric_grid)
         # Connect only after every control has its saved value.
         for checkbox in (*self.overlay_weapon_checkboxes.values(), *self.overlay_weapon_options.values()):
             checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())

@@ -116,6 +116,7 @@ OBS Overlay
 - Recording is not required. The overlay uses live stats reads and can work while `.jsonl` recording is off.
 - Widget selection controls what appears on stream. Available widgets are `Stage Summary`, `Tracked Items`, `Stats`, `KPS`, and `Banishes`.
 - **KPS Widget Settings**: For the KPS overlay widget, you can toggle its background opacity, headers, and customize the metrics shown (Current KPS, 60s Avg, 5m Avg, and Run Avg).
+- **Weapon Tracker Widget Settings**: Appearance, cap display, and displayed-stat controls are grouped into separate sections inside the widget card.
 - Tracked items count selected item gains, such as first-map item luck. Search for an item, choose whether it should count `Map 1 only`, then add it to the tracked list.
 - The Tracked Items widget uses its own custom list by default. Enable `Use Session Stats tracked items` to show the same counters as `Session Stats` without deleting the custom overlay list.
 - The overlay page is transparent, so OBS should show only the compact text/widgets over the game instead of a large solid background.
