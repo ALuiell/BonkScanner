@@ -439,6 +439,10 @@ body {
   color: var(--hud-cyan);
 }
 
+.weapon-tracker-widget .panel-title {
+  color: var(--hud-yellow);
+}
+
 .weapon-tracker-row {
   margin-bottom: calc(8px * var(--scale));
 }

@@ -92,5 +92,21 @@ class BuildProgressionColorTests(unittest.TestCase):
         self.assertIn("#F97316", self._rule(".build-row.late .build-time"))
 
 
+class WeaponTrackerColorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        css = CSS_PATH.read_text(encoding="utf-8")
+        cls.css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    def test_title_uses_standard_hud_yellow(self) -> None:
+        match = re.search(
+            r"^[ \t]*\.weapon-tracker-widget \.panel-title\s*\{(?P<body>.*?)\}",
+            self.css,
+            re.M | re.S,
+        )
+        self.assertIsNotNone(match, "missing Weapon Tracker title CSS rule")
+        self.assertIn("color: var(--hud-yellow)", match.group("body"))
+
+
 if __name__ == "__main__":
     unittest.main()
