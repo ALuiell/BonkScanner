@@ -336,9 +336,10 @@ class TestTwitchBotWorker(unittest.TestCase):
         )
         self.bot.log_message.emit.assert_called_once()
 
-    def test_access_denial_has_a_fixed_reason_log(self):
+    def test_access_denial_replies_in_chat_and_has_a_fixed_reason_log(self):
         from app import config
 
+        self.bot.sock = MagicMock()
         settings = {
             "access_tier": "Mods & VIPs",
             "global_cooldown_seconds": 0,
@@ -347,14 +348,70 @@ class TestTwitchBotWorker(unittest.TestCase):
         }
         line = "@badges=subscriber/1 :user!user@host PRIVMSG #channel :!scanner"
 
-        with patch.dict(config.TWITCH_BOT, settings):
+        with patch.dict(config.TWITCH_BOT, settings), patch(
+            "time.monotonic", return_value=100.0
+        ):
             self.bot._handle_line(line, "channel")
 
-        self.bot.log_message.emit.assert_called_with(
-            "[TWITCH COMMAND SKIPPED] @user: !scanner; access tier 'Mods & VIPs' denied this user.",
+        self.bot.sock.sendall.assert_called_once_with(
+            b"PRIVMSG #channel :@user, you don't have permission to use !scanner "
+            b"(required: Mods & VIPs).\r\n"
+        )
+        self.bot.log_message.emit.assert_called_once_with(
+            "[TWITCH COMMAND SKIPPED] @user: !scanner; access tier 'Mods & VIPs' denied this user; "
+            "denial response written to chat.",
             "warning",
         )
-        self.bot.log_message.emit.assert_called_once()
+        self.assertEqual(self.bot.last_command_times, {})
+        self.assertEqual(self.bot.last_global_command_time, 0.0)
+
+    def test_access_denial_reply_has_a_per_user_anti_spam_cooldown(self):
+        from app import config
+
+        self.bot.sock = MagicMock()
+        settings = {
+            "access_tier": "Mods & VIPs",
+            "global_cooldown_seconds": 0,
+            "cooldown_seconds": 0,
+            "commands": {"scanner": True},
+        }
+        first_user = "@badges=subscriber/1 :user!user@host PRIVMSG #channel :!scanner"
+        second_user = "@badges=subscriber/1 :other!other@host PRIVMSG #channel :!scanner"
+
+        with patch.dict(config.TWITCH_BOT, settings), patch(
+            "time.monotonic", side_effect=[100.0, 101.0, 102.0, 130.0]
+        ):
+            self.bot._handle_line(first_user, "channel")
+            self.bot._handle_line(first_user, "channel")
+            self.bot._handle_line(second_user, "channel")
+            self.bot._handle_line(first_user, "channel")
+
+        self.assertEqual(self.bot.sock.sendall.call_count, 3)
+        self.bot.log_message.emit.assert_any_call(
+            "[TWITCH COMMAND SKIPPED] @user: !scanner; access tier 'Mods & VIPs' denied this user; "
+            "denial response suppressed by per-user anti-spam cooldown.",
+            "warning",
+        )
+
+    def test_access_denial_reply_failure_is_visible_in_the_log(self):
+        from app import config
+
+        settings = {
+            "access_tier": "Mods & VIPs",
+            "commands": {"scanner": True},
+        }
+        line = "@badges=subscriber/1 :user!user@host PRIVMSG #channel :!scanner"
+
+        with patch.dict(config.TWITCH_BOT, settings), patch(
+            "time.monotonic", return_value=100.0
+        ):
+            self.bot._handle_line(line, "channel")
+
+        self.bot.log_message.emit.assert_called_once_with(
+            "[TWITCH COMMAND SKIPPED] @user: !scanner; access tier 'Mods & VIPs' denied this user; "
+            "denial response write failed: connection unavailable.",
+            "error",
+        )
 
     def test_chat_send_failure_is_not_reported_as_success(self):
         from app import config

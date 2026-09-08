@@ -85,6 +85,8 @@ TWITCH_NOTICE_EXPLANATIONS = {
     "msg_banned": "Twitch rejected the outgoing message because the bot account is banned from the channel.",
 }
 
+ACCESS_DENIED_REPLY_COOLDOWN_SECONDS = 30.0
+
 
 # The One Ring reaches this file under four spellings: the enum's `GoldenRing`,
 # the scanner's `Golden Ring`, the display name the memory client formats
@@ -147,6 +149,7 @@ class TwitchBotWorker(QThread):
         self._pool_lines_used_this_run: dict[str, list[str]] = {}
         self.last_command_times: dict[str, float] = {}
         self.last_global_command_time: float = 0.0
+        self._access_denied_reply_times: dict[str, float] = {}
         self._active_command: str | None = None
         self._active_send_count = 0
         self._active_send_error: str | None = None
@@ -374,7 +377,14 @@ class TwitchBotWorker(QThread):
             return False
         return True
 
-    def _send_chat(self, channel: str, msg: str):
+    def _write_chat(
+        self,
+        channel: str,
+        msg: str,
+        *,
+        purpose: str,
+        log_failure: bool,
+    ) -> bool:
         full_prefix = f"PRIVMSG #{channel} :"
         suffix = "\r\n"
         max_msg_bytes = 512 - len(full_prefix.encode("utf-8")) - len(suffix.encode("utf-8"))
@@ -382,15 +392,23 @@ class TwitchBotWorker(QThread):
         if len(encoded_msg) > max_msg_bytes:
             msg = encoded_msg[:max_msg_bytes].decode("utf-8", errors="ignore")
 
+        return self._send(
+            f"PRIVMSG #{channel} :{msg}",
+            purpose=purpose,
+            failure_event="TWITCH CHAT FAILED",
+            log_failure=log_failure,
+        )
+
+    def _send_chat(self, channel: str, msg: str):
         if self._active_command:
             purpose = f"Response for {self._active_command}"
         else:
             purpose = "Automated chat message"
 
-        sent = self._send(
-            f"PRIVMSG #{channel} :{msg}",
+        sent = self._write_chat(
+            channel,
+            msg,
             purpose=purpose,
-            failure_event="TWITCH CHAT FAILED",
             log_failure=self._active_command is None,
         )
         if self._active_command:
@@ -404,6 +422,39 @@ class TwitchBotWorker(QThread):
                 "success",
             )
         return sent
+
+    def _send_access_denied_reply(
+        self,
+        channel: str,
+        sender: str,
+        cmd: str,
+        tier: str,
+    ) -> tuple[str, str | None]:
+        now = time.monotonic()
+        sender_key = sender.casefold()
+        last_reply_at = self._access_denied_reply_times.get(sender_key)
+        if (
+            last_reply_at is not None
+            and now - last_reply_at < ACCESS_DENIED_REPLY_COOLDOWN_SECONDS
+        ):
+            return "throttled", None
+
+        # Record the attempt as well as successful sends. If Twitch is dropping
+        # writes, repeated denied commands must not turn into a retry storm.
+        self._access_denied_reply_times[sender_key] = now
+        message = (
+            f"@{sender}, you don't have permission to use {cmd} "
+            f"(required: {tier})."
+        )
+        sent = self._write_chat(
+            channel,
+            message,
+            purpose=f"Access-denied response for @{sender}: {cmd}",
+            log_failure=False,
+        )
+        if sent:
+            return "sent", None
+        return "failed", self._last_send_error or "unknown socket write error"
 
     def _handle_line(self, line: str, channel: str):
         if line.startswith("PING"):
@@ -471,9 +522,25 @@ class TwitchBotWorker(QThread):
 
         if not self._check_access(tags_str):
             tier = config.TWITCH_BOT.get("access_tier", "Everyone")
+            reply_status, reply_error = self._send_access_denied_reply(
+                channel,
+                sender,
+                cmd,
+                tier,
+            )
+            if reply_status == "sent":
+                reply_detail = "denial response written to chat."
+                severity = "warning"
+            elif reply_status == "throttled":
+                reply_detail = "denial response suppressed by per-user anti-spam cooldown."
+                severity = "warning"
+            else:
+                reply_detail = f"denial response write failed: {reply_error}."
+                severity = "error"
             self._log_event(
-                f"[TWITCH COMMAND SKIPPED] {subject}; access tier '{tier}' denied this user.",
-                "warning",
+                f"[TWITCH COMMAND SKIPPED] {subject}; access tier '{tier}' denied this user; "
+                f"{reply_detail}",
+                severity,
             )
             return
 
