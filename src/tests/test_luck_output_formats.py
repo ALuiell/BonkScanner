@@ -179,6 +179,17 @@ class TwitchLuckLineTests(unittest.TestCase):
         self.assertIn("Legendary --", line)
         self.assertNotIn("0.00%", line)
 
+    def test_completed_run_uses_the_luck_saved_in_its_last_snapshot(self) -> None:
+        runtime = _runtime(luck=None)
+        runtime.latest_snapshot = SimpleNamespace(
+            stats={"Luck": SimpleNamespace(value=3.0)}
+        )
+
+        line = format_luck(runtime, _template)
+
+        self.assertEqual(line, format_luck(_runtime(luck=3.0), _template))
+        self.assertNotIn("--", line)
+
     def test_the_line_fits_a_chat_message_with_room_to_spare(self) -> None:
         line = format_luck(_runtime(), _template)
         self.assertLess(len(line), 200)

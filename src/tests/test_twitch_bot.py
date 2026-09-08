@@ -105,6 +105,133 @@ class TestTwitchBotWorker(unittest.TestCase):
             "https://github.com/ALuiell/BonkScanner/releases/latest",
         )
 
+    def test_run_backed_commands_share_fallback_before_first_snapshot(self):
+        self.run_tracker.runtime_snapshot.side_effect = None
+        self.run_tracker.runtime_snapshot.return_value = SimpleNamespace(
+            latest_snapshot=None,
+            status="waiting",
+            lifecycle="waiting",
+            chaos_tome=None,
+            shrines=None,
+            character_passive=None,
+            stage_summary=(),
+            powerups_recent=SimpleNamespace(available=False, stale=False),
+            legacy_disabled=DisabledItemsReadResult(
+                DisabledItemsReadStatus.NOT_INITIALIZED
+            ),
+        )
+        self.bot.build_progression_service = SimpleNamespace(
+            snapshot=lambda: SimpleNamespace(available=False, run_id=None)
+        )
+        self.bot._send_chat = MagicMock()
+
+        for command in (
+            "stats",
+            "bans",
+            "items",
+            "weapons",
+            "tomes",
+            "chaos",
+            "shrines",
+            "dice",
+            "stages",
+            "powerups",
+            "kps",
+            "build",
+            "chests",
+            "luck",
+            "disabled",
+        ):
+            with self.subTest(command=command):
+                self.bot._send_chat.reset_mock()
+                getattr(self.bot, f"_handle_{command}")("channel")
+                self.bot._send_chat.assert_called_once_with(
+                    "channel", "No run data available yet."
+                )
+
+    def test_empty_saved_run_keeps_feature_specific_answers(self):
+        self.run_tracker.runtime_snapshot.side_effect = None
+        self.run_tracker.runtime_snapshot.return_value = SimpleNamespace(
+            latest_snapshot=SimpleNamespace(
+                banishes=(),
+                items=(),
+                weapons=(),
+                tomes=(),
+            ),
+            status="live",
+            lifecycle="active",
+            chaos_tome=None,
+            shrines=None,
+            character_passive=None,
+            stage_summary=(),
+        )
+        self.bot._send_chat = MagicMock()
+
+        expected = {
+            "bans": "No banished items.",
+            "items": "No items found in current run.",
+            "weapons": "No weapons found.",
+            "tomes": "No tomes found.",
+            "chaos": "No Chaos Tome detected yet.",
+            "shrines": "No Charge Shrine data detected yet.",
+            "dice": "No Dice passive data detected yet.",
+            "stages": "No stage data recorded yet.",
+        }
+        for command, message in expected.items():
+            with self.subTest(command=command):
+                self.bot._send_chat.reset_mock()
+                getattr(self.bot, f"_handle_{command}")("channel")
+                self.bot._send_chat.assert_called_once_with("channel", message)
+
+    def test_completed_run_stops_live_only_kps_and_powerups(self):
+        self.run_tracker.runtime_snapshot.side_effect = None
+        self.run_tracker.runtime_snapshot.return_value = SimpleNamespace(
+            latest_snapshot=SimpleNamespace(),
+            status="live",
+            lifecycle="completed",
+            powerups_recent=SimpleNamespace(available=False, stale=False),
+        )
+        self.bot._send_chat = MagicMock()
+
+        for command in ("kps", "powerups"):
+            with self.subTest(command=command):
+                self.bot._send_chat.reset_mock()
+                getattr(self.bot, f"_handle_{command}")("channel")
+                self.bot._send_chat.assert_called_once_with(
+                    "channel", "No active run detected."
+                )
+
+    def test_completed_run_keeps_build_progression_summary(self):
+        from app import config
+
+        self.bot.build_progression_service = SimpleNamespace(
+            snapshot=lambda: SimpleNamespace(
+                configured=True,
+                available=False,
+                name="Last build",
+                run_id="completed-run",
+                run_time_seconds=123.0,
+                completed=1,
+                total=1,
+                complete=True,
+                completion_time_seconds=123.0,
+                rows=(),
+                late_complete=False,
+            )
+        )
+        self.bot._send_chat = MagicMock()
+
+        with patch.dict(
+            config.TWITCH_BOT["templates"],
+            {"build": "{name} · {progress}{requirements}{remaining_suffix}"},
+        ):
+            self.bot._handle_build("channel")
+
+        message = self.bot._send_chat.call_args.args[1]
+        self.assertIn("Last build", message)
+        self.assertIn("BUILD COMPLETE", message)
+        self.assertNotEqual(message, "No active run detected.")
+
     def test_stop_before_run_is_not_lost_when_qthread_start_is_delayed(self):
         """Closing during QThread.start() must not resurrect the bot worker."""
         self.bot.status_updated = MagicMock()
@@ -1050,7 +1177,9 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._handle_chests("channel")
 
-        self.bot._send_chat.assert_called_once_with("channel", "No active run detected.")
+        self.bot._send_chat.assert_called_once_with(
+            "channel", "No run data available yet."
+        )
         self.run_tracker.get_chests_and_keys.assert_not_called()
 
     def test_chests_command_routes_through_chat_handler(self):
@@ -1382,7 +1511,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._send_chat.assert_called_once_with(
             "channel",
-            "Kills Per Second is not available because no run is active.",
+            "No active run detected.",
         )
 
     def test_handle_kps_reports_current_value(self):

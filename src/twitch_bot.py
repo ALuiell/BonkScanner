@@ -17,10 +17,12 @@ from core.tracker.items import fold_item_match_name
 from infra.twitch_credentials import get_twitch_oauth_token
 from core.stats.formatters import format_chaos_tome_stat_delta, format_shrine_stat_delta
 from projections.twitch import (
+    NO_RUN_DATA_MESSAGE,
     format_effective_weapons,
     format_kps,
     format_luck,
     format_powerups,
+    run_fallback_message,
     truncate_chat_message,
 )
 from projections.build_progression import format_twitch_build
@@ -661,10 +663,12 @@ class TwitchBotWorker(QThread):
                 return f"Formatting error in '{template_key}' template: {e}"
 
     def _handle_stats(self, channel: str):
-        snap = self._runtime_snapshot().latest_snapshot
-        if not snap:
-            self._send_chat(channel, "No active run detected.")
+        runtime = self._runtime_snapshot()
+        fallback = run_fallback_message(runtime)
+        if fallback is not None:
+            self._send_chat(channel, fallback)
             return
+        snap = runtime.latest_snapshot
 
         s = snap.stats
         stats_data = {}
@@ -692,8 +696,13 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, msg)
 
     def _handle_bans(self, channel: str):
-        snap = self._runtime_snapshot().latest_snapshot
-        if not snap or not snap.banishes:
+        runtime = self._runtime_snapshot()
+        fallback = run_fallback_message(runtime)
+        if fallback is not None:
+            self._send_chat(channel, fallback)
+            return
+        snap = runtime.latest_snapshot
+        if not snap.banishes:
             self._send_chat(channel, "No banished items.")
             return
 
@@ -742,10 +751,17 @@ class TwitchBotWorker(QThread):
         legacy_disabled = getattr(runtime, "legacy_disabled", None)
         if legacy_disabled is not None:
             if not legacy_disabled.available:
-                self._send_chat(channel, "Disabled items data is not available yet.")
+                self._send_chat(
+                    channel,
+                    run_fallback_message(runtime)
+                    or "Disabled items data is not available yet.",
+                )
                 return
             disabled_in_game = legacy_disabled.items
-        elif not snap or not snap.disabled_items_available:
+        elif not snap:
+            self._send_chat(channel, NO_RUN_DATA_MESSAGE)
+            return
+        elif not snap.disabled_items_available:
             self._send_chat(channel, "Disabled items data is not available yet.")
             return
         else:
@@ -777,8 +793,13 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_items(self, channel: str):
-        snap = self._runtime_snapshot().latest_snapshot
-        if not snap or not snap.items:
+        runtime = self._runtime_snapshot()
+        fallback = run_fallback_message(runtime)
+        if fallback is not None:
+            self._send_chat(channel, fallback)
+            return
+        snap = runtime.latest_snapshot
+        if not snap.items:
             self._send_chat(channel, "No items found in current run.")
             return
 
@@ -881,8 +902,13 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_weapons(self, channel: str):
-        snap = self._runtime_snapshot().latest_snapshot
-        if not snap or not snap.weapons:
+        runtime = self._runtime_snapshot()
+        fallback = run_fallback_message(runtime)
+        if fallback is not None:
+            self._send_chat(channel, fallback)
+            return
+        snap = runtime.latest_snapshot
+        if not snap.weapons:
             self._send_chat(channel, "No weapons found.")
             return
 
@@ -907,8 +933,13 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, format_effective_weapons(snap))
 
     def _handle_tomes(self, channel: str):
-        snap = self._runtime_snapshot().latest_snapshot
-        if not snap or not snap.tomes:
+        runtime = self._runtime_snapshot()
+        fallback = run_fallback_message(runtime)
+        if fallback is not None:
+            self._send_chat(channel, fallback)
+            return
+        snap = runtime.latest_snapshot
+        if not snap.tomes:
             self._send_chat(channel, "No tomes found.")
             return
 
@@ -930,9 +961,13 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_chaos(self, channel: str):
-        chaos = self._runtime_snapshot().chaos_tome
+        runtime = self._runtime_snapshot()
+        chaos = runtime.chaos_tome
         if chaos is None:
-            self._send_chat(channel, "No Chaos Tome detected yet.")
+            self._send_chat(
+                channel,
+                run_fallback_message(runtime) or "No Chaos Tome detected yet.",
+            )
             return
 
         parts = list(getattr(chaos, "legacy_parts", ())) or [
@@ -956,9 +991,14 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_shrines(self, channel: str):
-        shrines = getattr(self._runtime_snapshot(), "shrines", None)
+        runtime = self._runtime_snapshot()
+        shrines = getattr(runtime, "shrines", None)
         if shrines is None:
-            self._send_chat(channel, "No Charge Shrine data detected yet.")
+            self._send_chat(
+                channel,
+                run_fallback_message(runtime)
+                or "No Charge Shrine data detected yet.",
+            )
             return
 
         charged = max(0, int(getattr(shrines, "charged", 0) or 0))
@@ -1025,9 +1065,14 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, truncate_chat_message(text))
 
     def _handle_dice(self, channel: str):
-        passive = getattr(self._runtime_snapshot(), "character_passive", None)
+        runtime = self._runtime_snapshot()
+        passive = getattr(runtime, "character_passive", None)
         if passive is None:
-            self._send_chat(channel, "No Dice passive data detected yet.")
+            self._send_chat(
+                channel,
+                run_fallback_message(runtime)
+                or "No Dice passive data detected yet.",
+            )
             return
 
         character_name = str(getattr(passive, "character_name", "") or "")
@@ -1125,11 +1170,8 @@ class TwitchBotWorker(QThread):
             )
 
     def _handle_stages(self, channel: str):
-        rows = self._runtime_snapshot().stage_summary
-        if not rows:
-            self._send_chat(channel, "No stage data available.")
-            return
-
+        runtime = self._runtime_snapshot()
+        rows = runtime.stage_summary
         parts = []
         for row in rows:
             kills = row.get("kills", "--")
@@ -1139,7 +1181,10 @@ class TwitchBotWorker(QThread):
             parts.append(f"{row['label']}: kills {kills}, time {time_val}")
 
         if not parts:
-            self._send_chat(channel, "No stage data recorded yet.")
+            self._send_chat(
+                channel,
+                run_fallback_message(runtime) or "No stage data recorded yet.",
+            )
             return
 
         text = self._format_template(
@@ -1157,10 +1202,16 @@ class TwitchBotWorker(QThread):
 
     def _handle_powerups(self, channel: str):
         runtime = self._runtime_snapshot()
-        snap = runtime.latest_snapshot
-        if not snap:
-            self._send_chat(channel, "No active run detected.")
+        powerups = runtime.powerups_recent
+        fallback = run_fallback_message(
+            runtime,
+            live_only=True,
+            has_data=powerups.available is True or powerups.stale is True,
+        )
+        if fallback is not None:
+            self._send_chat(channel, fallback)
             return
+        snap = runtime.latest_snapshot
 
         # `runtime.powerups` is emptied the moment its 1.5 s TTL lapses, and an
         # empty snapshot looks exactly like one that read successfully and
@@ -1169,7 +1220,6 @@ class TwitchBotWorker(QThread):
         # it, so a single late read used to be published as "none active".
         # `powerups_recent` keeps the last read for a few seconds longer and
         # flags it, which is what separates the two cases here.
-        powerups = runtime.powerups_recent
         if powerups.available is True or powerups.stale is True:
             text = self._format_template(
                 "powerups", "Powerups: {powerups} (PM {pm})",
@@ -1228,9 +1278,9 @@ class TwitchBotWorker(QThread):
 
     def _handle_chests(self, channel: str):
         runtime = self._runtime_snapshot()
-        is_active = bool(runtime.latest_snapshot)
-        if not is_active:
-            self._send_chat(channel, "No active run detected.")
+        fallback = run_fallback_message(runtime)
+        if fallback is not None:
+            self._send_chat(channel, fallback)
             return
 
         if runtime.latest_snapshot is not None:
@@ -1293,8 +1343,16 @@ class TwitchBotWorker(QThread):
 
     def _handle_luck(self, channel: str):
         runtime = self._runtime_snapshot()
-        if not runtime.latest_snapshot:
-            self._send_chat(channel, "No active run detected.")
+        loot = getattr(runtime, "loot_stats", None)
+        fallback = run_fallback_message(
+            runtime,
+            has_data=(
+                getattr(runtime, "luck", None) is not None
+                or bool(getattr(loot, "available", False))
+            ),
+        )
+        if fallback is not None:
+            self._send_chat(channel, fallback)
             return
         self._send_chat(
             channel, truncate_chat_message(format_luck(runtime, self._format_template))
@@ -1392,8 +1450,8 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, "Build Progression is not available.")
             return
         snapshot = self.build_progression_service.snapshot()
-        if not snapshot.available:
-            self._send_chat(channel, "No active run detected.")
+        if not snapshot.available and snapshot.run_id is None:
+            self._send_chat(channel, NO_RUN_DATA_MESSAGE)
             return
         values = format_twitch_build(snapshot)
         if not snapshot.configured:
