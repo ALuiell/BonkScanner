@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import uuid
 
 from core.update_types import PreparedUpdate, ProgressCallback, ReleaseInfo
+from core.supporter_service import PUBLIC_SUPPORTERS_PATH, supporter_service_url
 
 # `requests` is deliberately imported inside the functions that use it. It is
 # one of the heaviest imports in the application and neither checking GitHub nor
@@ -39,7 +40,8 @@ _REQUEST_HEADERS = {
 }
 
 #: The supporters list changes independently of application releases.
-SUPPORTERS_URL = (
+SUPPORTERS_URL = supporter_service_url(PUBLIC_SUPPORTERS_PATH)
+SUPPORTERS_FALLBACK_URL = (
     f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/supporters.json"
 )
 SUPPORTERS_KEY = "supporters"
@@ -153,12 +155,24 @@ def clean_supporters(payload) -> list:
     return [entry for entry in payload if isinstance(entry, (str, dict))]
 
 
-def fetch_supporters() -> list:
+def _fetch_supporters_from(url: str) -> list:
     import requests
 
-    response = requests.get(SUPPORTERS_URL, timeout=5)
+    response = requests.get(url, timeout=5)
     response.raise_for_status()
     return clean_supporters(response.json())
+
+
+def fetch_supporters() -> list:
+    """Fetch the live list, retaining the shipped GitHub list as a fallback."""
+    import requests
+
+    try:
+        return _fetch_supporters_from(SUPPORTERS_URL)
+    except (requests.RequestException, ValueError):
+        if SUPPORTERS_URL == SUPPORTERS_FALLBACK_URL:
+            raise
+        return _fetch_supporters_from(SUPPORTERS_FALLBACK_URL)
 
 
 def _safe_executable_name(exe_path: str) -> str:

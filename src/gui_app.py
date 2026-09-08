@@ -9,7 +9,9 @@ from PySide6.QtWidgets import QApplication
 
 from app import config
 from app.runtime import AppRuntime, AppRuntimePorts
+from app.supporter_access import SupporterAccessController
 from app.version import CURRENT_VERSION
+from core.supporter_service import supporter_service_base_url
 from ui.dialogs import AutoRerollSetupGuideDialog, HelpDialog, SettingsDialog
 from ui.layout import build_layout, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
@@ -28,6 +30,7 @@ from app.shutdown import (
     ShutdownReport,
 )
 from infra.crash_journal import log_runtime_event
+from infra.supporter_access_client import SupporterAccessClient
 from session_stats import SessionStats
 
 
@@ -74,6 +77,15 @@ class MegabonkApp:
         self._terminate_process = terminate_process
         self._started = False
         self._background_threads = set()
+        self.supporter_access = SupporterAccessController(
+            client=SupporterAccessClient(
+                supporter_service_base_url(),
+                client_version=CURRENT_VERSION,
+            ),
+            schedule=self.after,
+            is_shutting_down=lambda: self._is_shutting_down,
+            thread_registry=self._background_threads,
+        )
         # Reuse one Settings dialog for the application's lifetime. Repeatedly
         # destroying and rebuilding its large child-widget tree can leave a
         # delayed Shiboken deletion pointing at an address Qt has already
@@ -397,7 +409,12 @@ class MegabonkApp:
         self._log_reset_hold_duration_correction()
         self.log("[*] Ready! Select templates and start the main process loop.")
         self.apply_run_control_mode(detach_hooks=False)
+        self.supporter_access.start()
         self.after(1500, self.deferred_update_check)
+
+    def has_premium_feature(self, feature_code: str) -> bool:
+        """Single runtime gate for every optional supporter feature."""
+        return self.supporter_access.has_feature(feature_code)
 
     @staticmethod
     def _require_runtime_port(name: str, value):

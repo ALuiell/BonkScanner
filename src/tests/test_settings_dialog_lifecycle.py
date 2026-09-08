@@ -152,7 +152,24 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
         dialog.deleteLater.assert_called_once_with()
 
     def test_real_widgets_survive_repeated_save_and_cancel_cycles(self) -> None:
-        with patch.object(config, "save_config"):
+        game_value = config.reset_hold_duration_to_game_value(
+            config.RESET_HOLD_DURATION,
+            safety_margin=config.RESET_HOLD_SAFETY_MARGIN,
+        )
+        # This is a widget-lifecycle test, so keep it independent of the real
+        # Megabonk config on the machine running the suite. A mismatched or
+        # missing game file opens the intentional modal result notice and makes
+        # this offscreen loop wait for user input; the real persistence path has
+        # dedicated transaction tests.
+        with patch.object(
+            config,
+            "read_game_quick_reset_time",
+            return_value=config.GameConfigReadResult(True, value=game_value),
+        ), patch.object(
+            config,
+            "save_settings_with_game_reset",
+            return_value=config.SettingsSaveResult(True),
+        ):
             for cycle in range(100):
                 self.owner.open_settings_dialog()
                 dialog = self.owner._settings_dialog
@@ -193,6 +210,28 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
             dialog.record_interval_entry.value(),
             config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
         )
+
+    def test_premium_ui_is_absent_and_support_routes_are_compact(self) -> None:
+        self.owner.open_settings_dialog()
+        dialog = self.owner._settings_dialog
+        self.assertIsNotNone(dialog)
+        dialog.show()
+        QApplication.processEvents()
+
+        self.assertIsNone(dialog.findChild(QWidget, "SupporterAccessCard"))
+        self.assertFalse(hasattr(dialog, "supporter_key_entry"))
+        for button in (
+            dialog.patreon_btn,
+            dialog.crypto_btn,
+            dialog.github_btn,
+            dialog.discord_btn,
+        ):
+            self.assertEqual(button.property("settingsSupportAction"), "true")
+            self.assertEqual((button.width(), button.height()), (104, 32))
+            self.assertEqual(
+                (button.iconSize().width(), button.iconSize().height()),
+                (16, 16),
+            )
 
 
 if __name__ == "__main__":

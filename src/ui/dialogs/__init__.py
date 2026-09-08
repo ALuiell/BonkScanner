@@ -1475,6 +1475,12 @@ _SETTINGS_FIELD_WIDTH = 130
 #: fields step sideways from row to row.
 _SETTINGS_LABEL_WIDTH = 120
 
+# The four destinations have similarly short labels. Keeping one compact size
+# makes them read as secondary links instead of another full-width action row.
+_SUPPORT_BUTTON_WIDTH = 104
+_SUPPORT_BUTTON_HEIGHT = 32
+_SUPPORT_BUTTON_ICON_SIZE = 16
+
 
 def _settings_group_label(text: str) -> QLabel:
     label = QLabel(str(text).upper())
@@ -1514,12 +1520,20 @@ class SettingsDialog(QDialog):
         self.master = master or parent
         self.setWindowTitle("Settings")
         self.setModal(True)
-        layout = dialog_body(
+        shell_layout = dialog_body(
             self,
             title="Settings",
-            subtitle="Hotkeys, capture intervals and what the app reminds you about.",
+            subtitle="Hotkeys, capture intervals, startup options and reminders.",
             width=DIALOG_REGULAR,
+            height=DIALOG_TALL,
         )
+        settings_scroll, settings_content, layout = _make_scroll_section()
+        settings_scroll.setObjectName("SettingsScroll")
+        settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        settings_content.setObjectName("SettingsScrollContent")
+        layout.setContentsMargins(0, 0, 4, 0)
+        layout.setSpacing(12)
+        shell_layout.addWidget(settings_scroll, 1)
 
         # Three groups, two columns, and every field capped. One column of
         # full-width rows was what made this window read as scattered: a field
@@ -1717,13 +1731,17 @@ class SettingsDialog(QDialog):
         self.patreon_btn = QPushButton("Patreon")
         self.patreon_btn.setObjectName("PatreonButton")
         self.patreon_btn.setIcon(QIcon(resource_path(PATREON_ICON_PATH)))
-        self.patreon_btn.setIconSize(QSize(18, 18))
+        self.patreon_btn.setIconSize(
+            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        )
         self.patreon_btn.clicked.connect(self.open_patreon_support_page)
         self.patreon_btn.setProperty("class", "SupportPlatformButton")
         self.crypto_btn = QPushButton("Crypto")
         self.crypto_btn.setObjectName("CryptoButton")
         self.crypto_btn.setIcon(QIcon(resource_path(CRYPTO_ICON_PATH)))
-        self.crypto_btn.setIconSize(QSize(18, 18))
+        self.crypto_btn.setIconSize(
+            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        )
         self.crypto_btn.clicked.connect(self.open_crypto_support_page)
         self.crypto_btn.setProperty("class", "SupportPlatformButton")
         self.crypto_btn.setEnabled(bool(CRYPTO_SUPPORT_URL))
@@ -1732,26 +1750,29 @@ class SettingsDialog(QDialog):
         self.github_btn = QPushButton("GitHub")
         self.github_btn.setObjectName("GithubButton")
         self.github_btn.setIcon(QIcon(resource_path(GITHUB_ICON_PATH)))
-        self.github_btn.setIconSize(QSize(18, 18))
+        self.github_btn.setIconSize(
+            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        )
         self.github_btn.clicked.connect(self.open_github_repository_page)
         self.github_btn.setProperty("class", "SupportPlatformButton")
         self.discord_btn = QPushButton("Discord")
         self.discord_btn.setObjectName("DiscordButton")
         self.discord_btn.setIcon(QIcon(resource_path(DISCORD_ICON_PATH)))
-        self.discord_btn.setIconSize(QSize(18, 18))
+        self.discord_btn.setIconSize(
+            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        )
         self.discord_btn.clicked.connect(self.open_discord_support_page)
         self.discord_btn.setProperty("class", "SupportPlatformButton")
-        # An equal share of the row each, filling the card. They used to be
-        # fixed to the width of the longest caption and packed at the left with
-        # the surplus behind them, which read as buttons that had run out of
-        # room rather than a complete row.
         for button in (
             self.patreon_btn,
             self.crypto_btn,
             self.github_btn,
             self.discord_btn,
         ):
-            support_button_row.addWidget(button, 1)
+            button.setProperty("settingsSupportAction", "true")
+            button.setFixedSize(_SUPPORT_BUTTON_WIDTH, _SUPPORT_BUTTON_HEIGHT)
+            support_button_row.addWidget(button)
+        support_button_row.addStretch(1)
         support_layout.addLayout(support_button_row)
         layout.addWidget(support_card)
 

@@ -75,6 +75,43 @@ def release_for(body: bytes, *, digest: str | None = None) -> ReleaseInfo:
 
 
 class UpdaterBackendTests(unittest.TestCase):
+    def test_supporters_prefer_the_live_service(self) -> None:
+        response = FakeResponse(payload={"supporters": ["Live supporter"]})
+
+        with patch("requests.get", return_value=response) as get:
+            supporters = updater.fetch_supporters()
+
+        self.assertEqual(["Live supporter"], supporters)
+        get.assert_called_once_with(updater.SUPPORTERS_URL, timeout=5)
+
+    def test_supporters_fall_back_to_the_static_list_on_service_failure(self) -> None:
+        import requests
+
+        fallback = FakeResponse(payload={"supporters": ["Cached supporter"]})
+        with patch(
+            "requests.get",
+            side_effect=[requests.ConnectionError("service unavailable"), fallback],
+        ) as get:
+            supporters = updater.fetch_supporters()
+
+        self.assertEqual(["Cached supporter"], supporters)
+        self.assertEqual(
+            [
+                call(updater.SUPPORTERS_URL, timeout=5),
+                call(updater.SUPPORTERS_FALLBACK_URL, timeout=5),
+            ],
+            get.call_args_list,
+        )
+
+    def test_an_empty_live_supporters_list_does_not_use_the_fallback(self) -> None:
+        response = FakeResponse(payload={"supporters": []})
+
+        with patch("requests.get", return_value=response) as get:
+            supporters = updater.fetch_supporters()
+
+        self.assertEqual([], supporters)
+        get.assert_called_once_with(updater.SUPPORTERS_URL, timeout=5)
+
     def test_release_uses_exact_asset_and_carries_size_and_digest(self) -> None:
         digest = "a" * 64
         response = FakeResponse(
