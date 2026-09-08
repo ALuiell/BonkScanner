@@ -120,7 +120,8 @@ class GameDataClient:
         self._owns_memory = memory is None
         self.memory: MemoryReader = memory or ProcessMemory(process_name)
         self._cached_static_fields: dict[int, int] = {}
-        self._last_activity_revision: tuple[int, int, int] | None = None
+        self._last_activity_revision: tuple[int, int, int, int] | None = None
+        self._last_accepted_activity_revision: tuple[int, int, int, int] | None = None
         self.last_ready_state: MapGenerationState | None = None
 
     def close(self) -> None:
@@ -447,7 +448,18 @@ class GameDataClient:
         baseline_stats = self._normalize_ready_stats(previous_stats) if previous_stats is not None else None
         stable_stats: dict[MapStat, StatValue] | None = None
         ready_raw_stats: dict[MapStat, StatValue] | None = None
-        stable_activity_revision: tuple[int, int, int] | None = None
+        accepted_activity_revision = getattr(
+            self,
+            "_last_accepted_activity_revision",
+            None,
+        )
+        # The seed/lifecycle can advance before the interactables static field
+        # publishes the new dictionary. During a reroll, do not stabilize a
+        # snapshot that still has the identity of the last map we returned.
+        require_activity_revision_change = (
+            require_change and accepted_activity_revision is not None
+        )
+        stable_activity_revision: tuple[int, int, int, int] | None = None
         stable_stats_since: float | None = None
         stable_stats_seen = False
         last_stats_count = len(previous_stats) if previous_stats is not None else 0
@@ -508,6 +520,13 @@ class GameDataClient:
                 else:
                     stats = self.get_map_stats()
                     activity_revision = getattr(self, "_last_activity_revision", None)
+                    activity_revision_changed = (
+                        not require_activity_revision_change
+                        or (
+                            activity_revision is not None
+                            and activity_revision != accepted_activity_revision
+                        )
+                    )
                     ready_stats = self._normalize_ready_stats(stats)
                     # Map identity and snapshot stability have different rules.
                     # Bald Heads is optional across maps, so it must not be the
@@ -535,7 +554,11 @@ class GameDataClient:
                         map_change_seen = True
                         change_ready = True
 
-                    if change_ready and self._is_ready_stats(stats):
+                    if (
+                        change_ready
+                        and activity_revision_changed
+                        and self._is_ready_stats(stats)
+                    ):
                         observed_at = time.monotonic()
                         if (
                             stability_stats != stable_stats
@@ -552,6 +575,9 @@ class GameDataClient:
                             and observed_at - stable_stats_since >= stats_stability_duration
                         ):
                             self.last_ready_state = last_state
+                            self._last_accepted_activity_revision = (
+                                stable_activity_revision
+                            )
                             return ready_raw_stats
                     else:
                         stable_stats = None
@@ -620,7 +646,7 @@ class GameDataClient:
         # Mono's Dictionary increments `_version` on Clear/Add. Live traces
         # confirm that it advances for both halves of a restart. Reading the
         # structural revision on both sides prevents a mixed snapshot when the
-        # game mutates the dictionary during our traversal.
+        # game mutates or replaces the dictionary during our traversal.
         version = self.memory.read_i32(
             interactables_dict + self.DICT_VERSION_OFFSET
         )
@@ -645,6 +671,7 @@ class GameDataClient:
 
             activities[label] = StatValue(current=current_value, max=max_value)
 
+        interactables_dict_after = self.memory.read_ptr(static_fields)
         entries_after = self.memory.read_ptr(
             interactables_dict + self.DICT_ENTRIES_OFFSET
         )
@@ -654,8 +681,13 @@ class GameDataClient:
         version_after = self.memory.read_i32(
             interactables_dict + self.DICT_VERSION_OFFSET
         )
-        revision = (entries, count, version)
-        if (entries_after, count_after, version_after) != revision:
+        revision = (interactables_dict, entries, count, version)
+        if (
+            interactables_dict_after,
+            entries_after,
+            count_after,
+            version_after,
+        ) != revision:
             raise MemoryReadError(
                 "Interactables dictionary changed while its snapshot was being read."
             )

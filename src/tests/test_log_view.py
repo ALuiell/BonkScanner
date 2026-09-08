@@ -182,17 +182,35 @@ class LogViewWidgetTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_the_buffer_is_bounded(self) -> None:
-        # It used to grow for the life of the session: `insertHtml` appended
-        # and nothing trimmed.
+    def test_a_full_buffer_starts_a_new_history_after_a_full_render(self) -> None:
         self._run(
             """
-            for index in range(LOG_BUFFER_LIMIT + 250):
-                view.append_log(f"[*] line {index}")
+            for index in range(LOG_BUFFER_LIMIT):
+                view.append_log(f"[*] old history {index}")
+
+            # The complete path joins records with <br>, which Qt represents
+            # as one QTextBlock. Overflow must not try to remove that block.
+            view._render()
             assert len(view.records) == LOG_BUFFER_LIMIT, len(view.records)
-            # The oldest went, the newest stayed.
-            assert view.records[0].text == "line 250", view.records[0].text
-            assert view.records[-1].text == f"line {LOG_BUFFER_LIMIT + 249}"
+
+            view.append_log("[*] first new history line")
+            first_document = view._document.toPlainText().splitlines()
+            assert len(view.records) == 1, len(view.records)
+            assert view.records[0].text == "first new history line"
+            assert len(first_document) == 1, first_document
+            assert "first new history line" in first_document[0], first_document
+            assert "old history" not in view._document.toPlainText()
+
+            view.append_log("[*] second new history line")
+            second_document = view._document.toPlainText().splitlines()
+            assert [record.text for record in view.records] == [
+                "first new history line",
+                "second new history line",
+            ]
+            assert len(second_document) == 2, second_document
+            assert "first new history line" in second_document[0], second_document
+            assert "second new history line" in second_document[1], second_document
+            assert "old history" not in view._document.toPlainText()
             """
         )
 

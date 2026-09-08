@@ -62,7 +62,7 @@ from PySide6.QtWidgets import (
 from core.template_colors import template_color_hex_or_none
 from ui.throttle import UiUpdateThrottle
 
-#: How many records the panel keeps. Old ones fall off the front.
+#: At this many records, the next unique line starts a fresh history.
 LOG_BUFFER_LIMIT = 2000
 
 #: The severities a scalar tag may name, in the order the filter shows them.
@@ -296,11 +296,11 @@ class LogView(QWidget):
     def append_log(self, message, tag=None) -> None:
         """Add a line. What `Scanner._append_log` calls.
 
-        The unfiltered case appends one block to the document and trims the
-        front, rather than rebuilding it. That is not a micro-optimisation:
+        The unfiltered case appends one block to the document rather than
+        rebuilding it. That is not a micro-optimisation:
         rebuilding is O(buffer) per line, so at the 2000-line limit a session
         that logs steadily does 2000 line renders and a full `setHtml` reparse
-        *per message*. The bounded-buffer test found it by timing out.
+        *per message*. The buffer stress test found it by timing out.
 
         The two paths that cannot be incremental -- a repeat, which rewrites
         the line above, and any active filter, where document and buffer no
@@ -322,12 +322,19 @@ class LogView(QWidget):
             self._request_render()
             return
 
-        evicted = len(self._records) == LOG_BUFFER_LIMIT
+        if len(self._records) == LOG_BUFFER_LIMIT:
+            # A full render joins lines with ``<br>``, so Qt may store the
+            # entire visible history as one QTextBlock. Removing its first
+            # block would therefore erase the document while leaving the old
+            # records available to reappear on the next render. At the limit,
+            # deliberately begin a new history instead.
+            self._records.clear()
+            self._document.clear()
         self._records.append(record)
         if self._is_filtered():
             self._request_render()
             return
-        self._append_line(record, evicted=evicted)
+        self._append_line(record)
         self._update_footer()
 
     # -- commands -------------------------------------------------------------
@@ -396,8 +403,8 @@ class LogView(QWidget):
         self._restore_manual_position(manual_position)
         self._footer.setText(self._footer_text(len(visible)))
 
-    def _append_line(self, record: LogRecord, *, evicted: bool) -> None:
-        """Add one block, and drop the oldest if the buffer just did.
+    def _append_line(self, record: LogRecord) -> None:
+        """Add one block without rebuilding the existing document.
 
         `QTextEdit.append` inserts a block without reparsing what is already
         there, which is what makes this O(1) against `setHtml`'s O(buffer).
@@ -409,21 +416,8 @@ class LogView(QWidget):
             self._document.setHtml(render_record_html(record))
         else:
             self._document.append(render_record_html(record))
-        if evicted:
-            self._drop_first_block()
         self._scroll_to_end()
         self._restore_manual_position(manual_position)
-
-    def _drop_first_block(self) -> None:
-        document = self._document.document()
-        if document.blockCount() <= 1:
-            return
-        cursor = QTextCursor(document.firstBlock())
-        cursor.select(QTextCursor.BlockUnderCursor)
-        cursor.removeSelectedText()
-        # `BlockUnderCursor` leaves the separator behind on the first block,
-        # which would accumulate as a blank line per eviction.
-        cursor.deleteChar()
 
     def _scroll_to_end(self) -> None:
         if self._autoscroll.isChecked():

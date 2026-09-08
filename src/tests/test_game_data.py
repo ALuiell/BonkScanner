@@ -179,13 +179,15 @@ class SequencedGameDataClient(GameDataClient):
         *,
         states: list[MapGenerationState],
         stats_snapshots: list[dict[MapStat, StatValue] | Exception],
-        activity_revisions: list[tuple[int, int, int] | None] | None = None,
+        activity_revisions: list[tuple[int, int, int, int] | None] | None = None,
     ) -> None:
         self.states = states
         self.stats_snapshots = stats_snapshots
         self.activity_revisions = activity_revisions
         self.state_reads = 0
         self.stat_reads = 0
+        self._last_activity_revision = None
+        self._last_accepted_activity_revision = None
 
     def get_map_generation_state(self, *, strict: bool = False) -> MapGenerationState:
         del strict
@@ -301,6 +303,10 @@ class GameDataClientTests(unittest.TestCase):
                 MapStat.MOAIS: StatValue(current=4, max=7),
                 MapStat.POTS: StatValue(current=0, max=6),
             },
+        )
+        self.assertEqual(
+            client._last_activity_revision,
+            (0x20000200, 0x20000300, 6, 42),
         )
 
     def test_get_map_stats_rejects_a_partial_snapshot_after_entry_read_error(self) -> None:
@@ -678,9 +684,9 @@ class GameDataClientTests(unittest.TestCase):
             states=[ready_state],
             stats_snapshots=[stable_stats],
             activity_revisions=[
-                (0x50000000, 4, 10),
-                (0x50000000, 10, 16),
-                (0x50000000, 10, 16),
+                (0x40000000, 0x50000000, 4, 10),
+                (0x40000000, 0x50000000, 10, 16),
+                (0x40000000, 0x50000000, 10, 16),
             ],
         )
 
@@ -694,6 +700,107 @@ class GameDataClientTests(unittest.TestCase):
             stable_stats,
         )
         self.assertEqual(client.stat_reads, 3)
+
+    def test_wait_for_map_ready_rejects_the_previous_accepted_revision(self) -> None:
+        previous_state = MapGenerationState(
+            is_generating=False,
+            map_seed=1,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        ready_state = MapGenerationState(
+            is_generating=False,
+            map_seed=2,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        old_stats = full_stats()
+        old_stats.update(
+            {
+                MapStat.SHADY_GUY: StatValue(current=0, max=4),
+                MapStat.MOAIS: StatValue(current=0, max=5),
+                MapStat.MICROWAVES: StatValue(current=0, max=2),
+                MapStat.MAGNET_SHRINES: StatValue(current=0, max=2),
+            }
+        )
+        new_stats = dict(old_stats)
+        new_stats.update(
+            {
+                MapStat.SHADY_GUY: StatValue(current=0, max=1),
+                MapStat.MOAIS: StatValue(current=0, max=3),
+            }
+        )
+        old_revision = (0x40000000, 0x50000000, 10, 16)
+        new_revision = (0x40000000, 0x60000000, 10, 17)
+        client = SequencedGameDataClient(
+            states=[previous_state],
+            stats_snapshots=[old_stats, old_stats],
+            activity_revisions=[old_revision, old_revision],
+        )
+        self.assertEqual(
+            client.wait_for_map_ready(
+                require_change=False,
+                timeout=1.0,
+                poll_interval=0.001,
+                stats_stability_duration=0.0,
+            ),
+            old_stats,
+        )
+        self.assertEqual(client._last_accepted_activity_revision, old_revision)
+
+        client.states = [ready_state]
+        client.stats_snapshots = [old_stats, old_stats, new_stats, new_stats]
+        client.activity_revisions = [
+            old_revision,
+            old_revision,
+            new_revision,
+            new_revision,
+        ]
+        client.state_reads = 0
+        client.stat_reads = 0
+
+        self.assertEqual(
+            client.wait_for_map_ready(
+                previous_state=previous_state,
+                previous_stats=old_stats,
+                timeout=1.0,
+                poll_interval=0.001,
+                stats_stability_duration=0.0,
+            ),
+            new_stats,
+        )
+        self.assertEqual(client.stat_reads, 4)
+        self.assertEqual(client._last_accepted_activity_revision, new_revision)
+
+    def test_wait_for_map_ready_allows_the_current_revision_on_a_first_scan(self) -> None:
+        ready_state = MapGenerationState(
+            is_generating=False,
+            map_seed=2,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        stable_stats = full_stats(current=2)
+        accepted_revision = (0x40000000, 0x50000000, 10, 16)
+        client = SequencedGameDataClient(
+            states=[ready_state],
+            stats_snapshots=[stable_stats, stable_stats],
+            activity_revisions=[accepted_revision, accepted_revision],
+        )
+        client._last_accepted_activity_revision = accepted_revision
+
+        self.assertEqual(
+            client.wait_for_map_ready(
+                require_change=False,
+                timeout=1.0,
+                poll_interval=0.001,
+                stats_stability_duration=0.0,
+            ),
+            stable_stats,
+        )
+        self.assertEqual(client.stat_reads, 2)
 
     def test_wait_for_map_ready_skips_stats_until_generation_finishes(self) -> None:
         generating_state = MapGenerationState(
