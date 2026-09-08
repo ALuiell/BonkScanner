@@ -89,6 +89,8 @@ class TestTwitchBotWorker(unittest.TestCase):
             )
         self.run_tracker.runtime_snapshot.side_effect = runtime_snapshot
         self.bot = TwitchBotWorker(self.run_tracker)
+        self.bot.log_message = MagicMock()
+        self.bot.status_updated = MagicMock()
 
     def test_scanner_command_links_to_the_latest_release(self):
         from app import config
@@ -139,10 +141,217 @@ class TestTwitchBotWorker(unittest.TestCase):
         long_str = "a" * 1000
         self.bot._send_chat("test_channel", long_str)
 
-        self.bot.sock.send.assert_called_once()
-        args = self.bot.sock.send.call_args[0][0]
+        self.bot.sock.sendall.assert_called_once()
+        args = self.bot.sock.sendall.call_args[0][0]
         self.assertTrue(len(args) <= 512)
         self.assertTrue(args.endswith(b"\r\n"))
+
+    def test_mixed_case_scanner_command_has_one_compact_success_log(self):
+        from app import config
+
+        self.bot.sock = MagicMock()
+        settings = {
+            "access_tier": "Everyone",
+            "global_cooldown_seconds": 0,
+            "cooldown_seconds": 0,
+            "commands": {"scanner": True},
+        }
+        line = "@badges= :user!user@user.tmi.twitch.tv PRIVMSG #channel :!Scanner"
+
+        with patch.dict(config.TWITCH_BOT, settings):
+            self.bot._handle_line(line, "channel")
+
+        self.bot.log_message.emit.assert_called_once_with(
+            "[TWITCH COMMAND OK] @user: !Scanner -> !scanner; response written to chat.",
+            "success",
+        )
+
+    def test_cooldown_skip_has_a_fixed_reason_log(self):
+        from app import config
+
+        self.bot.sock = MagicMock()
+        settings = {
+            "access_tier": "Everyone",
+            "global_cooldown_seconds": 5,
+            "cooldown_seconds": 5,
+            "commands": {"scanner": True},
+        }
+        line = ":user!user@host PRIVMSG #channel :!scanner"
+
+        with patch.dict(config.TWITCH_BOT, settings):
+            with patch("time.time", side_effect=[100.0, 101.0]):
+                self.bot._handle_line(line, "channel")
+                self.bot._handle_line(line, "channel")
+
+        self.bot.log_message.emit.assert_called_with(
+            "[TWITCH COMMAND SKIPPED] @user: !scanner; cooldown active (global 4.0s, command 4.0s remaining).",
+            "warning",
+        )
+        self.assertEqual(self.bot.log_message.emit.call_count, 2)
+
+    def test_disabled_command_has_a_fixed_reason_log(self):
+        from app import config
+
+        settings = {
+            "access_tier": "Everyone",
+            "global_cooldown_seconds": 0,
+            "cooldown_seconds": 0,
+            "commands": {"scanner": False},
+        }
+        line = ":user!user@host PRIVMSG #channel :!scanner"
+
+        with patch.dict(config.TWITCH_BOT, settings):
+            self.bot._handle_line(line, "channel")
+
+        self.bot.log_message.emit.assert_called_with(
+            "[TWITCH COMMAND SKIPPED] @user: !scanner; command is disabled in Twitch settings.",
+            "warning",
+        )
+        self.bot.log_message.emit.assert_called_once()
+
+    def test_access_denial_has_a_fixed_reason_log(self):
+        from app import config
+
+        settings = {
+            "access_tier": "Mods & VIPs",
+            "global_cooldown_seconds": 0,
+            "cooldown_seconds": 0,
+            "commands": {"scanner": True},
+        }
+        line = "@badges=subscriber/1 :user!user@host PRIVMSG #channel :!scanner"
+
+        with patch.dict(config.TWITCH_BOT, settings):
+            self.bot._handle_line(line, "channel")
+
+        self.bot.log_message.emit.assert_called_with(
+            "[TWITCH COMMAND SKIPPED] @user: !scanner; access tier 'Mods & VIPs' denied this user.",
+            "warning",
+        )
+        self.bot.log_message.emit.assert_called_once()
+
+    def test_chat_send_failure_is_not_reported_as_success(self):
+        from app import config
+
+        settings = {
+            "access_tier": "Everyone",
+            "global_cooldown_seconds": 0,
+            "cooldown_seconds": 0,
+            "commands": {"scanner": True},
+        }
+        line = ":user!user@host PRIVMSG #channel :!scanner"
+
+        with patch.dict(config.TWITCH_BOT, settings):
+            self.bot._handle_line(line, "channel")
+
+        self.bot.log_message.emit.assert_called_once_with(
+            "[TWITCH COMMAND FAILED] @user: !scanner; response write failed: connection unavailable.",
+            "error",
+        )
+
+    def test_socket_write_error_is_logged_without_a_false_success(self):
+        from app import config
+
+        self.bot.sock = MagicMock()
+        self.bot.sock.sendall.side_effect = ConnectionResetError("connection reset")
+        settings = {
+            "access_tier": "Everyone",
+            "global_cooldown_seconds": 0,
+            "cooldown_seconds": 0,
+            "commands": {"scanner": True},
+        }
+        line = ":user!user@host PRIVMSG #channel :!scanner"
+
+        with patch.dict(config.TWITCH_BOT, settings):
+            self.bot._handle_line(line, "channel")
+
+        self.bot.log_message.emit.assert_called_once_with(
+            "[TWITCH COMMAND FAILED] @user: !scanner; response write failed: ConnectionResetError: connection reset.",
+            "error",
+        )
+
+    def test_successful_connection_has_one_ready_log(self):
+        self.bot._irc_username = "botaccount"
+
+        self.bot._handle_line(
+            ":tmi.twitch.tv 001 botaccount :Welcome, GLHF!",
+            "channel",
+        )
+        self.bot._handle_line(
+            ":botaccount!botaccount@botaccount.tmi.twitch.tv JOIN #channel",
+            "channel",
+        )
+
+        self.bot.log_message.emit.assert_called_once_with(
+            "[TWITCH READY] Connected as @botaccount to #channel.",
+            "success",
+        )
+        self.bot.status_updated.emit.assert_called_with("Connected to #channel")
+
+    def test_twitch_reconnect_request_has_a_fixed_warning(self):
+        self.bot._handle_line(":tmi.twitch.tv RECONNECT", "channel")
+
+        self.assertTrue(self.bot._reconnect_requested)
+        self.bot.log_message.emit.assert_called_once_with(
+            "[TWITCH RECONNECT] Twitch requested a fresh chat connection; reconnecting now.",
+            "warning",
+        )
+
+    def test_unknown_chat_command_is_silent(self):
+        from app import config
+
+        with patch.dict(
+            config.TWITCH_BOT,
+            {
+                "access_tier": "Everyone",
+                "global_cooldown_seconds": 0,
+                "cooldown_seconds": 0,
+            },
+        ):
+            self.bot._handle_line(
+                ":user!user@host PRIVMSG #channel :!command-for-another-bot",
+                "channel",
+            )
+
+        self.bot.log_message.emit.assert_not_called()
+
+    def test_multiple_command_responses_are_aggregated_into_one_log(self):
+        from app import config
+
+        self.bot.sock = MagicMock()
+        self.bot._handle_scanner = lambda channel: (
+            self.bot._send_chat(channel, "first"),
+            self.bot._send_chat(channel, "second"),
+        )
+        settings = {
+            "access_tier": "Everyone",
+            "global_cooldown_seconds": 0,
+            "cooldown_seconds": 0,
+            "commands": {"scanner": True},
+        }
+
+        with patch.dict(config.TWITCH_BOT, settings):
+            self.bot._handle_line(
+                ":user!user@host PRIVMSG #channel :!scanner",
+                "channel",
+            )
+
+        self.bot.log_message.emit.assert_called_once_with(
+            "[TWITCH COMMAND OK] @user: !scanner; 2 responses written to chat.",
+            "success",
+        )
+
+    def test_twitch_rejection_notice_has_a_stable_explanation(self):
+        line = (
+            "@msg-id=msg_ratelimit :tmi.twitch.tv NOTICE #channel "
+            ":Your message was not sent because you are sending messages too quickly."
+        )
+
+        self.bot._handle_line(line, "channel")
+
+        self.bot.log_message.emit.assert_called_once_with(
+            "[TWITCH NOTICE] msg_ratelimit: Twitch rejected the outgoing message because the bot is sending messages too quickly.",
+            "warning",
+        )
 
     def test_stats_uses_runtime_snapshot_without_legacy_getters(self):
         tracker = SimpleNamespace(

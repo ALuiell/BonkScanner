@@ -374,8 +374,8 @@ class TwitchSession:
                 )
             )
             worker.log_message.connect(
-                lambda message, current=worker: self._queue_worker_ui(
-                    "_bot_worker", current, self.on_bot_log, message
+                lambda message, severity, current=worker: self._queue_worker_ui(
+                    "_bot_worker", current, self.on_bot_log, message, severity
                 )
             )
             worker.finished.connect(
@@ -561,10 +561,10 @@ class TwitchSession:
             return
         self._view.show_bot_status(status)
 
-    def on_bot_log(self, msg) -> None:
+    def on_bot_log(self, msg, severity="info") -> None:
         if self._shutting_down:
             return
-        self._log(f"[Twitch] {msg}")
+        self._log(f"[Twitch] {msg}", tag=severity)
 
     def on_bot_finished(self) -> None:
         if self._shutting_down:

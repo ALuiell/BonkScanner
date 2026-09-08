@@ -488,6 +488,30 @@ class TwitchSessionTests(unittest.TestCase):
         callbacks.pop()()
         self.assertEqual(harness.tab.calls, [("show_bot_status", "Connected to #bonk")])
 
+    def test_worker_log_severity_is_marshaled_to_the_logs_view(self) -> None:
+        harness = build_session()
+        callbacks = []
+        harness.session._marshal_to_ui = lambda callback: callbacks.append(callback) or True
+        harness.session._start_bot_worker()
+        worker = harness.calls["bot_workers"][0]
+
+        worker.log_message.emit(
+            "[TWITCH COMMAND FAILED] @user: !scanner; connection reset.",
+            "error",
+        )
+
+        self.assertEqual(harness.logs, [])
+        callbacks.pop()()
+        self.assertEqual(
+            harness.logs,
+            [
+                (
+                    "[Twitch] [TWITCH COMMAND FAILED] @user: !scanner; connection reset.",
+                    "error",
+                )
+            ],
+        )
+
     def test_queued_status_from_replaced_worker_is_dropped(self) -> None:
         harness = build_session()
         callbacks = []

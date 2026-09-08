@@ -38,6 +38,51 @@ COMMAND_COOLDOWN_KEYS = {
     "!bhelp": "!bonkhelp",
 }
 
+COMMAND_SETTINGS = {
+    "!stats": ("stats", True),
+    "!bonkstats": ("stats", True),
+    "!session": ("session", True),
+    "!bans": ("bans", True),
+    "!banishes": ("bans", True),
+    "!items": ("items", True),
+    "!tracked": ("items", True),
+    "!weapons": ("weapons", True),
+    "!tomes": ("tomes", True),
+    "!chaos": ("chaos", True),
+    "!chaostome": ("chaos", True),
+    "!dice": ("dice", True),
+    "!shrines": ("shrines", True),
+    "!stages": ("stages", True),
+    "!powerups": ("powerups", True),
+    "!kps": ("kps", True),
+    "!build": ("build", True),
+    "!scanner": ("scanner", True),
+    "!chests": ("chests", False),
+    "!chest": ("chests", False),
+    "!luck": ("luck", False),
+    "!presets": ("presets", False),
+    "!preset": ("presets", False),
+    "!disabled": ("disabled", False),
+    "!bonkhelp": ("bonkhelp", True),
+    "!bonkcmds": ("bonkhelp", True),
+    "!bonkcommands": ("bonkhelp", True),
+    "!bhelp": ("bonkhelp", True),
+}
+
+TWITCH_NOTICE_EXPLANATIONS = {
+    "msg_duplicate": "Twitch rejected the outgoing message because it duplicated a recent message.",
+    "msg_ratelimit": "Twitch rejected the outgoing message because the bot is sending messages too quickly.",
+    "msg_rejected": "Twitch held or rejected the outgoing message for moderation review.",
+    "msg_emoteonly": "Twitch rejected the outgoing message because the channel is in emote-only mode.",
+    "msg_followersonly": "Twitch rejected the outgoing message because the bot account does not meet follower-only requirements.",
+    "msg_followersonly_followed": "Twitch rejected the outgoing message because the bot account has not followed the channel long enough.",
+    "msg_followersonly_zero": "Twitch rejected the outgoing message because the channel is in follower-only mode.",
+    "msg_subsonly": "Twitch rejected the outgoing message because the channel is in subscribers-only mode.",
+    "msg_slowmode": "Twitch rejected the outgoing message because slow mode is active.",
+    "msg_requires_verified_phone_number": "Twitch rejected the outgoing message because the bot account needs a verified phone number.",
+    "msg_banned": "Twitch rejected the outgoing message because the bot account is banned from the channel.",
+}
+
 
 # The One Ring reaches this file under four spellings: the enum's `GoldenRing`,
 # the scanner's `Golden Ring`, the display name the memory client formats
@@ -75,7 +120,7 @@ def _round_chaos_summary_part(part: str) -> str:
 
 class TwitchBotWorker(QThread):
     status_updated = Signal(str)
-    log_message = Signal(str)
+    log_message = Signal(str, str)
 
     def __init__(self, run_tracker, parent=None, session_snapshot=None, build_progression_service=None):
         super().__init__(parent)
@@ -100,6 +145,16 @@ class TwitchBotWorker(QThread):
         self._pool_lines_used_this_run: dict[str, list[str]] = {}
         self.last_command_times: dict[str, float] = {}
         self.last_global_command_time: float = 0.0
+        self._active_command: str | None = None
+        self._active_send_count = 0
+        self._active_send_error: str | None = None
+        self._last_send_error: str | None = None
+        self._irc_username = ""
+        self._reconnect_requested = False
+
+    def _log_event(self, message: str, severity: str = "info") -> None:
+        """Publish one stable, filterable entry to the application's Logs tab."""
+        self.log_message.emit(message, severity)
 
     def _runtime_snapshot(self):
         return self.run_tracker.runtime_snapshot()
@@ -109,7 +164,10 @@ class TwitchBotWorker(QThread):
             self._run_bot_loop()
         except Exception as exc:
             if not self._stop_event.is_set():
-                self.log_message.emit(f"Bot exception: {exc}")
+                self._log_event(
+                    f"[BOT ERROR] Twitch bot stopped unexpectedly: {type(exc).__name__}: {exc}",
+                    "error",
+                )
                 self.status_updated.emit(f"Error: {exc}")
         finally:
             self.running = False
@@ -131,8 +189,13 @@ class TwitchBotWorker(QThread):
         username = str(bot_cfg.get("username") or "").strip().lstrip("#").lower()
         target_channel = self._target_channel(bot_cfg)
         token = get_twitch_oauth_token()
+        self._irc_username = username
 
         if not username or not target_channel or not token:
+            self._log_event(
+                "[BOT START FAILED] Twitch credentials or target channel are missing.",
+                "error",
+            )
             self.status_updated.emit("Error: Missing credentials")
             self.running = False
             return
@@ -153,17 +216,38 @@ class TwitchBotWorker(QThread):
                 if self._stop_event.is_set() or not self.running:
                     break
 
-                self._send(f"PASS oauth:{token}")
-                self._send(f"NICK {username}")
-                self._send(f"JOIN #{target_channel}")
-                self._send("CAP REQ :twitch.tv/tags twitch.tv/commands")
+                handshake_sent = (
+                    self._send(
+                        f"PASS oauth:{token}",
+                        purpose="Twitch authentication request",
+                        log_failure=False,
+                    )
+                    and self._send(
+                        f"NICK {username}",
+                        purpose="Twitch account name",
+                        log_failure=False,
+                    )
+                    and self._send(
+                        f"JOIN #{target_channel}",
+                        purpose="Twitch channel join request",
+                        log_failure=False,
+                    )
+                    and self._send(
+                        "CAP REQ :twitch.tv/tags twitch.tv/commands",
+                        purpose="Twitch IRC capability request",
+                        log_failure=False,
+                    )
+                )
+                if not handshake_sent:
+                    detail = self._last_send_error or "unknown socket write error"
+                    raise ConnectionError(f"Twitch IRC handshake could not be written: {detail}")
 
-                self.status_updated.emit(f"Connected to #{target_channel}")
-                self.log_message.emit("Bot joined chat.")
+                self.status_updated.emit("Authenticating with Twitch...")
                 self._last_commands_announcement_at = time.monotonic()
                 self._commands_announcements_were_enabled = bool(
                     config.TWITCH_BOT.get("commands_announcements", False)
                 )
+                self._reconnect_requested = False
 
                 buffer = ""
                 runtime = self._runtime_snapshot()
@@ -184,10 +268,17 @@ class TwitchBotWorker(QThread):
                         continue
                     except Exception as e:
                         if not self._stop_event.is_set():
-                            self.log_message.emit(f"Socket error: {e}")
+                            self._log_event(
+                                f"[TWITCH CONNECTION LOST] {type(e).__name__}: {e}; reconnecting in 2 seconds.",
+                                "error",
+                            )
                         break
 
                     if not data:
+                        self._log_event(
+                            "[TWITCH CONNECTION LOST] Twitch closed the chat connection; reconnecting in 2 seconds.",
+                            "warning",
+                        )
                         break
 
                     buffer += data.decode("utf-8", errors="replace")
@@ -199,18 +290,28 @@ class TwitchBotWorker(QThread):
                             self._handle_line(line, target_channel)
                         except Exception as e:
                             import traceback
-                            self.log_message.emit(f"Command error: {e}")
+                            self._log_event(
+                                f"[IRC LINE ERROR] Could not process a Twitch message: {type(e).__name__}: {e}",
+                                "error",
+                            )
                             traceback.print_exc()
+                        if self._reconnect_requested:
+                            break
+
+                    if self._reconnect_requested:
+                        break
 
             except Exception as e:
                 if not self._stop_event.is_set():
-                    self.log_message.emit(f"Bot exception: {e}")
+                    self._log_event(
+                        f"[TWITCH CONNECTION FAILED] {type(e).__name__}: {e}; retrying in 2 seconds.",
+                        "error",
+                    )
                     self.status_updated.emit(f"Error: {e}")
 
             self._close_socket()
 
             if self.running and not self._stop_event.is_set():
-                self.log_message.emit("Reconnecting in 2 seconds...")
                 self.status_updated.emit("Reconnecting...")
                 self._stop_event.wait(2)
 
@@ -241,12 +342,35 @@ class TwitchBotWorker(QThread):
         except Exception:
             pass
 
-    def _send(self, msg: str):
-        if self.sock:
-            try:
-                self.sock.send(f"{msg}\r\n".encode("utf-8"))
-            except:
-                pass
+    def _send(
+        self,
+        msg: str,
+        *,
+        purpose: str = "IRC message",
+        failure_event: str = "IRC SEND FAILED",
+        log_failure: bool = True,
+    ) -> bool:
+        self._last_send_error = None
+        sock = self.sock
+        if sock is None:
+            self._last_send_error = "connection unavailable"
+            if log_failure:
+                self._log_event(
+                    f"[{failure_event}] {purpose} was not written: {self._last_send_error}.",
+                    "error",
+                )
+            return False
+        try:
+            sock.sendall(f"{msg}\r\n".encode("utf-8"))
+        except Exception as exc:
+            self._last_send_error = f"{type(exc).__name__}: {exc}"
+            if log_failure:
+                self._log_event(
+                    f"[{failure_event}] {purpose} was not written: {self._last_send_error}.",
+                    "error",
+                )
+            return False
+        return True
 
     def _send_chat(self, channel: str, msg: str):
         full_prefix = f"PRIVMSG #{channel} :"
@@ -256,12 +380,60 @@ class TwitchBotWorker(QThread):
         if len(encoded_msg) > max_msg_bytes:
             msg = encoded_msg[:max_msg_bytes].decode("utf-8", errors="ignore")
 
-        self._send(f"PRIVMSG #{channel} :{msg}")
-        self.log_message.emit(f"Bot: {msg}")
+        if self._active_command:
+            purpose = f"Response for {self._active_command}"
+        else:
+            purpose = "Automated chat message"
+
+        sent = self._send(
+            f"PRIVMSG #{channel} :{msg}",
+            purpose=purpose,
+            failure_event="TWITCH CHAT FAILED",
+            log_failure=self._active_command is None,
+        )
+        if self._active_command:
+            if sent:
+                self._active_send_count += 1
+            elif self._active_send_error is None:
+                self._active_send_error = self._last_send_error or "unknown socket write error"
+        elif sent:
+            self._log_event(
+                f"[TWITCH CHAT OK] Automated message was written to #{channel}: {msg}",
+                "success",
+            )
+        return sent
 
     def _handle_line(self, line: str, channel: str):
         if line.startswith("PING"):
-            self._send(line.replace("PING", "PONG", 1))
+            self._send(line.replace("PING", "PONG", 1), purpose="Twitch keepalive reply")
+            return
+
+        if line == ":tmi.twitch.tv RECONNECT":
+            self._log_event(
+                "[TWITCH RECONNECT] Twitch requested a fresh chat connection; reconnecting now.",
+                "warning",
+            )
+            self._reconnect_requested = True
+            return
+
+        notice = re.match(r"^(?:@([^ ]+) )?:tmi\.twitch\.tv NOTICE (?:#[^ ]+|\*) :(.+)$", line)
+        if notice:
+            tags_str, message = notice.groups()
+            self._handle_notice(tags_str or "", message)
+            return
+
+        welcome = re.match(r"^:tmi\.twitch\.tv 001 ([^ ]+) :", line)
+        if welcome:
+            self.status_updated.emit(f"Joining #{channel}...")
+            return
+
+        joined = re.match(r"^:([^!]+)![^ ]+ JOIN #([^ ]+)$", line)
+        if joined and joined.group(1).lower() == self._irc_username:
+            self._log_event(
+                f"[TWITCH READY] Connected as @{self._irc_username} to #{joined.group(2).lower()}.",
+                "success",
+            )
+            self.status_updated.emit(f"Connected to #{joined.group(2).lower()}")
             return
 
         match = re.match(r"^(?:@([^ ]+) )?:([^!]+)![^ ]+ PRIVMSG #([^ ]+) :(.+)$", line)
@@ -274,88 +446,173 @@ class TwitchBotWorker(QThread):
         if not message.startswith("!"):
             return
 
+        raw_command = message.split()[0]
+        cmd = raw_command.lower()
+        setting = COMMAND_SETTINGS.get(cmd)
+        if setting is None:
+            return
+
+        command_text = raw_command if raw_command == cmd else f"{raw_command} -> {cmd}"
+        subject = f"@{sender}: {command_text}"
+        commands_cfg = config.TWITCH_BOT.get("commands", {})
+        setting_key, default_enabled = setting
+        if setting_key == "bonkhelp":
+            enabled = commands_cfg.get("bonkhelp", commands_cfg.get("commands", default_enabled))
+        else:
+            enabled = commands_cfg.get(setting_key, default_enabled)
+        if not enabled:
+            self._log_event(
+                f"[TWITCH COMMAND SKIPPED] {subject}; command is disabled in Twitch settings.",
+                "warning",
+            )
+            return
+
         if not self._check_access(tags_str):
+            tier = config.TWITCH_BOT.get("access_tier", "Everyone")
+            self._log_event(
+                f"[TWITCH COMMAND SKIPPED] {subject}; access tier '{tier}' denied this user.",
+                "warning",
+            )
             return
 
         now = time.time()
         global_cooldown = config.TWITCH_BOT.get("global_cooldown_seconds", 1)
         command_cooldown = config.TWITCH_BOT.get("cooldown_seconds", 5)
 
-        cmd = message.split()[0].lower()
         cooldown_key = COMMAND_COOLDOWN_KEYS.get(cmd, cmd)
         time_since_global = now - self.last_global_command_time
         time_since_cmd = now - self.last_command_times.get(cooldown_key, 0.0)
 
         if time_since_global < global_cooldown or time_since_cmd < command_cooldown:
+            remaining = []
+            if time_since_global < global_cooldown:
+                remaining.append(f"global {global_cooldown - time_since_global:.1f}s")
+            if time_since_cmd < command_cooldown:
+                remaining.append(f"command {command_cooldown - time_since_cmd:.1f}s")
+            self._log_event(
+                f"[TWITCH COMMAND SKIPPED] {subject}; cooldown active ({', '.join(remaining)} remaining).",
+                "warning",
+            )
             return
 
-        handled = False
-        commands_cfg = config.TWITCH_BOT.get("commands", {})
+        self._active_command = cmd
+        self._active_send_count = 0
+        self._active_send_error = None
+        try:
+            handled = self._dispatch_command(cmd, channel, commands_cfg)
+        except Exception as exc:
+            self._log_event(
+                f"[TWITCH COMMAND FAILED] {subject}; {type(exc).__name__}: {exc}.",
+                "error",
+            )
+            return
+        finally:
+            self._active_command = None
 
+        if not handled:
+            self._log_event(
+                f"[TWITCH COMMAND FAILED] {subject}; no handler accepted the command.",
+                "error",
+            )
+            return
+
+        self.last_global_command_time = now
+        self.last_command_times[cooldown_key] = now
+        if self._active_send_error:
+            partial = (
+                f" after {self._active_send_count} successful response(s)"
+                if self._active_send_count
+                else ""
+            )
+            self._log_event(
+                f"[TWITCH COMMAND FAILED] {subject}; response write failed{partial}: {self._active_send_error}.",
+                "error",
+            )
+        elif self._active_send_count == 0:
+            self._log_event(
+                f"[TWITCH COMMAND FAILED] {subject}; handler produced no chat response.",
+                "error",
+            )
+        else:
+            response_text = (
+                "response written to chat"
+                if self._active_send_count == 1
+                else f"{self._active_send_count} responses written to chat"
+            )
+            self._log_event(
+                f"[TWITCH COMMAND OK] {subject}; {response_text}.",
+                "success",
+            )
+
+    def _dispatch_command(self, cmd: str, channel: str, commands_cfg: dict) -> bool:
         if cmd in ("!stats", "!bonkstats") and commands_cfg.get("stats", True):
             self._handle_stats(channel)
-            handled = True
         elif cmd == "!session" and commands_cfg.get("session", True):
             self._handle_session(channel)
-            handled = True
         elif cmd in ("!bans", "!banishes") and commands_cfg.get("bans", True):
             self._handle_bans(channel)
-            handled = True
         elif cmd in ("!items", "!tracked") and commands_cfg.get("items", True):
             self._handle_items(channel)
-            handled = True
         elif cmd == "!weapons" and commands_cfg.get("weapons", True):
             self._handle_weapons(channel)
-            handled = True
         elif cmd == "!tomes" and commands_cfg.get("tomes", True):
             self._handle_tomes(channel)
-            handled = True
         elif cmd in ("!chaos", "!chaostome") and commands_cfg.get("chaos", True):
             self._handle_chaos(channel)
-            handled = True
         elif cmd == "!dice" and commands_cfg.get("dice", True):
             self._handle_dice(channel)
-            handled = True
         elif cmd == "!shrines" and commands_cfg.get("shrines", True):
             self._handle_shrines(channel)
-            handled = True
         elif cmd == "!stages" and commands_cfg.get("stages", True):
             self._handle_stages(channel)
-            handled = True
         elif cmd == "!powerups" and commands_cfg.get("powerups", True):
             self._handle_powerups(channel)
-            handled = True
         elif cmd == "!kps" and commands_cfg.get("kps", True):
             self._handle_kps(channel)
-            handled = True
         elif cmd == "!build" and commands_cfg.get("build", True):
             self._handle_build(channel)
-            handled = True
         elif cmd == "!scanner" and commands_cfg.get("scanner", True):
             self._handle_scanner(channel)
-            handled = True
         elif cmd in ("!chests", "!chest") and commands_cfg.get("chests", False):
             self._handle_chests(channel)
-            handled = True
         elif cmd == "!luck" and commands_cfg.get("luck", False):
             self._handle_luck(channel)
-            handled = True
         elif cmd in ("!presets", "!preset") and commands_cfg.get("presets", False):
             self._handle_presets(channel)
-            handled = True
         elif cmd == "!disabled" and commands_cfg.get("disabled", False):
             self._handle_disabled(channel)
-            handled = True
         elif cmd in ("!bonkhelp", "!bonkcmds", "!bonkcommands", "!bhelp") and commands_cfg.get(
             "bonkhelp",
             commands_cfg.get("commands", True),
         ):
             self._handle_commands(channel)
-            handled = True
+        else:
+            return False
+        return True
 
-        if handled:
-            self.last_global_command_time = now
-            self.last_command_times[cooldown_key] = now
+    def _handle_notice(self, tags_str: str, message: str) -> None:
+        tags = dict(
+            part.split("=", 1) if "=" in part else (part, "")
+            for part in tags_str.split(";")
+            if part
+        )
+        notice_id = tags.get("msg-id") or tags.get("msg_id") or "unclassified"
+        explanation = TWITCH_NOTICE_EXPLANATIONS.get(notice_id)
+        severity = "warning"
+
+        if explanation is None:
+            lowered = message.lower()
+            if "login authentication failed" in lowered or "improperly formatted auth" in lowered:
+                explanation = "Twitch rejected the bot authentication request. Reconnect the Twitch account."
+                severity = "error"
+                self.status_updated.emit("Error: Twitch authentication failed")
+            else:
+                explanation = f"Twitch reported: {message}"
+
+        self._log_event(
+            f"[TWITCH NOTICE] {notice_id}: {explanation}",
+            severity,
+        )
 
     def _check_access(self, tags_str: str) -> bool:
         tier = config.TWITCH_BOT.get("access_tier", "Everyone")
