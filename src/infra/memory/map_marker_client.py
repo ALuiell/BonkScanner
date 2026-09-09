@@ -43,6 +43,8 @@ class MapMarkerMemoryClient:
     MODULE_NAME = "GameAssembly.dll"
 
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
+    OBJECT_KLASS_OFFSET = 0x0
+    OBJECT_POINTER_SIZE = 0x8
     MANAGED_NATIVE_OFFSET = 0x10
 
     # Before IL2CPP initializes a type-info usage slot, 64-bit builds can keep
@@ -70,6 +72,7 @@ class MapMarkerMemoryClient:
     PAUSE_UI_CURRENT_OFFSET = 0x38
 
     FULL_MAP_UI_TYPE_INFO_OFFSET = 0x2F9AF30
+    FULL_MAP_TOGGLE_DELEGATE_OFFSET = 0x0
     FULL_MAP_WORLD_SIZE_OFFSET = 0x28
     FULL_MAP_DISPLAY_TRANSFORM_OFFSET = 0x50
     FULL_MAP_OPEN_COUNT_OFFSET = 0x60
@@ -260,7 +263,10 @@ class MapMarkerMemoryClient:
             tracked = (int(expected_class_ptr), str(expected_class_name))
             self._tracked_classes[object_ptr] = tracked
         expected_class_ptr, class_name = tracked
-        if self.memory.read_ptr(object_ptr) != expected_class_ptr:
+        if (
+            self.memory.read_ptr(object_ptr + self.OBJECT_KLASS_OFFSET)
+            != expected_class_ptr
+        ):
             return False
         if not self.memory.read_ptr(object_ptr + self.MANAGED_NATIVE_OFFSET):
             return False
@@ -313,7 +319,9 @@ class MapMarkerMemoryClient:
         )
         if not static_fields:
             return 0
-        delegate = self.memory.read_ptr(static_fields)
+        delegate = self.memory.read_ptr(
+            static_fields + self.FULL_MAP_TOGGLE_DELEGATE_OFFSET
+        )
         if not delegate:
             return 0
 
@@ -325,7 +333,9 @@ class MapMarkerMemoryClient:
             first_index = max(0, count - self.MAX_DELEGATES_TO_SCAN)
             for index in range(count - 1, first_index - 1, -1):
                 entry = self.memory.read_ptr(
-                    delegates + self.ARRAY_DATA_OFFSET + index * 8
+                    delegates
+                    + self.ARRAY_DATA_OFFSET
+                    + index * self.OBJECT_POINTER_SIZE
                 )
                 target = (
                     self.memory.read_ptr(entry + self.DELEGATE_TARGET_OFFSET)
@@ -418,7 +428,7 @@ class MapMarkerMemoryClient:
     def _read_current_activity(self, object_ptr: int) -> DetectedMapActivity | None:
         if not object_ptr:
             return None
-        class_ptr = self.memory.read_ptr(object_ptr)
+        class_ptr = self.memory.read_ptr(object_ptr + self.OBJECT_KLASS_OFFSET)
         class_name = self._class_name_from_ptr(class_ptr)
         if class_name not in self.ALLOWED_CLASSES:
             return None
@@ -614,7 +624,9 @@ class MapMarkerMemoryClient:
             root_index = parent
             depth += 1
 
-        root_native = self.memory.read_ptr(native_transforms + root_index * 8)
+        root_native = self.memory.read_ptr(
+            native_transforms + root_index * self.OBJECT_POINTER_SIZE
+        )
         if not root_native:
             raise MemoryReadError("UI root RectTransform is unavailable.")
         return root_native
@@ -760,7 +772,9 @@ class MapMarkerMemoryClient:
             access + self.TRANSFORM_ACCESS_NATIVE_TRANSFORMS_OFFSET
         )
         for index in range(count):
-            native_transform = self.memory.read_ptr(native_transforms + index * 8)
+            native_transform = self.memory.read_ptr(
+                native_transforms + index * self.OBJECT_POINTER_SIZE
+            )
             if not native_transform:
                 continue
             if self._native_transform_name(native_transform) != expected_name:
@@ -847,7 +861,9 @@ class MapMarkerMemoryClient:
         )
 
     def _class_name(self, object_ptr: int) -> str | None:
-        return self._class_name_from_ptr(self.memory.read_ptr(object_ptr))
+        return self._class_name_from_ptr(
+            self.memory.read_ptr(object_ptr + self.OBJECT_KLASS_OFFSET)
+        )
 
     def _class_name_from_ptr(self, class_ptr: int) -> str | None:
         if not class_ptr:

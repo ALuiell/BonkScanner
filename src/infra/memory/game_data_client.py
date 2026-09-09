@@ -46,6 +46,7 @@ class GameDataClient:
     MY_TIME_TYPE_INFO_OFFSET = 0x2F62398
     PLAYER_MOVEMENT_TYPE_INFO_OFFSET = 0x2F6D670
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
+    INTERACTABLES_DICT_OFFSET = 0x0
     GAME_MANAGER_INSTANCE_OFFSET = 0x0
     GAME_MANAGER_IS_GAME_OVER_OFFSET = 0x74
     GAME_MANAGER_IS_PLAYING_OFFSET = 0x84
@@ -627,7 +628,9 @@ class GameDataClient:
         if not static_fields:
             return activities
 
-        interactables_dict = self.memory.read_ptr(static_fields)
+        interactables_dict = self.memory.read_ptr(
+            static_fields + self.INTERACTABLES_DICT_OFFSET
+        )
         if not interactables_dict:
             return activities
 
@@ -671,7 +674,9 @@ class GameDataClient:
 
             activities[label] = StatValue(current=current_value, max=max_value)
 
-        interactables_dict_after = self.memory.read_ptr(static_fields)
+        interactables_dict_after = self.memory.read_ptr(
+            static_fields + self.INTERACTABLES_DICT_OFFSET
+        )
         entries_after = self.memory.read_ptr(
             interactables_dict + self.DICT_ENTRIES_OFFSET
         )

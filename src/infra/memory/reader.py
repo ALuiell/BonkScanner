@@ -23,6 +23,11 @@ class MemoryReadError(Exception):
 class ProcessMemory:
     """Thin wrapper around process memory access for the game."""
 
+    # IL2CPP System.String object layout. Keep these named so the recovery
+    # inventory can account for every game-memory layout dependency.
+    MONO_STRING_LENGTH_OFFSET = 0x10
+    MONO_STRING_DATA_OFFSET = 0x14
+
     def __init__(
         self,
         process_name: str,
@@ -161,7 +166,7 @@ class ProcessMemory:
             return None
 
         try:
-            length = self.read_i32(address + 0x10)
+            length = self.read_i32(address + self.MONO_STRING_LENGTH_OFFSET)
         except MemoryReadError:
             return None
 
@@ -172,7 +177,7 @@ class ProcessMemory:
             return ""
 
         try:
-            raw = self.read_bytes(address + 0x14, length * 2)
+            raw = self.read_bytes(address + self.MONO_STRING_DATA_OFFSET, length * 2)
         except MemoryReadError:
             return None
 

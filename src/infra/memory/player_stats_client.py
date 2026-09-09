@@ -238,6 +238,7 @@ class PlayerStatsClient:
     WEAPON_MAX_SIZE_MULTIPLIER_OFFSET = 0x90
     PLAYER_XP_OFFSET = 0x30
     PLAYER_XP_LEVEL_OFFSET = 0x14
+    PLAYER_GOLD_INT_OFFSET = 0x70
     WEAPON_UPGRADE_DATA_OFFSET = 0xD8
     UPGRADE_MODIFIERS_OFFSET = 0x18
     # Owned by core.stats.types (PlayerStatSpec.offset derives from them);
@@ -327,6 +328,9 @@ class PlayerStatsClient:
     TOME_DATA_ENUM_OFFSET = 0x50
     RUN_UNLOCKABLES_BANISHED_ITEMS_OFFSET = 0x0
     RUN_UNLOCKABLES_BANISHED_UPGRADABLES_OFFSET = 0x8
+    RUN_UNLOCKABLES_AVAILABLE_ITEMS_OFFSET = 0x10
+    DATA_MANAGER_INSTANCE_OFFSET = 0x08
+    DATA_MANAGER_UNSORTED_ITEMS_OFFSET = 0x60
     MAX_BANISHED_UNLOCKABLES = 128
     CHAOS_TOME_ID = 24
     ACHIEVEMENT_TRACKER_TYPE_INFO_OFFSET = 0x02F69FE8
@@ -509,7 +513,7 @@ class PlayerStatsClient:
             player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
             if not player_inventory:
                 return 0
-            return self.memory.read_i32(player_inventory + 0x70)
+            return self.memory.read_i32(player_inventory + self.PLAYER_GOLD_INT_OFFSET)
         except MemoryReadError:
             return 0
 
@@ -3225,11 +3229,15 @@ class PlayerStatsClient:
             if not static_fields:
                 return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
-            instance = self.memory.read_ptr(static_fields + 0x8)
+            instance = self.memory.read_ptr(
+                static_fields + self.DATA_MANAGER_INSTANCE_OFFSET
+            )
             if not instance:
                 return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
-            unsorted_items_list = self.memory.read_ptr(instance + 0x60)
+            unsorted_items_list = self.memory.read_ptr(
+                instance + self.DATA_MANAGER_UNSORTED_ITEMS_OFFSET
+            )
             if not unsorted_items_list:
                 return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
@@ -3268,7 +3276,9 @@ class PlayerStatsClient:
             if not static_fields:
                 return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
-            available_items_dict = self.memory.read_ptr(static_fields + 0x10)
+            available_items_dict = self.memory.read_ptr(
+                static_fields + self.RUN_UNLOCKABLES_AVAILABLE_ITEMS_OFFSET
+            )
             if not available_items_dict:
                 return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
