@@ -433,3 +433,23 @@ Wait for the final `OK`; a partial run or an interrupted run is not a pass.
 8. When a matching map is found, the app stops and logs the result.
 
 BonkScanner is meant to reduce repetition, speed up rerolling, and make target hunting less frustrating while also giving streamers and run reviewers better live data.
+
+## License
+
+Copyright (C) 2026 Aluiel and BonkScanner contributors.
+
+BonkScanner's original source code and documentation in this repository are
+licensed under the **GNU General Public License, version 3 only**
+(`GPL-3.0-only`). You may use, study, modify, and redistribute the covered
+work under the terms of the [LICENSE](LICENSE) file. Distributed modified
+versions must preserve the same license and make their corresponding source
+available as required by GPLv3.
+
+The GPL does not grant permission to use the BonkScanner name or original
+project logo in a way that suggests an unofficial build is maintained,
+endorsed, or published by the BonkScanner project. Official hosted services,
+supporter keys, and accounts are separate from the licensed client source.
+
+Bundled dependencies and third-party names, logos, and other assets remain
+subject to their respective licenses and owners' rights. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
