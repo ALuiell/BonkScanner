@@ -410,7 +410,7 @@ build_exe.bat
 - `src/app/update_flow.py` and `src/infra/updater.py` - packaged-build update checks and application flow.
 - `src\tests` - unit tests.
 - `src\media\overlay` - browser overlay HTML, CSS, JS, and preview asset.
-- `docs\help` - in-app help text in English, Ukrainian, and Russian.
+- `src\media\help` - packaged in-app help text in English, Ukrainian, and Russian.
 
 ## Developer Validation
 

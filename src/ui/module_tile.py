@@ -10,7 +10,8 @@ The local-only design mock this comes from also gave
 each tile an icon badge and a description line. Both are dropped: the badge was
 a literal "!" on every Twitch tile, and the descriptions did not exist anywhere
 in the app -- they would have had to be invented, and the tile is three times
-shorter without them. Descriptions live in `docs/help/` and belong to a `?`
+shorter without them. Descriptions live in the external documentation repository
+and belong to a `?`
 affordance if that is ever built.
 
 Shaped like a checkbox on purpose

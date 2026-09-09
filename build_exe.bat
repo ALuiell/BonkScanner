@@ -48,7 +48,7 @@ REM BonkScanner.spec is this script's OUTPUT, not its input. Every run
 REM regenerates it from these flags, which is why it is gitignored and why
 REM editing it by hand never survives.
 echo [BUILD] Building executable...
-"%PYTHON_EXE%" -m PyInstaller --clean --noupx --noconfirm --noconsole --onefile --paths="src" --icon="src\media\bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "src\media;media" --add-data "docs\help;docs\help" src\main.py
+"%PYTHON_EXE%" -m PyInstaller --clean --noupx --noconfirm --noconsole --onefile --paths="src" --icon="src\media\bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "src\media;media" src\main.py
 
 if errorlevel 1 (
     echo [ERROR] PyInstaller failed to build the executable.

@@ -1339,9 +1339,9 @@ class HelpDialog(QDialog):
         )
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_language_tab("docs/help/help_eng.txt", self._fallback_eng_text()), "ENG")
-        tabs.addTab(self._build_language_tab("docs/help/help_ukr.txt", self._fallback_ukr_text()), "UA")
-        tabs.addTab(self._build_language_tab("docs/help/help_ru.txt", self._fallback_ru_text()), "RU")
+        tabs.addTab(self._build_language_tab("media/help/help_eng.txt", self._fallback_eng_text()), "ENG")
+        tabs.addTab(self._build_language_tab("media/help/help_ukr.txt", self._fallback_ukr_text()), "UA")
+        tabs.addTab(self._build_language_tab("media/help/help_ru.txt", self._fallback_ru_text()), "RU")
         layout.addWidget(tabs, 1)
 
         close_btn = QPushButton("Close")
@@ -1453,15 +1453,15 @@ class HelpDialog(QDialog):
 
     @staticmethod
     def _fallback_ru_text() -> str:
-        return "Файл справки не найден.\n\nПроверьте наличие docs/help/help_ru.txt рядом с приложением."
+        return "Файл справки не найден.\n\nПроверьте наличие media/help/help_ru.txt рядом с приложением."
 
     @staticmethod
     def _fallback_eng_text() -> str:
-        return "Help file not found.\n\nPlease check that docs/help/help_eng.txt is present next to the application."
+        return "Help file not found.\n\nPlease check that media/help/help_eng.txt is present next to the application."
 
     @staticmethod
     def _fallback_ukr_text() -> str:
-        return "Файл довідки не знайдено.\n\nПеревірте, що docs/help/help_ukr.txt знаходиться поруч із застосунком."
+        return "Файл довідки не знайдено.\n\nПеревірте, що media/help/help_ukr.txt знаходиться поруч із застосунком."
 
 
 #: Every value in the Settings form is two to five characters -- `f6`, `0.10 s`,
