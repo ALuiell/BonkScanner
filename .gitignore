@@ -4,7 +4,6 @@ old/my_private_settings.py
 # === DOCUMENTATION & PERSONAL NOTES & CONFIGS===
 /docs/
 AGENT.md
-AGENTS.md
 Instructions_*.txt
 config.json
 vod_metadata_index.json

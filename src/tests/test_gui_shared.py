@@ -159,6 +159,17 @@ class ResourcePathAnchorTests(unittest.TestCase):
             self.assertTrue(resolved.is_file(), f"not found: {resolved}")
             self.assertEqual(resolved.parent.parent.name, "media")
 
+    def test_packaged_help_matches_documentation_checkout_when_available(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        documentation_help = repository_root / "docs" / "help"
+        if not documentation_help.is_dir():
+            self.skipTest("standalone documentation repository is not checked out")
+
+        for language in ("eng", "ru", "ukr"):
+            canonical = documentation_help / f"help_{language}.txt"
+            packaged = Path(gui_shared.resource_path(f"media/help/help_{language}.txt"))
+            self.assertEqual(canonical.read_bytes(), packaged.read_bytes())
+
     def test_non_media_resolves_at_the_repository_root(self) -> None:
         # The checkout name is derived from this file's own location rather than
         # spelled out. It used to read "MegabonkReroll", which made the test a

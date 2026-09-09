@@ -20,6 +20,17 @@ if not exist "%PYTHON_EXE%" (
     exit /b 1
 )
 
+if exist "docs\.git" (
+    echo [SYNC] Updating packaged help from the documentation repository...
+    "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "scripts\sync_help.ps1"
+    if errorlevel 1 (
+        echo [ERROR] Failed to synchronize in-app help.
+        pause
+        popd
+        exit /b 1
+    )
+)
+
 
 "%PYTHON_EXE%" -m PyInstaller --version >nul 2>nul
 if errorlevel 1 (
