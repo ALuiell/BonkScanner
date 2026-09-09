@@ -30,6 +30,11 @@
 - Application branch operations affect only the application repository. Keep
   the documentation repository on `main` unless the user explicitly requests a
   documentation branch.
+- Before switching an application branch, run
+  `git ls-tree -r --name-only <target-branch> -- docs`. If it returns paths, do
+  not switch that legacy branch in this shared checkout: it can overwrite or
+  delete files in the nested documentation worktree. Use a separate worktree or
+  migrate the target branch first, and verify `git -C docs status` afterward.
 - After changing help, run `scripts/sync_help.ps1 -Check` and the relevant
   application tests. A local build also synchronizes help automatically when a
   documentation checkout is present.
