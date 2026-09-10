@@ -37,6 +37,7 @@ from ui.dialogs.shell import (
     dialog_info_card,
     dialog_note,
 )
+from ui.dialogs.supporter_access import SupporterAccessPage
 from ui.shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
@@ -74,6 +75,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QTabBar,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -1475,12 +1477,9 @@ _SETTINGS_FIELD_WIDTH = 130
 #: fields step sideways from row to row.
 _SETTINGS_LABEL_WIDTH = 120
 
-# The four destinations have similarly short labels. Keeping one compact size
-# makes them read as secondary links instead of another full-width action row.
 _SUPPORT_BUTTON_WIDTH = 104
 _SUPPORT_BUTTON_HEIGHT = 32
 _SUPPORT_BUTTON_ICON_SIZE = 16
-
 
 def _settings_group_label(text: str) -> QLabel:
     label = QLabel(str(text).upper())
@@ -1518,22 +1517,62 @@ class SettingsDialog(QDialog):
     def __init__(self, parent, master=None):
         super().__init__(parent)
         self.master = master or parent
+        self._reloading_general_settings = False
+        self._general_settings_dirty = False
         self.setWindowTitle("Settings")
         self.setModal(True)
+
+        self.settings_header_tabs = QTabBar(self)
+        self.settings_header_tabs.setObjectName("SettingsHeaderTabs")
+        self.settings_header_tabs.setDrawBase(False)
+        self.settings_header_tabs.setExpanding(False)
+        self.settings_header_tabs.setUsesScrollButtons(False)
+        self.settings_header_tabs.addTab("General")
+        self.settings_header_tabs.addTab("Support")
         shell_layout = dialog_body(
             self,
             title="Settings",
-            subtitle="Hotkeys, capture intervals, startup options and reminders.",
+            header_widget=self.settings_header_tabs,
             width=DIALOG_REGULAR,
             height=DIALOG_TALL,
         )
+
+        self.settings_tabs = QTabWidget(self)
+        self.settings_tabs.setObjectName("SettingsTabs")
+
+        self.general_settings_page = QWidget(self.settings_tabs)
+        self.general_settings_page.setObjectName("GeneralSettingsPage")
+        general_page_layout = QVBoxLayout(self.general_settings_page)
+        general_page_layout.setContentsMargins(0, 0, 0, 0)
+        general_page_layout.setSpacing(0)
+
         settings_scroll, settings_content, layout = _make_scroll_section()
         settings_scroll.setObjectName("SettingsScroll")
         settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         settings_content.setObjectName("SettingsScrollContent")
         layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(12)
-        shell_layout.addWidget(settings_scroll, 1)
+        general_page_layout.addWidget(settings_scroll)
+        self.settings_tabs.addTab(self.general_settings_page, "General")
+
+        self.supporter_access_page = SupporterAccessPage(
+            controller=getattr(self.master, "supporter_access", None),
+            open_patreon=self.open_patreon_support_page,
+            open_crypto=self.open_crypto_support_page,
+            open_github=self.open_github_repository_page,
+            open_discord=self.open_discord_support_page,
+            crypto_enabled=bool(CRYPTO_SUPPORT_URL),
+            parent=self.settings_tabs,
+        )
+        self.settings_tabs.addTab(self.supporter_access_page, "Support")
+        self.settings_tabs.tabBar().hide()
+        self.settings_header_tabs.currentChanged.connect(
+            self.settings_tabs.setCurrentIndex
+        )
+        self.settings_tabs.currentChanged.connect(
+            self.settings_header_tabs.setCurrentIndex
+        )
+        shell_layout.addWidget(self.settings_tabs, 1)
 
         # Three groups, two columns, and every field capped. One column of
         # full-width rows was what made this window read as scattered: a field
@@ -1703,11 +1742,7 @@ class SettingsDialog(QDialog):
 
         layout.addStretch(1)
 
-        # A card rather than a centred block under a rule. Centred text under a
-        # left-aligned form is two alignments in one short window, and the rule
-        # above it was a third divider in a dialog that already has one under
-        # its title.
-        support_card = QFrame()
+        support_card = QFrame(settings_content)
         support_card.setObjectName("card")
         support_layout = QVBoxLayout(support_card)
         support_layout.setContentsMargins(12, 10, 12, 12)
@@ -1718,8 +1753,7 @@ class SettingsDialog(QDialog):
         support_layout.addWidget(support_label)
 
         support_note = QLabel(
-            "BonkScanner is free to download. For feedback, bugs or ideas, "
-            "use GitHub or Discord.",
+            "Support the project or join the BonkScanner community.",
             support_card,
         )
         support_note.setObjectName("SupportSectionNote")
@@ -1727,50 +1761,41 @@ class SettingsDialog(QDialog):
         support_layout.addWidget(support_note)
 
         support_button_row = QHBoxLayout()
+        support_button_row.setContentsMargins(0, 0, 0, 0)
         support_button_row.setSpacing(8)
-        self.patreon_btn = QPushButton("Patreon")
-        self.patreon_btn.setObjectName("PatreonButton")
-        self.patreon_btn.setIcon(QIcon(resource_path(PATREON_ICON_PATH)))
-        self.patreon_btn.setIconSize(
-            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        self.patreon_btn = self._compact_support_button(
+            "Patreon",
+            "PatreonButton",
+            PATREON_ICON_PATH,
+            self.open_patreon_support_page,
         )
-        self.patreon_btn.clicked.connect(self.open_patreon_support_page)
-        self.patreon_btn.setProperty("class", "SupportPlatformButton")
-        self.crypto_btn = QPushButton("Crypto")
-        self.crypto_btn.setObjectName("CryptoButton")
-        self.crypto_btn.setIcon(QIcon(resource_path(CRYPTO_ICON_PATH)))
-        self.crypto_btn.setIconSize(
-            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        self.crypto_btn = self._compact_support_button(
+            "Crypto",
+            "CryptoButton",
+            CRYPTO_ICON_PATH,
+            self.open_crypto_support_page,
         )
-        self.crypto_btn.clicked.connect(self.open_crypto_support_page)
-        self.crypto_btn.setProperty("class", "SupportPlatformButton")
+        self.github_btn = self._compact_support_button(
+            "GitHub",
+            "GithubButton",
+            GITHUB_ICON_PATH,
+            self.open_github_repository_page,
+        )
+        self.discord_btn = self._compact_support_button(
+            "Discord",
+            "DiscordButton",
+            DISCORD_ICON_PATH,
+            self.open_discord_support_page,
+        )
         self.crypto_btn.setEnabled(bool(CRYPTO_SUPPORT_URL))
         if not CRYPTO_SUPPORT_URL:
             self.crypto_btn.setToolTip("Crypto support page is coming soon.")
-        self.github_btn = QPushButton("GitHub")
-        self.github_btn.setObjectName("GithubButton")
-        self.github_btn.setIcon(QIcon(resource_path(GITHUB_ICON_PATH)))
-        self.github_btn.setIconSize(
-            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
-        )
-        self.github_btn.clicked.connect(self.open_github_repository_page)
-        self.github_btn.setProperty("class", "SupportPlatformButton")
-        self.discord_btn = QPushButton("Discord")
-        self.discord_btn.setObjectName("DiscordButton")
-        self.discord_btn.setIcon(QIcon(resource_path(DISCORD_ICON_PATH)))
-        self.discord_btn.setIconSize(
-            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
-        )
-        self.discord_btn.clicked.connect(self.open_discord_support_page)
-        self.discord_btn.setProperty("class", "SupportPlatformButton")
         for button in (
             self.patreon_btn,
             self.crypto_btn,
             self.github_btn,
             self.discord_btn,
         ):
-            button.setProperty("settingsSupportAction", "true")
-            button.setFixedSize(_SUPPORT_BUTTON_WIDTH, _SUPPORT_BUTTON_HEIGHT)
             support_button_row.addWidget(button)
         support_button_row.addStretch(1)
         support_layout.addLayout(support_button_row)
@@ -1779,10 +1804,99 @@ class SettingsDialog(QDialog):
         # Update checking lives in the always-visible footer. Settings keeps one
         # clear job and one primary action instead of duplicating that control.
         self.save_btn = QPushButton("Save")
-        self.save_btn.clicked.connect(self.save)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        dialog_footer(self, primary=self.save_btn, secondary=cancel_btn)
+        self.save_btn.clicked.connect(self._on_primary_action)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        dialog_footer(self, primary=self.save_btn, secondary=self.cancel_btn)
+        self.settings_tabs.currentChanged.connect(self._on_settings_tab_changed)
+
+        for entry in (
+            self.hotkey_entry,
+            self.reset_hotkey_entry,
+            self.record_hotkey_entry,
+            self.overlay_edit_hotkey_entry,
+        ):
+            entry.textEdited.connect(self._mark_general_settings_dirty)
+        for spinbox in (
+            self.reset_hold_duration_entry,
+            self.reset_hold_safety_margin_entry,
+            self.record_interval_entry,
+        ):
+            spinbox.valueChanged.connect(self._mark_general_settings_dirty)
+        for checkbox in (
+            self.stop_scanning_on_player_movement_var,
+            self.auto_start_recording_var,
+            self.show_obs_reminder_on_start_scanner_var,
+        ):
+            checkbox.clicked.connect(self._mark_general_settings_dirty)
+        self._on_settings_tab_changed(self.settings_tabs.currentIndex())
+
+    @staticmethod
+    def _compact_support_button(
+        text: str,
+        object_name: str,
+        icon_path: str,
+        callback,
+    ) -> QPushButton:
+        button = QPushButton(text)
+        button.setObjectName(object_name)
+        button.setIcon(QIcon(resource_path(icon_path)))
+        button.setIconSize(
+            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        )
+        button.setProperty("class", "SupportPlatformButton")
+        button.setProperty("settingsSupportAction", "true")
+        button.setFixedSize(_SUPPORT_BUTTON_WIDTH, _SUPPORT_BUTTON_HEIGHT)
+        button.clicked.connect(callback)
+        return button
+
+    def show_page(self, page: str) -> None:
+        """Select a Settings page for shortcuts such as the header badge."""
+        normalized = str(page or "").strip().lower()
+        target = (
+            self.supporter_access_page
+            if normalized == "support"
+            else self.general_settings_page
+        )
+        self.settings_tabs.setCurrentWidget(target)
+        if target is self.supporter_access_page:
+            QTimer.singleShot(0, self.supporter_access_page.focus_primary_action)
+
+    def _on_settings_tab_changed(self, _index: int) -> None:
+        on_support = (
+            self.settings_tabs.currentWidget() is self.supporter_access_page
+        )
+        has_general_edits = bool(self._general_settings_dirty)
+        self.save_btn.setText(
+            "Save changes"
+            if on_support and has_general_edits
+            else "Done"
+            if on_support
+            else "Save"
+        )
+        self.cancel_btn.setVisible(not on_support or has_general_edits)
+        # Key actions are explicit and immediate. Keep Support free of a dialog
+        # default so Return in its key field can only reach Activate, while the
+        # General page retains the conventional Save default.
+        self.save_btn.setDefault(not on_support)
+        self.save_btn.setAutoDefault(not on_support)
+        self.supporter_access_page.activate_button.setDefault(False)
+        self.supporter_access_page.activate_button.setAutoDefault(False)
+
+    def _mark_general_settings_dirty(self, *_args) -> None:
+        if self._reloading_general_settings:
+            return
+        self._general_settings_dirty = True
+        self._on_settings_tab_changed(self.settings_tabs.currentIndex())
+
+    def _on_primary_action(self) -> None:
+        if (
+            self.settings_tabs.currentWidget() is self.supporter_access_page
+            and not self._general_settings_dirty
+        ):
+            self.accept()
+        else:
+            self.save()
 
     @staticmethod
     def _show_game_reset_notice(parent, **kwargs) -> None:
@@ -1795,6 +1909,7 @@ class SettingsDialog(QDialog):
 
     def reload_from_config(self) -> None:
         """Discard unsaved edits before reopening the reusable dialog."""
+        self._reloading_general_settings = True
         self.hotkey_entry.setText(str(config.HOTKEY))
         self.reset_hotkey_entry.setText(str(config.RESET_HOTKEY))
         self.record_hotkey_entry.setText(
@@ -1837,6 +1952,10 @@ class SettingsDialog(QDialog):
             bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
         )
         self._refresh_reset_timing_preview()
+        self.supporter_access_page.reload()
+        self._general_settings_dirty = False
+        self._reloading_general_settings = False
+        self._on_settings_tab_changed(self.settings_tabs.currentIndex())
 
     def _normalize_record_interval_entry(self) -> None:
         self.record_interval_entry.setValue(

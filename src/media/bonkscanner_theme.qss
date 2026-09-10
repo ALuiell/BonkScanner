@@ -73,6 +73,28 @@ QLabel#appTitle {
     letter-spacing: 0.3px;
     color: #EDF1F5;
 }
+QPushButton#premiumAccessBadge {
+    color: #A9D3F5;
+    background-color: rgba(45, 123, 192, 0.14);
+    border: 1px solid rgba(70, 150, 215, 0.34);
+    border-radius: 7px;
+    min-height: 26px;
+    max-height: 26px;
+    padding: 0px 9px 0px 7px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+}
+QPushButton#premiumAccessBadge:hover {
+    color: #C4E3FB;
+    background-color: rgba(45, 123, 192, 0.21);
+    border-color: rgba(85, 166, 226, 0.52);
+}
+QPushButton#premiumAccessBadge:pressed {
+    color: #D7ECFC;
+    background-color: rgba(45, 123, 192, 0.28);
+    border-color: rgba(85, 166, 226, 0.64);
+}
 QFrame#headerDivider {           /* вертикальный разделитель 1x18 */
     background-color: #232B36;
     max-width: 1px; min-width: 1px;
@@ -101,7 +123,12 @@ QLabel#recDot[state="off"] { qproperty-dotColor: #5C6675; }
 
 QWidget#recFlag, QWidget#statusPair { background: transparent; }
 
-QLabel#statusText { font-weight: 600; font-size: 12px; color: #8A94A3; }
+QLabel#statusText {
+    font-weight: 600;
+    font-size: 12px;
+    color: #8A94A3;
+    padding: 0px;
+}
 QLabel#statusText[state="running"] { color: #7DE68C; }
 QLabel#statusText[state="idle"]    { color: #8A94A3; }
 
@@ -1569,6 +1596,330 @@ QWidget#SettingsScrollContent {
     background: transparent;
     border: none;
 }
+
+QTabWidget#SettingsTabs::pane {
+    background: transparent;
+    border: none;
+    top: 0px;
+}
+QTabWidget#SettingsTabs QTabBar,
+QTabBar#SettingsHeaderTabs {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+QTabWidget#SettingsTabs QTabBar::tab,
+QTabBar#SettingsHeaderTabs::tab {
+    background: transparent;
+    color: #7F8B9A;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    min-width: 0px;
+    padding: 7px 13px;
+    margin: 0px 4px 4px 0px;
+    font-size: 12px;
+    font-weight: 700;
+}
+QTabWidget#SettingsTabs QTabBar::tab:selected,
+QTabBar#SettingsHeaderTabs::tab:selected {
+    background-color: #1B3A57;
+    border-color: #28577D;
+    color: #D8EAFE;
+}
+QTabWidget#SettingsTabs QTabBar::tab:hover:!selected,
+QTabBar#SettingsHeaderTabs::tab:hover:!selected {
+    background-color: #141A22;
+    color: #B9C2CE;
+}
+
+QWidget#GeneralSettingsPage,
+QWidget#SupporterAccessPage,
+QScrollArea#SupporterAccessScroll,
+QScrollArea#SupporterAccessScroll > QWidget > QWidget,
+QWidget#SupporterAccessContent,
+QWidget#SupportKeyEntryPanel,
+QWidget#SupportSavedKeyPanel,
+QWidget#SupportFeatures,
+QWidget#SupportAccessGuideSection,
+QWidget#SupportGuideStep {
+    background: transparent;
+    border: none;
+}
+
+QFrame#SupporterAccessCard {
+    background-color: #0B0F14;
+    border: 1px solid #2A3948;
+    border-radius: 11px;
+}
+QLabel#SupportAccessIcon {
+    background-color: rgba(45, 123, 192, 0.14);
+    border: 1px solid rgba(70, 150, 215, 0.34);
+    border-radius: 8px;
+}
+QLabel#SupportAccessTitle {
+    background: transparent;
+    color: #EDF1F5;
+    font-size: 14px;
+    font-weight: 800;
+}
+QLabel#SupportAccessMessage {
+    background: transparent;
+    color: #8A94A3;
+    font-size: 12px;
+}
+QLabel#SupportAccessStatus {
+    background-color: #151B23;
+    border: 1px solid #2A3542;
+    border-radius: 9px;
+    color: #9AA4B2;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+}
+QLabel#SupportAccessStatus[tone="active"] {
+    background-color: rgba(34, 197, 94, 0.10);
+    border-color: rgba(34, 197, 94, 0.32);
+    color: #7DE68C;
+}
+QLabel#SupportAccessStatus[tone="cached"] {
+    background-color: rgba(56, 189, 248, 0.08);
+    border-color: #28577D;
+    color: #8CC9F2;
+}
+QLabel#SupportAccessStatus[tone="checking"] {
+    background-color: rgba(47, 111, 176, 0.14);
+    border-color: #2F6FB0;
+    color: #A9D3F5;
+}
+QLabel#SupportAccessStatus[tone="warning"] {
+    background-color: rgba(250, 204, 21, 0.10);
+    border-color: #5A4A12;
+    color: #FACC15;
+}
+QLabel#SupportAccessStatus[tone="danger"] {
+    background-color: rgba(248, 113, 113, 0.10);
+    border-color: #5A2429;
+    color: #F0787E;
+}
+QLabel#SupportAccessFieldLabel,
+QLabel#SupportMetaLabel,
+QLabel#SupportKeyCaption {
+    background: transparent;
+    color: #667386;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+QLabel#SupportAccessHint,
+QLabel#SupportFeaturesEmpty {
+    background: transparent;
+    color: #7F8B9A;
+    font-size: 11px;
+}
+QLineEdit#SupporterKeyEntry {
+    min-height: 22px;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+}
+QPushButton#SupportActivateButton {
+    background-color: #2F6FB0;
+    border: 1px solid #3E82C6;
+    border-radius: 8px;
+    color: #FFFFFF;
+    min-height: 22px;
+    padding: 6px 13px;
+    font-size: 12px;
+    font-weight: 700;
+}
+QPushButton#SupportActivateButton:hover {
+    background-color: #3781CE;
+    border-color: #4E93D7;
+}
+QPushButton#SupportActivateButton:pressed { background-color: #276099; }
+QPushButton#SupportActivateButton:disabled {
+    background-color: #1A2734;
+    border-color: #263747;
+    color: #526273;
+}
+QFrame#SupportKeyDisplay,
+QFrame#SupportMetaBox {
+    background-color: #0E151D;
+    border: 1px solid #1B2A38;
+    border-radius: 8px;
+}
+QLabel#SupportKeyHint {
+    background: transparent;
+    color: #B7C6D5;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+}
+QLabel#SupportMetaValue {
+    background: transparent;
+    color: #C7D2DE;
+    font-size: 11px;
+}
+QPushButton#SupportCheckButton {
+    background-color: #141C25;
+    border: 1px solid #304254;
+    border-radius: 8px;
+    color: #C8D4DF;
+    min-height: 22px;
+    padding: 5px 11px;
+    font-size: 11px;
+    font-weight: 700;
+}
+QPushButton#SupportCheckButton:hover {
+    background-color: #1B2733;
+    border-color: #41617C;
+    color: #EDF1F5;
+}
+QPushButton#SupportCheckButton:disabled {
+    background-color: #10161D;
+    border-color: #202B36;
+    color: #56616D;
+}
+QPushButton#SupportRemoveButton {
+    background-color: #1B1417;
+    border: 1px solid #4A2226;
+    border-radius: 8px;
+    padding: 0px;
+}
+QPushButton#SupportRemoveButton:hover {
+    background-color: #382025;
+    border-color: #7A343B;
+}
+QPushButton#SupportRemoveButton:pressed { background-color: #4A2226; }
+QFrame#SupportFeatureRow {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #1B222B;
+}
+QLabel#SupportFeatureCheck {
+    background-color: rgba(34, 197, 94, 0.08);
+    border: none;
+    border-radius: 12px;
+    color: #58D07A;
+    font-size: 15px;
+    font-weight: 800;
+}
+QLabel#SupportFeatureName {
+    background: transparent;
+    color: #D6DEE7;
+    font-size: 12px;
+    font-weight: 700;
+}
+QLabel#SupportFeatureSource {
+    background: transparent;
+    color: #6FA9DA;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+}
+
+QFrame#SupportAccessGuide {
+    background-color: #0D141C;
+    border: 1px solid #24384A;
+    border-radius: 9px;
+}
+QLabel#SupportGuideNumber {
+    background-color: rgba(47, 111, 176, 0.17);
+    border: 1px solid #28577D;
+    border-radius: 9px;
+    color: #A9D3F5;
+    font-size: 9px;
+    font-weight: 800;
+}
+QLabel#SupportGuideStepText {
+    background: transparent;
+    color: #B3BFCC;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+QFrame#SupportMethodCard {
+    background-color: #0C1117;
+    border: 1px solid #273440;
+    border-radius: 9px;
+}
+QFrame#SupportMethodCard[platform="patreon"] {
+    background-color: #121013;
+    border-color: #3F292D;
+}
+QFrame#SupportMethodCard[platform="crypto"] {
+    background-color: #0D1418;
+    border-color: #24404D;
+}
+QLabel#SupportMethodTitle {
+    background: transparent;
+    color: #E4EAF0;
+    font-size: 13px;
+    font-weight: 800;
+}
+QLabel#SupportMethodDescription {
+    background: transparent;
+    color: #84909E;
+    font-size: 11px;
+}
+QPushButton#SupportPatreonPrimary,
+QPushButton#SupportCryptoPrimary {
+    border-radius: 7px;
+    min-height: 22px;
+    padding: 6px 11px;
+    font-size: 11px;
+    font-weight: 700;
+}
+QPushButton#SupportPatreonPrimary {
+    background-color: #25191C;
+    border: 1px solid #573138;
+    color: #FF8277;
+}
+QPushButton#SupportPatreonPrimary:hover {
+    background-color: #311E22;
+    border-color: #74404A;
+    color: #FFA097;
+}
+QPushButton#SupportPatreonPrimary:pressed { background-color: #3A2025; }
+QPushButton#SupportCryptoPrimary {
+    background-color: #152129;
+    border: 1px solid #28536A;
+    color: #55C6F2;
+}
+QPushButton#SupportCryptoPrimary:hover {
+    background-color: #192B35;
+    border-color: #34708C;
+    color: #81D8F8;
+}
+QPushButton#SupportCryptoPrimary:pressed { background-color: #1C3440; }
+QPushButton#SupportCryptoPrimary:disabled {
+    background-color: #12191E;
+    border-color: #26353E;
+    color: #58717D;
+}
+QLabel#SupportLinksLabel {
+    background: transparent;
+    color: #667386;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+QPushButton#SupportSecondaryLink {
+    background-color: #121922;
+    border: 1px solid #2A3744;
+    border-radius: 7px;
+    color: #B8C3CF;
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 700;
+}
+QPushButton#SupportSecondaryLink:hover {
+    background-color: #19232D;
+    border-color: #405468;
+    color: #EDF1F5;
+}
+QPushButton#SupportSecondaryLink:pressed { background-color: #1C2834; }
 
 /* Заголовок, а не сигнал: цвет обычной шапки. Золотым он был в старом листе
    и по той же причине снят, что и янтарь выше -- цвет здесь ничего не

@@ -63,6 +63,7 @@ def dialog_body(
     title: str,
     subtitle: str = "",
     title_trailing: QWidget | None = None,
+    header_widget: QWidget | None = None,
     width: int = DIALOG_REGULAR,
     height: int | None = None,
 ) -> QVBoxLayout:
@@ -79,7 +80,9 @@ def dialog_body(
     confirmation 223px wide and the one after it 348.
 
     ``title_trailing`` is an optional compact status or badge aligned with the
-    title. The default path keeps the original one-label header unchanged.
+    title. ``header_widget`` replaces the title and subtitle entirely for a
+    dialog whose primary navigation is itself the heading. The default path
+    keeps the original one-label header unchanged.
     """
     dialog.setMinimumWidth(int(width))
     if height is not None:
@@ -89,35 +92,39 @@ def dialog_body(
     outer.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
     outer.setSpacing(SPACING)
 
-    head = QWidget()
-    head.setObjectName("dialogHead")
-    head_layout = QVBoxLayout(head)
-    head_layout.setContentsMargins(0, 0, 0, 0)
-    head_layout.setSpacing(2)
-
-    title_label = QLabel(str(title), head)
-    title_label.setObjectName("dialogTitle")
-    if title_trailing is None:
-        head_layout.addWidget(title_label)
+    if header_widget is not None:
+        header_widget.setParent(dialog)
+        outer.addWidget(header_widget)
     else:
-        title_row = QWidget(head)
-        title_row.setObjectName("dialogTitleRow")
-        title_row_layout = QHBoxLayout(title_row)
-        title_row_layout.setContentsMargins(0, 0, 0, 0)
-        title_row_layout.setSpacing(8)
-        title_row_layout.addWidget(title_label)
-        title_row_layout.addStretch(1)
-        title_trailing.setParent(title_row)
-        title_row_layout.addWidget(title_trailing, 0, Qt.AlignRight | Qt.AlignVCenter)
-        head_layout.addWidget(title_row)
+        head = QWidget()
+        head.setObjectName("dialogHead")
+        head_layout = QVBoxLayout(head)
+        head_layout.setContentsMargins(0, 0, 0, 0)
+        head_layout.setSpacing(2)
 
-    if subtitle:
-        subtitle_label = QLabel(str(subtitle), head)
-        subtitle_label.setObjectName("dialogSubtitle")
-        subtitle_label.setWordWrap(True)
-        head_layout.addWidget(subtitle_label)
+        title_label = QLabel(str(title), head)
+        title_label.setObjectName("dialogTitle")
+        if title_trailing is None:
+            head_layout.addWidget(title_label)
+        else:
+            title_row = QWidget(head)
+            title_row.setObjectName("dialogTitleRow")
+            title_row_layout = QHBoxLayout(title_row)
+            title_row_layout.setContentsMargins(0, 0, 0, 0)
+            title_row_layout.setSpacing(8)
+            title_row_layout.addWidget(title_label)
+            title_row_layout.addStretch(1)
+            title_trailing.setParent(title_row)
+            title_row_layout.addWidget(title_trailing, 0, Qt.AlignRight | Qt.AlignVCenter)
+            head_layout.addWidget(title_row)
 
-    outer.addWidget(head)
+        if subtitle:
+            subtitle_label = QLabel(str(subtitle), head)
+            subtitle_label.setObjectName("dialogSubtitle")
+            subtitle_label.setWordWrap(True)
+            head_layout.addWidget(subtitle_label)
+
+        outer.addWidget(head)
 
     rule = QFrame()
     rule.setObjectName("dialogHeadRule")

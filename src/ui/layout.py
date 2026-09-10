@@ -20,7 +20,12 @@ from functools import partial
 from ui.footer import build_footer
 from ui.log_view import LogView
 from ui.scanner_toggle import ScannerToggle
-from ui.status_indicators import LABEL_SPACING, PulsingDot, RecordingFlag
+from ui.status_indicators import (
+    LABEL_SPACING,
+    PremiumAccessBadge,
+    PulsingDot,
+    RecordingFlag,
+)
 from ui.shared import (
     _apply_button_icon,
     _clear_layout,
@@ -325,7 +330,21 @@ def _build_header(app, parent_layout):
 
     title = QLabel("BonkScanner")
     title.setObjectName("appTitle")
+    title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     header.addWidget(title, 0, Qt.AlignVCenter)
+
+    app.premium_access_badge = PremiumAccessBadge()
+    _apply_button_icon(
+        app.premium_access_badge,
+        "media/premium_access_icon.svg",
+        14,
+    )
+    app.premium_access_badge.clicked.connect(
+        lambda: app.open_settings_dialog(page="support")
+    )
+    app.supporter_access.add_listener(app.premium_access_badge.set_access_state)
+    app.premium_access_badge.set_access_state(app.supporter_access.state)
+    header.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
 
     divider = QFrame()
     divider.setObjectName("headerDivider")
@@ -344,9 +363,15 @@ def _build_header(app, parent_layout):
     # ring into, so a live scanner reads as live rather than as a green pixel.
     status_pair = QWidget()
     status_pair.setObjectName("statusPair")
+    status_pair.setFixedHeight(30)
     status_pair_layout = QHBoxLayout(status_pair)
-    status_pair_layout.setContentsMargins(0, 0, 0, 0)
+    # The title's heavier proportional font has a lower optical centre than
+    # the small mono status text. A mathematically centred pair still reads a
+    # couple of pixels too high beside ``BonkScanner``, so give the whole lamp
+    # and caption one deliberate optical offset rather than moving them apart.
+    status_pair_layout.setContentsMargins(0, 4, 0, 0)
     status_pair_layout.setSpacing(LABEL_SPACING)
+    status_pair_layout.setAlignment(Qt.AlignVCenter)
 
     app.status_dot = PulsingDot()
     app.status_dot.setObjectName("statusDot")
@@ -356,6 +381,7 @@ def _build_header(app, parent_layout):
     app.status_label = QLabel("IDLE")
     app.status_label.setObjectName("statusText")
     app.status_label.setProperty("state", "idle")
+    app.status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     status_pair_layout.addWidget(app.status_label, 0, Qt.AlignVCenter)
 
     header.addWidget(status_pair, 0, Qt.AlignVCenter)

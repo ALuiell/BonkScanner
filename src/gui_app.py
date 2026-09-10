@@ -178,6 +178,7 @@ class MegabonkApp:
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
+        self.premium_access_badge = None
         # Every Twitch widget is gone from the shared namespace: step 23b made
         # `TwitchTab` an object with its own private widgets, built by
         # `gui_layout._build_twitch_tab`. Twenty-two names left, and
@@ -763,15 +764,19 @@ class MegabonkApp:
     # precisely the failure step 19 recorded for
     # `SettingsDialog.save -> refresh_player_stats_timeline_ui`. `master=self`
     # here still means the application.
-    def open_settings_dialog(self) -> None:
+    def open_settings_dialog(self, *, page: str | None = None) -> None:
         dialog = getattr(self, "_settings_dialog", None)
         if dialog is not None:
             try:
                 if dialog.isVisible():
+                    if page:
+                        dialog.show_page(page)
                     dialog.raise_()
                     dialog.activateWindow()
                     return
                 dialog.reload_from_config()
+                if page:
+                    dialog.show_page(page)
                 dialog.open()
                 return
             except Exception as exc:
@@ -789,6 +794,8 @@ class MegabonkApp:
         try:
             dialog = SettingsDialog(self.window, master=self)
             self._settings_dialog = dialog
+            if page:
+                dialog.show_page(page)
             dialog.destroyed.connect(
                 lambda *_args, expected=dialog: (
                     self._settings_dialog_destroyed(expected)

@@ -1166,7 +1166,12 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-family: "JetBrains Mono", Consolas, monospace;
             font-size: 12px;
             font-weight: 600;
+        }
+        QLabel#StatusLabel {
             padding-left: 10px;
+        }
+        QLabel#statusText {
+            padding: 0px;
         }
         QCheckBox::indicator:checked {
             image: url(__CHECKMARK_ICON__);

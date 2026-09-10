@@ -31,7 +31,7 @@ class StatusIndicatorTests(unittest.TestCase):
             from PySide6.QtWidgets import QApplication
             from PySide6.QtGui import QPixmap
 
-            from ui.status_indicators import PulsingDot, RecordingFlag
+            from ui.status_indicators import PremiumAccessBadge, PulsingDot, RecordingFlag
             from ui.styles import build_qt_app_stylesheet, _set_widget_style_role
 
             app = QApplication([])
@@ -149,6 +149,102 @@ class StatusIndicatorTests(unittest.TestCase):
             assert flag.isVisible() and not flag.is_recording()
             assert pixel(dot, 0) == "#5c6675", pixel(dot, 0)
             assert not dot.is_pulsing()
+            """
+        )
+
+    def test_premium_badge_follows_effective_supporter_access(self) -> None:
+        self._run(
+            """
+            from types import SimpleNamespace
+            from PySide6.QtWidgets import QHBoxLayout, QWidget
+
+            host = QWidget()
+            badge = PremiumAccessBadge(host)
+            QHBoxLayout(host).addWidget(badge)
+            host.show()
+            app.processEvents()
+            assert badge.isHidden()
+
+            badge.set_access_state(SimpleNamespace(active=True, online=True))
+            app.processEvents()
+            assert badge.isVisible()
+            assert badge.text() == "PREMIUM"
+            assert badge.property("connection") == "online"
+            assert "active" in badge.toolTip().lower()
+
+            badge.set_access_state(SimpleNamespace(active=True, online=False))
+            app.processEvents()
+            assert badge.isVisible()
+            assert badge.property("connection") == "cached"
+            assert "recent check" in badge.toolTip().lower()
+
+            badge.set_access_state(SimpleNamespace(active=False, online=True))
+            app.processEvents()
+            assert badge.isHidden()
+            """
+        )
+
+    def test_header_brand_and_scanner_status_share_one_centre_line(self) -> None:
+        self._run(
+            """
+            from types import SimpleNamespace
+            from PySide6.QtCore import QPoint, Qt
+            from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+            import ui.layout as layout_module
+
+            class AccessController:
+                def __init__(self):
+                    self.state = SimpleNamespace(active=False, online=False)
+                    self.listener = None
+
+                def add_listener(self, listener):
+                    self.listener = listener
+
+            opened = []
+            shell = SimpleNamespace(
+                supporter_access=AccessController(),
+                open_settings_dialog=lambda **kwargs: opened.append(kwargs.get("page")),
+            )
+            host = QWidget()
+            host.resize(820, 80)
+            outer = QVBoxLayout(host)
+            original_controls = layout_module._build_header_controls
+            layout_module._build_header_controls = lambda _app, _layout: None
+            try:
+                layout_module._build_header(shell, outer)
+            finally:
+                layout_module._build_header_controls = original_controls
+
+            host.show()
+            app.processEvents()
+            title = host.findChild(QLabel, "appTitle")
+            status_pair = host.findChild(QWidget, "statusPair")
+            assert title is not None and status_pair is not None
+            assert status_pair.height() == 30
+            assert status_pair.layout().spacing() == 3
+            assert status_pair.layout().getContentsMargins() == (0, 4, 0, 0)
+            assert shell.status_label.alignment() & Qt.AlignVCenter
+
+            def centre_y(widget):
+                top = widget.mapTo(host, QPoint(0, 0)).y()
+                return top + widget.height() / 2
+
+            brand_centres = [centre_y(shell.logo_label), centre_y(title)]
+            status_centres = [centre_y(shell.status_dot), centre_y(shell.status_label)]
+            assert max(brand_centres) - min(brand_centres) <= 1.0, brand_centres
+            assert max(status_centres) - min(status_centres) <= 1.0, status_centres
+            optical_offset = status_centres[0] - brand_centres[1]
+            assert 1.5 <= optical_offset <= 2.5, optical_offset
+            assert "QLabel#statusText" in app.styleSheet()
+            assert "padding: 0px;" in app.styleSheet()
+
+            shell.supporter_access.listener(
+                SimpleNamespace(active=True, online=True)
+            )
+            app.processEvents()
+            assert shell.premium_access_badge.isVisible()
+            shell.premium_access_badge.click()
+            assert opened == ["support"], opened
             """
         )
 
