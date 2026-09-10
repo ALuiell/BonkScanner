@@ -635,11 +635,15 @@ class SupportersLoadTests(unittest.TestCase):
         self.assertEqual(self.reported, [["Grimwald", "Nyxaria"]])
 
     def test_a_failed_request_reports_nothing(self):
-        self._fetch_raises(RuntimeError("no network"))
+        self._fetch_raises(RuntimeError("verbose network details"))
 
-        supporters_flow.load_supporters(self.reported.append)
+        with patch("builtins.print") as print_mock:
+            supporters_flow.load_supporters(self.reported.append)
 
         self.assertEqual(self.reported, [])
+        print_mock.assert_called_once_with(
+            "Failed to fetch supporters: no connection"
+        )
 
     def test_an_empty_list_reports_nothing(self):
         # Not the same as "report an empty list": the strip already ships empty,

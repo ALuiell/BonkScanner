@@ -35,8 +35,8 @@ def load_supporters(report: ReportCallback) -> None:
     """
     try:
         supporters = updater.fetch_supporters()
-    except Exception as error:
-        print(f"Failed to fetch supporters: {error}")
+    except Exception:
+        print("Failed to fetch supporters: no connection")
         return
     if not supporters:
         return
