@@ -55,7 +55,7 @@
           <p class="section-index">01 / SELECT FUEL</p>
           <h2 id="fuel-heading">Choose an asset and network</h2>
         </div>
-        <p>Three fuel ports are ready. Bitcoin is unavailable.</p>
+        <p>Four fuel ports are ready.</p>
       </div>
 
       <div class="fuel-grid">
@@ -116,18 +116,22 @@
           </div>
         </article>
 
-        <article class="fuel-card unavailable-card" style="--card-accent: #687482" aria-disabled="true">
+        <article class="fuel-card" style="--card-accent: #f7931a">
           <div class="card-topline">
             <span class="coin-mark amber">₿</span>
             <div class="coin-copy">
               <h3>Bitcoin</h3>
-              <p class="network-name">Bitcoin</p>
+              <p class="network-name">Bitcoin · Native SegWit</p>
             </div>
-            <span class="unavailable-tag">UNAVAILABLE</span>
+            <span class="live-tag">LIVE</span>
           </div>
-          <div class="unavailable-state" aria-label="Bitcoin fuel port unavailable">
-            <span aria-hidden="true">×</span>
-            <p>NO ADDRESS</p>
+          <div class="address-box">
+            <code title="bc1q7qx74q05ewa9jetygysxljl8xylj4vlysahf0j">bc1q7qx74q05ewa9jetygysxljl8xylj4vlysahf0j</code>
+          </div>
+          <p class="network-warning"><span>!</span> Send BTC through the Bitcoin network only.</p>
+          <div class="card-actions">
+            <button class="copy-button" type="button" data-asset="BTC">COPY ADDRESS</button>
+            <button class="qr-button" type="button" data-qr data-asset="Bitcoin" data-network="Bitcoin · Native SegWit" data-qr-image="btc-bitcoin-qr.svg" aria-label="Show Bitcoin QR code">QR</button>
           </div>
         </article>
       </div>
