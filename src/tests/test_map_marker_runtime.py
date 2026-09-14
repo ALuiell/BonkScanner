@@ -1129,16 +1129,22 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         self.assertEqual(virtual_key_for_token("a"), ord("A"))
 
         class FakeUser32:
-            pressed = {0x06, 0x11, ord("G"), 0x77}
+            pressed = {0x06, 0x09, 0x11, 0x1B, ord("G"), 0x77}
 
             def GetAsyncKeyState(self, virtual_key: int) -> int:
                 return 0x8000 if virtual_key in self.pressed else 0
 
-        input_state = WindowsMapMarkerInput(FakeUser32())
+        user32 = FakeUser32()
+        input_state = WindowsMapMarkerInput(user32)
         self.assertTrue(input_state.is_pressed("mouse5"))
         self.assertTrue(input_state.is_pressed("ctrl+g"))
         self.assertTrue(input_state.is_pressed("f8"))
+        self.assertTrue(input_state.is_map_surface_key_pressed())
         self.assertFalse(input_state.is_pressed("f9"))
+        user32.pressed.discard(0x09)
+        self.assertTrue(input_state.is_map_surface_key_pressed())
+        user32.pressed.discard(0x1B)
+        self.assertFalse(input_state.is_map_surface_key_pressed())
 
     def test_lazy_full_map_type_info_recovers_without_invalid_dereference(self) -> None:
         memory = FakeLifecycleMemory()

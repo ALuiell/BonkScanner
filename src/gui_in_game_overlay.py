@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from collections import deque
 from concurrent.futures import Executor, Future, ThreadPoolExecutor, TimeoutError
+from dataclasses import replace
 from typing import Any, Callable
 
 from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal, Slot
@@ -137,6 +138,7 @@ class InGameOverlay:
         open_build_progression_settings: Callable[[], None] = lambda: None,
         has_premium_access: Callable[[], bool] = lambda: False,
         open_support_settings: Callable[[], None] = lambda: None,
+        is_game_paused: Callable[[], bool] = lambda: False,
     ) -> None:
         self._tracker = tracker
         self._build_progression_snapshot = build_progression_snapshot
@@ -172,6 +174,9 @@ class InGameOverlay:
         ] = deque()
         self._map_marker_latest_snapshot = MapMarkerSnapshot()
         self._map_marker_premium_access: bool | None = None
+        self._map_marker_surface_key_pressed = False
+        self._map_marker_game_paused = False
+        self._is_game_paused = is_game_paused
         self._map_marker_cursor_position = None
         self._map_marker_completion = _MapMarkerCompletion(self._on_map_marker_sample_ready)
         self._map_marker_worker_active = False
@@ -599,12 +604,34 @@ class InGameOverlay:
             logical_width = int(width_reader()) if callable(width_reader) else 0
             client_height = max(1, int(round(logical_height * display_scale)))
             client_width = max(1, int(round(logical_width * display_scale)))
+        key_reader = getattr(
+            self._map_marker_input,
+            "is_map_surface_key_pressed",
+            None,
+        )
+        surface_key_pressed = bool(callable(key_reader) and key_reader())
+        game_paused = bool(self._is_game_paused())
+        minimap_suppressed = surface_key_pressed or game_paused
+        suppression_changed = minimap_suppressed != (
+            self._map_marker_surface_key_pressed or self._map_marker_game_paused
+        )
+        self._map_marker_surface_key_pressed = surface_key_pressed
+        self._map_marker_game_paused = game_paused
+        if suppression_changed:
+            # Tab/Escape changes which game surface is visible. Reject a poll
+            # sampled on the other side of that transition. The cached runtime
+            # pause flag keeps the minimap hidden after Escape is released.
+            self._invalidate_map_marker_samples()
+            self._set_map_marker_snapshot(MapMarkerSnapshot())
+
         premium_access = bool(self._has_premium_access())
         if self._map_marker_premium_access and not premium_access:
             self._invalidate_map_marker_samples()
         self._map_marker_premium_access = premium_access
         minimap_enabled = bool(
-            premium_access and marker_cfg.get("minimap_enabled", False)
+            premium_access
+            and marker_cfg.get("minimap_enabled", False)
+            and not minimap_suppressed
         )
         merchant_memory_enabled = bool(
             premium_access and marker_cfg.get("merchant_memory_enabled", False)
@@ -820,6 +847,17 @@ class InGameOverlay:
             generation == self._map_marker_generation
             and isinstance(snapshot, MapMarkerSnapshot)
         ):
+            if (
+                (
+                    self._map_marker_surface_key_pressed
+                    or self._map_marker_game_paused
+                )
+                and snapshot.minimap_projection is not None
+            ):
+                # The key transition is known on the UI thread before the game
+                # memory sample necessarily reflects it. Never publish that
+                # transitional minimap projection.
+                snapshot = replace(snapshot, minimap_projection=None)
             self._map_marker_latest_snapshot = snapshot
 
     def _collect_map_marker_close_future(self) -> None:
@@ -1582,6 +1620,7 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
         open_build_progression_settings=lambda: _open_build_progression_for_app(app),
         has_premium_access=lambda: app.has_premium_access(),
         open_support_settings=lambda: app.open_settings_dialog(page="support"),
+        is_game_paused=lambda: app.coordinator.run_lifecycle.is_paused_run(),
         is_scanning=lambda: app._scanner.is_scanning(),
         is_recording=lambda: (
             getattr(app, "player_stats_vod_recorder", None) is not None

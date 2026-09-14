@@ -67,6 +67,7 @@ from tests.support.player_stats import (
 from ui.tabs.player_stats.stat_cards import StatCardsView, chaos_stats_in_game_order
 from ui.tabs.compare_runs import tab as compare_runs_tab
 from app import config, player_stats_refresh
+from core.map_markers import MapViewport, MinimapProjection
 from gui_app import MegabonkApp
 from ui.dialogs import (
     SettingsDialog,
@@ -404,6 +405,7 @@ def build_in_game_overlay_test_component(
     is_recording=lambda: False,
     is_game_window_active=lambda _process_name: False,
     find_game_window=None,
+    is_game_paused=lambda: False,
     can_run=lambda: True,
     log=lambda *_args, **_kwargs: None,
     map_marker_executor_factory=InlineMapMarkerExecutor,
@@ -414,6 +416,7 @@ def build_in_game_overlay_test_component(
         is_recording=is_recording,
         is_game_window_active=is_game_window_active,
         find_game_window=find_game_window,
+        is_game_paused=is_game_paused,
         schedule=lambda callback: callback(),
         schedule_idle=lambda _callback: None,
         timer_factory=FakeOverlayTimer,
@@ -790,6 +793,20 @@ class FakeForegroundProcess:
 
 
 class GuiRunControlTests(unittest.TestCase):
+    def test_run_lifecycle_exposes_cached_pause_without_another_read(self) -> None:
+        lifecycle = build_run_lifecycle(
+            game_states=lambda: self.fail("cached pause check must not read memory"),
+            cached_state=RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
+            checked_at=10.0,
+        )
+
+        self.assertTrue(lifecycle.is_paused_run())
+        lifecycle.seed_cache(
+            RuntimeGameState(mode=RuntimeGameMode.IN_GAME),
+            checked_at=11.0,
+        )
+        self.assertFalse(lifecycle.is_paused_run())
+
     def test_completed_run_blocks_all_refresh_demands(self) -> None:
         app = SimpleNamespace(
             _is_live_stats_tab_active=lambda: True,
@@ -7214,6 +7231,157 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(
             overlay._map_marker_tracker.tick.call_args.kwargs["minimap_enabled"]
         )
+
+    def test_tab_and_escape_transitions_suppress_stale_minimap_samples(self) -> None:
+        projection = MinimapProjection(
+            True,
+            False,
+            MapViewport(10, 10, 200, 200),
+            110,
+            110,
+            100,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            100,
+            1,
+        )
+        stale = gui_in_game_overlay.MapMarkerSnapshot(
+            map_id=9,
+            minimap_projection=projection,
+        )
+        cfg = {
+            "enabled": True,
+            "map_markers": {
+                "enabled": True,
+                "minimap_enabled": True,
+                "scale": 1.0,
+                "hotkeys": [],
+            },
+        }
+
+        for hide_key in ("tab", "escape"):
+            with self.subTest(hide_key=hide_key):
+                pressed = {hide_key}
+                overlay = build_in_game_overlay_test_component()
+                overlay._has_premium_access = lambda: True
+                overlay._map_marker_tracker = SimpleNamespace(
+                    tick=MagicMock(return_value=stale),
+                    close=MagicMock(),
+                )
+                overlay._map_marker_input = SimpleNamespace(
+                    cursor_position=lambda: (0, 0),
+                    is_map_surface_key_pressed=lambda: bool(pressed),
+                )
+                overlay._map_marker_hotkeys = SimpleNamespace(
+                    poll=lambda *_args, **_kwargs: SimpleNamespace(
+                        placement=None,
+                        palette=None,
+                    ),
+                    reset=MagicMock(),
+                )
+                layer = SimpleNamespace(
+                    set_snapshot=MagicMock(),
+                    set_palette=MagicMock(),
+                )
+                window = FakeInGameOverlayWindow(visible=True)
+                window.devicePixelRatioF = lambda: 1.0
+                window.height = lambda: 720
+                window.width = lambda: 1280
+                window.map_marker_layer = layer
+                overlay.in_game_overlay_window = window
+                overlay._map_marker_latest_snapshot = stale
+
+                with patch.object(config, "IN_GAME_OVERLAY", cfg):
+                    overlay._map_marker_tick()
+                    hidden = layer.set_snapshot.call_args.args[0]
+                    pressed.clear()
+                    overlay._map_marker_tick()
+                    restored = layer.set_snapshot.call_args.args[0]
+
+                self.assertIsNone(hidden.minimap_projection)
+                self.assertEqual(restored.minimap_projection, projection)
+
+    def test_escape_pause_state_keeps_minimap_hidden_after_key_release(self) -> None:
+        projection = MinimapProjection(
+            True,
+            False,
+            MapViewport(10, 10, 200, 200),
+            110,
+            110,
+            100,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            100,
+            1,
+        )
+        stale = gui_in_game_overlay.MapMarkerSnapshot(
+            map_id=9,
+            minimap_projection=projection,
+        )
+        paused = [False]
+        overlay = build_in_game_overlay_test_component(
+            is_game_paused=lambda: paused[0]
+        )
+        overlay._has_premium_access = lambda: True
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(return_value=stale),
+            close=MagicMock(),
+        )
+        overlay._map_marker_input = SimpleNamespace(
+            cursor_position=lambda: (0, 0),
+            is_map_surface_key_pressed=lambda: False,
+        )
+        overlay._map_marker_hotkeys = SimpleNamespace(
+            poll=lambda *_args, **_kwargs: SimpleNamespace(
+                placement=None,
+                palette=None,
+            ),
+            reset=MagicMock(),
+        )
+        layer = SimpleNamespace(
+            set_snapshot=MagicMock(),
+            set_palette=MagicMock(),
+        )
+        window = FakeInGameOverlayWindow(visible=True)
+        window.devicePixelRatioF = lambda: 1.0
+        window.height = lambda: 720
+        window.width = lambda: 1280
+        window.map_marker_layer = layer
+        overlay.in_game_overlay_window = window
+        cfg = {
+            "enabled": True,
+            "map_markers": {
+                "enabled": True,
+                "minimap_enabled": True,
+                "scale": 1.0,
+                "hotkeys": [],
+            },
+        }
+
+        with patch.object(config, "IN_GAME_OVERLAY", cfg):
+            overlay._map_marker_tick()
+            paused[0] = True
+            overlay._map_marker_tick()
+            hidden_while_paused = layer.set_snapshot.call_args.args[0]
+            paused[0] = False
+            overlay._map_marker_tick()
+            restored_after_resume = layer.set_snapshot.call_args.args[0]
+
+        self.assertIsNone(hidden_while_paused.minimap_projection)
+        self.assertFalse(
+            overlay._map_marker_tracker.tick.call_args_list[1].kwargs[
+                "minimap_enabled"
+            ]
+        )
+        self.assertEqual(restored_after_resume.minimap_projection, projection)
 
     def test_minimap_completion_contains_worker_failure(self) -> None:
         type(self)._completion_app = QApplication.instance() or QApplication([])
