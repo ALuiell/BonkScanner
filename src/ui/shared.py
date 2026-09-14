@@ -595,6 +595,46 @@ def resource_path(relative_path: str) -> str:
         base_path = source_path if normalized == "media" or normalized.startswith("media/") else repo_root
     return os.path.join(base_path, relative_path)
 
+
+class PremiumFeatureBadge(QPushButton):
+    """Compact plan marker that explains a locked Premium setting."""
+
+    def __init__(
+        self,
+        *,
+        has_access: bool,
+        open_support,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__("Premium", parent)
+        self._has_access = False
+        self._open_support = open_support
+        self.setObjectName("PremiumFeatureBadge")
+        self.setIcon(QIcon(resource_path("media/premium_access_icon.svg")))
+        self.setIconSize(QSize(13, 13))
+        self.setFixedHeight(22)
+        self.clicked.connect(self._on_clicked)
+        self.set_access_state(has_access)
+
+    def set_access_state(self, has_access: bool) -> None:
+        self._has_access = bool(has_access)
+        self.setProperty("premiumState", "active" if self._has_access else "locked")
+        self.setCursor(Qt.ArrowCursor if self._has_access else Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus if self._has_access else Qt.StrongFocus)
+        self.setToolTip(
+            "Included with your active Premium access."
+            if self._has_access
+            else "Requires Premium. Open Support settings."
+        )
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+    def _on_clicked(self) -> None:
+        if not self._has_access and callable(self._open_support):
+            self._open_support()
+
+
 # The six accessors below each carried a second branch speaking tkinter --
 # `widget.get()`, `configure(text=...)`, `delete(0, "end")`, `insert(0, text)`,
 # `set(value)`. Those branches could not run: there has been no tk widget in

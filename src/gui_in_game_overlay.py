@@ -30,7 +30,7 @@ from collections import deque
 from concurrent.futures import Executor, Future, ThreadPoolExecutor, TimeoutError
 from typing import Any, Callable
 
-from PySide6.QtCore import QPoint, QRect, QTimer
+from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
@@ -72,6 +72,7 @@ from gui_in_game_overlay_settings import (
     WeaponTrackerSettingsDialog,
     build_in_game_overlay_tab,
     refresh_in_game_overlay_hotkey_ui,
+    refresh_map_marker_settings_summary,
     update_in_game_overlay_status_ui,
 )
 from gui_in_game_overlay_window import InGameOverlayWindow
@@ -84,6 +85,28 @@ except Exception:
 
 def _build_map_marker_executor() -> ThreadPoolExecutor:
     return ThreadPoolExecutor(max_workers=1, thread_name_prefix="map-marker-reader")
+
+
+class _MapMarkerCompletion(QObject):
+    """Deliver worker completion on the owner's Qt thread, never inline."""
+
+    ready = Signal(object)
+
+    def __init__(self, callback) -> None:
+        super().__init__()
+        self._callback = callback
+        self.ready.connect(self._deliver, Qt.QueuedConnection)
+
+    def notify(self, future) -> None:
+        try:
+            self.ready.emit(future)
+        except RuntimeError:
+            # The Qt owner can already be gone during terminal shutdown.
+            pass
+
+    @Slot(object)
+    def _deliver(self, future) -> None:
+        self._callback(future)
 
 
 class InGameOverlay:
@@ -112,10 +135,14 @@ class InGameOverlay:
         map_marker_hotkey_controller_factory: Callable[[Any], Any] = MapMarkerHotkeyController,
         build_progression_snapshot: Callable[[], Any] = lambda: None,
         open_build_progression_settings: Callable[[], None] = lambda: None,
+        has_premium_access: Callable[[], bool] = lambda: False,
+        open_support_settings: Callable[[], None] = lambda: None,
     ) -> None:
         self._tracker = tracker
         self._build_progression_snapshot = build_progression_snapshot
         self._open_build_progression_settings = open_build_progression_settings
+        self._has_premium_access = has_premium_access
+        self._open_support_settings = open_support_settings
         self._is_scanning = is_scanning
         self._is_recording = is_recording
         self._is_game_window_active = is_game_window_active
@@ -144,6 +171,8 @@ class InGameOverlay:
             tuple[str, float, float, float]
         ] = deque()
         self._map_marker_latest_snapshot = MapMarkerSnapshot()
+        self._map_marker_cursor_position = None
+        self._map_marker_completion = _MapMarkerCompletion(self._on_map_marker_sample_ready)
         self._map_marker_worker_active = False
         self._map_marker_worker_shutdown = False
         self._map_marker_input = map_marker_input_factory()
@@ -512,27 +541,28 @@ class InGameOverlay:
         try:
             return self._map_marker_tick_once()
         except Exception as exc:
-            # Never let an exception escape a high-frequency Qt timeout.  It
-            # cannot catch a native abort, but it prevents a recoverable stale
-            # wrapper/read failure from being delivered repeatedly by Qt.
-            self.map_marker_timer.stop()
-            try:
-                self._stop_map_marker_worker(wait=False)
-            except Exception:
-                pass
-            try:
-                self._map_marker_hotkeys.reset()
-            except Exception:
-                pass
-            detail = f"{type(exc).__name__}: {exc}"
-            log_runtime_event("in_game_overlay.map_marker_tick.failed", error=detail)
-            self._log(
-                f"[!] Map Activity Markers stopped after an internal error: {detail}",
-                tag="warning",
-            )
+            self._fail_map_marker_update(exc)
             return False
         finally:
             self._map_marker_tick_active = False
+
+    def _fail_map_marker_update(self, exc: Exception) -> None:
+        # Both timer and completion callbacks must contain recoverable errors.
+        self.map_marker_timer.stop()
+        try:
+            self._stop_map_marker_worker(wait=False)
+        except Exception:
+            pass
+        try:
+            self._map_marker_hotkeys.reset()
+        except Exception:
+            pass
+        detail = f"{type(exc).__name__}: {exc}"
+        log_runtime_event("in_game_overlay.map_marker_tick.failed", error=detail)
+        self._log(
+            f"[!] Map Activity Markers stopped after an internal error: {detail}",
+            tag="warning",
+        )
 
     def _map_marker_tick_once(self) -> bool:
         window = self.in_game_overlay_window
@@ -560,6 +590,13 @@ class InGameOverlay:
             logical_width = int(width_reader()) if callable(width_reader) else 0
             client_height = max(1, int(round(logical_height * display_scale)))
             client_width = max(1, int(round(logical_width * display_scale)))
+        premium_access = bool(self._has_premium_access())
+        minimap_enabled = bool(
+            premium_access and marker_cfg.get("minimap_enabled", False)
+        )
+        merchant_memory_enabled = bool(
+            premium_access and marker_cfg.get("merchant_memory_enabled", False)
+        )
         snapshot = self._request_map_marker_sample(
             client_height=client_height,
             client_width=client_width,
@@ -567,10 +604,16 @@ class InGameOverlay:
             automatic_discovery=bool(
                 marker_cfg.get("automatic_discovery", False)
             ),
+            minimap_enabled=minimap_enabled,
+            merchant_memory_enabled=merchant_memory_enabled,
+            merchant_prices_enabled=bool(
+                merchant_memory_enabled and marker_cfg.get("merchant_prices_enabled", False)
+            ),
+            microwave_uses_enabled=premium_access,
         )
 
         cursor_x, cursor_y = self._map_marker_input.cursor_position()
-        if snapshot.map_open and physical_geometry is not None:
+        if physical_geometry is not None:
             cursor_x = (cursor_x - physical_geometry.left()) / display_scale
             cursor_y = (cursor_y - physical_geometry.top()) / display_scale
         else:
@@ -603,15 +646,64 @@ class InGameOverlay:
             )
         self._set_map_marker_palette(gesture.palette)
 
+        self._map_marker_cursor_position = (float(cursor_x), float(cursor_y))
+        return self._publish_map_marker_snapshot(snapshot)
+
+    def _publish_map_marker_snapshot(self, snapshot: MapMarkerSnapshot) -> bool:
+        window = self.in_game_overlay_window
+        if window is None:
+            return False
         # The normal overlay cadence is 500 ms, longer than many deliberate
         # quick Tab checks.  The 25 ms marker path makes the click-through window
         # ready as soon as the game's own mapsOpen flag flips.
-        if snapshot.map_open and self._is_game_window_active(config.PROCESS_NAME):
+        minimap = snapshot.minimap_projection
+        surface_visible = bool(
+            snapshot.map_open
+            or (
+                minimap is not None
+                and minimap.visible
+                and not minimap.jammed
+                and snapshot.markers
+            )
+        )
+        if surface_visible and self._is_game_window_active(config.PROCESS_NAME):
             if not window.isVisible():
                 window.sync_geometry_to_target()
                 window.show()
-        self._set_map_marker_snapshot(snapshot)
-        return snapshot.map_open
+        self._set_map_marker_snapshot(
+            snapshot,
+            cursor_position=self._map_marker_cursor_position,
+        )
+        return surface_visible
+
+    def _on_map_marker_sample_ready(self, future) -> None:
+        # The timer remains the only source of polls (25 ms). Completion only
+        # publishes that poll's result, without reading memory or polling input.
+        if (
+            future is not self._map_marker_future
+            or self._map_marker_future_generation != self._map_marker_generation
+            or not self._runtime_available()
+            or self._map_marker_tick_active
+            or QApplication.activeModalWidget() is not None
+        ):
+            return
+        self._map_marker_tick_active = True
+        try:
+            cfg = config.IN_GAME_OVERLAY
+            markers = cfg.get("map_markers", {}) or {}
+            if not (
+                cfg.get("enabled", False)
+                and markers.get("enabled", False)
+                and markers.get("minimap_enabled", False)
+                and self._has_premium_access()
+            ):
+                return
+            self._collect_map_marker_future()
+            self._publish_map_marker_snapshot(self._map_marker_latest_snapshot)
+        except Exception as exc:
+            self._fail_map_marker_update(exc)
+        finally:
+            self._map_marker_tick_active = False
 
     def _request_map_marker_sample(self, **kwargs) -> MapMarkerSnapshot:
         """Queue one latest-wins memory read and return without waiting for it."""
@@ -677,6 +769,9 @@ class InGameOverlay:
             **request,
         )
         self._map_marker_future_generation = self._map_marker_generation
+
+        if request.get("minimap_enabled", False):
+            self._map_marker_future.add_done_callback(self._map_marker_completion.notify)
 
     def _place_map_marker_in_worker(
         self,
@@ -815,7 +910,12 @@ class InGameOverlay:
             executor.shutdown(wait=completed, cancel_futures=True)
         return completed
 
-    def _set_map_marker_snapshot(self, snapshot: MapMarkerSnapshot) -> None:
+    def _set_map_marker_snapshot(
+        self,
+        snapshot: MapMarkerSnapshot,
+        *,
+        cursor_position: tuple[float, float] | None = None,
+    ) -> None:
         window = self.in_game_overlay_window
         layer = getattr(window, "map_marker_layer", None) if window is not None else None
         setter = getattr(layer, "set_snapshot", None)
@@ -825,7 +925,30 @@ class InGameOverlay:
                 snapshot,
                 scale=float(marker_cfg.get("scale", 1.0)),
                 style=str(marker_cfg.get("style", "modern")),
+                minimap_scale=float(marker_cfg.get("minimap_scale", 1.0)),
+                merchant_stock_display=str(
+                    marker_cfg.get("merchant_stock_display", "smart")
+                ),
+                cursor_position=cursor_position,
+                microwave_uses_enabled=bool(self._has_premium_access()),
+                merchant_prices_enabled=bool(
+                    self._has_premium_access()
+                    and marker_cfg.get("merchant_memory_enabled", False)
+                    and marker_cfg.get("merchant_prices_enabled", False)
+                ),
             )
+
+    def on_supporter_access_changed(self, *_args) -> None:
+        """Refresh Premium affordances and fail closed on entitlement loss."""
+
+        def apply_change() -> None:
+            if not self._runtime_available():
+                return
+            refresh_map_marker_settings_summary(self)
+            if not self._has_premium_access():
+                self._set_map_marker_snapshot(MapMarkerSnapshot())
+
+        self._schedule(apply_change)
 
     def _set_map_marker_palette(self, palette) -> None:
         window = self.in_game_overlay_window
@@ -1433,10 +1556,12 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
     whose sole caller was this function -- which is what the note above them
     said step 25 would do.
     """
-    return InGameOverlay(
+    overlay = InGameOverlay(
         tracker=lambda: getattr(app, "live_run_tracker", None),
         build_progression_snapshot=lambda: app.coordinator.build_progression_service.snapshot(),
         open_build_progression_settings=lambda: _open_build_progression_for_app(app),
+        has_premium_access=lambda: app.has_premium_access(),
+        open_support_settings=lambda: app.open_settings_dialog(page="support"),
         is_scanning=lambda: app._scanner.is_scanning(),
         is_recording=lambda: (
             getattr(app, "player_stats_vod_recorder", None) is not None
@@ -1452,6 +1577,8 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
         log=lambda *args, **kwargs: app.log(*args, **kwargs),
         timer_factory=lambda: QTimer(app.window),
     )
+    app.supporter_access.add_listener(overlay.on_supporter_access_changed)
+    return overlay
 
 
 def _open_build_progression_for_app(app: Any) -> None:

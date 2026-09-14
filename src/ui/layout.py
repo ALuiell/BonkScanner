@@ -343,8 +343,11 @@ def _build_header(app, parent_layout):
         lambda: app.open_settings_dialog(page="support")
     )
     app.supporter_access.add_listener(app.premium_access_badge.set_access_state)
-    app.premium_access_badge.set_access_state(app.supporter_access.state)
     header.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
+    # The access state may make the badge visible immediately. Reparent it via
+    # the layout first so an active Premium account cannot flash a transient
+    # top-level native window during startup.
+    app.premium_access_badge.set_access_state(app.supporter_access.state)
 
     divider = QFrame()
     divider.setObjectName("headerDivider")

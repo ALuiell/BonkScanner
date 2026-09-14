@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from html import escape
+from math import ceil
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
+    QFont,
     QIcon,
     QKeyEvent,
     QMouseEvent,
@@ -28,6 +30,7 @@ from core.map_markers import (
     MarkerPalette,
     MapMarkerSnapshot,
     map_marker_screen_geometry,
+    minimap_marker_screen_geometry,
 )
 from projections.in_game_html import (
     LUCK_EXPECTED_DEFAULT_LAYOUT,
@@ -36,21 +39,29 @@ from projections.in_game_html import (
     build_luck_rarity_overlay_html_for_probabilities,
 )
 from core.item_metadata import ITEM_RARITY_COLOR_MAP
+from core.shady_prices import format_shady_price
 from ui.shared import resource_path
+from ui.stock_card_layout import (
+    group_stock_entries, hovered_stock_marker, layout_stock_cards, marker_bounds,
+    stock_item_lines, stock_items_height, priced_stock_columns,
+)
 
 if TYPE_CHECKING:
     from gui_in_game_overlay import InGameOverlay
 
 
 class MapMarkerLayer(QWidget):
-    """Click-through painter aligned to the game's live Full Map RectTransform."""
+    """Click-through painter for the game's Full Map and circular minimap."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._snapshot = MapMarkerSnapshot()
         self._palette: MarkerPalette | None = None
         self._scale = 1.0
+        self._minimap_scale = 1.0
         self._style = "modern"
+        self._merchant_stock_display = "smart"
+        self._cursor_position: tuple[float, float] | None = None
         self._icons = {
             (style, action.id): QIcon(
                 resource_path(
@@ -63,7 +74,21 @@ class MapMarkerLayer(QWidget):
                 ("classic", action.classic_pictogram_file),
             )
         }
+        self._premium_icon = QIcon(resource_path("media/premium_access_icon.svg"))
+        self._stock_badge_icon = QIcon(resource_path("media/map_markers/stock_memory_badge.svg"))
         self._pictogram_cache: dict[tuple[str, str, int], QPixmap] = {}
+        self._premium_icon_cache: dict[int, QPixmap] = {}
+        self._stock_badge_cache: dict[int, QPixmap] = {}
+        self._microwave_badge_cache: dict[tuple, QPixmap] = {}
+        self._microwave_uses_enabled = False
+        self._merchant_prices_enabled = False
+        self._stock_group_key = None
+        self._stock_groups = ()
+        self._stock_layout_key = None
+        self._stock_plans = ()
+        self._stock_card_pixmaps: dict[tuple, QPixmap] = {}
+        self._stock_hovered_marker = None
+        self._stock_hover_bridge = None
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setStyleSheet("background: transparent;")
@@ -75,18 +100,48 @@ class MapMarkerLayer(QWidget):
         *,
         scale: float,
         style: str = "modern",
+        minimap_scale: float = 1.0,
+        merchant_stock_display: str = "smart",
+        cursor_position: tuple[float, float] | None = None,
+        microwave_uses_enabled: bool = False,
+        merchant_prices_enabled: bool = False,
     ) -> None:
         normalized_scale = max(0.5, min(float(scale), 3.0))
+        normalized_minimap_scale = max(0.5, min(float(minimap_scale), 2.0))
         normalized_style = "classic" if str(style).lower() == "classic" else "modern"
+        normalized_stock_display = str(merchant_stock_display).strip().lower()
+        if normalized_stock_display not in {"smart", "always", "cursor"}:
+            normalized_stock_display = "smart"
+        normalized_cursor = (
+            (float(cursor_position[0]), float(cursor_position[1]))
+            if cursor_position is not None
+            else None
+        )
+        previous_snapshot = self._snapshot
+        previous_palette = self._palette
+        cursor_changed = normalized_cursor != self._cursor_position
         changed = (
             snapshot != self._snapshot
             or normalized_scale != self._scale
+            or normalized_minimap_scale != self._minimap_scale
             or normalized_style != self._style
+            or normalized_stock_display != self._merchant_stock_display
+            or bool(microwave_uses_enabled) != self._microwave_uses_enabled
+            or bool(merchant_prices_enabled) != self._merchant_prices_enabled
         )
         was_shown = not self.isHidden()
         self._snapshot = snapshot
         self._scale = normalized_scale
+        self._minimap_scale = normalized_minimap_scale
         self._style = normalized_style
+        self._merchant_stock_display = normalized_stock_display
+        self._cursor_position = normalized_cursor
+        self._microwave_uses_enabled = bool(microwave_uses_enabled)
+        self._merchant_prices_enabled = bool(merchant_prices_enabled)
+        if not changed and snapshot.map_open and cursor_changed:
+            # A moving cursor only needs a repaint when the selected merchant
+            # changes. Keep the marker-to-card hover bridge live either way.
+            changed = self._stock_hover_selection() != self._stock_hovered_marker
         if not snapshot.map_open:
             self._palette = None
         should_show = self._should_show()
@@ -95,7 +150,29 @@ class MapMarkerLayer(QWidget):
         if should_show and (changed or not was_shown):
             self.raise_()
         if changed:
-            self.update()
+            if not previous_snapshot.map_open and not snapshot.map_open and previous_palette is None:
+                dirty = self._minimap_update_rect(previous_snapshot).united(
+                    self._minimap_update_rect(snapshot)
+                ).intersected(self.rect())
+                if not dirty.isEmpty():
+                    self.update(dirty)
+            else:
+                # A Full Map/palette transition can leave content anywhere on
+                # the layer, so clear the full surface on these rare changes.
+                self.update()
+
+    @staticmethod
+    def _minimap_update_rect(snapshot: MapMarkerSnapshot) -> QRect:
+        projection = snapshot.minimap_projection
+        if (
+            snapshot.map_open or projection is None or not projection.visible
+            or projection.jammed or not snapshot.markers
+        ):
+            return QRect()
+        rect = projection.content_rect
+        # Include both old/new rectangles and an antialiasing margin. The
+        # painter clips icons and stock badges to the circle inside this rect.
+        return QRectF(rect.left, rect.top, rect.width, rect.height).toAlignedRect().adjusted(-3, -3, 3, 3)
 
     def set_palette(self, palette: MarkerPalette | None) -> None:
         if palette == self._palette:
@@ -110,11 +187,20 @@ class MapMarkerLayer(QWidget):
         self.update()
 
     def _should_show(self) -> bool:
-        return bool(
+        full_map_content = bool(
             self._snapshot.map_open
             and self._snapshot.viewport is not None
             and (self._snapshot.markers or self._palette is not None)
         )
+        minimap = self._snapshot.minimap_projection
+        minimap_content = bool(
+            not self._snapshot.map_open
+            and minimap is not None
+            and minimap.visible
+            and not minimap.jammed
+            and self._snapshot.markers
+        )
+        return full_map_content or minimap_content
 
     def _pictogram_pixmap(
         self,
@@ -140,17 +226,42 @@ class MapMarkerLayer(QWidget):
         self._pictogram_cache[cache_key] = pixmap
         return pixmap
 
+    def _premium_pixmap(self, size: int) -> QPixmap:
+        normalized_size = max(1, int(size))
+        cached = self._premium_icon_cache.get(normalized_size)
+        if cached is not None:
+            return cached
+
+        pixmap = self._premium_icon.pixmap(normalized_size, normalized_size)
+        self._premium_icon_cache[normalized_size] = pixmap
+        return pixmap
+
+    def _stock_badge_pixmap(self, size: int) -> QPixmap:
+        normalized_size = max(1, int(size))
+        cached = self._stock_badge_cache.get(normalized_size)
+        if cached is None:
+            cached = self._stock_badge_icon.pixmap(normalized_size, normalized_size)
+            self._stock_badge_cache[normalized_size] = cached
+        return cached
+
     def paintEvent(self, event) -> None:
         snapshot = self._snapshot
-        viewport = snapshot.viewport
-        if not snapshot.map_open or viewport is None:
+        if not self._should_show():
             return
 
         painter = QPainter(self)
         if not painter.isActive():
             return
         try:
-            self._paint_snapshot(painter, snapshot, viewport)
+            viewport = snapshot.viewport
+            if snapshot.map_open and viewport is not None:
+                painter.save()
+                try:
+                    self._paint_snapshot(painter, snapshot, viewport)
+                finally:
+                    painter.restore()
+            if snapshot.minimap_projection is not None:
+                self._paint_minimap(painter, snapshot)
         finally:
             if painter.isActive():
                 painter.end()
@@ -166,6 +277,11 @@ class MapMarkerLayer(QWidget):
         painter.setClipRect(
             QRectF(viewport.left, viewport.top, viewport.width, viewport.height)
         )
+        stock_by_object = {
+            stock.merchant_object_ptr: stock for stock in snapshot.merchant_stocks
+        }
+        stock_geometries = []
+        marker_obstacles = []
         for marker in snapshot.markers:
             action = MAP_MARKER_ACTION_BY_ID.get(marker.action_id)
             if action is None:
@@ -180,56 +296,426 @@ class MapMarkerLayer(QWidget):
             if geometry is None:
                 continue
             center_x, center_y, icon_size_value = geometry
-            icon_size = int(icon_size_value)
-            if self._style == "classic":
-                marker_size = max(
-                    18,
-                    int(
-                        round(
-                            icon_size
-                            * CLASSIC_MAP_MARKER_BASE_ICON_SIZE
-                            / MAP_MARKER_BASE_ICON_SIZE
-                        )
-                    ),
-                )
-                pictogram_size = max(12, int(round(marker_size * 0.68)))
-                half = marker_size / 2.0
-                bounds = QRectF(
-                    center_x - half,
-                    center_y - half,
-                    float(marker_size),
-                    float(marker_size),
-                )
-                outline = QColor(action.outline_color)
-                outline.setAlpha(225)
-                painter.setPen(QPen(outline, max(2, marker_size // 11)))
-                fill = QColor(action.color)
-                fill.setAlpha(232)
-                painter.setBrush(fill)
-                painter.drawEllipse(bounds)
-
-                if marker.source == "manual":
-                    manual_pen = QPen(QColor(255, 255, 255, 205), 1.4)
-                    manual_pen.setStyle(Qt.DashLine)
-                    painter.setBrush(Qt.NoBrush)
-                    painter.setPen(manual_pen)
-                    painter.drawEllipse(bounds.adjusted(-2, -2, 2, 2))
-            else:
-                pictogram_size = max(18, icon_size)
-
-            pixmap = self._pictogram_pixmap(
+            marker_obstacles.append(marker_bounds(geometry))
+            self._paint_marker(
+                painter,
                 action,
-                pictogram_size,
-                style=self._style,
+                marker.source,
+                center_x,
+                center_y,
+                int(icon_size_value),
             )
-            if not pixmap.isNull():
-                painter.drawPixmap(
-                    int(round(center_x - pictogram_size / 2.0)),
-                    int(round(center_y - pictogram_size / 2.0)),
-                    pixmap,
+            stock = stock_by_object.get(marker.object_ptr)
+            if self._microwave_uses_enabled and action.family == "microwave":
+                self._paint_microwave_uses_badge(
+                    painter, center_x, center_y, float(icon_size_value), marker.uses_remaining
+                )
+            if stock is not None:
+                self._paint_stock_badge(
+                    painter, center_x, center_y, float(icon_size_value)
+                )
+                stock_geometries.append((marker, stock, geometry))
+
+        self._paint_stock_cards(painter, viewport, stock_geometries, tuple(marker_obstacles))
+        self._paint_palette(painter)
+
+    def _paint_minimap(self, painter: QPainter, snapshot: MapMarkerSnapshot) -> None:
+        projection = snapshot.minimap_projection
+        if (
+            snapshot.map_open
+            or projection is None
+            or not projection.visible
+            or projection.jammed
+        ):
+            return
+        painter.save()
+        try:
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+            clip = QPainterPath()
+            clip.addEllipse(
+                QPointF(projection.center_x, projection.center_y),
+                projection.radius,
+                projection.radius,
+            )
+            painter.setClipPath(clip, Qt.IntersectClip)
+            stock_objects = {
+                stock.merchant_object_ptr for stock in snapshot.merchant_stocks
+            }
+            for marker in snapshot.markers:
+                action = MAP_MARKER_ACTION_BY_ID.get(marker.action_id)
+                if action is None:
+                    continue
+                geometry = minimap_marker_screen_geometry(
+                    marker.world_x,
+                    marker.world_z,
+                    projection=projection,
+                    scale=self._minimap_scale,
+                )
+                if geometry is None:
+                    continue
+                center_x, center_y, icon_size_value = geometry
+                self._paint_marker(
+                    painter,
+                    action,
+                    marker.source,
+                    center_x,
+                    center_y,
+                    int(icon_size_value),
+                )
+                if marker.object_ptr in stock_objects:
+                    self._paint_stock_badge(
+                        painter, center_x, center_y, float(icon_size_value)
+                    )
+                if self._microwave_uses_enabled and action.family == "microwave":
+                    self._paint_microwave_uses_badge(
+                        painter, center_x, center_y, float(icon_size_value), marker.uses_remaining
+                    )
+        finally:
+            painter.restore()
+
+    def _paint_marker(
+        self,
+        painter: QPainter,
+        action: MapMarkerAction,
+        source: str,
+        center_x: float,
+        center_y: float,
+        icon_size: int,
+    ) -> None:
+        if self._style == "classic":
+            marker_size = max(
+                18,
+                int(
+                    round(
+                        icon_size
+                        * CLASSIC_MAP_MARKER_BASE_ICON_SIZE
+                        / MAP_MARKER_BASE_ICON_SIZE
+                    )
+                ),
+            )
+            pictogram_size = max(12, int(round(marker_size * 0.68)))
+            half = marker_size / 2.0
+            bounds = QRectF(
+                center_x - half,
+                center_y - half,
+                float(marker_size),
+                float(marker_size),
+            )
+            outline = QColor(action.outline_color)
+            outline.setAlpha(225)
+            painter.setPen(QPen(outline, max(2, marker_size // 11)))
+            fill = QColor(action.color)
+            fill.setAlpha(232)
+            painter.setBrush(fill)
+            painter.drawEllipse(bounds)
+
+            if source == "manual":
+                manual_pen = QPen(QColor(255, 255, 255, 205), 1.4)
+                manual_pen.setStyle(Qt.DashLine)
+                painter.setBrush(Qt.NoBrush)
+                painter.setPen(manual_pen)
+                painter.drawEllipse(bounds.adjusted(-2, -2, 2, 2))
+        else:
+            pictogram_size = max(18, icon_size)
+
+        pixmap = self._pictogram_pixmap(
+            action,
+            pictogram_size,
+            style=self._style,
+        )
+        if not pixmap.isNull():
+            painter.drawPixmap(
+                int(round(center_x - pictogram_size / 2.0)),
+                int(round(center_y - pictogram_size / 2.0)),
+                pixmap,
+            )
+
+    def _paint_stock_badge(
+        self,
+        painter: QPainter,
+        center_x: float,
+        center_y: float,
+        icon_size: float,
+    ) -> None:
+        # A 22 px badge on the default 36 px minimap marker matches the preview.
+        # Cache the entire circle/list together so moving markers still use one blit.
+        size = max(16, min(26, int(round(icon_size * 0.61))))
+        badge_x = center_x + icon_size * 0.31
+        badge_y = center_y - icon_size * 0.31
+        pixmap = self._stock_badge_pixmap(size)
+        if pixmap.isNull():
+            return
+        painter.drawPixmap(
+            int(round(badge_x - size / 2.0)),
+            int(round(badge_y - size / 2.0)),
+            pixmap,
+        )
+
+    def _microwave_badge_pixmap(self, uses: int, size: int) -> QPixmap:
+        text = str(uses) if uses < 100 else "99+"
+        dpr = self.devicePixelRatioF()
+        key = (text, size, dpr)
+        cached = self._microwave_badge_cache.get(key)
+        if cached is not None:
+            return cached
+        pixmap = QPixmap(ceil(size * dpr), ceil(size * dpr))
+        pixmap.setDevicePixelRatio(dpr)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        try:
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setPen(QPen(QColor("#A0B7CC"), 1.0))
+            painter.setBrush(QColor("#0A111B"))
+            painter.drawEllipse(QRectF(0.5, 0.5, size - 1, size - 1))
+            font = QFont("Segoe UI")
+            font.setBold(True)
+            font.setPixelSize(round(size * (0.62 if len(text) == 1 else 0.45)))
+            painter.setFont(font)
+            painter.setPen(QColor("#EDF5FC"))
+            painter.drawText(QRectF(0, 0, size, size), Qt.AlignCenter, text)
+        finally:
+            painter.end()
+        # Keep resizing/display switches and unexpected counts bounded.
+        if len(self._microwave_badge_cache) >= 128:
+            self._microwave_badge_cache.clear()
+        self._microwave_badge_cache[key] = pixmap
+        return pixmap
+
+    def _paint_microwave_uses_badge(
+        self, painter, center_x, center_y, icon_size, uses: int | None,
+    ) -> None:
+        if uses is None or uses < 0:
+            return
+        size = max(16, min(26, int(round(icon_size * 0.61))))
+        pixmap = self._microwave_badge_pixmap(uses, size)
+        painter.drawPixmap(
+            int(round(center_x + icon_size * 0.31 - size / 2.0)),
+            int(round(center_y - icon_size * 0.31 - size / 2.0)),
+            pixmap,
+        )
+
+    def _paint_stock_cards(self, painter, viewport, stock_geometries, obstacles=()) -> None:
+        if not stock_geometries:
+            self._stock_group_key = None
+            self._stock_groups = ()
+            self._stock_layout_key = None
+            self._stock_plans = ()
+            self._stock_card_pixmaps.clear()
+            self._stock_hovered_marker = None
+            self._stock_hover_bridge = None
+            return
+        group_key = tuple(stock_geometries)
+        if group_key != self._stock_group_key:
+            self._stock_groups = group_stock_entries(group_key)
+            self._stock_group_key = group_key
+            self._stock_layout_key = None
+            self._stock_plans = ()
+            self._stock_hover_bridge = None
+        hovered = self._stock_hover_selection()
+        self._stock_hovered_marker = hovered
+        layout_key = (viewport, self._scale, self._merchant_stock_display, hovered, obstacles, self._merchant_prices_enabled)
+        if layout_key != self._stock_layout_key:
+            self._stock_plans = layout_stock_cards(
+                self._stock_groups, viewport, self._scale,
+                self._merchant_stock_display, hovered, obstacles,
+                show_prices=self._merchant_prices_enabled,
+            )
+            self._stock_layout_key = layout_key
+
+        active_pixmaps = {}
+        for plan in self._stock_plans:
+            bounds = plan.bounds
+            selected = hovered if any(e[0].marker_id == hovered for e in plan.group.entries) else None
+            # Cache only current visible cards. Cursor motion inside the same
+            # merchant hit area neither solves layout nor rasterizes text again.
+            dpr = self.devicePixelRatioF()
+            cache_key = (
+                plan.group.entries, plan.entries, plan.compact, bounds.width(),
+                bounds.height(), self._scale, self._style, selected, dpr,
+                self._merchant_prices_enabled,
+            )
+            pixmap = self._stock_card_pixmaps.get(cache_key)
+            if pixmap is None:
+                pixmap = QPixmap(ceil((bounds.width() + 2) * dpr), ceil((bounds.height() + 2) * dpr))
+                pixmap.setDevicePixelRatio(dpr)
+                pixmap.fill(Qt.transparent)
+                card_painter = QPainter(pixmap)
+                try:
+                    card_painter.setRenderHint(QPainter.Antialiasing, True)
+                    local = QRectF(1, 1, bounds.width(), bounds.height())
+                    if not plan.compact and len(plan.group.entries) == 1:
+                        self._paint_stock_card(card_painter, local, plan.entries[0][1])
+                    else:
+                        self._paint_stock_group_card(card_painter, local, plan, selected)
+                finally:
+                    card_painter.end()
+            active_pixmaps[cache_key] = pixmap
+            anchor = plan.group.bounds.center()
+            if selected is not None:
+                entry = next(e for e in plan.group.entries if e[0].marker_id == selected)
+                x, y, size = entry[2]
+                anchor = QPointF(x, y)
+                painter.setBrush(Qt.NoBrush)
+                painter.setPen(QPen(QColor("#B9E5FA"), 1.4))
+                painter.drawEllipse(anchor, size * .55, size * .55)
+            endpoint = QPointF(
+                max(bounds.left(), min(anchor.x(), bounds.right())),
+                max(bounds.top(), min(anchor.y(), bounds.bottom())),
+            )
+            painter.setPen(QPen(QColor(117, 159, 183, 170), 1.0))
+            painter.drawLine(anchor, endpoint)
+            painter.drawPixmap(QPointF(bounds.left() - 1, bounds.top() - 1), pixmap)
+        self._stock_card_pixmaps = active_pixmaps
+
+    def _stock_hover_selection(self):
+        hovered = hovered_stock_marker(self._stock_groups, self._cursor_position)
+        if hovered is not None or self._cursor_position is None:
+            self._stock_hover_bridge = None
+            return hovered
+        point = QPointF(*self._cursor_position)
+        # Keep an expanded card alive while the cursor is over either the card
+        # or its former compact label. Otherwise expansion could move the hit
+        # target away from the cursor and flicker between the two layouts.
+        if self._stock_hover_bridge is not None:
+            bounds, marker_id = self._stock_hover_bridge
+            if bounds.contains(point):
+                return marker_id
+        for plan in reversed(self._stock_plans):
+            if plan.bounds.contains(point):
+                ids = tuple(e[0].marker_id for e in plan.group.entries)
+                marker_id = self._stock_hovered_marker if self._stock_hovered_marker in ids else ids[0]
+                self._stock_hover_bridge = (QRectF(plan.bounds), marker_id)
+                return marker_id
+        self._stock_hover_bridge = None
+        return None
+
+    def _paint_stock_group_card(self, painter, bounds, plan, selected) -> None:
+        painter.setPen(QPen(QColor(75, 145, 188, 220), 1.2))
+        painter.setBrush(QColor(8, 17, 27, 179))
+        painter.drawRoundedRect(bounds, 7.0, 7.0)
+        font = painter.font()
+        font.setFamily("Segoe UI")
+        font.setPixelSize(11)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#8FDFFF"))
+        count = len(plan.group.entries)
+        title = f"{count} SHADIES" if count > 1 else "STOCK"
+        if plan.compact:
+            title += " · hover"
+        elif len(plan.entries) < count:
+            title += " · selected stock"
+        title = painter.fontMetrics().elidedText(title, Qt.ElideRight, int(bounds.width() - 18))
+        painter.drawText(bounds.adjusted(10, 5, -8, 0), Qt.AlignTop | Qt.AlignLeft, title)
+        if plan.compact:
+            return
+        y = bounds.top() + 28
+        items = tuple(item for entry in plan.entries for item in entry[1].items)
+        name_width = self._stock_name_width(items, bounds.width())
+        for marker, stock, _geometry in plan.entries:
+            action = MAP_MARKER_ACTION_BY_ID[marker.action_id]
+            section_height = 32 + stock_items_height(stock, bounds.width(), self._scale, name_width=name_width)
+            if marker.marker_id == selected:
+                painter.fillRect(QRectF(bounds.left() + 3, y - 2, bounds.width() - 6, section_height - 3), QColor(51, 91, 119, 105))
+            self._paint_stock_merchant_icon(painter, action, bounds.left() + 9, y)
+            font.setPixelSize(11)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QColor(action.color))
+            number = next(i + 1 for i, entry in enumerate(plan.group.entries) if entry[0].marker_id == marker.marker_id)
+            label = f"{number}. {action.display_name}"
+            label = painter.fontMetrics().elidedText(label, Qt.ElideRight, int(bounds.width() - 46))
+            painter.drawText(QRectF(bounds.left() + 37, y, bounds.width() - 46, 22), Qt.AlignVCenter | Qt.AlignLeft, label)
+            self._paint_stock_items(painter, bounds.left(), y + 25, bounds.width(), stock, name_width=name_width)
+            y += section_height
+
+    def _stock_name_width(self, items, width):
+        if not self._merchant_prices_enabled:
+            return None
+        names, prices = priced_stock_columns(items)
+        return max(1, min(names, width - 16 - 9 - prices))
+
+    def _paint_stock_items(self, painter, left, top, width, stock, *, name_width=None) -> None:
+        font = QFont("Segoe UI")
+        font.setPixelSize(12)
+        painter.setFont(font)
+        row_height = max(16.0, 17.0 * self._scale)
+        if name_width is None:
+            name_width = self._stock_name_width(stock.items, width)
+        text_width = int(width - 22 if name_width is None else name_width)
+        padding = 8 if self._merchant_prices_enabled else 11
+        for item in stock.items:
+            painter.setFont(font)
+            painter.setPen(QColor(ITEM_RARITY_COLOR_MAP.get(item.rarity, "#DDE7F2")))
+            row_top = top
+            for text in stock_item_lines(item.display_name, text_width):
+                painter.drawText(
+                    QRectF(left + padding, top, text_width, row_height),
+                    Qt.AlignVCenter | Qt.AlignLeft, text,
+                )
+                top += row_height
+            if self._merchant_prices_enabled:
+                coin_left = left + padding + text_width + 9
+                coin_top = row_top + (row_height - 11) / 2
+                painter.setPen(QPen(QColor('#F7D96D'), 1))
+                painter.setBrush(QColor('#DFAE30'))
+                painter.drawEllipse(QRectF(coin_left, coin_top, 11, 11))
+                painter.setPen(QPen(QColor('#98701A'), 1))
+                painter.drawEllipse(QRectF(coin_left + 1.5, coin_top + 1.5, 8, 8))
+                painter.setPen(QPen(QColor('#FFF0A9'), 1))
+                painter.drawLine(QPointF(coin_left + 5.5, coin_top + 3), QPointF(coin_left + 5.5, coin_top + 8))
+                price_font = QFont(font)
+                price_font.setBold(True)
+                painter.setFont(price_font)
+                painter.setPen(QColor('#F4CE62'))
+                painter.drawText(
+                    QRectF(coin_left + 15, row_top, max(1, left + width - 8 - coin_left - 15), row_height),
+                    Qt.AlignVCenter | Qt.AlignLeft, format_shady_price(item.price),
                 )
 
-        self._paint_palette(painter)
+    def _paint_stock_merchant_icon(self, painter, action, left, top) -> None:
+        # Use the complete map symbol, not the bare black classic pictogram.
+        # Scale its normal circle/outline together into the 22 px card slot.
+        painter.save()
+        try:
+            painter.translate(left, top)
+            if self._style == "classic":
+                ratio = 22.0 / CLASSIC_MAP_MARKER_BASE_ICON_SIZE
+                painter.scale(ratio, ratio)
+                center = CLASSIC_MAP_MARKER_BASE_ICON_SIZE / 2.0
+                self._paint_marker(painter, action, "automatic", center, center, MAP_MARKER_BASE_ICON_SIZE)
+            else:
+                self._paint_marker(painter, action, "automatic", 11.0, 11.0, 22)
+        finally:
+            painter.restore()
+
+    def _paint_stock_card(self, painter: QPainter, bounds: QRectF, stock) -> None:
+        painter.setPen(QPen(QColor(75, 145, 188, 220), 1.2))
+        painter.setBrush(QColor(8, 17, 27, 179))
+        painter.drawRoundedRect(bounds, 7.0, 7.0)
+
+        font = painter.font()
+        font.setFamily("Segoe UI")
+        font.setPixelSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#8FDFFF"))
+        header_icon_size = 14
+        header_icon = self._premium_pixmap(header_icon_size)
+        if not header_icon.isNull():
+            painter.drawPixmap(
+                int(round(bounds.left() + 9.0)),
+                int(round(bounds.top() + 4.0)),
+                header_icon,
+            )
+        painter.drawText(
+            bounds.adjusted(29.0, 5.0, -8.0, 0.0),
+            Qt.AlignTop | Qt.AlignLeft,
+            "STOCK",
+        )
+
+        self._paint_stock_items(painter, bounds.left(), bounds.top() + 25, bounds.width(), stock)
 
     def _paint_palette(self, painter: QPainter) -> None:
         palette = self._palette

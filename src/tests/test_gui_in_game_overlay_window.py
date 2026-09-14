@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -14,6 +15,9 @@ from core.map_markers import (
     MAP_MARKER_ACTION_BY_ID,
     MapMarkerSnapshot,
     MapViewport,
+    MerchantOffer,
+    MerchantStockCapture,
+    MinimapProjection,
     WorldMapMarker,
     build_marker_palette,
     map_marker_screen_geometry,
@@ -44,9 +48,216 @@ def _test_overlay_config() -> dict:
 
 
 class InGameOverlayWindowTests(unittest.TestCase):
+    def test_price_coin_column_obeys_setting_and_cached_paint(self):
+        from core.shady_prices import format_shady_price
+        layer = MapMarkerLayer()
+        layer.resize(600, 400)
+        stock = MerchantStockCapture(1, 1, '1', 1, 0, 0, (
+            MerchantOffer(1, 'Beer', 'Beer', 'UNCOMMON', 999),
+            MerchantOffer(2, 'Lamp', 'Overpowered Lamp', 'LEGENDARY', 1500),
+        ))
+        snapshot = MapMarkerSnapshot(map_id=1, map_open=True, world_size=600,
+            viewport=MapViewport(0, 0, 600, 400),
+            markers=(WorldMapMarker('1', 'shady_guy_blue', 0, 0, object_ptr=1),),
+            merchant_stocks=(stock,))
+        image = QImage(1200, 800, QImage.Format_ARGB32_Premultiplied)
+        image.setDevicePixelRatio(2)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        try:
+            for enabled in (True, False):
+                layer.set_snapshot(snapshot, scale=1, merchant_stock_display='always', merchant_prices_enabled=enabled)
+                with patch('gui_in_game_overlay_window.format_shady_price', wraps=format_shady_price) as formatter:
+                    layer._paint_snapshot(painter, snapshot, snapshot.viewport)
+                    self.assertEqual(formatter.call_count, 2 if enabled else 0)
+                    layer._paint_snapshot(painter, snapshot, snapshot.viewport)
+                    self.assertEqual(formatter.call_count, 2 if enabled else 0)
+        finally:
+            painter.end()
+            layer.close()
+
+    def test_stock_card_background_is_translucent_and_text_stays_opaque(self):
+        from ui.stock_card_layout import group_stock_entries, layout_stock_cards
+        layer = MapMarkerLayer()
+        stock = MerchantStockCapture(1, 1, "1", 1, 0, 0,
+                                     (MerchantOffer(1, "Beer", "Beer", "UNCOMMON"),))
+        entries = tuple((
+            WorldMapMarker(str(i), "shady_guy_blue", 0, 0, object_ptr=i + 1),
+            replace(stock, merchant_object_ptr=i + 1, marker_id=str(i)),
+            (300.0 + i * 20, 150.0, 48.0),
+        ) for i in range(2))
+        try:
+            for grouped in (False, True):
+                plan = layout_stock_cards(
+                    group_stock_entries(entries if grouped else entries[:1]),
+                    MapViewport(0, 0, 600, 400), 1, "always", None,
+                )[0]
+                image = QImage(600, 400, QImage.Format_ARGB32_Premultiplied)
+                image.fill(Qt.transparent)
+                painter = QPainter(image)
+                try:
+                    if grouped:
+                        layer._paint_stock_group_card(painter, plan.bounds, plan, None)
+                    else:
+                        layer._paint_stock_card(painter, plan.bounds, stock)
+                finally:
+                    painter.end()
+                self.assertAlmostEqual(
+                    image.pixelColor(int(plan.bounds.center().x()), int(plan.bounds.bottom() - 4)).alpha(),
+                    179, delta=1,
+                )
+                self.assertTrue(any(
+                    image.pixelColor(x, y).alpha() == 255
+                    for x in range(int(plan.bounds.left() + 12), int(plan.bounds.right() - 12))
+                    for y in range(int(plan.bounds.top() + 25), int(plan.bounds.bottom() - 6))
+                ))
+        finally:
+            layer.close()
+
+    def test_microwave_badges_on_maps_and_minimap_require_premium(self):
+        layer = MapMarkerLayer()
+        layer.resize(400, 400)
+        viewport = MapViewport(0, 0, 400, 400)
+        snapshot = MapMarkerSnapshot(
+            map_id=1, map_open=True, world_size=600, viewport=viewport,
+            markers=(WorldMapMarker("1", "microwave_blue", 0, 0, object_ptr=1, uses_remaining=2),),
+            minimap_projection=MinimapProjection(
+                True, False, viewport, 200, 200, 200, 0, 0, 1, 0, 0, 1, 110, 1,
+            ),
+        )
+        image = QImage(400, 400, QImage.Format_ARGB32_Premultiplied)
+        painter = QPainter(image)
+        try:
+            for style in ("modern", "classic"):
+                for full_map in (True, False):
+                    current = replace(snapshot, map_open=full_map)
+                    for premium in (True, False):
+                        layer.set_snapshot(current, scale=1, style=style, microwave_uses_enabled=premium)
+                        with patch.object(layer, "_microwave_badge_pixmap", wraps=layer._microwave_badge_pixmap) as badge:
+                            if full_map:
+                                layer._paint_snapshot(painter, current, viewport)
+                            else:
+                                layer._paint_minimap(painter, current)
+                        self.assertEqual(badge.call_count, int(premium))
+                        if premium:
+                            self.assertEqual(badge.call_args.args[0], 2)
+            with patch.object(layer, "_microwave_badge_pixmap") as badge:
+                layer._paint_microwave_uses_badge(painter, 100, 100, 36, None)
+                layer._paint_microwave_uses_badge(painter, 100, 100, 36, -1)
+                badge.assert_not_called()
+        finally:
+            painter.end()
+            layer.close()
+
+    def test_microwave_badge_cache_supports_zero_and_display_scaling(self):
+        layer = MapMarkerLayer()
+        try:
+            for dpr in (1.0, 1.25, 1.5, 2.0):
+                with patch.object(layer, "devicePixelRatioF", return_value=dpr):
+                    for uses in (0, 1, 2, 3):
+                        badge = layer._microwave_badge_pixmap(uses, 24)
+                        self.assertIs(badge, layer._microwave_badge_pixmap(uses, 24))
+                        self.assertEqual(badge.devicePixelRatioF(), dpr)
+                        self.assertEqual(badge.width(), round(24 * dpr))
+                        self.assertEqual(badge.toImage().pixelColor(0, 0).alpha(), 0)
+                        pixels = badge.toImage()
+                        self.assertTrue(any(
+                            pixels.pixelColor(x, y).red() > 200
+                            for x in range(int(6*dpr), int(18*dpr))
+                            for y in range(int(5*dpr), int(19*dpr))
+                        ))
+        finally:
+            layer.close()
+
     @classmethod
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
+
+    def test_partial_updates_match_full_redraw_on_motion_hide_and_map_switch(self):
+        projection = MinimapProjection(
+            True, False, MapViewport(300, 30, 180, 180), 390, 120, 90,
+            0, 0, 1, 0, 0, 1, 110, 1,
+        )
+        snap = MapMarkerSnapshot(map_id=1, world_size=600,
+            markers=(WorldMapMarker("1", "shady_guy_blue", 0, 0, object_ptr=1),),
+            minimap_projection=projection)
+        moved = replace(snap, minimap_projection=replace(projection,
+            content_rect=MapViewport(250, 50, 200, 200), center_x=350, center_y=150, radius=100,
+            camera_world_x=25))
+        full = replace(snap, map_open=True, viewport=MapViewport(50, 20, 350, 350))
+        sequence = (snap, moved, replace(moved, minimap_projection=None), moved,
+                    replace(moved, markers=()), full, snap, MapMarkerSnapshot())
+        for dpr in (1.0, 1.25, 1.5):
+            with self.subTest(dpr=dpr):
+                layer = MapMarkerLayer()
+                layer.setAttribute(Qt.WA_DontShowOnScreen, True)
+                layer.resize(600, 400)
+                images = [QImage(round(600*dpr), round(400*dpr), QImage.Format_ARGB32_Premultiplied) for _ in range(2)]
+                for image in images:
+                    image.setDevicePixelRatio(dpr)
+                    image.fill(Qt.transparent)
+                try:
+                    for index, snapshot in enumerate(sequence):
+                        with patch.object(layer, "update") as update:
+                            layer.set_snapshot(snapshot, scale=1.0, style="classic" if index % 2 else "modern")
+                        self.assertTrue(update.called)
+                        args = update.call_args.args
+                        dirty = args[0] if args else layer.rect()
+                        if index == 1:
+                            self.assertTrue(dirty.contains(QRect(300, 30, 180, 180)))
+                            self.assertTrue(dirty.contains(QRect(250, 50, 200, 200)))
+                            self.assertLess(dirty.width()*dirty.height(), 600*400)
+                        if index in (5, 6):
+                            self.assertEqual(args, ())
+                        for image, rect in zip(images, (layer.rect(), dirty)):
+                            painter = QPainter(image)
+                            painter.setClipRect(rect)
+                            painter.setCompositionMode(QPainter.CompositionMode_Source)
+                            painter.fillRect(rect, Qt.transparent)
+                            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+                            if snapshot.map_open:
+                                layer._paint_snapshot(painter, snapshot, snapshot.viewport)
+                            else:
+                                layer._paint_minimap(painter, snapshot)
+                            painter.end()
+                        self.assertEqual(images[0], images[1])
+                finally:
+                    layer.close()
+
+    def test_stock_cursor_repaints_only_when_hover_selection_changes(self):
+        layer = MapMarkerLayer()
+        layer.setAttribute(Qt.WA_DontShowOnScreen, True)
+        layer.resize(600, 400)
+        viewport = MapViewport(0, 0, 600, 400)
+        snapshot = MapMarkerSnapshot(map_id=1, map_open=True, world_size=600, viewport=viewport,
+            markers=(WorldMapMarker("1", "shady_guy_blue", 0, 0, object_ptr=1),),
+            merchant_stocks=(MerchantStockCapture(1, 1, "1", 1, 0, 0,
+                (MerchantOffer(1, "Beer", "Beer", "UNCOMMON"),)),))
+        image = QImage(600, 400, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        def paint():
+            painter = QPainter(image)
+            layer._paint_snapshot(painter, snapshot, viewport)
+            painter.end()
+        try:
+            layer.set_snapshot(snapshot, scale=1.0, cursor_position=(5, 5))
+            paint()
+            with patch.object(layer, "update") as update:
+                layer.set_snapshot(snapshot, scale=1.0, cursor_position=(6, 6))
+                update.assert_not_called()
+                layer.set_snapshot(snapshot, scale=1.0, cursor_position=(300, 200))
+                update.assert_called_once_with()
+            paint()
+            self.assertEqual(layer._stock_hovered_marker, "1")
+            with patch.object(layer, "update") as update:
+                layer.set_snapshot(snapshot, scale=1.0, cursor_position=(301, 200))
+                center = layer._stock_plans[0].bounds.center()
+                layer.set_snapshot(snapshot, scale=1.0, cursor_position=(center.x(), center.y()))
+                update.assert_not_called()
+                layer.set_snapshot(snapshot, scale=1.0, cursor_position=(5, 5))
+                update.assert_called_once_with()
+        finally:
+            layer.close()
 
     def test_map_marker_layer_only_appears_for_open_map_content(self) -> None:
         layer = MapMarkerLayer()
@@ -69,6 +280,315 @@ class InGameOverlayWindowTests(unittest.TestCase):
             layer.set_snapshot(MapMarkerSnapshot(), scale=1.0)
             self.assertTrue(layer.isHidden())
         finally:
+            layer.close()
+
+    def test_map_marker_layer_appears_for_visible_minimap_and_clips_circle(self) -> None:
+        layer = MapMarkerLayer()
+        projection = MinimapProjection(
+            visible=True,
+            jammed=False,
+            content_rect=MapViewport(20.0, 20.0, 160.0, 160.0),
+            center_x=100.0,
+            center_y=100.0,
+            radius=80.0,
+            camera_world_x=0.0,
+            camera_world_z=0.0,
+            camera_right_x=1.0,
+            camera_right_z=0.0,
+            camera_up_x=0.0,
+            camera_up_z=1.0,
+            orthographic_size=80.0,
+            aspect=1.0,
+        )
+        snapshot = MapMarkerSnapshot(
+            map_id=1,
+            markers=(WorldMapMarker("auto:1", "moai", 0.0, 0.0),),
+            minimap_projection=projection,
+        )
+        try:
+            layer.set_snapshot(snapshot, scale=1.0, minimap_scale=1.0)
+            self.assertFalse(layer.isHidden())
+
+            # Timer delivery of the same sample must not paint again merely
+            # because the cursor moved after the immediate worker delivery.
+            with patch.object(layer, "update") as update:
+                layer.set_snapshot(snapshot, scale=1.0, cursor_position=(80, 90))
+                update.assert_not_called()
+
+            image = QImage(200, 200, QImage.Format_ARGB32_Premultiplied)
+            image.fill(Qt.transparent)
+            painter = QPainter(image)
+            try:
+                layer._paint_minimap(painter, snapshot)
+            finally:
+                if painter.isActive():
+                    painter.end()
+            self.assertGreater(image.pixelColor(100, 100).alpha(), 0)
+            self.assertEqual(image.pixelColor(19, 19).alpha(), 0)
+
+            covered = replace(
+                snapshot,
+                map_open=True,
+                viewport=MapViewport(20.0, 20.0, 160.0, 160.0),
+            )
+            covered_image = QImage(200, 200, QImage.Format_ARGB32_Premultiplied)
+            covered_image.fill(Qt.transparent)
+            covered_painter = QPainter(covered_image)
+            try:
+                layer._paint_minimap(covered_painter, covered)
+            finally:
+                if covered_painter.isActive():
+                    covered_painter.end()
+            self.assertEqual(covered_image.pixelColor(100, 100).alpha(), 0)
+
+            layer.set_snapshot(
+                MapMarkerSnapshot(
+                    markers=snapshot.markers,
+                    minimap_projection=MinimapProjection(
+                        True,
+                        True,
+                        projection.content_rect,
+                        projection.center_x,
+                        projection.center_y,
+                        projection.radius,
+                        projection.camera_world_x,
+                        projection.camera_world_z,
+                        projection.camera_right_x,
+                        projection.camera_right_z,
+                        projection.camera_up_x,
+                        projection.camera_up_z,
+                        projection.orthographic_size,
+                        projection.aspect,
+                    ),
+                ),
+                scale=1.0,
+            )
+            self.assertTrue(layer.isHidden())
+        finally:
+            layer.close()
+
+    def test_stock_memory_adds_badge_and_full_map_card(self) -> None:
+        layer = MapMarkerLayer()
+        viewport = MapViewport(0.0, 0.0, 400.0, 400.0)
+        snapshot = MapMarkerSnapshot(
+            map_id=1,
+            map_open=True,
+            world_size=600.0,
+            viewport=viewport,
+            markers=(
+                WorldMapMarker(
+                    "auto:5150", "shady_guy_blue", 0.0, 0.0,
+                    object_ptr=0x5150,
+                ),
+            ),
+            merchant_stocks=(
+                MerchantStockCapture(
+                    1,
+                    0x5150,
+                    "auto:5150",
+                    1,
+                    0.0,
+                    0.0,
+                    (MerchantOffer(1, "Beer", "Beer", "UNCOMMON"),),
+                ),
+            ),
+        )
+        layer.set_snapshot(snapshot, scale=1.0)
+        image = QImage(400, 400, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        try:
+            with patch.object(
+                layer,
+                "_premium_pixmap",
+                wraps=layer._premium_pixmap,
+            ) as premium_pixmap, patch.object(
+                layer,
+                "_stock_badge_pixmap",
+                wraps=layer._stock_badge_pixmap,
+            ) as stock_badge:
+                layer._paint_snapshot(painter, snapshot, viewport)
+        finally:
+            if painter.isActive():
+                painter.end()
+            layer.close()
+
+        # The card retains its Premium heading; the marker uses a distinct
+        # list-in-circle indicator for remembered stock.
+        card_center = layer._stock_plans[0].bounds.center()
+        self.assertGreater(image.pixelColor(int(card_center.x()), int(card_center.y())).alpha(), 0)
+        stock_badge.assert_called_once_with(26)
+        self.assertEqual(premium_pixmap.call_count, 1)
+        self.assertIn(14, [call.args[0] for call in premium_pixmap.call_args_list])
+
+    def test_stock_groups_cache_layout_and_text_until_selection_changes(self) -> None:
+        from ui.stock_card_layout import group_stock_entries, layout_stock_cards
+
+        layer = MapMarkerLayer()
+        entries = tuple((
+            WorldMapMarker(str(i), "shady_guy_blue", 0, 0, object_ptr=i + 1),
+            MerchantStockCapture(1, i + 1, str(i), 1, 0, 0,
+                                 (MerchantOffer(1, "Beer", "Beer", "UNCOMMON"),)),
+            (300.0 + i * 30, 300.0, 48.0),
+        ) for i in range(3))
+        viewport = MapViewport(0, 0, 900, 700)
+        image = QImage(900, 700, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        try:
+            with patch("gui_in_game_overlay_window.group_stock_entries", wraps=group_stock_entries) as grouping, \
+                 patch("gui_in_game_overlay_window.layout_stock_cards", wraps=layout_stock_cards) as layout, \
+                 patch.object(layer, "_paint_stock_group_card", wraps=layer._paint_stock_group_card) as raster:
+                layer._cursor_position = (300, 300)
+                layer._paint_stock_cards(painter, viewport, entries)
+                layer._cursor_position = (301, 300)
+                layer._paint_stock_cards(painter, viewport, entries)
+                self.assertEqual(grouping.call_count, 1)
+                self.assertEqual(layout.call_count, 1)
+                self.assertEqual(raster.call_count, 1)
+                self.assertEqual(len(layer._stock_plans), 1)
+                self.assertEqual(len(layer._stock_plans[0].entries), 3)
+
+                layer._cursor_position = (330, 300)
+                layer._paint_stock_cards(painter, viewport, entries)
+                self.assertEqual(grouping.call_count, 1)
+                self.assertEqual(layout.call_count, 2)
+                self.assertEqual(raster.call_count, 2)
+                self.assertEqual(len(layer._stock_card_pixmaps), 1)
+
+                layer._scale = 1.5
+                layer._paint_stock_cards(painter, viewport, entries)
+                self.assertEqual(layout.call_count, 3)
+                self.assertEqual(raster.call_count, 3)
+                changed = (entries[0], (entries[1][0], replace(entries[1][1], items=()), entries[1][2]), entries[2])
+                layer._paint_stock_cards(painter, viewport, changed)
+                self.assertEqual(grouping.call_count, 2)
+                self.assertEqual(raster.call_count, 4)
+
+                layer._paint_stock_cards(painter, viewport, ())
+                self.assertEqual(layer._stock_plans, ())
+                self.assertEqual(layer._stock_card_pixmaps, {})
+        finally:
+            painter.end()
+            layer.close()
+
+    def test_two_green_merchants_render_their_own_stock_after_refresh(self) -> None:
+        from app.map_marker_tracker import MapMarkerTracker
+        from infra.memory.map_marker_client import MapMemoryFrame
+
+        viewport = MapViewport(0, 0, 900, 700)
+        beer = MerchantOffer(1, "Beer", "Beer", "UNCOMMON")
+        key = MerchantOffer(0, "Key", "Key", "COMMON")
+        first = MerchantStockCapture(1, 0x5150, "first", 0, 0, 0, (beer,))
+        second = MerchantStockCapture(1, 0x6160, "second", 0, 20, 0, (beer,))
+        captures = iter((first, second, replace(second, items=(key,))))
+        client = SimpleNamespace(
+            poll=lambda **_kwargs: MapMemoryFrame(1, True, 600, viewport, None, merchant_stock_capture=next(captures)),
+            activity_is_active=lambda *_args, **_kwargs: True,
+            close=lambda: None,
+        )
+        tracker = MapMarkerTracker("game", client_factory=lambda _name: client, automatic_scan_interval=0.0)
+        layer = MapMarkerLayer()
+        image = QImage(900, 700, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        text = []
+        original_draw_text = QPainter.drawText
+
+        def record_text(target, *args):
+            text.append(args[-1])
+            return original_draw_text(target, *args)
+
+        try:
+            for _ in range(2):
+                snapshot = tracker.tick(client_height=700, merchant_memory_enabled=True)
+            # Warm the grouped card cache with the previous incorrect values.
+            layer._paint_snapshot(painter, snapshot, viewport)
+            corrected = tracker.tick(client_height=700, merchant_memory_enabled=True)
+            with patch.object(QPainter, "drawText", new=record_text):
+                layer._paint_snapshot(painter, corrected, viewport)
+            self.assertEqual(text.count("• Beer"), 1)
+            self.assertEqual(text.count("• Key"), 1)
+            self.assertEqual(len(layer._stock_plans), 1)
+            self.assertEqual([e[1].items for e in layer._stock_plans[0].entries], [(beer,), (key,)])
+        finally:
+            painter.end()
+            layer.close()
+            tracker.close()
+
+    def test_classic_stock_thumbnail_includes_rarity_circle_and_outline(self) -> None:
+        layer = MapMarkerLayer()
+        layer._style = "classic"
+        try:
+            for rarity in ("white", "blue", "purple", "gold"):
+                with self.subTest(rarity=rarity):
+                    action = MAP_MARKER_ACTION_BY_ID[f"shady_guy_{rarity}"]
+                    image = QImage(32, 32, QImage.Format_ARGB32_Premultiplied)
+                    image.fill(Qt.transparent)
+                    painter = QPainter(image)
+                    original_transform = painter.transform()
+                    try:
+                        layer._paint_stock_merchant_icon(painter, action, 5, 5)
+                        self.assertEqual(painter.transform(), original_transform)
+                    finally:
+                        painter.end()
+                    # Left interior is colored even outside the black glyph;
+                    # the circle's upper edge has the light classic outline.
+                    fill = image.pixelColor(9, 16)
+                    self.assertGreater(fill.alpha(), 200)
+                    self.assertGreater(max(fill.red(), fill.green(), fill.blue()), 180)
+                    outline = image.pixelColor(16, 5)
+                    self.assertGreater(min(outline.red(), outline.green(), outline.blue()), 180)
+                    self.assertEqual(image.pixelColor(1, 1).alpha(), 0)
+        finally:
+            layer.close()
+
+    def test_stock_memory_crystal_is_transparent_line_art_not_a_filled_square(
+        self,
+    ) -> None:
+        layer = MapMarkerLayer()
+        try:
+            image = layer._premium_pixmap(24).toImage()
+            opaque_pixels = sum(
+                image.pixelColor(x, y).alpha() > 0
+                for y in range(image.height())
+                for x in range(image.width())
+            )
+
+            self.assertFalse(image.isNull())
+            self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+            self.assertGreater(opaque_pixels, 20)
+            self.assertLess(opaque_pixels, image.width() * image.height() // 2)
+        finally:
+            layer.close()
+
+    def test_compact_stock_card_expands_on_hover_without_flickering(self) -> None:
+        layer = MapMarkerLayer()
+        entries = tuple((
+            WorldMapMarker(str(i), "shady_guy_blue", 0, 0, object_ptr=i + 1),
+            MerchantStockCapture(1, i + 1, str(i), 1, 0, 0, tuple(
+                MerchantOffer(j, "Beer", "Beer", "UNCOMMON") for j in range(3)
+            )),
+            (250.0 + i * 20, 80.0, 48.0),
+        ) for i in range(3))
+        viewport = MapViewport(0, 0, 900, 180)
+        image = QImage(900, 180, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        try:
+            layer._paint_stock_cards(painter, viewport, entries)
+            self.assertTrue(layer._stock_plans[0].compact)
+            center = layer._stock_plans[0].bounds.center()
+            layer._cursor_position = (center.x(), center.y())
+            for _ in range(3):
+                layer._paint_stock_cards(painter, viewport, entries)
+                self.assertFalse(layer._stock_plans[0].compact)
+                self.assertEqual(layer._stock_plans[0].entries, (entries[0],))
+            layer._cursor_position = (0, 0)
+            layer._paint_stock_cards(painter, viewport, entries)
+            self.assertTrue(layer._stock_plans[0].compact)
+        finally:
+            painter.end()
             layer.close()
 
     def test_map_marker_layer_loads_filled_and_existing_multicolor_icons(

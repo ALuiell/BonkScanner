@@ -1,4 +1,4 @@
-"""Domain vocabulary and projection math for Full Map activity markers.
+"""Domain vocabulary and projection math for map activity markers.
 
 The memory adapter, renderer and settings UI need the same stable action
 identifiers.  Keeping those identifiers and the world-to-map transform here
@@ -8,6 +8,7 @@ tested without Qt or a running game.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import re
 from typing import Any, Iterable
 
@@ -77,6 +78,53 @@ class MapViewport:
 
 
 @dataclass(frozen=True, slots=True)
+class MinimapProjection:
+    """Qt-free description of the game's live orthographic minimap camera."""
+
+    visible: bool
+    jammed: bool
+    content_rect: MapViewport
+    center_x: float
+    center_y: float
+    radius: float
+    camera_world_x: float
+    camera_world_z: float
+    camera_right_x: float
+    camera_right_z: float
+    camera_up_x: float
+    camera_up_z: float
+    orthographic_size: float
+    aspect: float
+
+
+@dataclass(frozen=True, slots=True)
+class MerchantOffer:
+    """One plain item value copied from a visible Shady Guy offer card."""
+
+    item_id: int
+    canonical_name: str
+    display_name: str
+    rarity: str
+
+    price: int | None = None
+    slot_multiplier: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MerchantStockCapture:
+    """Immutable run-scoped stock remembered for one visited Shady Guy."""
+
+    map_id: int
+    merchant_object_ptr: int
+    marker_id: str
+    merchant_rarity: int
+    world_x: float
+    world_z: float
+    items: tuple[MerchantOffer, ...]
+    class_ptr: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class WorldMapMarker:
     marker_id: str
     action_id: str
@@ -84,6 +132,7 @@ class WorldMapMarker:
     world_z: float
     source: str = "automatic"
     object_ptr: int = 0
+    uses_remaining: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +142,20 @@ class MapMarkerSnapshot:
     world_size: float = 0.0
     viewport: MapViewport | None = None
     markers: tuple[WorldMapMarker, ...] = ()
+    minimap_projection: MinimapProjection | None = None
+    merchant_stocks: tuple[MerchantStockCapture, ...] = ()
+
+    @property
+    def full_map_open(self) -> bool:
+        return self.map_open
+
+    @property
+    def full_map_world_size(self) -> float:
+        return self.world_size
+
+    @property
+    def full_map_viewport(self) -> MapViewport | None:
+        return self.viewport
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +196,9 @@ _SHADY_GUY_COLORS = {
 }
 MAP_MARKER_BASE_ICON_SIZE = 48
 CLASSIC_MAP_MARKER_BASE_ICON_SIZE = 28
+MINIMAP_MARKER_BASE_ICON_SIZE = 36
 MAP_MARKER_STYLES = frozenset({"modern", "classic"})
+MERCHANT_STOCK_DISPLAY_MODES = frozenset({"smart", "always", "cursor"})
 _CLASSIC_PICTOGRAM_OUTLINE_COLOR = "#F5F7FA"
 
 
@@ -392,9 +457,16 @@ def normalize_map_marker_settings(value: Any) -> dict[str, Any]:
         scale = float(source.get("scale", 1.0))
     except (TypeError, ValueError, OverflowError):
         scale = 1.0
+    try:
+        minimap_scale = float(source.get("minimap_scale", 1.0))
+    except (TypeError, ValueError, OverflowError):
+        minimap_scale = 1.0
     style = str(source.get("style") or "").strip().lower()
     if style not in MAP_MARKER_STYLES:
         style = "classic" if source.get("classic_style") is True else "modern"
+    stock_display = str(source.get("merchant_stock_display") or "").strip().lower()
+    if stock_display not in MERCHANT_STOCK_DISPLAY_MODES:
+        stock_display = "smart"
     return {
         "enabled": bool(source.get("enabled", False)),
         # Automatic discovery is deliberately opt-in. Manual placement still
@@ -402,6 +474,13 @@ def normalize_map_marker_settings(value: Any) -> dict[str, Any]:
         "automatic_discovery": bool(source.get("automatic_discovery", False)),
         "style": style,
         "scale": max(0.5, min(scale, 3.0)),
+        "minimap_enabled": bool(source.get("minimap_enabled", False)),
+        "minimap_scale": max(0.5, min(minimap_scale, 2.0)),
+        "merchant_memory_enabled": bool(
+            source.get("merchant_memory_enabled", False)
+        ),
+        "merchant_stock_display": stock_display,
+        "merchant_prices_enabled": bool(source.get("merchant_prices_enabled", False)),
         "hotkeys": normalize_map_marker_hotkeys(source.get("hotkeys")),
     }
 
@@ -482,6 +561,93 @@ def map_marker_screen_geometry(
         max(
             MAP_MARKER_BASE_ICON_SIZE // 2,
             int(round(MAP_MARKER_BASE_ICON_SIZE * normalized_scale)),
+        )
+    )
+    return point[0], point[1], icon_size
+
+
+def project_world_to_minimap(
+    world_x: float,
+    world_z: float,
+    *,
+    projection: MinimapProjection,
+) -> tuple[float, float] | None:
+    """Project one remembered world point through the live minimap camera.
+
+    Centres outside the game's visible circular mask are rejected rather than
+    clamped to its edge. This keeps minimap markers as icons, not implicit
+    direction arrows.
+    """
+
+    values = (
+        world_x,
+        world_z,
+        projection.center_x,
+        projection.center_y,
+        projection.radius,
+        projection.camera_world_x,
+        projection.camera_world_z,
+        projection.camera_right_x,
+        projection.camera_right_z,
+        projection.camera_up_x,
+        projection.camera_up_z,
+        projection.orthographic_size,
+        projection.aspect,
+        projection.content_rect.width,
+        projection.content_rect.height,
+    )
+    if (
+        not projection.visible
+        or projection.jammed
+        or not all(math.isfinite(float(value)) for value in values)
+        or projection.radius <= 0.0
+        or projection.orthographic_size <= 0.0
+        or projection.aspect <= 0.0
+        or projection.content_rect.width <= 0.0
+        or projection.content_rect.height <= 0.0
+    ):
+        return None
+
+    delta_x = float(world_x) - projection.camera_world_x
+    delta_z = float(world_z) - projection.camera_world_z
+    camera_x = (
+        delta_x * projection.camera_right_x
+        + delta_z * projection.camera_right_z
+    )
+    camera_y = delta_x * projection.camera_up_x + delta_z * projection.camera_up_z
+    u = 0.5 + camera_x / (
+        2.0 * projection.orthographic_size * projection.aspect
+    )
+    v = 0.5 + camera_y / (2.0 * projection.orthographic_size)
+    point_x = projection.content_rect.left + u * projection.content_rect.width
+    point_y = projection.content_rect.bottom - v * projection.content_rect.height
+    if (
+        math.hypot(point_x - projection.center_x, point_y - projection.center_y)
+        > projection.radius
+    ):
+        return None
+    return point_x, point_y
+
+
+def minimap_marker_screen_geometry(
+    world_x: float,
+    world_z: float,
+    *,
+    projection: MinimapProjection,
+    scale: float = 1.0,
+) -> tuple[float, float, float] | None:
+    point = project_world_to_minimap(
+        world_x,
+        world_z,
+        projection=projection,
+    )
+    if point is None:
+        return None
+    normalized_scale = max(0.5, min(float(scale), 2.0))
+    icon_size = float(
+        max(
+            MINIMAP_MARKER_BASE_ICON_SIZE // 2,
+            int(round(MINIMAP_MARKER_BASE_ICON_SIZE * normalized_scale)),
         )
     )
     return point[0], point[1], icon_size

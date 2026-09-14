@@ -1639,11 +1639,52 @@ QScrollArea#SupporterAccessScroll > QWidget > QWidget,
 QWidget#SupporterAccessContent,
 QWidget#SupportKeyEntryPanel,
 QWidget#SupportSavedKeyPanel,
-QWidget#SupportFeatures,
 QWidget#SupportAccessGuideSection,
 QWidget#SupportGuideStep {
     background: transparent;
     border: none;
+}
+
+QFrame#PremiumFeatureDivider {
+    background-color: #1B2630;
+    border: none;
+}
+QCheckBox#PremiumFeatureCheck {
+    background: transparent;
+    color: #EDF1F5;
+    font-size: 12px;
+    font-weight: 600;
+}
+QCheckBox#PremiumFeatureCheck:disabled {
+    color: #AEB8C4;
+}
+QLabel#PremiumFeatureNote {
+    background: transparent;
+    color: #6F7E90;
+    font-size: 11px;
+}
+QPushButton#PremiumFeatureBadge {
+    background-color: #102532;
+    border: 1px solid #28536A;
+    border-radius: 6px;
+    color: #7DD9FA;
+    padding: 0px 7px 0px 5px;
+    font-size: 10px;
+    font-weight: 700;
+}
+QPushButton#PremiumFeatureBadge[premiumState="locked"]:hover {
+    background-color: #153344;
+    border-color: #3A7592;
+}
+QPushButton#PremiumFeatureBadge[premiumState="locked"]:pressed {
+    background-color: #0D1D27;
+}
+QPushButton#PremiumFeatureBadge[premiumState="active"],
+QPushButton#PremiumFeatureBadge[premiumState="active"]:hover,
+QPushButton#PremiumFeatureBadge[premiumState="active"]:pressed {
+    background: transparent;
+    border-color: transparent;
+    color: #69A9DC;
 }
 
 QFrame#SupporterAccessCard {
@@ -1711,8 +1752,7 @@ QLabel#SupportKeyCaption {
     font-weight: 700;
     letter-spacing: 0.5px;
 }
-QLabel#SupportAccessHint,
-QLabel#SupportFeaturesEmpty {
+QLabel#SupportAccessHint {
     background: transparent;
     color: #7F8B9A;
     font-size: 11px;
@@ -1791,34 +1831,6 @@ QPushButton#SupportRemoveButton:hover {
     border-color: #7A343B;
 }
 QPushButton#SupportRemoveButton:pressed { background-color: #4A2226; }
-QFrame#SupportFeatureRow {
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid #1B222B;
-}
-QLabel#SupportFeatureCheck {
-    background-color: rgba(34, 197, 94, 0.08);
-    border: none;
-    border-radius: 12px;
-    color: #58D07A;
-    font-size: 15px;
-    font-weight: 800;
-}
-QLabel#SupportFeatureName {
-    background: transparent;
-    color: #D6DEE7;
-    font-size: 12px;
-    font-weight: 700;
-}
-QLabel#SupportFeatureSource {
-    background: transparent;
-    color: #6FA9DA;
-    font-family: "JetBrains Mono", Consolas, monospace;
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.4px;
-}
-
 QFrame#SupportAccessGuide {
     background-color: #0D141C;
     border: 1px solid #24384A;
@@ -2064,6 +2076,62 @@ QFrame#DangerInfoCard {
     border-radius: 12px;
 }
 
+QFrame#mapMarkerBehaviorCard {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+}
+QGroupBox#mapMarkerPremiumGroup {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding: 0px;
+    font-size: 14px;
+}
+QGroupBox#mapMarkerPremiumGroup::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 14px;
+    top: 2px;
+    padding: 0px 4px 0px 22px;
+    color: transparent;
+}
+QPushButton#PremiumFeatureBadge[mapPremiumTitle="true"],
+QPushButton#PremiumFeatureBadge[mapPremiumTitle="true"]:hover,
+QPushButton#PremiumFeatureBadge[mapPremiumTitle="true"]:pressed,
+QPushButton#PremiumFeatureBadge[mapPremiumTitle="true"]:focus {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+    color: #69A9DC;
+    padding: 0px 4px;
+    font-size: 14px;
+    font-weight: 700;
+}
+QWidget#mapMarkerBehaviorOption {
+    background: transparent;
+    border: none;
+}
+QLabel#mapMarkerMicrowaveIcon,
+QLabel#mapMarkerAutomaticFeatureTitle,
+QLabel#mapMarkerAutomaticFeatureStatus {
+    background: transparent;
+    border: none;
+    padding: 0px;
+}
+QLabel#mapMarkerAutomaticFeatureTitle {
+    color: #EDF1F5;
+    font-size: 12px;
+}
+QLabel#mapMarkerAutomaticFeatureStatus {
+    color: #83ABC6;
+    font-size: 11px;
+}
+QFrame#mapMarkerBehaviorDivider {
+    background-color: #202833;
+    border: none;
+}
 /* The updater stays inside the same modal surface from release notes through
    download, verification and restart. Its hierarchy mirrors the compact cards
    elsewhere in the app instead of introducing a separate installer style. */

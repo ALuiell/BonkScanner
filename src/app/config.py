@@ -137,6 +137,11 @@ DEFAULT_IN_GAME_OVERLAY = {
         "automatic_discovery": False,
         "style": "modern",
         "scale": 1.0,
+        "minimap_enabled": False,
+        "minimap_scale": 1.0,
+        "merchant_memory_enabled": False,
+        "merchant_prices_enabled": False,
+        "merchant_stock_display": "smart",
         "hotkeys": [],
     },
     "widgets": {

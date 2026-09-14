@@ -10,11 +10,15 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QStyle,
+    QStyleOptionGroupBox,
     QVBoxLayout,
     QWidget,
 )
@@ -34,7 +38,59 @@ from ui.dialogs.shell import (
     dialog_footer,
     dialog_note,
 )
-from ui.shared import _make_scroll_section, resource_path
+from ui.shared import PremiumFeatureBadge, _make_scroll_section, resource_path
+
+
+class _PremiumMapGroup(QGroupBox):
+    """Use the native group-title gap for a transparent, clickable title."""
+
+    def __init__(self):
+        super().__init__("Premium")
+        self.title_badge = None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.title_badge is not None:
+            option = QStyleOptionGroupBox()
+            self.initStyleOption(option)
+            bounds = self.style().subControlRect(
+                QStyle.CC_GroupBox, option, QStyle.SC_GroupBoxLabel, self
+            )
+            # The native title only reserves the border gap. Give the visible
+            # title its own full size so neither the icon nor text can be
+            # clipped by the native label rectangle.
+            title_size = self.title_badge.sizeHint()
+            title_height = max(title_size.height(), self.title_badge.minimumHeight())
+            self.title_badge.setGeometry(
+                14,
+                max(0, bounds.center().y() - title_height // 2),
+                title_size.width(),
+                title_height,
+            )
+
+
+def _premium_map_option(checkbox, description, control, parent):
+    option = QWidget(parent)
+    option.setObjectName("mapMarkerBehaviorOption")
+    column = QVBoxLayout(option)
+    column.setContentsMargins(14, 0, 14, 0)
+    column.setSpacing(4)
+    title = QHBoxLayout()
+    title.setSpacing(8)
+    if control is not None:
+        control.setMinimumHeight(36)
+    checkbox.setObjectName("PremiumFeatureCheck")
+    title.addWidget(checkbox)
+    title.addStretch(1)
+    if control is not None:
+        title.addWidget(control)
+    column.addLayout(title)
+    note = QLabel(description, option)
+    note.setObjectName("PremiumFeatureNote")
+    note.setContentsMargins(24, 0, 0, 0)
+    note.setWordWrap(True)
+    column.addWidget(note)
+    return option
 
 
 def _action_icon(action: MapMarkerAction) -> QIcon:
@@ -241,7 +297,7 @@ class MapMarkerBindingDialog(QDialog):
 
 
 class MapMarkerSettingsDialog(QDialog):
-    """Manual Full Map bindings and the opt-in automatic-discovery policy."""
+    """Manual Full Map bindings and the automatic-discovery policy."""
 
     def __init__(
         self,
@@ -250,6 +306,13 @@ class MapMarkerSettingsDialog(QDialog):
         *,
         automatic_discovery: bool = False,
         style: str = "modern",
+        minimap_enabled: bool = False,
+        minimap_scale: float = 1.0,
+        merchant_memory_enabled: bool = False,
+        merchant_stock_display: str = "smart",
+        merchant_prices_enabled: bool = False,
+        has_premium_access: bool = False,
+        open_support_settings=lambda: None,
         binding_dialog_factory=MapMarkerBindingDialog,
     ) -> None:
         super().__init__(parent)
@@ -257,13 +320,15 @@ class MapMarkerSettingsDialog(QDialog):
         self.setModal(True)
         self._bindings = deepcopy(normalize_map_marker_hotkeys(bindings))
         self._binding_dialog_factory = binding_dialog_factory
+        self._has_premium_access = bool(has_premium_access)
+        self._open_support_settings = open_support_settings
 
         layout = dialog_body(
             self,
             title="Map Activity Markers",
             subtitle="Configure manual placement and optionally enable automatic discovery for supported activities.",
             width=DIALOG_WIDE,
-            height=610,
+            height=700,
         )
 
         explanation = QFrame()
@@ -278,11 +343,18 @@ class MapMarkerSettingsDialog(QDialog):
             explanation_layout.addWidget(label, 1)
         layout.addWidget(explanation)
 
-        automatic_card = QFrame()
-        automatic_card.setObjectName("card")
-        automatic_layout = QVBoxLayout(automatic_card)
-        automatic_layout.setContentsMargins(14, 11, 14, 11)
-        automatic_layout.setSpacing(4)
+        behavior_card = QFrame()
+        self.behavior_card = behavior_card
+        behavior_card.setObjectName("mapMarkerBehaviorCard")
+        behavior_layout = QHBoxLayout(behavior_card)
+        behavior_layout.setContentsMargins(14, 10, 14, 10)
+        behavior_layout.setSpacing(14)
+
+        automatic_option = QWidget(behavior_card)
+        automatic_option.setObjectName("mapMarkerBehaviorOption")
+        automatic_layout = QVBoxLayout(automatic_option)
+        automatic_layout.setContentsMargins(0, 0, 0, 0)
+        automatic_layout.setSpacing(3)
         self.automatic_discovery_cb = QCheckBox(
             "Automatically mark discovered activities"
         )
@@ -290,31 +362,207 @@ class MapMarkerSettingsDialog(QDialog):
         self.automatic_discovery_cb.setChecked(bool(automatic_discovery))
         automatic_layout.addWidget(self.automatic_discovery_cb)
         automatic_note = QLabel(
-            "Off keeps manual hotkeys only. When enabled, supported activities are "
-            "added after the game's normal interaction system selects them nearby."
+            "Adds supported activities after the game's interaction system detects "
+            "them. Off keeps manual hotkeys only."
         )
         automatic_note.setObjectName("dialogNote")
         automatic_note.setWordWrap(True)
         automatic_layout.addWidget(automatic_note)
-        layout.addWidget(automatic_card)
 
-        appearance_card = QFrame()
-        appearance_card.setObjectName("card")
-        appearance_layout = QVBoxLayout(appearance_card)
-        appearance_layout.setContentsMargins(14, 11, 14, 11)
-        appearance_layout.setSpacing(4)
+        behavior_divider = QFrame(behavior_card)
+        behavior_divider.setObjectName("mapMarkerBehaviorDivider")
+        behavior_divider.setFixedWidth(1)
+
+        appearance_option = QWidget(behavior_card)
+        appearance_option.setObjectName("mapMarkerBehaviorOption")
+        appearance_layout = QVBoxLayout(appearance_option)
+        appearance_layout.setContentsMargins(0, 0, 0, 0)
+        appearance_layout.setSpacing(3)
         self.classic_style_cb = QCheckBox("Use classic circle marker style")
         self.classic_style_cb.setObjectName("classicMarkerStyleCheck")
         self.classic_style_cb.setChecked(str(style).lower() == "classic")
         appearance_layout.addWidget(self.classic_style_cb)
         appearance_note = QLabel(
-            "Off uses the new detailed pictograms. On restores colored circles "
-            "with a white outline and dark activity symbols."
+            "Uses colored circles with dark activity symbols instead of detailed "
+            "pictograms."
         )
         appearance_note.setObjectName("dialogNote")
         appearance_note.setWordWrap(True)
         appearance_layout.addWidget(appearance_note)
-        layout.addWidget(appearance_card)
+
+        behavior_layout.addWidget(automatic_option, 1)
+        behavior_layout.addWidget(behavior_divider)
+        behavior_layout.addWidget(appearance_option, 1)
+        layout.addWidget(behavior_card)
+
+        premium_card = _PremiumMapGroup()
+        self.premium_card = premium_card
+        premium_card.setObjectName("mapMarkerPremiumGroup")
+        premium_layout = QVBoxLayout(premium_card)
+        premium_layout.setContentsMargins(0, 14, 0, 12)
+        premium_layout.setSpacing(8)
+        premium_options = QHBoxLayout()
+        premium_options.setSpacing(0)
+        premium_layout.addLayout(premium_options)
+
+        self.minimap_enabled_switch = QCheckBox("Minimap markers")
+        self.minimap_enabled_switch.setChecked(bool(minimap_enabled))
+        self.minimap_scale_spin = QDoubleSpinBox(premium_card)
+        self.minimap_scale_spin.setRange(0.5, 2.0)
+        self.minimap_scale_spin.setSingleStep(0.1)
+        self.minimap_scale_spin.setSuffix("×")
+        self.minimap_scale_spin.setMaximumWidth(82)
+        self.minimap_scale_spin.setValue(float(minimap_scale))
+        self.minimap_row = _premium_map_option(
+            self.minimap_enabled_switch,
+            "Live activity icons, clipped to the minimap circle.",
+            self.minimap_scale_spin,
+            premium_card,
+        )
+        premium_options.addWidget(self.minimap_row, 1)
+
+        row_divider = QFrame(premium_card)
+        row_divider.setObjectName("PremiumFeatureDivider")
+        row_divider.setFixedWidth(1)
+        premium_options.addWidget(row_divider)
+
+        self.merchant_memory_switch = QCheckBox("Shady Guy stock memory")
+        self.merchant_memory_switch.setChecked(bool(merchant_memory_enabled))
+        self.merchant_stock_display_combo = QComboBox(premium_card)
+        for label, value in (
+            ("Smart", "smart"),
+            ("Always", "always"),
+            ("Near cursor", "cursor"),
+        ):
+            self.merchant_stock_display_combo.addItem(label, value)
+        self.merchant_stock_display_combo.setToolTip(
+            "Nearby merchants share one stock card.\n"
+            "Smart: avoids overlapping cards; hover to expand crowded groups.\n"
+            "Always: keeps grouped stock lists visible where space allows.\n"
+            "Near cursor: shows the nearest merchant's group and highlights its stock."
+        )
+        requested_display = str(merchant_stock_display).lower()
+        display_index = self.merchant_stock_display_combo.findData(requested_display)
+        self.merchant_stock_display_combo.setCurrentIndex(
+            display_index if display_index >= 0 else 0
+        )
+        self.merchant_row = _premium_map_option(
+            self.merchant_memory_switch,
+            "Remembers visible item names after opening the shop.",
+            self.merchant_stock_display_combo,
+            premium_card,
+        )
+        premium_options.addWidget(self.merchant_row, 1)
+
+        self.merchant_prices_switch = QCheckBox("Shady Guy item prices")
+        self.merchant_prices_switch.setChecked(bool(merchant_prices_enabled))
+        self.merchant_prices_row = _premium_map_option(
+            self.merchant_prices_switch,
+            "Shows prices in remembered stock cards and updates them as chest costs grow. Requires stock memory.",
+            None,
+            premium_card,
+        )
+        self.merchant_prices_switch.setEnabled(
+            self._has_premium_access and bool(merchant_memory_enabled)
+        )
+        self.merchant_memory_switch.toggled.connect(
+            lambda checked: self.merchant_prices_switch.setEnabled(self._has_premium_access and checked)
+        )
+
+        # The microwave counter follows Premium access without its own switch.
+        self.microwave_uses_row = QWidget(premium_card)
+        self.microwave_uses_row.setObjectName("mapMarkerBehaviorOption")
+        microwave_layout = QVBoxLayout(self.microwave_uses_row)
+        microwave_layout.setContentsMargins(14, 0, 14, 0)
+        microwave_layout.setSpacing(10)
+        microwave_divider = QFrame(self.microwave_uses_row)
+        microwave_divider.setObjectName("PremiumFeatureDivider")
+        microwave_divider.setFixedHeight(1)
+        premium_layout.addWidget(microwave_divider)
+        microwave_content = QHBoxLayout()
+        microwave_content.setSpacing(8)
+        microwave_icon = QLabel(self.microwave_uses_row)
+        microwave_icon.setObjectName("mapMarkerMicrowaveIcon")
+        microwave_icon.setFixedSize(20, 20)
+        microwave_icon.setPixmap(QIcon(resource_path(
+            "media/map_markers/pictograms/microwave.svg"
+        )).pixmap(QSize(20, 20), self.devicePixelRatioF()))
+        microwave_content.addWidget(microwave_icon, 0, Qt.AlignTop)
+        microwave_copy = QVBoxLayout()
+        microwave_copy.setSpacing(3)
+        microwave_heading = QHBoxLayout()
+        microwave_heading.setSpacing(8)
+        self.microwave_uses_title = QLabel("Microwave uses counter")
+        self.microwave_uses_title.setObjectName("mapMarkerAutomaticFeatureTitle")
+        microwave_heading.addWidget(self.microwave_uses_title)
+        self.microwave_uses_status = QLabel(
+            "· Automatic" if self._has_premium_access else "· Requires Premium"
+        )
+        self.microwave_uses_status.setObjectName("mapMarkerAutomaticFeatureStatus")
+        microwave_heading.addWidget(self.microwave_uses_status)
+        microwave_heading.addStretch(1)
+        microwave_copy.addLayout(microwave_heading)
+        self.microwave_uses_note = QLabel(
+            "Shows remaining uses on discovered microwaves."
+        )
+        self.microwave_uses_note.setObjectName("PremiumFeatureNote")
+        self.microwave_uses_note.setWordWrap(True)
+        microwave_copy.addWidget(self.microwave_uses_note)
+        microwave_content.addLayout(microwave_copy, 1)
+        microwave_layout.addLayout(microwave_content)
+        self.microwave_uses_row.setToolTip(
+            "Included automatically with Premium. Counts appear on automatically "
+            "discovered microwaves, not unlinked manual markers."
+        )
+        extra_options = QHBoxLayout()
+        extra_options.setSpacing(0)
+        extra_options.addWidget(self.microwave_uses_row, 1)
+        extra_divider = QFrame(premium_card)
+        extra_divider.setObjectName("PremiumFeatureDivider")
+        extra_divider.setFixedWidth(1)
+        extra_options.addWidget(extra_divider)
+        extra_options.addWidget(self.merchant_prices_row, 1)
+        premium_layout.addLayout(extra_options)
+        self.premium_group_badge = PremiumFeatureBadge(
+            has_access=self._has_premium_access,
+            open_support=self._open_support,
+            parent=premium_card,
+        )
+        self.premium_group_badge.setProperty("mapPremiumTitle", True)
+        self.premium_group_badge.setIconSize(QSize(15, 15))
+        self.premium_group_badge.setFixedHeight(26)
+        premium_card.title_badge = self.premium_group_badge
+        self.premium_group_badge.ensurePolished()
+        self.premium_group_badge.adjustSize()
+        self.premium_group_badge.move(14, 0)
+        self.premium_group_badge.raise_()
+
+        for control in (
+            self.minimap_enabled_switch,
+            self.minimap_scale_spin,
+            self.merchant_memory_switch,
+            self.merchant_stock_display_combo,
+        ):
+            control.setEnabled(self._has_premium_access)
+        self.minimap_enabled_switch.stateChanged.connect(
+            lambda *_args: self.minimap_scale_spin.setEnabled(
+                self._has_premium_access
+                and self.minimap_enabled_switch.isChecked()
+            )
+        )
+        self.merchant_memory_switch.stateChanged.connect(
+            lambda *_args: self.merchant_stock_display_combo.setEnabled(
+                self._has_premium_access
+                and self.merchant_memory_switch.isChecked()
+            )
+        )
+        self.minimap_scale_spin.setEnabled(
+            self._has_premium_access and bool(minimap_enabled)
+        )
+        self.merchant_stock_display_combo.setEnabled(
+            self._has_premium_access and bool(merchant_memory_enabled)
+        )
+        layout.addWidget(premium_card)
 
         header = QWidget()
         header_row = QHBoxLayout(header)
@@ -363,6 +611,30 @@ class MapMarkerSettingsDialog(QDialog):
     @property
     def marker_style(self) -> str:
         return "classic" if self.classic_style_cb.isChecked() else "modern"
+
+    @property
+    def minimap_enabled(self) -> bool:
+        return self.minimap_enabled_switch.isChecked()
+
+    @property
+    def minimap_scale(self) -> float:
+        return self.minimap_scale_spin.value()
+
+    @property
+    def merchant_memory_enabled(self) -> bool:
+        return self.merchant_memory_switch.isChecked()
+
+    @property
+    def merchant_prices_enabled(self) -> bool:
+        return self.merchant_prices_switch.isChecked()
+
+    @property
+    def merchant_stock_display(self) -> str:
+        return str(self.merchant_stock_display_combo.currentData() or "smart")
+
+    def _open_support(self) -> None:
+        self.reject()
+        self._open_support_settings()
 
     def _clear_rows(self) -> None:
         while self.bindings_layout.count():

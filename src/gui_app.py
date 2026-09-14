@@ -414,8 +414,12 @@ class MegabonkApp:
         self.after(1500, self.deferred_update_check)
 
     def has_premium_feature(self, feature_code: str) -> bool:
-        """Single runtime gate for every optional supporter feature."""
+        """Backward-compatible named gate under the all-Premium policy."""
         return self.supporter_access.has_feature(feature_code)
+
+    def has_premium_access(self) -> bool:
+        """Single runtime gate shared by all Premium capabilities."""
+        return self.supporter_access.has_premium_access()
 
     @staticmethod
     def _require_runtime_port(name: str, value):

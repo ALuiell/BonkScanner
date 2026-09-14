@@ -29,7 +29,7 @@ def access_state(**changes):
         "key_hint": "",
         "online": False,
         "checking": False,
-        "message": "Add a supporter key to unlock assigned premium features.",
+        "message": "Add a supporter key to unlock all Premium features.",
     }
     values.update(changes)
     return SimpleNamespace(**values)
@@ -111,7 +111,6 @@ class SupporterAccessPageTests(unittest.TestCase):
         self.assertTrue(self.page.key_entry_panel.isVisible())
         self.assertFalse(self.page.saved_key_panel.isVisible())
         self.assertFalse(self.page.activate_button.isEnabled())
-        self.assertFalse(self.page.features_widget.isVisible())
 
         self.page.key_entry.setText(RAW_KEY)
         self.assertTrue(self.page.activate_button.isEnabled())
@@ -127,7 +126,6 @@ class SupporterAccessPageTests(unittest.TestCase):
         self.assertEqual(self.page.status_badge.text(), "ACTIVE")
         self.assertEqual(self.page.status_badge.property("tone"), "active")
         self.assertFalse(self.page.access_guide_section.isVisible())
-        self.assertTrue(self.page.features_widget.isVisible())
 
         visible_labels = [
             label.text()
@@ -135,8 +133,9 @@ class SupporterAccessPageTests(unittest.TestCase):
             if label.isVisible()
         ]
         self.assertNotIn(RAW_KEY, visible_labels)
-        self.assertIn("Native Hook", visible_labels)
-        self.assertIn("Future Feature", visible_labels)
+        self.assertNotIn("ASSIGNED FEATURES", visible_labels)
+        self.assertNotIn("Native Hook", visible_labels)
+        self.assertNotIn("Future Feature", visible_labels)
 
     def test_check_cached_state_and_remove_are_distinct_actions(self) -> None:
         self.page.key_entry.setText(RAW_KEY)
@@ -179,8 +178,10 @@ class SupporterAccessPageTests(unittest.TestCase):
         self.assertGreater(self.page.crypto_btn.width(), 160)
         self.assertEqual(self.page.github_btn.objectName(), "SupportSecondaryLink")
         self.assertEqual(self.page.discord_btn.objectName(), "SupportSecondaryLink")
-        self.assertEqual((self.page.github_btn.width(), self.page.github_btn.height()), (100, 31))
-        self.assertEqual((self.page.discord_btn.width(), self.page.discord_btn.height()), (100, 31))
+        self.assertGreater(self.page.github_btn.width(), 160)
+        self.assertGreater(self.page.discord_btn.width(), 160)
+        self.assertEqual(self.page.github_btn.height(), 34)
+        self.assertEqual(self.page.discord_btn.height(), 34)
 
         for name, button in (
             ("patreon", self.page.patreon_btn),

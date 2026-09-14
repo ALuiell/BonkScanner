@@ -7,7 +7,6 @@ the access contract exposes: activate, check now and remove the saved key.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 
 from PySide6.QtCore import QSize, Qt
@@ -20,24 +19,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-from ui.shared import _clear_layout, resource_path
-
-
-_FEATURE_LABELS = {
-    "native_hook": "Native Hook",
-}
-
-
-def _feature_label(feature_code: str) -> str:
-    known = _FEATURE_LABELS.get(str(feature_code))
-    if known is not None:
-        return known
-    words = re.sub(r"[._-]+", " ", str(feature_code)).strip()
-    return words.title() or "Premium feature"
+from ui.shared import resource_path
 
 
 def _format_timestamp(value: datetime | None, *, date_only: bool = False) -> str:
@@ -256,17 +243,6 @@ class SupporterAccessPage(QWidget):
         guide_section_layout.addWidget(self.access_guide)
         layout.addWidget(self.access_guide_section)
 
-        self.features_eyebrow = QLabel("ASSIGNED FEATURES", content)
-        self.features_eyebrow.setObjectName("sectionEyebrow")
-        layout.addWidget(self.features_eyebrow)
-
-        self.features_widget = QWidget(content)
-        self.features_widget.setObjectName("SupportFeatures")
-        self.features_layout = QVBoxLayout(self.features_widget)
-        self.features_layout.setContentsMargins(0, 0, 0, 0)
-        self.features_layout.setSpacing(0)
-        layout.addWidget(self.features_widget)
-
         support_eyebrow = QLabel("GET A SUPPORTER KEY", content)
         support_eyebrow.setObjectName("sectionEyebrow")
         layout.addWidget(support_eyebrow)
@@ -307,21 +283,21 @@ class SupporterAccessPage(QWidget):
         if not crypto_enabled:
             self.crypto_btn.setToolTip("Crypto support page is coming soon.")
 
+        links_label = QLabel("PROJECT LINKS", content)
+        links_label.setObjectName("SupportLinksLabel")
+        layout.addWidget(links_label)
+
         links_row = QHBoxLayout()
         links_row.setContentsMargins(0, 0, 0, 0)
         links_row.setSpacing(8)
-        links_label = QLabel("PROJECT LINKS", content)
-        links_label.setObjectName("SupportLinksLabel")
-        links_row.addWidget(links_label)
-        links_row.addStretch(1)
         self.github_btn = self._secondary_link_button(
             "GitHub", "media/github_logo.svg", open_github
         )
         self.discord_btn = self._secondary_link_button(
             "Discord", "media/discord_logo.svg", open_discord
         )
-        links_row.addWidget(self.github_btn)
-        links_row.addWidget(self.discord_btn)
+        links_row.addWidget(self.github_btn, 1)
+        links_row.addWidget(self.discord_btn, 1)
         layout.addLayout(links_row)
         layout.addStretch(1)
 
@@ -432,7 +408,8 @@ class SupporterAccessPage(QWidget):
         button.setObjectName("SupportSecondaryLink")
         button.setIcon(QIcon(resource_path(icon_path)))
         button.setIconSize(QSize(15, 15))
-        button.setFixedSize(100, 31)
+        button.setFixedHeight(34)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         button.clicked.connect(callback)
         return button
 
@@ -492,7 +469,6 @@ class SupporterAccessPage(QWidget):
             has_key = False
             checking = False
             active = False
-            features = ()
         else:
             self.access_message.setText(
                 str(getattr(state, "message", "") or presentation[3])
@@ -500,7 +476,6 @@ class SupporterAccessPage(QWidget):
             has_key = bool(getattr(state, "has_key", False))
             checking = bool(getattr(state, "checking", False))
             active = bool(getattr(state, "active", False))
-            features = tuple(getattr(state, "features", ()) or ())
 
         self.key_entry_panel.setVisible(not has_key)
         self.saved_key_panel.setVisible(has_key)
@@ -519,10 +494,6 @@ class SupporterAccessPage(QWidget):
         self.check_button.setEnabled(has_key and not checking)
         self.remove_button.setEnabled(has_key)
         self.access_guide_section.setVisible(not active)
-        show_features = active and bool(features)
-        self.features_eyebrow.setVisible(show_features)
-        self.features_widget.setVisible(show_features)
-        self._render_features(features if active else ())
         self._sync_action_states()
 
     def _sync_action_states(self) -> None:
@@ -533,33 +504,6 @@ class SupporterAccessPage(QWidget):
             and not checking
             and bool(self.key_entry.text().strip())
         )
-
-    def _render_features(self, features: tuple[str, ...]) -> None:
-        _clear_layout(self.features_layout)
-        if not features:
-            empty = QLabel("No premium features are active.", self.features_widget)
-            empty.setObjectName("SupportFeaturesEmpty")
-            self.features_layout.addWidget(empty)
-            return
-        for feature_code in features:
-            row = QFrame(self.features_widget)
-            row.setObjectName("SupportFeatureRow")
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 8, 0, 8)
-            row_layout.setSpacing(9)
-            check = QLabel("✓", row)
-            check.setObjectName("SupportFeatureCheck")
-            check.setAlignment(Qt.AlignCenter)
-            check.setFixedSize(24, 24)
-            label = QLabel(_feature_label(feature_code), row)
-            label.setObjectName("SupportFeatureName")
-            label.setProperty("featureCode", str(feature_code))
-            source = QLabel("ASSIGNED", row)
-            source.setObjectName("SupportFeatureSource")
-            row_layout.addWidget(check)
-            row_layout.addWidget(label, 1)
-            row_layout.addWidget(source)
-            self.features_layout.addWidget(row)
 
     @staticmethod
     def _presentation(state) -> tuple[str, str, str, str]:

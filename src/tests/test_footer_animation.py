@@ -133,7 +133,18 @@ class FooterAnimationTests(unittest.TestCase):
         checkmark_path = resource_path("media/checkmark.svg").replace("\\", "/")
         _app.setStyleSheet(build_qt_app_stylesheet(checkmark_path))
 
-        self.host = SimpleNamespace()
+        self.premium_access = {"active": False}
+        self.supporter_access_listeners = []
+        supporter_access = SimpleNamespace(
+            add_listener=self.supporter_access_listeners.append,
+            remove_listener=lambda listener: self.supporter_access_listeners.remove(
+                listener
+            ),
+        )
+        self.host = SimpleNamespace(
+            supporter_access=supporter_access,
+            has_premium_access=lambda: self.premium_access["active"],
+        )
         self.frame = build_footer(self.host)
         self.window = QWidget()
         window_layout = QVBoxLayout(self.window)
@@ -533,6 +544,35 @@ class FooterAnimationTests(unittest.TestCase):
 
         popup.hide()
         self.assertTrue(self.host.footer._support_reminder_can_show())
+
+    def test_premium_access_blocks_only_the_automatic_support_reminder(self):
+        reminder = self.host.footer._reminder
+        reminder._timer.stop()
+        self.premium_access["active"] = True
+
+        reminder._mark_due()
+
+        self.assertTrue(reminder._due)
+        self.assertFalse(reminder.isVisible())
+        self.assertFalse(self.host.footer._support_reminder_can_show())
+
+        self.host.footer.open_support_popup()
+        _app.processEvents()
+        self.assertIsNotNone(self.host.footer._popup)
+        self.assertTrue(self.host.footer._popup.isVisible())
+        self.host.footer._popup.close()
+
+    def test_activating_premium_dismisses_an_already_visible_reminder(self):
+        reminder = self.host.footer._reminder
+        self.assertTrue(reminder.play(force=True))
+        self.assertTrue(reminder.isVisible())
+        self.premium_access["active"] = True
+
+        for listener in tuple(self.supporter_access_listeners):
+            listener(SimpleNamespace(active=True))
+
+        self.assertFalse(reminder.isVisible())
+        self.assertFalse(self.host.footer._support_reminder_can_show())
 
     def test_natural_animation_finish_hides_and_reschedules(self):
         reminder = self.host.footer._reminder

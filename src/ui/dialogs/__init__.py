@@ -75,6 +75,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTabBar,
     QTabWidget,
     QTextEdit,
@@ -1477,7 +1478,6 @@ _SETTINGS_FIELD_WIDTH = 130
 #: fields step sideways from row to row.
 _SETTINGS_LABEL_WIDTH = 120
 
-_SUPPORT_BUTTON_WIDTH = 104
 _SUPPORT_BUTTON_HEIGHT = 32
 _SUPPORT_BUTTON_ICON_SIZE = 16
 
@@ -1796,8 +1796,7 @@ class SettingsDialog(QDialog):
             self.github_btn,
             self.discord_btn,
         ):
-            support_button_row.addWidget(button)
-        support_button_row.addStretch(1)
+            support_button_row.addWidget(button, 1)
         support_layout.addLayout(support_button_row)
         layout.addWidget(support_card)
 
@@ -1846,7 +1845,8 @@ class SettingsDialog(QDialog):
         )
         button.setProperty("class", "SupportPlatformButton")
         button.setProperty("settingsSupportAction", "true")
-        button.setFixedSize(_SUPPORT_BUTTON_WIDTH, _SUPPORT_BUTTON_HEIGHT)
+        button.setFixedHeight(_SUPPORT_BUTTON_HEIGHT)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         button.clicked.connect(callback)
         return button
 

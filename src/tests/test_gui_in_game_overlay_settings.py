@@ -5,7 +5,17 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import src
-from PySide6.QtWidgets import QApplication, QDialog, QLabel
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app import config
 from gui_in_game_overlay_settings import (
@@ -13,6 +23,7 @@ from gui_in_game_overlay_settings import (
     IN_GAME_WIDGET_ROWS,
     WEAPON_TRACKER_LAYOUT_DEBOUNCE_MS,
     WeaponTrackerSettingsDialog,
+    _build_igo_widgets_card,
     _igo_widget_options,
     _open_map_marker_settings_dialog,
     refresh_map_marker_settings_summary,
@@ -171,6 +182,77 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
                 if holder is not None:
                     holder.deleteLater()
 
+    def test_composite_option_rows_follow_action_mode_checkbox_order(self) -> None:
+        self.parent._open_igo_widget_settings_dialog = MagicMock()
+        self.parent._open_build_progression_dialog = MagicMock()
+        overlay = config.normalize_in_game_overlay_config({})
+
+        def direct_controls(holder):
+            layout = holder.layout()
+            return [
+                layout.itemAt(index).widget()
+                for index in range(layout.count())
+                if layout.itemAt(index).widget() is not None
+            ]
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay):
+            luck = _igo_widget_options(self.parent, "luck_rarity")
+            build = _igo_widget_options(self.parent, "build_progression")
+            weapon = _igo_widget_options(self.parent, "weapon_tracker")
+        try:
+            self.assertEqual(
+                [type(control) for control in direct_controls(luck)],
+                [QComboBox, QCheckBox, QCheckBox],
+            )
+            self.assertEqual(
+                [type(control) for control in direct_controls(build)],
+                [QPushButton, QSpinBox, QCheckBox],
+            )
+            self.assertEqual(
+                [type(control) for control in direct_controls(weapon)],
+                [QPushButton, QLabel, QComboBox, QCheckBox],
+            )
+        finally:
+            for holder in (luck, build, weapon):
+                holder.deleteLater()
+
+    def test_every_inline_options_row_keeps_checkboxes_as_final_group(self) -> None:
+        self.parent._open_igo_widget_settings_dialog = MagicMock()
+        self.parent._open_build_progression_dialog = MagicMock()
+        overlay = config.normalize_in_game_overlay_config({})
+        holders = []
+        try:
+            with patch.object(config, "IN_GAME_OVERLAY", overlay):
+                for widget_id, _label, _attribute in IN_GAME_WIDGET_ROWS:
+                    holder = _igo_widget_options(self.parent, widget_id)
+                    if holder is None:
+                        continue
+                    holders.append(holder)
+                    layout = holder.layout()
+                    controls = [
+                        layout.itemAt(index).widget()
+                        for index in range(layout.count())
+                        if layout.itemAt(index).widget() is not None
+                    ]
+                    first_checkbox = next(
+                        (
+                            index
+                            for index, control in enumerate(controls)
+                            if isinstance(control, QCheckBox)
+                        ),
+                        len(controls),
+                    )
+                    self.assertTrue(
+                        all(
+                            isinstance(control, QCheckBox)
+                            for control in controls[first_checkbox:]
+                        ),
+                        f"{widget_id} has a non-checkbox after its checkbox group",
+                    )
+        finally:
+            for holder in holders:
+                holder.deleteLater()
+
     def test_debounced_layout_apply_only_repaints_tracker_and_saves(self) -> None:
         parent = SimpleNamespace(_overlay_fast_tick=MagicMock())
         with patch.object(config, "save_config") as save_config:
@@ -238,12 +320,19 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
             bindings=[{"input": "f10", "action": "moai"}],
             automatic_discovery=True,
             marker_style="classic",
+            minimap_enabled=True,
+            minimap_scale=1.2,
+            merchant_memory_enabled=True,
+            merchant_prices_enabled=True,
+            merchant_stock_display="cursor",
             deleteLater=MagicMock(),
         )
         parent = SimpleNamespace(
             tab_in_game_overlay=None,
             igo_map_markers_summary=QLabel(),
             _rebind_hotkeys=MagicMock(),
+            _has_premium_access=MagicMock(return_value=True),
+            _open_support_settings=MagicMock(),
         )
         with patch.object(config, "IN_GAME_OVERLAY", overlay), patch(
             "gui_in_game_overlay_settings.MapMarkerSettingsDialog",
@@ -256,18 +345,61 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
             None,
             automatic_discovery=False,
             style="modern",
+            minimap_enabled=False,
+            minimap_scale=1.0,
+            merchant_memory_enabled=False,
+            merchant_prices_enabled=False,
+            merchant_stock_display="smart",
+            has_premium_access=True,
+            open_support_settings=parent._open_support_settings,
         )
         self.assertTrue(marker_config["automatic_discovery"])
         self.assertEqual(marker_config["style"], "classic")
         self.assertEqual(marker_config["hotkeys"], dialog.bindings)
+        self.assertTrue(marker_config["minimap_enabled"])
+        self.assertEqual(marker_config["minimap_scale"], 1.2)
+        self.assertTrue(marker_config["merchant_memory_enabled"])
+        self.assertTrue(marker_config["merchant_prices_enabled"])
+        self.assertEqual(marker_config["merchant_stock_display"], "cursor")
         self.assertIn("Classic", parent.igo_map_markers_summary.text())
         parent._rebind_hotkeys.assert_called_once_with()
         save_config.assert_called_once_with(config.user_config)
         dialog.deleteLater.assert_called_once_with()
 
+    def test_map_marker_summary_sits_immediately_after_settings_button(self) -> None:
+        parent = SimpleNamespace(
+            _on_igo_settings_changed=MagicMock(),
+            _open_igo_widget_settings_dialog=MagicMock(),
+            _open_build_progression_dialog=MagicMock(),
+            _open_weapon_tracker_settings_dialog=MagicMock(),
+            _apply_igo_weapon_tracker_layout_change=MagicMock(),
+            _queue_igo_weapon_tracker_layout_change=MagicMock(),
+            _has_premium_access=MagicMock(return_value=True),
+        )
+        host = QWidget()
+        column = QVBoxLayout(host)
+        try:
+            with patch.object(config, "IN_GAME_OVERLAY", self.overlay):
+                _build_igo_widgets_card(parent, column)
+
+            button = parent.igo_map_markers_settings_btn
+            premium_icon = parent.igo_map_markers_premium_icon
+            summary = parent.igo_map_markers_summary
+            self.assertIs(button.parentWidget(), premium_icon.parentWidget())
+            self.assertIs(button.parentWidget(), summary.parentWidget())
+            options_layout = button.parentWidget().layout()
+            self.assertEqual(options_layout.indexOf(button), 0)
+            self.assertEqual(options_layout.indexOf(premium_icon), 1)
+            self.assertEqual(options_layout.indexOf(summary), 2)
+            self.assertIsNotNone(options_layout.itemAt(3).spacerItem())
+            self.assertFalse(premium_icon.pixmap().isNull())
+        finally:
+            host.close()
+
     def test_runtime_forwards_map_marker_style_to_painter(self) -> None:
         setter = MagicMock()
         parent = SimpleNamespace(
+            _has_premium_access=lambda: True,
             in_game_overlay_window=SimpleNamespace(
                 map_marker_layer=SimpleNamespace(set_snapshot=setter)
             )
@@ -286,7 +418,15 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
             snapshot,
             scale=1.3,
             style="classic",
+            minimap_scale=1.0,
+            merchant_stock_display="smart",
+            cursor_position=None,
+            microwave_uses_enabled=True,
+            merchant_prices_enabled=False,
         )
+        parent._has_premium_access = lambda: False
+        InGameOverlay._set_map_marker_snapshot(parent, snapshot)
+        self.assertFalse(setter.call_args.kwargs["microwave_uses_enabled"])
 
     def test_map_marker_summary_names_new_style_by_default(self) -> None:
         parent = SimpleNamespace(igo_map_markers_summary=QLabel())
@@ -299,7 +439,7 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
 
         self.assertEqual(
             parent.igo_map_markers_summary.text(),
-            "Manual only · New style · 0 hotkeys",
+            "Manual only · New style · 0 hotkeys · 2 Premium options",
         )
 
 

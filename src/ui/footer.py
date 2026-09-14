@@ -1670,6 +1670,37 @@ class FooterView:
         self._popup: SupportPopup | None = None
         self._supporters: tuple = ()
         self._reminder: _SupportReminder | None = None
+        self._supporter_access_listener = self._on_supporter_access_changed
+        supporter_access = getattr(app, "supporter_access", None)
+        add_listener = getattr(supporter_access, "add_listener", None)
+        if callable(add_listener):
+            add_listener(self._supporter_access_listener)
+            remove_listener = getattr(supporter_access, "remove_listener", None)
+            if callable(remove_listener):
+                frame.destroyed.connect(
+                    lambda *_args,
+                    owner=supporter_access,
+                    callback=self._supporter_access_listener: owner.remove_listener(
+                        callback
+                    )
+                )
+
+    def _has_premium_access(self) -> bool:
+        checker = getattr(self._app, "has_premium_access", None)
+        if not callable(checker):
+            return False
+        try:
+            return bool(checker())
+        except Exception:
+            return False
+
+    def _on_supporter_access_changed(self, _state=None) -> None:
+        if not self._has_premium_access() or self._reminder is None:
+            return
+        try:
+            self._reminder.dismiss()
+        except RuntimeError:
+            self._reminder = None
 
     def _initialize_support_reminder(self) -> None:
         """Build the overlay once the footer has been parented by the root layout."""
@@ -1713,6 +1744,8 @@ class FooterView:
         self._save_support_reminder_state(shown_at)
 
     def _support_reminder_can_show(self) -> bool:
+        if self._has_premium_access():
+            return False
         popup = self._popup
         if popup is None:
             return True

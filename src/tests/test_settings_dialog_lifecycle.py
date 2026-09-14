@@ -254,7 +254,8 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
             dialog.discord_btn,
         ):
             self.assertEqual(button.property("settingsSupportAction"), "true")
-            self.assertEqual((button.width(), button.height()), (104, 32))
+            self.assertGreater(button.width(), 104)
+            self.assertEqual(button.height(), 32)
             self.assertEqual(
                 (button.iconSize().width(), button.iconSize().height()),
                 (16, 16),

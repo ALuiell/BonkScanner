@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 import threading
 import time
 
+from PySide6.QtWidgets import QApplication
+
 import gui_app
 from ui import dialogs as gui_dialogs
 import gui_in_game_overlay
@@ -7055,6 +7057,82 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertNotEqual(worker_threads, [gui_thread])
         self.assertEqual(close_threads, worker_threads)
+
+    def test_minimap_completion_publishes_on_gui_thread_without_another_poll(self) -> None:
+        type(self)._completion_app = QApplication.instance() or QApplication([])
+        executor = ManualMapMarkerExecutor()
+        overlay = build_in_game_overlay_test_component(
+            map_marker_executor_factory=lambda: executor
+        )
+        expected = gui_in_game_overlay.MapMarkerSnapshot(map_id=9)
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(return_value=expected), close=MagicMock()
+        )
+        overlay._has_premium_access = lambda: True
+        delivered = []
+        overlay._publish_map_marker_snapshot = lambda snapshot: delivered.append(
+            (snapshot, threading.get_ident())
+        )
+        cfg = {"enabled": True, "map_markers": {"enabled": True, "minimap_enabled": True}}
+        with patch.object(config, "IN_GAME_OVERLAY", cfg):
+            overlay._request_map_marker_sample(client_height=720, minimap_enabled=True)
+            worker = threading.Thread(target=executor.run_next)
+            worker.start()
+            worker.join(timeout=2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(delivered, [])
+            QApplication.processEvents()
+            self.assertEqual(delivered, [(expected, threading.get_ident())])
+            QApplication.processEvents()
+            self.assertEqual(len(delivered), 1)
+            self.assertEqual(executor.tasks, [])
+            overlay._map_marker_tracker.tick.assert_called_once()
+            self.assertIsNone(overlay._map_marker_future)
+
+    def test_minimap_completion_rejects_stopped_disabled_and_modal_results(self) -> None:
+        type(self)._completion_app = QApplication.instance() or QApplication([])
+        for condition in ("stop", "disabled", "premium_lost", "modal", "already_collected"):
+            with self.subTest(condition=condition):
+                executor = ManualMapMarkerExecutor()
+                overlay = build_in_game_overlay_test_component(
+                    map_marker_executor_factory=lambda: executor
+                )
+                overlay._map_marker_tracker = SimpleNamespace(
+                    tick=lambda **kwargs: gui_in_game_overlay.MapMarkerSnapshot(map_id=9),
+                    close=MagicMock(),
+                )
+                overlay._has_premium_access = lambda: condition != "premium_lost"
+                overlay._publish_map_marker_snapshot = MagicMock()
+                cfg = {"enabled": True, "map_markers": {"enabled": condition != "disabled", "minimap_enabled": True}}
+                with patch.object(config, "IN_GAME_OVERLAY", cfg), patch.object(
+                    QApplication, "activeModalWidget", return_value=object() if condition == "modal" else None
+                ):
+                    overlay._request_map_marker_sample(client_height=720, minimap_enabled=True)
+                    executor.run_next()
+                    if condition == "stop":
+                        overlay._stop_map_marker_worker(wait=False)
+                    elif condition == "already_collected":
+                        overlay._collect_map_marker_future()
+                    QApplication.processEvents()
+                    overlay._publish_map_marker_snapshot.assert_not_called()
+
+    def test_minimap_completion_contains_worker_failure(self) -> None:
+        type(self)._completion_app = QApplication.instance() or QApplication([])
+        executor = ManualMapMarkerExecutor()
+        overlay = build_in_game_overlay_test_component(map_marker_executor_factory=lambda: executor)
+        overlay._has_premium_access = lambda: True
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(side_effect=RuntimeError("read failed")), close=MagicMock()
+        )
+        overlay._publish_map_marker_snapshot = MagicMock()
+        cfg = {"enabled": True, "map_markers": {"enabled": True, "minimap_enabled": True}}
+        with patch.object(config, "IN_GAME_OVERLAY", cfg), patch.object(gui_in_game_overlay, "log_runtime_event") as log:
+            overlay._request_map_marker_sample(client_height=720, minimap_enabled=True)
+            executor.run_next()
+            QApplication.processEvents()
+            self.assertEqual(overlay.map_marker_timer.stop_calls, 1)
+            overlay._publish_map_marker_snapshot.assert_not_called()
+            log.assert_called_once()
 
     def test_interactive_map_marker_stop_does_not_wait_for_memory_poll(self) -> None:
         started = threading.Event()
