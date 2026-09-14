@@ -859,6 +859,7 @@ class PlayerStatsClient:
         layout: list[tuple[int, str, _CooldownSlot | None]] = []
         items: list[str] = []
         broken_entries = 0
+        layout_cacheable = True
         for index in range(count):
             entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
             try:
@@ -914,7 +915,10 @@ class PlayerStatsClient:
             # Resolved on the clean walk only, so the per-pass cost of the
             # cooldown feature on the cached path is two float reads for the one
             # item that has them -- not a second walk of the dictionary.
-            cooldown_slot = self._resolve_cooldown_slot(item_value, item_id)
+            cooldown_slot, binding_cacheable = self._resolve_cooldown_slot(
+                item_value, item_id
+            )
+            layout_cacheable = layout_cacheable and binding_cacheable
             layout.append((item_value + self.ITEM_STACK_COUNT_OFFSET, item_name, cooldown_slot))
             items.append(f"{item_name} x{max(1, stack_count)}")
 
@@ -929,31 +933,35 @@ class PlayerStatsClient:
                 f"{broken_entries} of {count} entries could not be decoded."
             )
 
-        self._store_passive_item_layout(passive_item_dict, entries, count, tuple(layout))
+        if layout_cacheable:
+            self._store_passive_item_layout(
+                passive_item_dict, entries, count, tuple(layout)
+            )
+        else:
+            # The inventory itself is complete, so it remains safe to publish.
+            # Only the optional cooldown binding was unreadable; leaving this
+            # layout uncached makes the next pass retry that verification.
+            self._clear_passive_item_layout()
         return tuple(items)
 
     def _resolve_cooldown_slot(
         self, item_value: int, item_id: int | None
-    ) -> _CooldownSlot | None:
+    ) -> tuple[_CooldownSlot | None, bool]:
         """Bind an item object to its cooldown layout, or refuse to.
 
-        Returns ``None`` for every item that is not in the table, which is
-        almost all of them, and also for a listed item whose class metadata does
-        not read back as the class the table names. That check is the whole
-        safety of the feature: the offsets are per class, so a mismatch does not
-        raise -- it hands back plausible floats. Refusing is silent and costs
-        one line on screen; guessing is silent and costs a wrong number that
-        looks right.
-
-        Failing to read the class name is treated as a mismatch. This runs only
-        on the clean-walk path, so a slot dropped here is retried on the very
-        next pass rather than being frozen out until the dictionary changes.
+        The boolean says whether the result is safe to memoise. Unsupported
+        items and confirmed class mismatches are stable ``None`` results. A
+        class name that could not be read is different: refusing the offsets is
+        still mandatory, but memoising that refusal would hide the cooldown
+        until the dictionary changes or the process restarts. Marking the
+        layout uncacheable makes the next pass retry the verification without
+        treating the otherwise-complete inventory as failed.
         """
         if item_id is None:
-            return None
+            return None, True
         layout = ITEM_COOLDOWN_LAYOUTS.get(item_id)
         if layout is None:
-            return None
+            return None, True
 
         try:
             class_meta = self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
@@ -964,15 +972,20 @@ class PlayerStatsClient:
             )
             class_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
         except MemoryReadError:
-            return None
+            return None, False
 
+        if not class_name:
+            return None, False
         if class_name != layout.class_name:
-            return None
+            return None, True
 
-        return _CooldownSlot(
-            item_id=item_id,
-            cooldown_address=item_value + layout.cooldown_offset,
-            next_trigger_address=item_value + layout.next_trigger_offset,
+        return (
+            _CooldownSlot(
+                item_id=item_id,
+                cooldown_address=item_value + layout.cooldown_offset,
+                next_trigger_address=item_value + layout.next_trigger_offset,
+            ),
+            True,
         )
 
     def get_item_cooldowns(self, owner_stats: int | None = None) -> ItemCooldownSnapshot:

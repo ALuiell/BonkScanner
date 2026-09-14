@@ -264,7 +264,18 @@ class ItemCooldownBindingTests(unittest.TestCase):
         # resolved on the clean walk, so a slot dropped for one pass has to come
         # back on the next rather than wait for the dictionary to change.
         memory.unreadable.discard(LANTERN_NAME_PTR)
-        client._clear_passive_item_layout()
+        self.assertEqual(len(read(client).readings), 1)
+
+    def test_a_transient_zero_class_name_pointer_retries_next_pass(self) -> None:
+        memory = build_memory()
+        name_pointer_address = (
+            LANTERN_META + PlayerStatsClient.CLASS_META_NAME_PTR_OFFSET
+        )
+        memory.pointers[name_pointer_address] = 0
+        client = client_for(memory)
+        self.assertEqual(read(client).readings, ())
+
+        memory.pointers[name_pointer_address] = LANTERN_NAME_PTR
         self.assertEqual(len(read(client).readings), 1)
 
     def test_a_torn_cooldown_field_skips_that_item_only(self) -> None:
