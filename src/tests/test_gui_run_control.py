@@ -6987,6 +6987,10 @@ class GuiRunControlTests(unittest.TestCase):
         window.devicePixelRatioF = lambda: 1.0
         window.height = lambda: 720
         window.width = lambda: 1280
+        window.map_marker_layer = SimpleNamespace(
+            set_snapshot=MagicMock(),
+            set_palette=MagicMock(),
+        )
         overlay.in_game_overlay_window = window
         close = MagicMock()
         overlay._map_marker_tracker = SimpleNamespace(
@@ -7006,6 +7010,11 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(overlay.map_marker_timer.stop_calls, 1)
         close.assert_called_once_with()
+        self.assertEqual(
+            window.map_marker_layer.set_snapshot.call_args.args[0],
+            gui_in_game_overlay.MapMarkerSnapshot(),
+        )
+        window.map_marker_layer.set_palette.assert_called_once_with(None)
         runtime_log.assert_called_once()
         self.assertEqual(logs[0][1], "warning")
         self.assertIn("stale Qt wrapper", logs[0][0])
@@ -7115,6 +7124,96 @@ class GuiRunControlTests(unittest.TestCase):
                         overlay._collect_map_marker_future()
                     QApplication.processEvents()
                     overlay._publish_map_marker_snapshot.assert_not_called()
+
+    def test_supporter_access_loss_rejects_cached_and_inflight_premium_samples(self) -> None:
+        executor = ManualMapMarkerExecutor()
+        premium_access = [True]
+        stale = gui_in_game_overlay.MapMarkerSnapshot(map_id=9, map_open=True)
+        overlay = build_in_game_overlay_test_component(
+            map_marker_executor_factory=lambda: executor
+        )
+        overlay._has_premium_access = lambda: premium_access[0]
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(return_value=stale),
+            close=MagicMock(),
+        )
+        layer = SimpleNamespace(set_snapshot=MagicMock(), set_palette=MagicMock())
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.map_marker_layer = layer
+        cfg = {
+            "enabled": True,
+            "map_markers": {
+                "enabled": True,
+                "minimap_enabled": True,
+                "scale": 1.0,
+            },
+        }
+
+        with patch.object(config, "IN_GAME_OVERLAY", cfg):
+            overlay._map_marker_premium_access = True
+            overlay._request_map_marker_sample(
+                client_height=720,
+                minimap_enabled=True,
+            )
+            premium_access[0] = False
+            overlay.on_supporter_access_changed()
+            executor.run_next()
+            returned = overlay._request_map_marker_sample(
+                client_height=720,
+                minimap_enabled=False,
+            )
+
+        self.assertEqual(returned, gui_in_game_overlay.MapMarkerSnapshot())
+        self.assertEqual(
+            overlay._map_marker_latest_snapshot,
+            gui_in_game_overlay.MapMarkerSnapshot(),
+        )
+        self.assertEqual(
+            layer.set_snapshot.call_args.args[0],
+            gui_in_game_overlay.MapMarkerSnapshot(),
+        )
+
+    def test_map_marker_tick_invalidates_premium_sample_when_access_expires(self) -> None:
+        premium_access = [True]
+        overlay = build_in_game_overlay_test_component()
+        overlay._has_premium_access = lambda: premium_access[0]
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.devicePixelRatioF = lambda: 1.0
+        overlay.in_game_overlay_window.height = lambda: 720
+        overlay.in_game_overlay_window.width = lambda: 1280
+        overlay.in_game_overlay_window.map_marker_layer = SimpleNamespace(
+            set_snapshot=MagicMock(),
+            set_palette=MagicMock(),
+        )
+        stale = gui_in_game_overlay.MapMarkerSnapshot(map_id=9, map_open=True)
+        overlay._map_marker_latest_snapshot = stale
+        overlay._map_marker_premium_access = True
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(return_value=gui_in_game_overlay.MapMarkerSnapshot()),
+            close=MagicMock(),
+        )
+        overlay._map_marker_input = SimpleNamespace(cursor_position=lambda: (0, 0))
+        overlay._map_marker_hotkeys = SimpleNamespace(
+            poll=lambda *_args, **_kwargs: SimpleNamespace(placement=None, palette=None),
+            reset=MagicMock(),
+        )
+        cfg = {
+            "enabled": True,
+            "map_markers": {
+                "enabled": True,
+                "minimap_enabled": True,
+                "scale": 1.0,
+            },
+        }
+
+        premium_access[0] = False
+        with patch.object(config, "IN_GAME_OVERLAY", cfg):
+            overlay._map_marker_tick()
+
+        self.assertNotEqual(overlay._map_marker_latest_snapshot, stale)
+        self.assertFalse(
+            overlay._map_marker_tracker.tick.call_args.kwargs["minimap_enabled"]
+        )
 
     def test_minimap_completion_contains_worker_failure(self) -> None:
         type(self)._completion_app = QApplication.instance() or QApplication([])

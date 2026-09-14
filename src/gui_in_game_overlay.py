@@ -171,6 +171,7 @@ class InGameOverlay:
             tuple[str, float, float, float]
         ] = deque()
         self._map_marker_latest_snapshot = MapMarkerSnapshot()
+        self._map_marker_premium_access: bool | None = None
         self._map_marker_cursor_position = None
         self._map_marker_completion = _MapMarkerCompletion(self._on_map_marker_sample_ready)
         self._map_marker_worker_active = False
@@ -557,6 +558,14 @@ class InGameOverlay:
             self._map_marker_hotkeys.reset()
         except Exception:
             pass
+        try:
+            self._set_map_marker_snapshot(MapMarkerSnapshot())
+        except Exception:
+            pass
+        try:
+            self._set_map_marker_palette(None)
+        except Exception:
+            pass
         detail = f"{type(exc).__name__}: {exc}"
         log_runtime_event("in_game_overlay.map_marker_tick.failed", error=detail)
         self._log(
@@ -591,6 +600,9 @@ class InGameOverlay:
             client_height = max(1, int(round(logical_height * display_scale)))
             client_width = max(1, int(round(logical_width * display_scale)))
         premium_access = bool(self._has_premium_access())
+        if self._map_marker_premium_access and not premium_access:
+            self._invalidate_map_marker_samples()
+        self._map_marker_premium_access = premium_access
         minimap_enabled = bool(
             premium_access and marker_cfg.get("minimap_enabled", False)
         )
@@ -827,6 +839,13 @@ class InGameOverlay:
         finally:
             self._map_marker_worker_active = False
 
+    def _invalidate_map_marker_samples(self) -> None:
+        """Reject cached and in-flight samples after their access context changes."""
+
+        self._map_marker_generation += 1
+        self._map_marker_pending_poll = None
+        self._map_marker_latest_snapshot = MapMarkerSnapshot()
+
     def _stop_map_marker_worker(
         self,
         *,
@@ -839,10 +858,8 @@ class InGameOverlay:
         behind an in-flight memory read.  Interactive Stop therefore returns
         immediately, while terminal shutdown opts into draining both futures.
         """
-        self._map_marker_generation += 1
-        self._map_marker_pending_poll = None
+        self._invalidate_map_marker_samples()
         self._map_marker_pending_placements.clear()
-        self._map_marker_latest_snapshot = MapMarkerSnapshot()
 
         executor = self._map_marker_executor
         if (
@@ -945,7 +962,10 @@ class InGameOverlay:
             if not self._runtime_available():
                 return
             refresh_map_marker_settings_summary(self)
-            if not self._has_premium_access():
+            premium_access = bool(self._has_premium_access())
+            self._map_marker_premium_access = premium_access
+            if not premium_access:
+                self._invalidate_map_marker_samples()
                 self._set_map_marker_snapshot(MapMarkerSnapshot())
 
         self._schedule(apply_change)

@@ -510,13 +510,15 @@ def refresh_map_marker_settings_summary(parent_mixin: Any) -> None:
     style = "Classic" if marker_cfg.get("style") == "classic" else "New style"
     has_premium = getattr(parent_mixin, "_has_premium_access", lambda: False)
     if not has_premium():
-        premium = "2 Premium options"
+        premium = "3 Premium options"
     else:
         premium_parts = []
         if marker_cfg.get("minimap_enabled", False):
             premium_parts.append("Minimap")
         if marker_cfg.get("merchant_memory_enabled", False):
             premium_parts.append("Shady memory")
+            if marker_cfg.get("merchant_prices_enabled", False):
+                premium_parts.append("Shady prices")
         premium = " + ".join(premium_parts) if premium_parts else "Premium off"
     summary.setText(f"{mode} · {style} · {hotkeys} · {premium}")
 

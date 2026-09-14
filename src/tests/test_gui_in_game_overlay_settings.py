@@ -439,7 +439,33 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
 
         self.assertEqual(
             parent.igo_map_markers_summary.text(),
-            "Manual only · New style · 0 hotkeys · 2 Premium options",
+            "Manual only · New style · 0 hotkeys · 3 Premium options",
+        )
+
+    def test_map_marker_summary_lists_enabled_shady_prices(self) -> None:
+        parent = SimpleNamespace(
+            igo_map_markers_summary=QLabel(),
+            _has_premium_access=lambda: True,
+        )
+        with patch.object(
+            config,
+            "IN_GAME_OVERLAY",
+            {
+                "map_markers": {
+                    "hotkeys": [],
+                    "style": "modern",
+                    "minimap_enabled": True,
+                    "merchant_memory_enabled": True,
+                    "merchant_prices_enabled": True,
+                }
+            },
+        ):
+            refresh_map_marker_settings_summary(parent)
+
+        self.assertEqual(
+            parent.igo_map_markers_summary.text(),
+            "Manual only · New style · 0 hotkeys · "
+            "Minimap + Shady memory + Shady prices",
         )
 
 
