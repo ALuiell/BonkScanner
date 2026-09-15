@@ -14,7 +14,6 @@ import time
 from typing import Any, Callable
 
 from core.item_metadata import ITEMS
-from core.shady_prices import ShadyEconomy, shady_price
 from core.map_markers import (
     MapViewport,
     MerchantOffer,
@@ -117,11 +116,7 @@ class MapMarkerMemoryClient:
 
     SHADY_GUY_TYPE_INFO_OFFSET = 0x2FB5928
     SHADY_CURRENTLY_INTERACTING_OFFSET = 0x00
-    SHADY_PRICE_MULTIPLIERS_OFFSET = 0xA8
     UPGRADE_BUTTON_PRICE_OFFSET = 0xDC
-    MONEY_CHEST_BASE_PRICE_OFFSET = 0x28
-    MONEY_CHEST_PRICE_INCREASE_OFFSET = 0x44
-    CHEST_PRICE_STAT_ID = 34
     ENCOUNTER_LEVELUP_SCREEN_OFFSET = 0x20
     ENCOUNTER_ACTIVE_WINDOW_OFFSET = 0x48
     ENCOUNTER_IN_PROGRESS_OFFSET = 0x58
@@ -239,7 +234,6 @@ class MapMarkerMemoryClient:
         self._tracked_classes: dict[int, tuple[int, str]] = {}
         self._last_microwave_uses: tuple[int, int] | None = None
         self._pending_stock_sample = None
-        self._economy_client = None
 
     def close(self) -> None:
         self._last_microwave_uses = None
@@ -1025,47 +1019,18 @@ class MapMarkerMemoryClient:
             class_ptr=class_ptr,
         )
 
-    def read_shady_economy(self) -> ShadyEconomy:
-        # Shared process handle; no module enumeration and no merchant traversal.
-        from infra.memory.player_stats_client import PlayerStatsClient
-        if self._economy_client is None:
-            self._economy_client = PlayerStatsClient(memory=self.memory, module_name=self.module_name)
-        client = self._economy_client
-        mem = self.memory
-        type_info = mem.read_ptr(self._module_base + client.MONEY_UTILITY_TYPE_INFO_OFFSET)
-        fields = mem.read_ptr(type_info + self.CLASS_STATIC_FIELDS_OFFSET)
-        entries = client._resolve_stats_entries()
-        _, stage_index = self._resolve_stage_scope()
-        economy = ShadyEconomy(
-            purchased=mem.read_i32(fields + client.MONEY_UTILITY_CHESTS_PURCHASED_OFFSET),
-            stage_index=stage_index,
-            price_multiplier=mem.read_float(entries + client.STAT_VALUE_BASE_OFFSET + self.CHEST_PRICE_STAT_ID * 0x10),
-            base_price=mem.read_i32(fields + self.MONEY_CHEST_BASE_PRICE_OFFSET),
-            increase=mem.read_float(fields + self.MONEY_CHEST_PRICE_INCREASE_OFFSET),
-        )
-        if not economy.valid():
-            raise MemoryReadError("Invalid Shady Guy economy.")
-        return economy
-
     def _read_shady_prices(self, gate, offers):
-        """Only enrich already-visible cards; invalid price data leaves stock usable."""
+        """Copy displayed prices; invalid data leaves the item stock usable."""
         try:
-            merchant, _, picker = gate
-            multipliers = self.memory.read_ptr(merchant + self.SHADY_PRICE_MULTIPLIERS_OFFSET)
-            count = self.memory.read_i32(multipliers + self.ARRAY_LENGTH_OFFSET)
-            if count != len(offers):
-                return offers
-            economy = self.read_shady_economy()
+            _, _, picker = gate
             buttons = self.memory.read_ptr(picker + self.UPGRADE_PICKER_BUTTONS_OFFSET)
             enriched = []
             for index, offer in enumerate(offers):
-                multiplier = self.memory.read_float(multipliers + self.ARRAY_DATA_OFFSET + index * 4)
                 button = self.memory.read_ptr(buttons + self.ARRAY_DATA_OFFSET + index * 8)
                 price = self.memory.read_i32(button + self.UPGRADE_BUTTON_PRICE_OFFSET)
-                # Also proves the slot association and current build's formula.
-                if shady_price(economy, offer.rarity, multiplier) != price:
+                if price < 0:
                     return offers
-                enriched.append(replace(offer, price=price, slot_multiplier=multiplier))
+                enriched.append(replace(offer, price=price))
             return tuple(enriched)
         except Exception:
             return offers

@@ -107,7 +107,6 @@ class MerchantOffer:
     rarity: str
 
     price: int | None = None
-    slot_multiplier: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

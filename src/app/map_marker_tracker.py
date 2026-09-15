@@ -16,7 +16,6 @@ from core.map_markers import (
     unproject_map_to_world,
 )
 from infra.memory.map_marker_client import FullMapNotReadyError, MapMarkerMemoryClient
-from core.shady_prices import shady_price
 
 
 class MapMarkerTracker:
@@ -53,8 +52,6 @@ class MapMarkerTracker:
         self._lifecycle_schedule: dict[int, tuple[int, float]] = {}
         self._lifecycle_serial = 0
         self._merchant_stocks: dict[int, MerchantStockCapture] = {}
-        self._price_economy = None
-        self._next_price_sample_at = 0.0
         # A visited merchant may create a marker even while ordinary automatic
         # discovery is disabled. Track those separately so entitlement loss
         # removes only the premium-created markers, not manual user marks.
@@ -83,8 +80,6 @@ class MapMarkerTracker:
         self._lifecycle_schedule.clear()
         self._lifecycle_serial = 0
         self._merchant_stocks.clear()
-        self._price_economy = None
-        self._next_price_sample_at = 0.0
         self._merchant_created_objects.clear()
         self._snapshot = MapMarkerSnapshot()
 
@@ -105,8 +100,6 @@ class MapMarkerTracker:
         prices_enabled = bool(merchant_enabled and merchant_prices_enabled)
         if not prices_enabled:
             self._clear_stock_prices()
-            self._price_economy = None
-            self._next_price_sample_at = 0.0
         if not microwave_uses_enabled:
             for marker_id, marker in self._markers.items():
                 if marker.uses_remaining is not None:
@@ -193,8 +186,6 @@ class MapMarkerTracker:
             return self._snapshot
 
         if frame.map_id != self._map_id:
-            self._price_economy = None
-            self._next_price_sample_at = 0.0
             self._map_id = frame.map_id
             self._markers.clear()
             self._automatic_by_object.clear()
@@ -307,10 +298,6 @@ class MapMarkerTracker:
                 )
 
         capture = frame.merchant_stock_capture if merchant_enabled else None
-        capture_changed = bool(
-            capture is not None
-            and capture != self._merchant_stocks.get(capture.merchant_object_ptr)
-        )
         if (
             capture is not None
             and capture.map_id == frame.map_id
@@ -344,11 +331,10 @@ class MapMarkerTracker:
                 # A fresh confirmed visible UI capture is authoritative. Never
                 # pin a merchant to its first sample forever: reopening the shop
                 # must also repair a stale capture from an earlier UI transition.
+                # Prices are visit snapshots too: without a new capture, keep
+                # the last displayed values instead of recalculating them.
                 self._merchant_stocks[object_ptr] = capture
                 self._merchant_created_objects.add(object_ptr)
-
-        if prices_enabled and self._merchant_stocks:
-            self._refresh_stock_prices(client, automatic_now, capture_changed)
 
         self._snapshot = MapMarkerSnapshot(
             map_id=frame.map_id,
@@ -371,31 +357,6 @@ class MapMarkerTracker:
                 self._merchant_stocks[pointer] = replace(
                     stock, items=tuple(replace(item, price=None) for item in stock.items)
                 )
-
-    def _refresh_stock_prices(self, client, now: float, new_capture: bool) -> None:
-        # Two small economy samples per second, independent of merchant count.
-        # Recompute only on changed inputs or a newly captured stock.
-        changed = False
-        if new_capture or now >= self._next_price_sample_at:
-            self._next_price_sample_at = now + .5
-            try:
-                economy = client.read_shady_economy()
-            except Exception:
-                self._price_economy = None
-                self._clear_stock_prices()
-                return
-            changed = economy != self._price_economy
-            self._price_economy = economy
-        if self._price_economy is None or not (changed or new_capture):
-            return
-        for pointer, stock in self._merchant_stocks.items():
-            items = tuple(
-                replace(item, price=shady_price(self._price_economy, item.rarity, item.slot_multiplier))
-                if item.slot_multiplier is not None else item
-                for item in stock.items
-            )
-            if items != stock.items:
-                self._merchant_stocks[pointer] = replace(stock, items=items)
 
     def _lifecycle_check_due(self, object_ptr, marker_id, frame, now: float) -> bool:
         projection = frame.minimap_projection
@@ -516,9 +477,6 @@ class MapMarkerTracker:
         return self._client
 
     def _disconnect_for_retry(self) -> None:
-        self._price_economy = None
-        self._next_price_sample_at = 0.0
-        self._clear_stock_prices()
         self._lifecycle_schedule.clear()
         self._lifecycle_serial = 0
         client, self._client = self._client, None

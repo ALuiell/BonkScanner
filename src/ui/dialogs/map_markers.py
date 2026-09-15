@@ -458,7 +458,7 @@ class MapMarkerSettingsDialog(QDialog):
         self.merchant_prices_switch.setChecked(bool(merchant_prices_enabled))
         self.merchant_prices_row = _premium_map_option(
             self.merchant_prices_switch,
-            "Shows prices in remembered stock cards and updates them as chest costs grow. Requires stock memory.",
+            "Shows the prices last seen when opening each shop. Reopen the shop to refresh them. Requires stock memory.",
             None,
             premium_card,
         )
