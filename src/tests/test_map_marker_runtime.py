@@ -363,7 +363,7 @@ class MapMarkerProjectionTests(unittest.TestCase):
 
 
 class MapMarkerTrackerTests(unittest.TestCase):
-    def test_microwave_counts_follow_each_object_and_premium_access(self):
+    def test_microwave_counts_follow_each_object(self):
         first = DetectedMapActivity(1, 123, "InteractableMicrowave", "microwave_white", 0, 0, 3)
         second = replace(first, object_ptr=2, world_x=10, uses_remaining=1)
         client = FakeMarkerClient([
@@ -372,7 +372,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
         counts = {1: 2, 2: 1}
         client.last_microwave_uses = counts.get
         tracker = MapMarkerTracker("game", client_factory=lambda _: client, automatic_scan_interval=0)
-        options = dict(client_height=600, automatic_discovery=True, microwave_uses_enabled=True)
+        options = dict(client_height=600, automatic_discovery=True)
         self.assertEqual(tracker.tick(**options).markers[0].uses_remaining, 3)
         snapshot = tracker.tick(**options)
         self.assertEqual([m.uses_remaining for m in snapshot.markers], [2, 1])
@@ -380,25 +380,24 @@ class MapMarkerTrackerTests(unittest.TestCase):
         self.assertEqual([m.uses_remaining for m in tracker.tick(**options).markers], [0, 1])
         client.active[1] = False
         self.assertEqual([m.object_ptr for m in tracker.tick(**options).markers], [2])
-        options["microwave_uses_enabled"] = False
-        self.assertIsNone(tracker.tick(**options).markers[0].uses_remaining)
-        options["microwave_uses_enabled"] = True
         self.assertEqual(tracker.tick(**options).markers[0].uses_remaining, 1)
         client.activity_is_active = Mock(side_effect=MemoryReadError("unavailable"))
         self.assertIsNone(tracker.tick(**options).markers[0].uses_remaining)
         client.frames = [self.frame(map_id=2)]
         self.assertEqual(tracker.tick(**options).markers, ())
 
-    def test_microwave_counts_not_exposed_without_premium(self):
+    def test_microwave_counts_are_exposed_without_premium_option(self):
         activity = DetectedMapActivity(1, 123, "InteractableMicrowave", "microwave_white", 0, 0, 3)
         client = FakeMarkerClient([self.frame(activity=activity)])
         tracker = MapMarkerTracker("game", client_factory=lambda _: client, automatic_scan_interval=0)
         snapshot = tracker.tick(client_height=600, automatic_discovery=True)
-        self.assertIsNone(snapshot.markers[0].uses_remaining)
-        # Revocation also clears retained counts while reconnecting.
-        tracker._markers[snapshot.markers[0].marker_id] = replace(snapshot.markers[0], uses_remaining=3)
+        self.assertEqual(snapshot.markers[0].uses_remaining, 3)
+        # A temporary reconnect wait preserves the last known count.
         client.frames = [FullMapNotReadyError("waiting")]
-        self.assertIsNone(tracker.tick(client_height=600, automatic_discovery=True).markers[0].uses_remaining)
+        self.assertEqual(
+            tracker.tick(client_height=600, automatic_discovery=True).markers[0].uses_remaining,
+            3,
+        )
 
     def _scheduled_tracker(self):
         projection = MinimapProjection(
@@ -1640,7 +1639,7 @@ class MapMarkerLifecycleTests(unittest.TestCase):
 
         self.assertIsNone(client._read_shady_stock_capture(7))
 
-    def test_stable_visible_offer_cards_produce_plain_stock_values(self) -> None:
+    def test_stable_visible_offer_cards_produce_stock_with_prices(self) -> None:
         memory = FakeLifecycleMemory()
         client = MapMarkerMemoryClient(memory=memory)
         merchant = 0x510000
@@ -1668,7 +1667,10 @@ class MapMarkerLifecycleTests(unittest.TestCase):
 
         self.assertEqual(capture.map_id, 77)
         self.assertEqual(capture.merchant_object_ptr, merchant)
-        self.assertEqual(capture.items, offers)
+        self.assertEqual(
+            capture.items,
+            tuple(replace(item, price=0) for item in offers),
+        )
         self.assertEqual((capture.world_x, capture.world_z), (12.5, -40.0))
         self.assertEqual(
             client._tracked_classes[merchant],
@@ -1696,7 +1698,7 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         self.assertIsNone(client._read_shady_stock_capture(7))
         capture_a = client._read_shady_stock_capture(7)
         self.assertEqual(capture_a.merchant_object_ptr, merchant_a)
-        self.assertEqual(capture_a.items, first)
+        self.assertEqual(capture_a.items, tuple(replace(item, price=0) for item in first))
 
         # B is already the current merchant, but the reused UI still holds A's
         # complete cards for one sample. Same-poll double reads cannot detect it.
@@ -1706,14 +1708,17 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         self.assertIsNone(client._read_shady_stock_capture(7))
         capture_b = client._read_shady_stock_capture(7)
         self.assertEqual(capture_b.merchant_object_ptr, merchant_b)
-        self.assertEqual(capture_b.items, second)
+        self.assertEqual(capture_b.items, tuple(replace(item, price=0) for item in second))
 
         # Closing the UI invalidates confirmation, even if the same shop opens.
         state["merchant"] = None
         self.assertIsNone(client._read_shady_stock_capture(7))
         state["merchant"] = merchant_b
         self.assertIsNone(client._read_shady_stock_capture(7))
-        self.assertEqual(client._read_shady_stock_capture(7).items, second)
+        self.assertEqual(
+            client._read_shady_stock_capture(7).items,
+            tuple(replace(item, price=0) for item in second),
+        )
         # The same pointer tuple in another stage/run also starts unconfirmed.
         self.assertIsNone(client._read_shady_stock_capture(8))
 

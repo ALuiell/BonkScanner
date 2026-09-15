@@ -630,11 +630,11 @@ class InGameOverlay:
         self._map_marker_premium_access = premium_access
         minimap_enabled = bool(
             premium_access
-            and marker_cfg.get("minimap_enabled", False)
+            and marker_cfg.get("minimap_enabled", True)
             and not minimap_suppressed
         )
         merchant_memory_enabled = bool(
-            premium_access and marker_cfg.get("merchant_memory_enabled", False)
+            premium_access and marker_cfg.get("merchant_memory_enabled", True)
         )
         snapshot = self._request_map_marker_sample(
             client_height=client_height,
@@ -645,10 +645,6 @@ class InGameOverlay:
             ),
             minimap_enabled=minimap_enabled,
             merchant_memory_enabled=merchant_memory_enabled,
-            merchant_prices_enabled=bool(
-                merchant_memory_enabled and marker_cfg.get("merchant_prices_enabled", False)
-            ),
-            microwave_uses_enabled=premium_access,
         )
 
         cursor_x, cursor_y = self._map_marker_input.cursor_position()
@@ -985,12 +981,6 @@ class InGameOverlay:
                     marker_cfg.get("merchant_stock_display", "smart")
                 ),
                 cursor_position=cursor_position,
-                microwave_uses_enabled=bool(self._has_premium_access()),
-                merchant_prices_enabled=bool(
-                    self._has_premium_access()
-                    and marker_cfg.get("merchant_memory_enabled", False)
-                    and marker_cfg.get("merchant_prices_enabled", False)
-                ),
             )
 
     def on_supporter_access_changed(self, *_args) -> None:

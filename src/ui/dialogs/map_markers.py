@@ -306,11 +306,10 @@ class MapMarkerSettingsDialog(QDialog):
         *,
         automatic_discovery: bool = False,
         style: str = "modern",
-        minimap_enabled: bool = False,
+        minimap_enabled: bool = True,
         minimap_scale: float = 1.0,
-        merchant_memory_enabled: bool = False,
+        merchant_memory_enabled: bool = True,
         merchant_stock_display: str = "smart",
-        merchant_prices_enabled: bool = False,
         has_premium_access: bool = False,
         open_support_settings=lambda: None,
         binding_dialog_factory=MapMarkerBindingDialog,
@@ -363,7 +362,8 @@ class MapMarkerSettingsDialog(QDialog):
         automatic_layout.addWidget(self.automatic_discovery_cb)
         automatic_note = QLabel(
             "Adds supported activities after the game's interaction system detects "
-            "them. Off keeps manual hotkeys only."
+            "them. Discovered microwaves also show their remaining uses. Off keeps "
+            "manual hotkeys only."
         )
         automatic_note.setObjectName("dialogNote")
         automatic_note.setWordWrap(True)
@@ -448,81 +448,11 @@ class MapMarkerSettingsDialog(QDialog):
         )
         self.merchant_row = _premium_map_option(
             self.merchant_memory_switch,
-            "Remembers visible item names after opening the shop.",
+            "Remembers item names and prices from your last shop visit. Reopen the shop to refresh them.",
             self.merchant_stock_display_combo,
             premium_card,
         )
         premium_options.addWidget(self.merchant_row, 1)
-
-        self.merchant_prices_switch = QCheckBox("Shady Guy item prices")
-        self.merchant_prices_switch.setChecked(bool(merchant_prices_enabled))
-        self.merchant_prices_row = _premium_map_option(
-            self.merchant_prices_switch,
-            "Shows the prices last seen when opening each shop. Reopen the shop to refresh them. Requires stock memory.",
-            None,
-            premium_card,
-        )
-        self.merchant_prices_switch.setEnabled(
-            self._has_premium_access and bool(merchant_memory_enabled)
-        )
-        self.merchant_memory_switch.toggled.connect(
-            lambda checked: self.merchant_prices_switch.setEnabled(self._has_premium_access and checked)
-        )
-
-        # The microwave counter follows Premium access without its own switch.
-        self.microwave_uses_row = QWidget(premium_card)
-        self.microwave_uses_row.setObjectName("mapMarkerBehaviorOption")
-        microwave_layout = QVBoxLayout(self.microwave_uses_row)
-        microwave_layout.setContentsMargins(14, 0, 14, 0)
-        microwave_layout.setSpacing(10)
-        microwave_divider = QFrame(self.microwave_uses_row)
-        microwave_divider.setObjectName("PremiumFeatureDivider")
-        microwave_divider.setFixedHeight(1)
-        premium_layout.addWidget(microwave_divider)
-        microwave_content = QHBoxLayout()
-        microwave_content.setSpacing(8)
-        microwave_icon = QLabel(self.microwave_uses_row)
-        microwave_icon.setObjectName("mapMarkerMicrowaveIcon")
-        microwave_icon.setFixedSize(20, 20)
-        microwave_icon.setPixmap(QIcon(resource_path(
-            "media/map_markers/pictograms/microwave.svg"
-        )).pixmap(QSize(20, 20), self.devicePixelRatioF()))
-        microwave_content.addWidget(microwave_icon, 0, Qt.AlignTop)
-        microwave_copy = QVBoxLayout()
-        microwave_copy.setSpacing(3)
-        microwave_heading = QHBoxLayout()
-        microwave_heading.setSpacing(8)
-        self.microwave_uses_title = QLabel("Microwave uses counter")
-        self.microwave_uses_title.setObjectName("mapMarkerAutomaticFeatureTitle")
-        microwave_heading.addWidget(self.microwave_uses_title)
-        self.microwave_uses_status = QLabel(
-            "· Automatic" if self._has_premium_access else "· Requires Premium"
-        )
-        self.microwave_uses_status.setObjectName("mapMarkerAutomaticFeatureStatus")
-        microwave_heading.addWidget(self.microwave_uses_status)
-        microwave_heading.addStretch(1)
-        microwave_copy.addLayout(microwave_heading)
-        self.microwave_uses_note = QLabel(
-            "Shows remaining uses on discovered microwaves."
-        )
-        self.microwave_uses_note.setObjectName("PremiumFeatureNote")
-        self.microwave_uses_note.setWordWrap(True)
-        microwave_copy.addWidget(self.microwave_uses_note)
-        microwave_content.addLayout(microwave_copy, 1)
-        microwave_layout.addLayout(microwave_content)
-        self.microwave_uses_row.setToolTip(
-            "Included automatically with Premium. Counts appear on automatically "
-            "discovered microwaves, not unlinked manual markers."
-        )
-        extra_options = QHBoxLayout()
-        extra_options.setSpacing(0)
-        extra_options.addWidget(self.microwave_uses_row, 1)
-        extra_divider = QFrame(premium_card)
-        extra_divider.setObjectName("PremiumFeatureDivider")
-        extra_divider.setFixedWidth(1)
-        extra_options.addWidget(extra_divider)
-        extra_options.addWidget(self.merchant_prices_row, 1)
-        premium_layout.addLayout(extra_options)
         self.premium_group_badge = PremiumFeatureBadge(
             has_access=self._has_premium_access,
             open_support=self._open_support,
@@ -623,10 +553,6 @@ class MapMarkerSettingsDialog(QDialog):
     @property
     def merchant_memory_enabled(self) -> bool:
         return self.merchant_memory_switch.isChecked()
-
-    @property
-    def merchant_prices_enabled(self) -> bool:
-        return self.merchant_prices_switch.isChecked()
 
     @property
     def merchant_stock_display(self) -> str:

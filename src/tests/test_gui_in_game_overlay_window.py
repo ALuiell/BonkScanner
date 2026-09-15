@@ -48,7 +48,7 @@ def _test_overlay_config() -> dict:
 
 
 class InGameOverlayWindowTests(unittest.TestCase):
-    def test_price_coin_column_obeys_setting_and_cached_paint(self):
+    def test_price_coin_column_is_built_in_and_cached(self):
         from core.shady_prices import format_shady_price
         layer = MapMarkerLayer()
         layer.resize(600, 400)
@@ -65,13 +65,12 @@ class InGameOverlayWindowTests(unittest.TestCase):
         image.fill(Qt.transparent)
         painter = QPainter(image)
         try:
-            for enabled in (True, False):
-                layer.set_snapshot(snapshot, scale=1, merchant_stock_display='always', merchant_prices_enabled=enabled)
-                with patch('gui_in_game_overlay_window.format_shady_price', wraps=format_shady_price) as formatter:
-                    layer._paint_snapshot(painter, snapshot, snapshot.viewport)
-                    self.assertEqual(formatter.call_count, 2 if enabled else 0)
-                    layer._paint_snapshot(painter, snapshot, snapshot.viewport)
-                    self.assertEqual(formatter.call_count, 2 if enabled else 0)
+            layer.set_snapshot(snapshot, scale=1, merchant_stock_display='always')
+            with patch('gui_in_game_overlay_window.format_shady_price', wraps=format_shady_price) as formatter:
+                layer._paint_snapshot(painter, snapshot, snapshot.viewport)
+                self.assertEqual(formatter.call_count, 2)
+                layer._paint_snapshot(painter, snapshot, snapshot.viewport)
+                self.assertEqual(formatter.call_count, 2)
         finally:
             painter.end()
             layer.close()
@@ -114,7 +113,7 @@ class InGameOverlayWindowTests(unittest.TestCase):
         finally:
             layer.close()
 
-    def test_microwave_badges_on_maps_and_minimap_require_premium(self):
+    def test_microwave_badges_render_on_maps_and_minimap(self):
         layer = MapMarkerLayer()
         layer.resize(400, 400)
         viewport = MapViewport(0, 0, 400, 400)
@@ -131,16 +130,14 @@ class InGameOverlayWindowTests(unittest.TestCase):
             for style in ("modern", "classic"):
                 for full_map in (True, False):
                     current = replace(snapshot, map_open=full_map)
-                    for premium in (True, False):
-                        layer.set_snapshot(current, scale=1, style=style, microwave_uses_enabled=premium)
-                        with patch.object(layer, "_microwave_badge_pixmap", wraps=layer._microwave_badge_pixmap) as badge:
-                            if full_map:
-                                layer._paint_snapshot(painter, current, viewport)
-                            else:
-                                layer._paint_minimap(painter, current)
-                        self.assertEqual(badge.call_count, int(premium))
-                        if premium:
-                            self.assertEqual(badge.call_args.args[0], 2)
+                    layer.set_snapshot(current, scale=1, style=style)
+                    with patch.object(layer, "_microwave_badge_pixmap", wraps=layer._microwave_badge_pixmap) as badge:
+                        if full_map:
+                            layer._paint_snapshot(painter, current, viewport)
+                        else:
+                            layer._paint_minimap(painter, current)
+                    self.assertEqual(badge.call_count, 1)
+                    self.assertEqual(badge.call_args.args[0], 2)
             with patch.object(layer, "_microwave_badge_pixmap") as badge:
                 layer._paint_microwave_uses_badge(painter, 100, 100, 36, None)
                 layer._paint_microwave_uses_badge(painter, 100, 100, 36, -1)

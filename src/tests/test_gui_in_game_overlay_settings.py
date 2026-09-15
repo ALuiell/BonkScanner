@@ -323,7 +323,6 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
             minimap_enabled=True,
             minimap_scale=1.2,
             merchant_memory_enabled=True,
-            merchant_prices_enabled=True,
             merchant_stock_display="cursor",
             deleteLater=MagicMock(),
         )
@@ -345,10 +344,9 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
             None,
             automatic_discovery=False,
             style="modern",
-            minimap_enabled=False,
+            minimap_enabled=True,
             minimap_scale=1.0,
-            merchant_memory_enabled=False,
-            merchant_prices_enabled=False,
+            merchant_memory_enabled=True,
             merchant_stock_display="smart",
             has_premium_access=True,
             open_support_settings=parent._open_support_settings,
@@ -359,7 +357,7 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
         self.assertTrue(marker_config["minimap_enabled"])
         self.assertEqual(marker_config["minimap_scale"], 1.2)
         self.assertTrue(marker_config["merchant_memory_enabled"])
-        self.assertTrue(marker_config["merchant_prices_enabled"])
+        self.assertNotIn("merchant_prices_enabled", marker_config)
         self.assertEqual(marker_config["merchant_stock_display"], "cursor")
         self.assertIn("Classic", parent.igo_map_markers_summary.text())
         parent._rebind_hotkeys.assert_called_once_with()
@@ -421,12 +419,7 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
             minimap_scale=1.0,
             merchant_stock_display="smart",
             cursor_position=None,
-            microwave_uses_enabled=True,
-            merchant_prices_enabled=False,
         )
-        parent._has_premium_access = lambda: False
-        InGameOverlay._set_map_marker_snapshot(parent, snapshot)
-        self.assertFalse(setter.call_args.kwargs["microwave_uses_enabled"])
 
     def test_map_marker_summary_names_new_style_by_default(self) -> None:
         parent = SimpleNamespace(igo_map_markers_summary=QLabel())
@@ -439,10 +432,10 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
 
         self.assertEqual(
             parent.igo_map_markers_summary.text(),
-            "Manual only · New style · 0 hotkeys · 3 Premium options",
+            "Manual only · New style · 0 hotkeys · 2 Premium options",
         )
 
-    def test_map_marker_summary_lists_enabled_shady_prices(self) -> None:
+    def test_map_marker_summary_lists_enabled_premium_features(self) -> None:
         parent = SimpleNamespace(
             igo_map_markers_summary=QLabel(),
             _has_premium_access=lambda: True,
@@ -456,7 +449,6 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
                     "style": "modern",
                     "minimap_enabled": True,
                     "merchant_memory_enabled": True,
-                    "merchant_prices_enabled": True,
                 }
             },
         ):
@@ -465,7 +457,7 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
         self.assertEqual(
             parent.igo_map_markers_summary.text(),
             "Manual only · New style · 0 hotkeys · "
-            "Minimap + Shady memory + Shady prices",
+            "Minimap + Shady memory",
         )
 
 

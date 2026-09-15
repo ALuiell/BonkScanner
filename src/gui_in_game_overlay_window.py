@@ -80,8 +80,6 @@ class MapMarkerLayer(QWidget):
         self._premium_icon_cache: dict[int, QPixmap] = {}
         self._stock_badge_cache: dict[int, QPixmap] = {}
         self._microwave_badge_cache: dict[tuple, QPixmap] = {}
-        self._microwave_uses_enabled = False
-        self._merchant_prices_enabled = False
         self._stock_group_key = None
         self._stock_groups = ()
         self._stock_layout_key = None
@@ -103,8 +101,6 @@ class MapMarkerLayer(QWidget):
         minimap_scale: float = 1.0,
         merchant_stock_display: str = "smart",
         cursor_position: tuple[float, float] | None = None,
-        microwave_uses_enabled: bool = False,
-        merchant_prices_enabled: bool = False,
     ) -> None:
         normalized_scale = max(0.5, min(float(scale), 3.0))
         normalized_minimap_scale = max(0.5, min(float(minimap_scale), 2.0))
@@ -126,8 +122,6 @@ class MapMarkerLayer(QWidget):
             or normalized_minimap_scale != self._minimap_scale
             or normalized_style != self._style
             or normalized_stock_display != self._merchant_stock_display
-            or bool(microwave_uses_enabled) != self._microwave_uses_enabled
-            or bool(merchant_prices_enabled) != self._merchant_prices_enabled
         )
         was_shown = not self.isHidden()
         self._snapshot = snapshot
@@ -136,8 +130,6 @@ class MapMarkerLayer(QWidget):
         self._style = normalized_style
         self._merchant_stock_display = normalized_stock_display
         self._cursor_position = normalized_cursor
-        self._microwave_uses_enabled = bool(microwave_uses_enabled)
-        self._merchant_prices_enabled = bool(merchant_prices_enabled)
         if not changed and snapshot.map_open and cursor_changed:
             # A moving cursor only needs a repaint when the selected merchant
             # changes. Keep the marker-to-card hover bridge live either way.
@@ -306,7 +298,7 @@ class MapMarkerLayer(QWidget):
                 int(icon_size_value),
             )
             stock = stock_by_object.get(marker.object_ptr)
-            if self._microwave_uses_enabled and action.family == "microwave":
+            if action.family == "microwave":
                 self._paint_microwave_uses_badge(
                     painter, center_x, center_y, float(icon_size_value), marker.uses_remaining
                 )
@@ -367,7 +359,7 @@ class MapMarkerLayer(QWidget):
                     self._paint_stock_badge(
                         painter, center_x, center_y, float(icon_size_value)
                     )
-                if self._microwave_uses_enabled and action.family == "microwave":
+                if action.family == "microwave":
                     self._paint_microwave_uses_badge(
                         painter, center_x, center_y, float(icon_size_value), marker.uses_remaining
                     )
@@ -514,12 +506,12 @@ class MapMarkerLayer(QWidget):
             self._stock_hover_bridge = None
         hovered = self._stock_hover_selection()
         self._stock_hovered_marker = hovered
-        layout_key = (viewport, self._scale, self._merchant_stock_display, hovered, obstacles, self._merchant_prices_enabled)
+        layout_key = (viewport, self._scale, self._merchant_stock_display, hovered, obstacles)
         if layout_key != self._stock_layout_key:
             self._stock_plans = layout_stock_cards(
                 self._stock_groups, viewport, self._scale,
                 self._merchant_stock_display, hovered, obstacles,
-                show_prices=self._merchant_prices_enabled,
+                show_prices=True,
             )
             self._stock_layout_key = layout_key
 
@@ -533,7 +525,6 @@ class MapMarkerLayer(QWidget):
             cache_key = (
                 plan.group.entries, plan.entries, plan.compact, bounds.width(),
                 bounds.height(), self._scale, self._style, selected, dpr,
-                self._merchant_prices_enabled,
             )
             pixmap = self._stock_card_pixmaps.get(cache_key)
             if pixmap is None:
@@ -631,8 +622,6 @@ class MapMarkerLayer(QWidget):
             y += section_height
 
     def _stock_name_width(self, items, width):
-        if not self._merchant_prices_enabled:
-            return None
         names, prices = priced_stock_columns(items)
         return max(1, min(names, width - 16 - 9 - prices))
 
@@ -644,7 +633,7 @@ class MapMarkerLayer(QWidget):
         if name_width is None:
             name_width = self._stock_name_width(stock.items, width)
         text_width = int(width - 22 if name_width is None else name_width)
-        padding = 8 if self._merchant_prices_enabled else 11
+        padding = 8
         for item in stock.items:
             painter.setFont(font)
             painter.setPen(QColor(ITEM_RARITY_COLOR_MAP.get(item.rarity, "#DDE7F2")))
@@ -655,24 +644,23 @@ class MapMarkerLayer(QWidget):
                     Qt.AlignVCenter | Qt.AlignLeft, text,
                 )
                 top += row_height
-            if self._merchant_prices_enabled:
-                coin_left = left + padding + text_width + 9
-                coin_top = row_top + (row_height - 11) / 2
-                painter.setPen(QPen(QColor('#F7D96D'), 1))
-                painter.setBrush(QColor('#DFAE30'))
-                painter.drawEllipse(QRectF(coin_left, coin_top, 11, 11))
-                painter.setPen(QPen(QColor('#98701A'), 1))
-                painter.drawEllipse(QRectF(coin_left + 1.5, coin_top + 1.5, 8, 8))
-                painter.setPen(QPen(QColor('#FFF0A9'), 1))
-                painter.drawLine(QPointF(coin_left + 5.5, coin_top + 3), QPointF(coin_left + 5.5, coin_top + 8))
-                price_font = QFont(font)
-                price_font.setBold(True)
-                painter.setFont(price_font)
-                painter.setPen(QColor('#F4CE62'))
-                painter.drawText(
-                    QRectF(coin_left + 15, row_top, max(1, left + width - 8 - coin_left - 15), row_height),
-                    Qt.AlignVCenter | Qt.AlignLeft, format_shady_price(item.price),
-                )
+            coin_left = left + padding + text_width + 9
+            coin_top = row_top + (row_height - 11) / 2
+            painter.setPen(QPen(QColor('#F7D96D'), 1))
+            painter.setBrush(QColor('#DFAE30'))
+            painter.drawEllipse(QRectF(coin_left, coin_top, 11, 11))
+            painter.setPen(QPen(QColor('#98701A'), 1))
+            painter.drawEllipse(QRectF(coin_left + 1.5, coin_top + 1.5, 8, 8))
+            painter.setPen(QPen(QColor('#FFF0A9'), 1))
+            painter.drawLine(QPointF(coin_left + 5.5, coin_top + 3), QPointF(coin_left + 5.5, coin_top + 8))
+            price_font = QFont(font)
+            price_font.setBold(True)
+            painter.setFont(price_font)
+            painter.setPen(QColor('#F4CE62'))
+            painter.drawText(
+                QRectF(coin_left + 15, row_top, max(1, left + width - 8 - coin_left - 15), row_height),
+                Qt.AlignVCenter | Qt.AlignLeft, format_shady_price(item.price),
+            )
 
     def _paint_stock_merchant_icon(self, painter, action, left, top) -> None:
         # Use the complete map symbol, not the bare black classic pictogram.

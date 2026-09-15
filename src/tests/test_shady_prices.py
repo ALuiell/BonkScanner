@@ -17,9 +17,8 @@ class ShadyPriceTests(unittest.TestCase):
         client.activity_is_active.return_value = True
         now = [1.0]
         tracker = MapMarkerTracker('test', client_factory=lambda _: client, clock=lambda: now[0])
-        def tick(**kwargs):
-            return tracker.tick(client_height=1000, merchant_memory_enabled=True,
-                                merchant_prices_enabled=kwargs.get('enabled', True))
+        def tick():
+            return tracker.tick(client_height=1000, merchant_memory_enabled=True)
         self.assertEqual(tick().merchant_stocks[0].items[0].price, 60)
         client.poll.return_value = replace(frame, merchant_stock_capture=None)
         for t in (1.025, 1.1, 1.5, 5.0):
@@ -34,8 +33,7 @@ class ShadyPriceTests(unittest.TestCase):
         self.assertEqual(tick().merchant_stocks[0].items[0].price, 68)
 
         client.poll.return_value = replace(frame, merchant_stock_capture=None)
-        self.assertIsNone(tick(enabled=False).merchant_stocks[0].items[0].price)
-        self.assertIsNone(tick().merchant_stocks[0].items[0].price)
+        self.assertEqual(tick().merchant_stocks[0].items[0].price, 68)
         client.poll.return_value = replace(frame, map_id=2, merchant_stock_capture=None)
         self.assertEqual(tick().merchant_stocks, ())
 
@@ -59,7 +57,7 @@ class ShadyPriceTests(unittest.TestCase):
         self.assertEqual(c._read_shady_prices((merchant, 0, picker), offers), offers)
         c._read_shady_offer_gate = Mock(return_value=None)
         c._read_shady_prices = Mock(side_effect=AssertionError('closed window'))
-        self.assertIsNone(c._read_shady_stock_capture(1, prices_enabled=True))
+        self.assertIsNone(c._read_shady_stock_capture(1))
         c._read_shady_prices.assert_not_called()
 
     def test_formats_boundaries_without_rounding_up(self):

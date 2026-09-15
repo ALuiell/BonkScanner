@@ -510,15 +510,13 @@ def refresh_map_marker_settings_summary(parent_mixin: Any) -> None:
     style = "Classic" if marker_cfg.get("style") == "classic" else "New style"
     has_premium = getattr(parent_mixin, "_has_premium_access", lambda: False)
     if not has_premium():
-        premium = "3 Premium options"
+        premium = "2 Premium options"
     else:
         premium_parts = []
-        if marker_cfg.get("minimap_enabled", False):
+        if marker_cfg.get("minimap_enabled", True):
             premium_parts.append("Minimap")
-        if marker_cfg.get("merchant_memory_enabled", False):
+        if marker_cfg.get("merchant_memory_enabled", True):
             premium_parts.append("Shady memory")
-            if marker_cfg.get("merchant_prices_enabled", False):
-                premium_parts.append("Shady prices")
         premium = " + ".join(premium_parts) if premium_parts else "Premium off"
     summary.setText(f"{mode} · {style} · {hotkeys} · {premium}")
 
@@ -532,16 +530,13 @@ def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
         parent,
         automatic_discovery=bool(marker_cfg.get("automatic_discovery", False)),
         style=str(marker_cfg.get("style", "modern")),
-        minimap_enabled=bool(marker_cfg.get("minimap_enabled", False)),
+        minimap_enabled=bool(marker_cfg.get("minimap_enabled", True)),
         minimap_scale=float(marker_cfg.get("minimap_scale", 1.0)),
         merchant_memory_enabled=bool(
-            marker_cfg.get("merchant_memory_enabled", False)
+            marker_cfg.get("merchant_memory_enabled", True)
         ),
         merchant_stock_display=str(
             marker_cfg.get("merchant_stock_display", "smart")
-        ),
-        merchant_prices_enabled=bool(
-            marker_cfg.get("merchant_prices_enabled", False)
         ),
         has_premium_access=bool(has_premium()),
         open_support_settings=getattr(
@@ -558,7 +553,6 @@ def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
         marker_cfg["minimap_scale"] = dialog.minimap_scale
         marker_cfg["merchant_memory_enabled"] = dialog.merchant_memory_enabled
         marker_cfg["merchant_stock_display"] = dialog.merchant_stock_display
-        marker_cfg["merchant_prices_enabled"] = dialog.merchant_prices_enabled
         config.save_config(config.user_config)
         refresh_map_marker_settings_summary(parent_mixin)
         # Runtime registration is intentionally reached through the existing port;

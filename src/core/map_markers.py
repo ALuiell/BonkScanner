@@ -473,13 +473,12 @@ def normalize_map_marker_settings(value: Any) -> dict[str, Any]:
         "automatic_discovery": bool(source.get("automatic_discovery", False)),
         "style": style,
         "scale": max(0.5, min(scale, 3.0)),
-        "minimap_enabled": bool(source.get("minimap_enabled", False)),
+        "minimap_enabled": bool(source.get("minimap_enabled", True)),
         "minimap_scale": max(0.5, min(minimap_scale, 2.0)),
         "merchant_memory_enabled": bool(
-            source.get("merchant_memory_enabled", False)
+            source.get("merchant_memory_enabled", True)
         ),
         "merchant_stock_display": stock_display,
-        "merchant_prices_enabled": bool(source.get("merchant_prices_enabled", False)),
         "hotkeys": normalize_map_marker_hotkeys(source.get("hotkeys")),
     }
 

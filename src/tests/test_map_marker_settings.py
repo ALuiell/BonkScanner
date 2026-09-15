@@ -40,7 +40,7 @@ class MapMarkerConfigTests(unittest.TestCase):
             ],
         )
 
-    def test_marker_settings_clamp_scale_and_default_to_disabled(self) -> None:
+    def test_marker_settings_clamp_scale_and_default_premium_options_on(self) -> None:
         self.assertEqual(
             normalize_map_marker_settings({"scale": 99, "hotkeys": "bad"}),
             {
@@ -48,10 +48,9 @@ class MapMarkerConfigTests(unittest.TestCase):
                 "automatic_discovery": False,
                 "style": "modern",
                 "scale": 3.0,
-                "minimap_enabled": False,
+                "minimap_enabled": True,
                 "minimap_scale": 1.0,
-                "merchant_memory_enabled": False,
-                "merchant_prices_enabled": False,
+                "merchant_memory_enabled": True,
                 "merchant_stock_display": "smart",
                 "hotkeys": [],
             },
@@ -90,52 +89,38 @@ class MapMarkerConfigTests(unittest.TestCase):
 
 
 class MapMarkerSettingsDialogTests(unittest.TestCase):
-    def test_prices_require_premium_and_stock_memory_but_remember_choice(self):
-        for premium in (False, True):
-            dialog = MapMarkerSettingsDialog([], has_premium_access=premium,
-                                             merchant_memory_enabled=True, merchant_prices_enabled=True)
-            try:
-                self.assertEqual(dialog.merchant_prices_switch.isEnabled(), premium)
-                self.assertTrue(dialog.merchant_prices_enabled)
-                dialog.merchant_memory_switch.setChecked(False)
-                self.assertFalse(dialog.merchant_prices_switch.isEnabled())
-                self.assertTrue(dialog.merchant_prices_enabled)
-                dialog.merchant_memory_switch.setChecked(True)
-                self.assertEqual(dialog.merchant_prices_switch.isEnabled(), premium)
-            finally:
-                dialog.deleteLater()
-
     @classmethod
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
 
-    def test_microwave_counter_is_visible_information_not_a_setting(self) -> None:
+    def test_stock_memory_includes_prices_without_separate_setting(self) -> None:
+        dialog = MapMarkerSettingsDialog([], has_premium_access=True)
+        try:
+            self.assertTrue(dialog.minimap_enabled)
+            self.assertTrue(dialog.merchant_memory_enabled)
+            self.assertFalse(hasattr(dialog, "merchant_prices_switch"))
+            copy = " ".join(
+                label.text() for label in dialog.merchant_row.findChildren(QLabel)
+            )
+            self.assertIn("names and prices", copy)
+            self.assertIn("Reopen the shop to refresh them", copy)
+        finally:
+            dialog.deleteLater()
+
+    def test_microwave_counter_is_part_of_free_automatic_discovery(self) -> None:
         for premium in (False, True):
             with self.subTest(premium=premium):
                 dialog = MapMarkerSettingsDialog([], has_premium_access=premium)
                 try:
                     dialog.show()
                     QApplication.processEvents()
-                    self.assertTrue(dialog.microwave_uses_row.isVisible())
-                    self.assertTrue(dialog.microwave_uses_row.isEnabled())
-                    self.assertEqual(dialog.microwave_uses_title.text(), "Microwave uses counter")
-                    self.assertEqual(
-                        dialog.microwave_uses_status.text(),
-                        "· Automatic" if premium else "· Requires Premium",
+                    self.assertEqual(len(dialog.premium_card.findChildren(QCheckBox)), 2)
+                    copy = " ".join(
+                        label.text()
+                        for label in dialog.behavior_card.findChildren(QLabel)
                     )
-                    self.assertEqual(len(dialog.premium_card.findChildren(QCheckBox)), 3)
-                    self.assertEqual(dialog.microwave_uses_row.findChildren(QCheckBox), [])
-                    self.assertGreater(
-                        dialog.microwave_uses_row.y(),
-                        max(dialog.minimap_row.geometry().bottom(), dialog.merchant_row.geometry().bottom()),
-                    )
-                    self.assertLess(
-                        dialog.microwave_uses_title.mapTo(dialog, QPoint()).x(),
-                        dialog.microwave_uses_status.mapTo(dialog, QPoint()).x(),
-                    )
-                    self.assertEqual(dialog.microwave_uses_note.text(), "Shows remaining uses on discovered microwaves.")
-                    dialog.automatic_discovery_cb.setChecked(False)
-                    self.assertIn("Automatic" if premium else "Requires Premium", dialog.microwave_uses_status.text())
+                    self.assertIn("remaining uses", copy)
+                    self.assertNotIn("Requires Premium", copy)
                 finally:
                     dialog.close()
 
@@ -197,7 +182,7 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
                 abs(automatic_position.y() - classic_position.y()), 2
             )
             self.assertLess(classic_position.y(), premium_position.y())
-            # Four Premium features stay compact in two paired rows.
+            # The two Premium features stay compact in one paired row.
             self.assertLessEqual(dialog.premium_card.height(), 225)
             self.assertEqual(dialog.premium_card.objectName(), "mapMarkerPremiumGroup")
             self.assertEqual(dialog.premium_card.styleSheet(), "")

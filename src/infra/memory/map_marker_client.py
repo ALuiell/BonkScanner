@@ -252,7 +252,6 @@ class MapMarkerMemoryClient:
         minimap_enabled: bool = False,
         merchant_memory_enabled: bool = False,
         sample_merchant_memory: bool = True,
-        merchant_prices_enabled: bool = False,
     ) -> MapMemoryFrame:
         previous_full_map = self._full_map_ptr
         full_map = self._resolve_full_map()
@@ -350,10 +349,7 @@ class MapMarkerMemoryClient:
             self._pending_stock_sample = None
         if merchant_memory_enabled and sample_merchant_memory:
             try:
-                merchant_stock_capture = (
-                    self._read_shady_stock_capture(map_id, prices_enabled=True)
-                    if merchant_prices_enabled else self._read_shady_stock_capture(map_id)
-                )
+                merchant_stock_capture = self._read_shady_stock_capture(map_id)
             except Exception:
                 # Incomplete UI population, a close between passes, and stale
                 # pointers all mean "not captured yet". The next valid opening
@@ -966,22 +962,18 @@ class MapMarkerMemoryClient:
             )
         return found
 
-    def _read_shady_stock_capture(
-        self, map_id: int, *, prices_enabled: bool = False,
-    ) -> MerchantStockCapture | None:
+    def _read_shady_stock_capture(self, map_id: int) -> MerchantStockCapture | None:
         previous_sample = self._pending_stock_sample
         self._pending_stock_sample = None
         gate = self._read_shady_offer_gate()
         if gate is None:
             return None
         first = self._read_shady_offer_cards(gate[2])
-        if prices_enabled:
-            first = self._read_shady_prices(gate, first)
+        first = self._read_shady_prices(gate, first)
         if self._read_shady_offer_gate() != gate:
             return None
         second = self._read_shady_offer_cards(gate[2])
-        if prices_enabled:
-            second = self._read_shady_prices(gate, second)
+        second = self._read_shady_prices(gate, second)
         if first != second or self._read_shady_offer_gate() != gate:
             return None
 

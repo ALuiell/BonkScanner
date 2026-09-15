@@ -92,18 +92,9 @@ class MapMarkerTracker:
         automatic_discovery: bool = False,
         minimap_enabled: bool = False,
         merchant_memory_enabled: bool = False,
-        microwave_uses_enabled: bool = False,
-        merchant_prices_enabled: bool = False,
     ) -> MapMarkerSnapshot:
         automatic_enabled = bool(automatic_discovery)
         merchant_enabled = bool(merchant_memory_enabled)
-        prices_enabled = bool(merchant_enabled and merchant_prices_enabled)
-        if not prices_enabled:
-            self._clear_stock_prices()
-        if not microwave_uses_enabled:
-            for marker_id, marker in self._markers.items():
-                if marker.uses_remaining is not None:
-                    self._markers[marker_id] = replace(marker, uses_remaining=None)
         heavy_reads_enabled = automatic_enabled or merchant_enabled
         automatic_now = self._clock() if heavy_reads_enabled else 0.0
         sample_heavy = bool(
@@ -154,8 +145,6 @@ class MapMarkerTracker:
                     merchant_memory_enabled=merchant_enabled,
                     sample_merchant_memory=(merchant_enabled and sample_heavy),
                 )
-            if prices_enabled:
-                poll_kwargs['merchant_prices_enabled'] = True
             frame = client.poll(**poll_kwargs)
         except FullMapNotReadyError:
             # FullMap type info is initialized lazily by the game. Keep this
@@ -254,7 +243,7 @@ class MapMarkerTracker:
                         self._markers[marker_id] = replace(marker, uses_remaining=None)
                     continue
                 if (
-                    active and microwave_uses_enabled and expected_identity is not None
+                    active and expected_identity is not None
                     and expected_identity[1] == "InteractableMicrowave"
                 ):
                     marker = self._markers.get(marker_id)
@@ -287,9 +276,7 @@ class MapMarkerTracker:
                     world_z=detected.world_z,
                     source="automatic",
                     object_ptr=detected.object_ptr,
-                    uses_remaining=(
-                        detected.uses_remaining if microwave_uses_enabled else None
-                    ),
+                    uses_remaining=detected.uses_remaining,
                 )
                 self._automatic_by_object[detected.object_ptr] = marker_id
                 self._automatic_identity_by_object[detected.object_ptr] = (
@@ -350,13 +337,6 @@ class MapMarkerTracker:
             ),
         )
         return self._snapshot
-
-    def _clear_stock_prices(self) -> None:
-        for pointer, stock in self._merchant_stocks.items():
-            if any(item.price is not None for item in stock.items):
-                self._merchant_stocks[pointer] = replace(
-                    stock, items=tuple(replace(item, price=None) for item in stock.items)
-                )
 
     def _lifecycle_check_due(self, object_ptr, marker_id, frame, now: float) -> bool:
         projection = frame.minimap_projection
