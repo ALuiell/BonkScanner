@@ -645,6 +645,40 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["cooldown_seconds"] = old_cooldown
         TWITCH_BOT["commands"] = old_commands
 
+    def test_singular_command_aliases_use_the_existing_handlers_and_cooldowns(self):
+        from app import config
+
+        aliases = {
+            "!stat": ("stats", "_handle_stats", "!stats"),
+            "!ban": ("bans", "_handle_bans", "!bans"),
+            "!item": ("items", "_handle_items", "!items"),
+            "!weapon": ("weapons", "_handle_weapons", "!weapons"),
+            "!tome": ("tomes", "_handle_tomes", "!tomes"),
+            "!shrine": ("shrines", "_handle_shrines", "!shrines"),
+            "!stage": ("stages", "_handle_stages", "!stages"),
+            "!powerup": ("powerups", "_handle_powerups", "!powerups"),
+        }
+        handlers = {handler for _setting, handler, _canonical in aliases.values()}
+        for handler in handlers:
+            setattr(self.bot, handler, MagicMock())
+
+        with patch.dict(
+            config.TWITCH_BOT,
+            {
+                "access_tier": "Everyone",
+                "global_cooldown_seconds": 0,
+                "cooldown_seconds": 0,
+                "commands": {setting: True for setting, _handler, _canonical in aliases.values()},
+            },
+        ):
+            for index, (alias, (_setting, handler, canonical)) in enumerate(aliases.items()):
+                line = f":user!user@host PRIVMSG #channel :{alias}"
+                with patch("time.time", return_value=100.0 + index):
+                    self.bot._handle_line(line, "channel")
+
+                getattr(self.bot, handler).assert_called_once_with("channel")
+                self.assertEqual(self.bot.last_command_times[canonical], 100.0 + index)
+
     def test_opt_in_commands_stay_disabled_when_missing_from_partial_config(self):
         from app import config
 

@@ -29,10 +29,18 @@ from projections.build_progression import format_twitch_build
 
 
 COMMAND_COOLDOWN_KEYS = {
+    "!stat": "!stats",
     "!bonkstats": "!stats",
+    "!ban": "!bans",
     "!banishes": "!bans",
+    "!item": "!items",
     "!tracked": "!items",
+    "!weapon": "!weapons",
+    "!tome": "!tomes",
     "!chaostome": "!chaos",
+    "!shrine": "!shrines",
+    "!stage": "!stages",
+    "!powerup": "!powerups",
     "!chest": "!chests",
     "!preset": "!presets",
     "!bonkcmds": "!bonkhelp",
@@ -42,20 +50,28 @@ COMMAND_COOLDOWN_KEYS = {
 
 COMMAND_SETTINGS = {
     "!stats": ("stats", True),
+    "!stat": ("stats", True),
     "!bonkstats": ("stats", True),
     "!session": ("session", True),
     "!bans": ("bans", True),
+    "!ban": ("bans", True),
     "!banishes": ("bans", True),
     "!items": ("items", True),
+    "!item": ("items", True),
     "!tracked": ("items", True),
     "!weapons": ("weapons", True),
+    "!weapon": ("weapons", True),
     "!tomes": ("tomes", True),
+    "!tome": ("tomes", True),
     "!chaos": ("chaos", True),
     "!chaostome": ("chaos", True),
     "!dice": ("dice", True),
     "!shrines": ("shrines", True),
+    "!shrine": ("shrines", True),
     "!stages": ("stages", True),
+    "!stage": ("stages", True),
     "!powerups": ("powerups", True),
+    "!powerup": ("powerups", True),
     "!kps": ("kps", True),
     "!build": ("build", True),
     "!scanner": ("scanner", True),
@@ -614,27 +630,27 @@ class TwitchBotWorker(QThread):
             )
 
     def _dispatch_command(self, cmd: str, channel: str, commands_cfg: dict) -> bool:
-        if cmd in ("!stats", "!bonkstats") and commands_cfg.get("stats", True):
+        if cmd in ("!stats", "!stat", "!bonkstats") and commands_cfg.get("stats", True):
             self._handle_stats(channel)
         elif cmd == "!session" and commands_cfg.get("session", True):
             self._handle_session(channel)
-        elif cmd in ("!bans", "!banishes") and commands_cfg.get("bans", True):
+        elif cmd in ("!bans", "!ban", "!banishes") and commands_cfg.get("bans", True):
             self._handle_bans(channel)
-        elif cmd in ("!items", "!tracked") and commands_cfg.get("items", True):
+        elif cmd in ("!items", "!item", "!tracked") and commands_cfg.get("items", True):
             self._handle_items(channel)
-        elif cmd == "!weapons" and commands_cfg.get("weapons", True):
+        elif cmd in ("!weapons", "!weapon") and commands_cfg.get("weapons", True):
             self._handle_weapons(channel)
-        elif cmd == "!tomes" and commands_cfg.get("tomes", True):
+        elif cmd in ("!tomes", "!tome") and commands_cfg.get("tomes", True):
             self._handle_tomes(channel)
         elif cmd in ("!chaos", "!chaostome") and commands_cfg.get("chaos", True):
             self._handle_chaos(channel)
         elif cmd == "!dice" and commands_cfg.get("dice", True):
             self._handle_dice(channel)
-        elif cmd == "!shrines" and commands_cfg.get("shrines", True):
+        elif cmd in ("!shrines", "!shrine") and commands_cfg.get("shrines", True):
             self._handle_shrines(channel)
-        elif cmd == "!stages" and commands_cfg.get("stages", True):
+        elif cmd in ("!stages", "!stage") and commands_cfg.get("stages", True):
             self._handle_stages(channel)
-        elif cmd == "!powerups" and commands_cfg.get("powerups", True):
+        elif cmd in ("!powerups", "!powerup") and commands_cfg.get("powerups", True):
             self._handle_powerups(channel)
         elif cmd == "!kps" and commands_cfg.get("kps", True):
             self._handle_kps(channel)
