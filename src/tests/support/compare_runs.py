@@ -40,6 +40,7 @@ def build_compare_runs_tab(**overrides) -> CompareRunsTab:
         "diff_throttle": None,
         "timeline_series_slots": None,
         "log": None,
+        "active_recording_feed": None,
     }
     unknown = set(overrides) - set(defaults)
     assert not unknown, f"not CompareRunsTab constructor arguments: {sorted(unknown)}"

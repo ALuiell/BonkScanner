@@ -1385,11 +1385,13 @@ def _build_compare_runs_view(app, timeline_series_slots):
         schedule=app.marshal_to_ui,
         timeline_series_slots=timeline_series_slots,
         log=app.log,
+        active_recording_feed=app.runtime.active_recording_feed,
     )
     view.build()
     app.vod_library.subscribe(
         invalidate=view.invalidate_compare_runs_list,
         repaint=view.refresh_compare_runs_list,
+        live_repaint=lambda: view.refresh_compare_runs_list(refresh_index=False),
     )
     return view
 
@@ -1433,11 +1435,13 @@ def _build_recordings_view(app, timeline_series_slots):
         log=app.log,
         schedule=app.marshal_to_ui,
         timeline_series_slots=timeline_series_slots,
+        active_recording_feed=app.runtime.active_recording_feed,
     )
     view.build()
     app.vod_library.subscribe(
         invalidate=view.invalidate_vods_list,
         repaint=view.refresh_vods_list,
+        live_repaint=lambda: view.refresh_vods_list(refresh_index=False),
         failed=view.on_vod_metadata_refresh_failed,
     )
     return view

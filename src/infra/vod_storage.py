@@ -353,6 +353,10 @@ class VodRecorder:
         self._automatic_name_prefix = "Run"
         self._created_at: datetime | None = None
         self._max_mob_kills: int | None = None
+        self._run_seed: int | None = None
+        self._character_id: int | None = None
+        self._character_name: str | None = None
+        self._final_duration_seconds: int | None = None
 
     @property
     def interval_seconds(self) -> int:
@@ -384,6 +388,10 @@ class VodRecorder:
         self._automatic_name_prefix = default_prefix
         self._created_at = created_at
         self._max_mob_kills = None
+        self._run_seed = seed
+        self._character_id = character_id
+        self._character_name = character_name
+        self._final_duration_seconds = None
         self.name = name or _automatic_vod_name(default_prefix, created_at)
         self.start_time = self.clock()
         self.last_snapshot_time = None
@@ -423,6 +431,10 @@ class VodRecorder:
             self.snapshot_count = 0
             self._created_at = None
             self._max_mob_kills = None
+            self._run_seed = None
+            self._character_id = None
+            self._character_name = None
+            self._final_duration_seconds = None
             raise
         self.is_recording = True
         return self.path
@@ -433,6 +445,7 @@ class VodRecorder:
         if self._file is not None:
             stop_error = None
             try:
+                self._final_duration_seconds = self.elapsed_seconds()
                 if (
                     self._uses_automatic_name
                     and self._created_at is not None
@@ -447,7 +460,7 @@ class VodRecorder:
                     {
                         "type": "summary",
                         "name": self.name,
-                        "duration_seconds": self.elapsed_seconds(),
+                        "duration_seconds": self._final_duration_seconds,
                         "snapshot_count": self.snapshot_count,
                         "mob_kills": self._max_mob_kills,
                     },
@@ -492,6 +505,26 @@ class VodRecorder:
         if hours:
             return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         return f"{minutes:02d}:{seconds:02d}"
+
+    def current_metadata(self) -> VodMetadata:
+        """Return the recorder's current public identity without reading JSONL."""
+        if self.path is None or self._created_at is None:
+            raise RuntimeError("VOD recorder has not been started.")
+        return VodMetadata(
+            path=self.path.resolve(),
+            name=self.name,
+            created_at=self._created_at.isoformat(),
+            interval_seconds=self.interval_seconds,
+            duration_seconds=(
+                self._final_duration_seconds
+                if self._final_duration_seconds is not None and not self.is_recording
+                else self.elapsed_seconds()
+            ),
+            snapshot_count=self.snapshot_count,
+            run_seed=self._run_seed,
+            character_id=self._character_id,
+            character_name=self._character_name,
+        )
 
     def should_capture(self) -> bool:
         if not self.is_recording:
@@ -608,7 +641,12 @@ def clear_vod_metadata_cache() -> None:
     _VOD_METADATA_CACHE.clear()
 
 
-def load_vod(path: Path) -> LoadedVod:
+def load_vod(
+    path: Path,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+) -> LoadedVod:
     metadata_record: dict[str, Any] | None = None
     summary_record: dict[str, Any] | None = None
     snapshots: list[VodSnapshot] = []
@@ -618,7 +656,7 @@ def load_vod(path: Path) -> LoadedVod:
     pool: dict[str, str] = {}
 
     version = 1
-    for record in _iter_records(path):
+    for record in _iter_records(path, cancelled=cancelled, progress=progress):
         record_type = record.get("type")
         if record_type == "metadata":
             version = _vod_version(record)
@@ -777,7 +815,12 @@ def _loads_record(payload: str | bytes) -> dict[str, Any]:
     return record
 
 
-def _iter_records(path: Path):
+def _iter_records(
+    path: Path,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+):
     """Yield records, tolerating only an incomplete final write.
 
     A process can exit between writing a JSON object and its terminating
@@ -785,13 +828,20 @@ def _iter_records(path: Path):
     real corruption and must still fail loudly.
     """
     pending_line: bytes | None = None
+    total = max(0, path.stat().st_size)
+    consumed = 0
     with path.open("rb") as file:
         for line in file:
+            if cancelled is not None and cancelled():
+                raise InterruptedError("VOD load cancelled")
+            consumed += len(line)
             if not line.strip():
                 continue
             if pending_line is not None:
                 yield _loads_record(pending_line)
             pending_line = line
+            if progress is not None:
+                progress(consumed, total)
 
     if pending_line is None:
         return
@@ -800,6 +850,8 @@ def _iter_records(path: Path):
     except (UnicodeDecodeError, json.JSONDecodeError):
         if pending_line.endswith((b"\n", b"\r")):
             raise
+    if progress is not None:
+        progress(total, total)
 
 
 def _read_first_record(path: Path) -> dict[str, Any]:

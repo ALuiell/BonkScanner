@@ -57,12 +57,13 @@ class CompareRunsLifecycleTests(unittest.TestCase):
         ):
             view.load_compare_run("a", "run-a.jsonl")
 
-        self.assertEqual(1, len(scheduled))
+        self.assertGreaterEqual(len(scheduled), 1)
         view._on_tab_destroyed()
-        scheduled.pop()()
+        for callback in tuple(scheduled):
+            callback()
 
         self.assertIsNone(view._vod_a)
-        self.assertIn("Loading recording…", view._run_a_status_label.text())
+        self.assertIn("Reading recording…", view._run_a_status_label.text())
 
     def test_library_repaint_is_ignored_after_tab_destruction(self) -> None:
         view = build_compare_runs_tab()

@@ -1031,6 +1031,34 @@ class VodStorageTests(unittest.TestCase):
             self.assertFalse(hasattr(snapshot, "__dict__"))
             self.assertFalse(hasattr(snapshot.stats["Damage"], "__dict__"))
 
+    def test_current_metadata_tracks_live_identity_and_freezes_final_duration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            now = [100.0]
+            recorder = VodRecorder(
+                vods_dir=Path(temp_dir),
+                interval_seconds=10,
+                clock=lambda: now[0],
+            )
+            recorder.start(
+                name="Live",
+                seed=123,
+                character_id=7,
+                character_name="CL4NK",
+            )
+            now[0] = 112.0
+            capture(recorder, {})
+
+            live = recorder.current_metadata()
+            self.assertEqual(1, live.snapshot_count)
+            self.assertEqual(12, live.duration_seconds)
+            self.assertEqual(123, live.run_seed)
+            self.assertEqual((7, "CL4NK"), (live.character_id, live.character_name))
+
+            now[0] = 119.0
+            recorder.stop()
+            now[0] = 150.0
+            self.assertEqual(19, recorder.current_metadata().duration_seconds)
+
 
 if __name__ == "__main__":
     unittest.main()

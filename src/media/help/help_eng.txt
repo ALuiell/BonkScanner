@@ -88,6 +88,8 @@ Inside `Recordings`, you can:
 - delete a recording;
 - clean short recordings by snapshot count.
 
+An active recording is marked `LIVE` and updates without reopening the file. `Auto-sync` is enabled when you select an active run. Dragging the playhead back turns off Follow Live but keeps Auto-sync running, so the timeline can grow without moving your historical position. Use `Go Live` to return to the newest snapshot. If Auto-sync is disabled, `Sync N` shows how many new snapshots are waiting and applies the newest revision in one update.
+
 Recording behavior:
 - normal stage transitions should not split a recording into a new file;
 - when the app detects a truly new run, recording can automatically continue into a new file;
@@ -103,6 +105,7 @@ Compare Runs
 - The center workspace shows overview deltas and detail tabs for stats, stages, items, weapons, tomes, Chaos Tome, Shrines, and character Passives.
 - `Passives` compares the character, passive, level, tracking coverage, proven Dice roll count, and accumulated bonuses saved at each playhead. Older recordings show an explicit no-data state.
 - `Compare Settings` lets you choose which stats appear in the difference view and which compare sections stay visible.
+- Either side can be a `LIVE` recording. Auto-sync updates only that side; the other run is not reloaded. Follow Live aligns the other run by absolute in-game time, while a manual drag keeps the chosen historical time fixed as the live run grows.
 
 OBS Overlay
 -----------

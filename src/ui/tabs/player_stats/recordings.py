@@ -38,6 +38,7 @@ from typing import Callable
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QDialog,
     QFormLayout,
     QFrame,
@@ -58,6 +59,12 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
+from app.active_recording_feed import DISCARDED, FINALIZE_FAILED, FINALIZED, RECORDING
+from app.prepared_recording import (
+    load_and_prepare_recording,
+    prepare_loaded_recording,
+    replace_prepared_metadata,
+)
 from app.vod_library import (
     delete_vod,
     delete_vods_below_snapshot_count,
@@ -94,6 +101,7 @@ from ui.shared import (
     FullWidthTabWidget,
     LabeledSwitch,
     StagedLoadingPage,
+    StagedLoadingSpinner,
     _apply_button_icon,
     _apply_summary_label_padding,
     _clear_text_input,
@@ -386,6 +394,7 @@ class RecordingsTab:
         schedule: Callable[[Callable[[], None]], None] | None = None,
         snapshot_throttle: UiUpdateThrottle | None = None,
         timeline_series_slots: TimelineSeriesSlots | None = None,
+        active_recording_feed=None,
     ) -> None:
         self._tabview = tabview
         self._library = vod_library
@@ -394,6 +403,9 @@ class RecordingsTab:
         self._is_active = is_active
         self._log = log
         self._schedule = schedule
+        self._disposed = False
+        self._active_feed = active_recording_feed
+        self._feed_token = None
 
         # Selection state. Nine names on `MegabonkApp` until step 21c; measured
         # to have zero production readers outside this module, which is what
@@ -432,12 +444,21 @@ class RecordingsTab:
         self._list_signature = None
         self._load_generation = 0
         self._load_in_progress = False
+        self._loading_path: Path | None = None
+        self._prepared_recording = None
+        self._live_auto_sync = True
+        self._live_follow = True
+        self._live_applied_revision: int | None = None
+        self._live_pending_state = None
         self._load_lane = LatestWinsLoader(
             schedule=lambda callback: self._marshal(callback),
             thread_name="recordings-loader",
         )
 
         self._rows = {}
+        self._list_items_by_path = {}
+        self._list_rows_by_path = {}
+        self._list_longest_seconds = 0
         self._compact_rows = {}
         self._stage_summary_labels = []
         self._stage_cards = []
@@ -489,12 +510,44 @@ class RecordingsTab:
         self._min_snapshots_spin = None
         self._chests_card_values = None
         self._loot_rarity_card_values = None
+        self._live_auto_sync_checkbox = None
+        self._live_sync_button = None
+        self._detail_loading_spinner = None
+        if self._active_feed is not None:
+            self._feed_token = self._active_feed.subscribe(
+                self._on_active_recording_state,
+                lambda callback: self._marshal(callback),
+            )
 
-    def refresh_vods_list(self):
+    def refresh_vods_list(self, *, refresh_index: bool = True):
+        if self._disposed:
+            return
         if self._list_frame is None:
             return
+        if (
+            self._is_active()
+            and self._live_auto_sync
+            and self._live_pending_state is not None
+        ):
+            pending = self._live_pending_state
+            self._live_pending_state = None
+            self._submit_live_state(pending)
 
         vods = list(self._library.index)
+        active_state = getattr(self._library, "active_state", None)
+        if not refresh_index and self._list_signature is not None and active_state is not None:
+            self._list_longest_seconds = max(
+                self._list_longest_seconds,
+                int(active_state.metadata.duration_seconds or 0),
+            )
+            widget = self._list_rows_by_path.get(str(active_state.metadata.path))
+            if widget is not None:
+                widget.set_metadata(
+                    active_state.metadata,
+                    longest_seconds=self._list_longest_seconds,
+                    live=active_state.status == RECORDING,
+                )
+                return
         selected_path = self._loaded_vod.metadata.path if self._loaded_vod is not None else None
         query = _read_text(self._search_entry).strip().casefold() if self._search_entry else ""
         sort_mode = self._recordings_sort_mode()
@@ -503,26 +556,53 @@ class RecordingsTab:
         # query nor the set of recordings, so without it here the early return
         # swallows the repaint and the combo box does nothing at all -- with no
         # error to say why.
-        signature = (
-            str(selected_path) if selected_path is not None else "",
-            query,
-            sort_mode,
-            tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
-        )
-        self._library.ensure_refresh()
-        if self._list_signature == signature:
-            return
+        if refresh_index:
+            self._library.ensure_refresh()
 
         # The footer describes the *library*, so it is written from the full
         # index and not from the filtered view: "28 recordings" must not become
         # "3 recordings" because a search box has three letters in it.
-        self._refresh_library_footer(vods)
+        if refresh_index or self._list_signature is None:
+            self._refresh_library_footer(vods)
 
         matches = sort_recordings(filter_recordings(vods, query), sort_mode)
+        existing_paths = tuple(
+            str(self._list_frame.item(row).data(Qt.UserRole) or "")
+            for row in range(self._list_frame.count())
+            if self._list_frame.item(row).data(Qt.UserRole)
+        )
+        match_by_path = {str(vod.path): vod for vod in matches}
+        if (
+            getattr(self._library, "active_state", None) is not None
+            and set(existing_paths) == set(match_by_path)
+        ):
+            matches = [match_by_path[path] for path in existing_paths]
+        signature = (query, sort_mode, tuple(str(vod.path) for vod in matches))
         longest_seconds = max((vod.duration_seconds for vod in vods), default=0)
+        self._list_longest_seconds = longest_seconds
+
+        if self._list_signature == signature:
+            for vod in matches:
+                path_key = str(vod.path)
+                widget = self._list_rows_by_path.get(path_key)
+                if widget is not None:
+                    widget.set_metadata(
+                        vod,
+                        longest_seconds=longest_seconds,
+                        live=self._is_live_path(vod.path),
+                    )
+            if selected_path is not None:
+                item = self._list_items_by_path.get(str(selected_path))
+                if item is not None and self._list_frame.currentItem() is not item:
+                    self._list_frame.blockSignals(True)
+                    self._list_frame.setCurrentItem(item)
+                    self._list_frame.blockSignals(False)
+            return
 
         self._list_frame.blockSignals(True)
         self._list_frame.clear()
+        self._list_items_by_path.clear()
+        self._list_rows_by_path.clear()
         if not matches:
             item = QListWidgetItem(
                 "No recordings match this search" if query else "No saved recordings"
@@ -538,9 +618,16 @@ class RecordingsTab:
             item = QListWidgetItem()
             item.setData(Qt.UserRole, str(vod.path))
             widget = RecordingLibraryRow(vod, longest_seconds=longest_seconds)
+            widget.set_metadata(
+                vod,
+                longest_seconds=longest_seconds,
+                live=self._is_live_path(vod.path),
+            )
             item.setSizeHint(widget.sizeHint())
             self._list_frame.addItem(item)
             self._list_frame.setItemWidget(item, widget)
+            self._list_items_by_path[str(vod.path)] = item
+            self._list_rows_by_path[str(vod.path)] = widget
             if selected_path == vod.path:
                 selected_row = row
         if selected_row is not None:
@@ -609,6 +696,8 @@ class RecordingsTab:
         return True
     def invalidate_vods_list(self) -> None:
         """Drop the painted-list signature. `VodLibrary`'s invalidate hook."""
+        if self._disposed:
+            return
         self._list_signature = None
     def on_vod_metadata_refresh_failed(self, error: BaseException) -> None:
         """`VodLibrary`'s failure hook -- the status line stays this tab's.
@@ -740,12 +829,18 @@ class RecordingsTab:
             self.load_selected_vod(path_str)
     def _set_vod_loading_state(self, loading: bool) -> None:
         self._load_in_progress = bool(loading)
+        if self._detail_loading_spinner is not None:
+            self._detail_loading_spinner.setVisible(bool(loading))
         has_recording = not loading and self._loaded_vod is not None
         has_snapshots = bool(has_recording and self._loaded_vod.snapshots)
+        active = bool(
+            has_recording
+            and self._is_active_path(self._loaded_vod.metadata.path)
+        )
         for widget, enabled in (
-            (self._name_entry, has_recording),
-            (self._rename_btn, has_recording),
-            (self._delete_btn, has_recording),
+            (self._name_entry, has_recording and not active),
+            (self._rename_btn, has_recording and not active),
+            (self._delete_btn, has_recording and not active),
             (self._scrubber, has_snapshots),
         ):
             if widget is not None:
@@ -759,7 +854,10 @@ class RecordingsTab:
         self._refresh_vod_compare_controls()
     def load_selected_vod(self, path):
         path = Path(path)
+        state = self._library.state_for(path)
         self._loaded_vod = None
+        self._prepared_recording = None
+        self._loading_path = path.resolve()
         self._snapshot_index = None
         # A queued frame describes the recording being replaced.
         self._snapshot_throttle.cancel()
@@ -768,25 +866,51 @@ class RecordingsTab:
         self._stage_range_anchor_index = None
         self._stage_range_anchor_number = None
         self._set_vod_loading_state(True)
-        _set_text(self._status_label, "Loading recording…")
+        _set_text(self._status_label, "Reading recording…")
+        is_live = bool(state is not None and state.status == RECORDING)
+        self._live_auto_sync = is_live
+        self._live_follow = is_live
+        self._live_applied_revision = None
+        self._live_pending_state = None
+        self._refresh_live_controls()
 
-        def finish(loaded_vod, error) -> None:
+        def finish(prepared, error) -> None:
             if error is not None:
                 self._clear_loaded_vod_selection()
                 _set_text(self._status_label, f"Could not load recording: {error}")
                 self._set_vod_loading_state(False)
                 return
-            self._loaded_vod = loaded_vod
-            self._snapshot_index = 0 if loaded_vod.snapshots else None
+            if prepared is None:
+                return
+            if (
+                callable(self._schedule)
+                and Path(prepared.vod.metadata.path).resolve() != self._loading_path
+            ):
+                return
+            self._prepared_recording = prepared
+            self._loaded_vod = prepared.vod
+            self._snapshot_index = (
+                len(prepared.vod.snapshots) - 1
+                if is_live and prepared.vod.snapshots
+                else (0 if prepared.vod.snapshots else None)
+            )
             self._requested_snapshot_index = self._snapshot_index
+            self._live_applied_revision = prepared.revision
             self._compare_start_index = None
             self._stage_range_anchor_index = None
             self._stage_range_anchor_number = None
             _clear_text_input(self._name_entry)
-            _set_text_input(self._name_entry, loaded_vod.metadata.name)
-            self.refresh_loaded_vod_ui()
+            _set_text_input(self._name_entry, prepared.vod.metadata.name)
+            self.refresh_loaded_vod_ui(prepared=prepared)
             self._set_vod_loading_state(False)
-            self.refresh_vods_list()
+            self._refresh_live_controls()
+            if state is not None and state.status == FINALIZE_FAILED:
+                _set_text(
+                    self._status_label,
+                    "Finalization failed · data preserved in memory"
+                    + (f" · {state.detail}" if state.detail else ""),
+                )
+            self.refresh_vods_list(refresh_index=False)
             if bool(self._chooser_expanded) and bool(
                 self._guided_selection_active
             ):
@@ -798,11 +922,65 @@ class RecordingsTab:
                     False, guided=False, remember=False
                 )
 
+        series_keys = self._recording_model_keys()
+        cap_keys = checked_timeline_caps(self._cap_checkboxes)
+
+        def progress(update) -> None:
+            phase = str(update.get("phase") or "Loading recording")
+            fraction = update.get("fraction")
+            suffix = "" if fraction is None else f" · {round(float(fraction) * 100)}%"
+            _set_text(self._status_label, f"{phase}{suffix}")
+
+        def load(request_path, cancel_event, publish_progress):
+            current = self._library.state_for(request_path)
+            if current is not None and current.status in {
+                RECORDING,
+                FINALIZED,
+                FINALIZE_FAILED,
+            }:
+                return prepare_loaded_recording(
+                    current.loaded_vod,
+                    series_keys=series_keys,
+                    cap_keys=cap_keys,
+                    revision=current.revision,
+                    cancelled=cancel_event.is_set,
+                    progress=publish_progress,
+                )
+            return load_and_prepare_recording(
+                request_path,
+                series_keys=series_keys,
+                cap_keys=cap_keys,
+                cancelled=cancel_event.is_set,
+                progress=publish_progress,
+            )
+
         if callable(self._schedule):
-            self._load_lane.submit(path, load=load_vod, complete=finish)
+            self._load_lane.submit(
+                path,
+                load=load,
+                complete=finish,
+                progress=progress,
+                cancellable=True,
+            )
         else:
             try:
-                finish(load_vod(path), None)
+                if state is not None:
+                    finish(
+                        prepare_loaded_recording(
+                            state.loaded_vod,
+                            series_keys=series_keys,
+                            cap_keys=cap_keys,
+                            revision=state.revision,
+                        ),
+                        None,
+                    )
+                else:
+                    finish(
+                        prepare_loaded_recording(
+                            load_vod(path), series_keys=series_keys, cap_keys=cap_keys
+                        ),
+                        None,
+                    )
             except Exception as exc:
                 finish(None, exc)
 
@@ -812,7 +990,171 @@ class RecordingsTab:
             schedule(callback)
         else:
             callback()
-    def refresh_loaded_vod_ui(self, *, update_slider: bool = True):
+
+    def _recording_model_keys(self) -> tuple[str, ...]:
+        series = tuple(key for slot in self._slots for key in slot)
+        caps = checked_timeline_caps(self._cap_checkboxes)
+        return tuple(dict.fromkeys(series + caps))
+
+    def _on_active_recording_state(self, state) -> None:
+        if self._disposed:
+            return
+        path = state.path.resolve()
+        current_path = (
+            Path(self._loaded_vod.metadata.path).resolve()
+            if self._loaded_vod is not None
+            else self._loading_path
+        )
+        if current_path != path:
+            return
+        if state.status == DISCARDED:
+            self._clear_loaded_vod_selection()
+            self._loading_path = None
+            self._live_pending_state = None
+            self._refresh_live_controls()
+            return
+        self._live_pending_state = state
+        self._refresh_live_controls()
+        if not self._is_active():
+            return
+        if state.status == RECORDING and not self._live_auto_sync:
+            return
+        self._submit_live_state(state)
+
+    def _submit_live_state(self, state) -> None:
+        if state is None:
+            return
+        path = state.path.resolve()
+        old_index = self._snapshot_index
+        was_finalized = state.status in {FINALIZED, FINALIZE_FAILED}
+        keys = self._recording_model_keys()
+        cap_keys = checked_timeline_caps(self._cap_checkboxes)
+
+        def load(_state, cancel_event, publish_progress):
+            return prepare_loaded_recording(
+                _state.loaded_vod,
+                series_keys=keys,
+                cap_keys=cap_keys,
+                revision=_state.revision,
+                cancelled=cancel_event.is_set,
+                progress=publish_progress,
+            )
+
+        def finish(prepared, error) -> None:
+            if error is not None or prepared is None:
+                if error is not None:
+                    _set_text(self._status_label, f"Could not sync recording: {error}")
+                return
+            newest = self._library.state_for(path)
+            if newest is not None and newest.revision != prepared.revision:
+                return
+            if self._loaded_vod is not None and Path(self._loaded_vod.metadata.path).resolve() != path:
+                return
+            self._loading_path = path
+            self._prepared_recording = prepared
+            self._loaded_vod = prepared.vod
+            if not prepared.vod.snapshots:
+                index = None
+            elif self._live_follow and not was_finalized:
+                index = len(prepared.vod.snapshots) - 1
+            else:
+                index = min(max(int(old_index or 0), 0), len(prepared.vod.snapshots) - 1)
+            self._snapshot_index = index
+            self._requested_snapshot_index = index
+            self._live_applied_revision = prepared.revision
+            self._live_pending_state = None
+            self.refresh_loaded_vod_ui(prepared=prepared)
+            self._set_vod_loading_state(False)
+            self._refresh_live_controls()
+            if state.status == FINALIZE_FAILED:
+                _set_text(
+                    self._status_label,
+                    "Finalization failed · data preserved in memory"
+                    + (f" · {state.detail}" if state.detail else ""),
+                )
+
+        def progress(update) -> None:
+            phase = str(update.get("phase") or "Syncing")
+            _set_text(self._status_label, phase)
+
+        if callable(self._schedule):
+            self._load_lane.submit(
+                state,
+                load=load,
+                complete=finish,
+                progress=progress,
+                cancellable=True,
+            )
+        else:
+            try:
+                finish(
+                    prepare_loaded_recording(
+                        state.loaded_vod,
+                        series_keys=keys,
+                        cap_keys=cap_keys,
+                        revision=state.revision,
+                    ),
+                    None,
+                )
+            except Exception as exc:
+                finish(None, exc)
+
+    def _on_live_auto_sync_toggled(self, checked: bool) -> None:
+        self._live_auto_sync = bool(checked)
+        if self._live_auto_sync and self._live_pending_state is not None:
+            self._submit_live_state(self._live_pending_state)
+        self._refresh_live_controls()
+
+    def _on_live_sync_clicked(self) -> None:
+        if not self._live_auto_sync and self._live_pending_state is not None:
+            self._submit_live_state(self._live_pending_state)
+            return
+        self._live_follow = True
+        state = self._live_pending_state
+        if state is None and self._loaded_vod is not None:
+            state = self._library.state_for(self._loaded_vod.metadata.path)
+        if state is not None and state.status == RECORDING:
+            if self._live_applied_revision == state.revision and state.snapshots:
+                self.display_loaded_vod_snapshot(len(state.snapshots) - 1)
+            else:
+                self._submit_live_state(state)
+        self._refresh_live_controls()
+
+    def _refresh_live_controls(self) -> None:
+        state = None
+        if self._loaded_vod is not None:
+            state = self._library.state_for(self._loaded_vod.metadata.path)
+        elif self._loading_path is not None:
+            state = self._library.state_for(self._loading_path)
+        live = bool(state is not None and state.status == RECORDING)
+        if self._live_auto_sync_checkbox is not None:
+            self._live_auto_sync_checkbox.blockSignals(True)
+            self._live_auto_sync_checkbox.setChecked(bool(self._live_auto_sync))
+            self._live_auto_sync_checkbox.setVisible(live)
+            self._live_auto_sync_checkbox.blockSignals(False)
+        if self._live_sync_button is None:
+            return
+        pending = 0
+        if state is not None:
+            applied_count = len(self._loaded_vod.snapshots) if self._loaded_vod is not None else 0
+            pending = max(0, len(state.snapshots) - applied_count)
+        visible = live and (pending > 0 or not self._live_follow)
+        self._live_sync_button.setVisible(visible)
+        if not self._live_auto_sync and pending:
+            self._live_sync_button.setText(f"Sync {pending}")
+        else:
+            self._live_sync_button.setText("Go Live")
+        if live and self._loaded_vod is not None and not self._load_in_progress:
+            metadata = self._loaded_vod.metadata
+            pending_text = f" · {pending} new" if pending else ""
+            _set_text(
+                self._status_label,
+                "LIVE"
+                f"{pending_text} · {metadata.created_label} · "
+                f"{len(self._loaded_vod.snapshots)} snapshots · "
+                f"{formatting.format_duration(metadata.duration_seconds)}",
+            )
+    def refresh_loaded_vod_ui(self, *, update_slider: bool = True, prepared=None):
         if self._loaded_vod is None:
             return
 
@@ -820,19 +1162,36 @@ class RecordingsTab:
         metadata = self._loaded_vod.metadata
         duration = formatting.format_duration(metadata.duration_seconds)
         _set_text(self._title_label, metadata.name)
+        metadata_path = getattr(metadata, "path", None)
+        live_prefix = (
+            "LIVE · "
+            if metadata_path is not None and self._is_live_path(metadata_path)
+            else ""
+        )
         _set_text(
             self._status_label,
-            f"{metadata.created_label}  ·  {snapshot_count} snapshots  ·  {duration}",
+            f"{live_prefix}{metadata.created_label}  ·  {snapshot_count} snapshots  ·  {duration}",
         )
 
         if snapshot_count:
             self._scrubber.setEnabled(True)
-            self._rebuild_scrubber_model()
+            if prepared is None:
+                self._rebuild_scrubber_model()
+                stage_rows = formatting.build_stage_summary(self._loaded_vod.snapshots)
+            else:
+                self._scrubber.set_slots(self._slots)
+                self._scrubber.set_cap_keys(checked_timeline_caps(self._cap_checkboxes))
+                self._scrubber.set_model(
+                    prepared.scrubber_model,
+                    projection=prepared.axis_projection,
+                )
+                self._scrubber.set_pin(self._compare_start_index)
+                stage_rows = prepared.stage_summary
             # The whole run, once. See `_render_loaded_vod_snapshot` for why
             # this is not a per-frame prefix any more.
             set_stage_summary_labels(
                 self._stage_summary_labels,
-                formatting.build_stage_summary(self._loaded_vod.snapshots),
+                stage_rows,
             )
             if update_slider:
                 self._scrubber.set_index(self._snapshot_index or 0)
@@ -972,6 +1331,10 @@ class RecordingsTab:
         """
         if self._loaded_vod is None or not self._loaded_vod.snapshots:
             return
+        metadata = getattr(self._loaded_vod, "metadata", None)
+        if metadata is not None and self._is_live_path(metadata.path):
+            self._live_follow = False
+            self._refresh_live_controls()
         index = min(max(int(round(float(value))), 0), len(self._loaded_vod.snapshots) - 1)
         # With nothing queued the rendered index *is* the truth, and comparing
         # against it is what keeps a programmatic `setValue` from looping back
@@ -1245,10 +1608,17 @@ class RecordingsTab:
     def rename_selected_vod(self):
         if self._loaded_vod is None or self._name_entry is None:
             return
+        if self._is_active_path(self._loaded_vod.metadata.path):
+            _set_text(self._status_label, "An active recording cannot be renamed")
+            return
         new_name = _read_text(self._name_entry).strip()
         try:
             metadata = rename_vod(self._loaded_vod.metadata.path, new_name)
-            self._loaded_vod = load_vod(metadata.path)
+            self._prepared_recording, self._loaded_vod = replace_prepared_metadata(
+                self._prepared_recording,
+                self._loaded_vod,
+                metadata,
+            )
         except Exception as exc:
             # The field stays open on failure: the name it holds is the one the
             # user typed, and closing it would throw that away to show them the
@@ -1256,7 +1626,10 @@ class RecordingsTab:
             _set_text(self._status_label, f"Could not rename recording: {exc}")
             return
         self._set_renaming(False)
-        self.refresh_loaded_vod_ui(update_slider=False)
+        self.refresh_loaded_vod_ui(
+            update_slider=False,
+            prepared=self._prepared_recording,
+        )
         self.refresh_vods_list()
     def _clear_loaded_vod_selection(self) -> None:
         self._loaded_vod = None
@@ -1311,10 +1684,17 @@ class RecordingsTab:
         self.ensure_recordings_chooser_for_empty_selection()
     def cleanup_recordings_by_snapshot_count(self):
         recorder = self._vod_recorder()
-        active_path = (
+        recorder_active_path = (
             getattr(recorder, "path", None)
             if recorder is not None and getattr(recorder, "is_recording", False)
             else None
+        )
+        protected_state = getattr(self._library, "active_state", None)
+        active_path = (
+            protected_state.path
+            if protected_state is not None
+            and protected_state.status in {RECORDING, FINALIZE_FAILED}
+            else recorder_active_path
         )
         active_resolved = (
             Path(active_path).resolve() if active_path is not None else None
@@ -1360,6 +1740,9 @@ class RecordingsTab:
         self._log(message, tag="success")
     def delete_selected_vod(self):
         if self._loaded_vod is None:
+            return
+        if self._is_active_path(self._loaded_vod.metadata.path):
+            _set_text(self._status_label, "An active recording cannot be deleted")
             return
         dialog = ConfirmDeleteRecordingDialog(self._window(), self._loaded_vod.metadata.name)
         try:
@@ -1575,6 +1958,12 @@ class RecordingsTab:
         self._select_btn.setToolTip("Recordings library")
         self._select_btn.clicked.connect(self.toggle_recordings_chooser)
         title_row.addWidget(self._select_btn)
+        self._detail_loading_spinner = StagedLoadingSpinner(
+            object_name="RecordingDetailLoadingSpinner"
+        )
+        self._detail_loading_spinner.setFixedSize(32, 32)
+        self._detail_loading_spinner.setVisible(False)
+        title_row.addWidget(self._detail_loading_spinner)
         self._title_label = QLabel("No recording selected")
         self._title_label.setObjectName("RecordingPlaqueTitle")
         title_row.addWidget(self._title_label)
@@ -1595,6 +1984,19 @@ class RecordingsTab:
         self._delete_btn.setEnabled(False)
         self._delete_btn.clicked.connect(self.delete_selected_vod)
         title_row.addWidget(self._delete_btn)
+        self._live_auto_sync_checkbox = QCheckBox("Auto-sync")
+        self._live_auto_sync_checkbox.setObjectName("RecordingLiveAutoSync")
+        self._live_auto_sync_checkbox.setChecked(True)
+        self._live_auto_sync_checkbox.setVisible(False)
+        self._live_auto_sync_checkbox.toggled.connect(
+            self._on_live_auto_sync_toggled
+        )
+        title_row.addWidget(self._live_auto_sync_checkbox)
+        self._live_sync_button = QPushButton("Go Live")
+        self._live_sync_button.setObjectName("RecordingGoLive")
+        self._live_sync_button.setVisible(False)
+        self._live_sync_button.clicked.connect(self._on_live_sync_clicked)
+        title_row.addWidget(self._live_sync_button)
         self._name_entry = _NameEdit()
         self._name_entry.setObjectName("RecordingPlaqueNameEdit")
         self._name_entry.setVisible(False)
@@ -1625,11 +2027,23 @@ class RecordingsTab:
         """Swap the heading for the field, prefilled with the current name."""
         if self._loaded_vod is None or self._name_entry is None:
             return
+        if self._is_active_path(self._loaded_vod.metadata.path):
+            return
         _clear_text_input(self._name_entry)
         _set_text_input(self._name_entry, self._loaded_vod.metadata.name)
         self._set_renaming(True)
         self._name_entry.setFocus()
         self._name_entry.selectAll()
+
+    def _is_active_path(self, path) -> bool:
+        predicate = getattr(self._library, "is_active_path", None)
+        return bool(callable(predicate) and predicate(path))
+
+    def _is_live_path(self, path) -> bool:
+        predicate = getattr(self._library, "is_live_path", None)
+        if callable(predicate):
+            return bool(predicate(path))
+        return self._is_active_path(path)
 
     def cancel_rename(self) -> None:
         self._set_renaming(False)
@@ -1731,18 +2145,55 @@ class RecordingsTab:
             return
         self._slots = slots
         self._refresh_slot_buttons()
-        self._rebuild_scrubber_model()
-        if self._loaded_vod is not None and self._loaded_vod.snapshots:
-            self._refresh_scrub_readout(self._snapshot_index or 0)
+        self._reprepare_loaded_recording()
 
     def on_recording_caps_changed(self) -> None:
         keys = checked_timeline_caps(self._cap_checkboxes)
         self._save_recording_preference(
             "timeline caps", lambda: save_timeline_caps(keys)
         )
-        # A cap key can add a series the model does not carry yet, so this is a
-        # rebuild rather than a repaint.
-        self._rebuild_scrubber_model()
+        self._reprepare_loaded_recording()
+
+    def _reprepare_loaded_recording(self) -> None:
+        vod = self._loaded_vod
+        if vod is None:
+            return
+        index = self._snapshot_index
+        keys = self._recording_model_keys()
+        cap_keys = checked_timeline_caps(self._cap_checkboxes)
+
+        def load(_vod, cancel_event, publish_progress):
+            return prepare_loaded_recording(
+                _vod,
+                series_keys=keys,
+                cap_keys=cap_keys,
+                revision=self._live_applied_revision,
+                cancelled=cancel_event.is_set,
+                progress=publish_progress,
+            )
+
+        def finish(prepared, error) -> None:
+            if error is not None or prepared is None or self._loaded_vod is not vod:
+                return
+            self._prepared_recording = prepared
+            self._snapshot_index = index
+            self._requested_snapshot_index = index
+            self.refresh_loaded_vod_ui(update_slider=False, prepared=prepared)
+
+        if callable(self._schedule):
+            self._load_lane.submit(
+                vod,
+                load=load,
+                complete=finish,
+                cancellable=True,
+            )
+        else:
+            finish(
+                prepare_loaded_recording(
+                    vod, series_keys=keys, cap_keys=cap_keys
+                ),
+                None,
+            )
 
     def _refresh_slot_buttons(self) -> None:
         for index, (button, slot) in enumerate(zip(self._slot_buttons, self._slots)):
@@ -1818,8 +2269,16 @@ class RecordingsTab:
             workspace_object_name="RecordingsWorkspace",
         )
         self._tab.setObjectName("RecordingsPage")
-        self._tab.destroyed.connect(lambda *_args: self._load_lane.dispose())
+        self._tab.destroyed.connect(self._on_tab_destroyed)
         self._tabview.addTab(self._tab, "Recordings")
+
+    def _on_tab_destroyed(self, *_args) -> None:
+        self._disposed = True
+        self._load_lane.dispose()
+        self._snapshot_throttle.cancel()
+        if self._feed_token is not None and self._active_feed is not None:
+            self._active_feed.unsubscribe(self._feed_token)
+            self._feed_token = None
 
     def build_now(self) -> None:
         """Build the contents without waiting for a show. For tests."""

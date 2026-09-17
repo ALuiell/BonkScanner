@@ -34,7 +34,6 @@ generic names: once the tab left, that mixin had no callers of any of them.
 """
 from __future__ import annotations
 
-import bisect
 from collections import OrderedDict
 from math import isfinite
 from pathlib import Path
@@ -61,7 +60,9 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
+from app.active_recording_feed import DISCARDED, FINALIZE_FAILED, FINALIZED, RECORDING
 from app.latest_wins_loader import LatestWinsLoader
+from app.prepared_recording import load_and_prepare_recording, prepare_loaded_recording
 from app.vod_library import (
     RECORDING_SORT_CONFIG_KEY,
     load_vod,
@@ -73,13 +74,14 @@ from core.stats.formatters import format_player_stat_delta
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
 from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
-from projections.timeline_axis import snapshot_times as projected_snapshot_times
+from projections.timeline_axis import SnapshotTimeIndex
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
 from ui.recording_library import RecordingLibraryRow, recording_search_text
 from ui.shared import (
     FullWidthTabWidget,
     LabeledSwitch,
     StagedLoadingPage,
+    StagedLoadingSpinner,
     _apply_summary_label_padding,
     _make_scroll_section,
     _set_text,
@@ -310,61 +312,6 @@ def _checkbox_checked(checkbox) -> bool:
     return bool(checkbox is not None and checkbox.isChecked())
 
 
-class SnapshotTimeIndex:
-    """Snapshot compare-times, pre-sorted once so lookup is a bisect.
-
-    ``_nearest_snapshot_index`` used to walk every snapshot and call
-    ``_snapshot_compare_time`` on each one, and the time-sync path calls it
-    once per ``valueChanged`` -- so a drag across a 900-snapshot recording did
-    ~900 attribute probes per mouse pixel. The snapshot list of a *loaded*
-    recording never changes, so the walk belongs at load time.
-
-    Tie-breaking is the part worth being careful about, because the linear scan
-    it replaces had one: it kept the first strictly-closer snapshot, so among
-    equally distant candidates the lowest **original list index** won. A target
-    exactly between two snapshots is not a contrived case -- the two runs being
-    compared are sampled independently -- so ``nearest`` reproduces that
-    lexicographic ``(distance, index)`` order rather than whatever the sort
-    happens to yield.
-    """
-
-    __slots__ = ("_times", "_indices")
-
-    def __init__(self, times: tuple[float, ...], indices: tuple[int, ...]) -> None:
-        self._times = times
-        self._indices = indices
-
-    @classmethod
-    def build(cls, snapshots) -> "SnapshotTimeIndex":
-        entries = list(enumerate(projected_snapshot_times(snapshots)))
-        entries = [(time_value, index) for index, time_value in entries]
-        return cls(
-            tuple(entry[0] for entry in entries),
-            tuple(entry[1] for entry in entries),
-        )
-
-    def nearest(self, target_time: float) -> int:
-        times = self._times
-        if not times:
-            return 0
-        target = float(target_time)
-        position = bisect.bisect_left(times, target)
-
-        best: tuple[float, int] | None = None
-        for neighbour in (position - 1, position):
-            if not 0 <= neighbour < len(times):
-                continue
-            # Every entry sharing this exact time is a candidate; the scan this
-            # replaces would have picked the earliest of them.
-            time_value = times[neighbour]
-            low = bisect.bisect_left(times, time_value)
-            high = bisect.bisect_right(times, time_value)
-            candidate = (abs(time_value - target), min(self._indices[low:high]))
-            if best is None or candidate < best:
-                best = candidate
-        return 0 if best is None else best[1]
-
-
 def _nearest_snapshot_index(snapshots, target_time: float) -> int:
     """Uncached nearest lookup, for callers that hold no index.
 
@@ -406,6 +353,7 @@ class CompareRunsTab:
         diff_throttle: UiUpdateThrottle | None = None,
         timeline_series_slots: TimelineSeriesSlots | None = None,
         log: Callable[..., None] | None = None,
+        active_recording_feed=None,
     ) -> None:
         self._tabview = tabview
         self._library = vod_library
@@ -413,6 +361,8 @@ class CompareRunsTab:
         self._schedule = schedule
         self._log = log or (lambda _message, **_kwargs: None)
         self._disposed = False
+        self._active_feed = active_recording_feed
+        self._feed_token = None
 
         # Slider-drag rate limiting. Injectable so a test can drive the
         # coalescing with a fake clock instead of a real event loop; the
@@ -425,6 +375,14 @@ class CompareRunsTab:
         # `id(vod)` in the key from ever outliving its object.
         self._diff_cache: OrderedDict = OrderedDict()
         self._time_indexes: dict = {}
+        self._prepared_sides: dict = {}
+        self._loading_paths: dict[str, Path] = {}
+        self._live_auto_sync = {"a": True, "b": True}
+        self._live_follow = True
+        self._live_pending = {"a": None, "b": None}
+        self._live_applied_revision = {"a": None, "b": None}
+        self._live_requested_revision = {"a": None, "b": None}
+        self._compare_time_seconds: float | None = None
         # The payload last written to the diff cards, for dirty-checking. Reset
         # by `build()`, because widgets created after a write have not seen it.
         self._rendered_diff_cards = None
@@ -552,15 +510,35 @@ class CompareRunsTab:
         self._workspace_stack = None
         self._workspace_page = None
         self._chooser_page = None
+        self._list_items = {"a": {}, "b": {}}
+        self._list_rows = {"a": {}, "b": {}}
+        self._list_longest_seconds = 0
+        self._live_auto_sync_checks = {"a": None, "b": None}
+        self._live_sync_buttons = {"a": None, "b": None}
+        self._loading_spinners = {"a": None, "b": None}
+        if self._active_feed is not None:
+            self._feed_token = self._active_feed.subscribe(
+                self._on_active_recording_state,
+                lambda callback: self._marshal(callback),
+            )
 
-    def refresh_compare_runs_list(self):
+    def refresh_compare_runs_list(self, *, refresh_index: bool = True):
         """Refresh both chooser lists synchronously after the initial build."""
         if self._disposed:
             return
-        for _step in self._refresh_compare_runs_list_steps(batch_size=0):
+        if self._is_active():
+            for side in ("a", "b"):
+                pending = self._live_pending[side]
+                if pending is not None and self._live_auto_sync[side]:
+                    self._submit_compare_live_state(side, pending)
+        for _step in self._refresh_compare_runs_list_steps(
+            batch_size=0, refresh_index=refresh_index
+        ):
             pass
 
-    def _refresh_compare_runs_list_steps(self, *, batch_size: int):
+    def _refresh_compare_runs_list_steps(
+        self, *, batch_size: int, refresh_index: bool = True
+    ):
         """Refresh both lists, yielding between row batches when requested."""
         if self._disposed:
             return
@@ -569,7 +547,42 @@ class CompareRunsTab:
         if list_a is None or list_b is None:
             return
 
+        active_state = getattr(self._library, "active_state", None)
+        if not refresh_index and self._list_signature is not None and active_state is not None:
+            self._list_longest_seconds = max(
+                self._list_longest_seconds,
+                int(active_state.metadata.duration_seconds or 0),
+            )
+            key = str(active_state.metadata.path)
+            updated = False
+            for side in ("a", "b"):
+                row = self._list_rows[side].get(key)
+                item = self._list_items[side].get(key)
+                if row is not None:
+                    updated = True
+                    row.set_metadata(
+                        active_state.metadata,
+                        longest_seconds=self._list_longest_seconds,
+                        live=active_state.status == RECORDING,
+                    )
+                if item is not None:
+                    item.setData(
+                        _RECORDING_SEARCH_ROLE,
+                        recording_search_text(active_state.metadata),
+                    )
+            if updated:
+                self._filter_compare_run_list("a")
+                self._filter_compare_run_list("b")
+                return
+
         vods = sort_recordings(self._library.index, self._compare_runs_sort_mode())
+        existing_paths = tuple(self._list_items["a"])
+        by_path = {str(vod.path): vod for vod in vods}
+        if (
+            getattr(self._library, "active_state", None) is not None
+            and set(existing_paths) == set(by_path)
+        ):
+            vods = [by_path[path] for path in existing_paths]
         selected_a = self._vod_a.metadata.path if self._vod_a is not None else None
         selected_b = self._vod_b.metadata.path if self._vod_b is not None else None
         available_paths = {vod.path for vod in vods}
@@ -583,13 +596,38 @@ class CompareRunsTab:
         # selection nor the set of recordings, so without it the early return
         # below eats the repaint and the combo box silently does nothing.
         signature = (
-            str(selected_a) if selected_a is not None else "",
-            str(selected_b) if selected_b is not None else "",
             self._compare_runs_sort_mode(),
-            tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
+            tuple(str(vod.path) for vod in vods),
         )
-        self._library.ensure_refresh()
+        if refresh_index:
+            self._library.ensure_refresh()
         if self._list_signature == signature:
+            longest_seconds = max(
+                (max(0, int(getattr(vod, "duration_seconds", 0) or 0)) for vod in vods),
+                default=0,
+            )
+            self._list_longest_seconds = longest_seconds
+            for side, selected in (("a", selected_a), ("b", selected_b)):
+                for vod in vods:
+                    key = str(vod.path)
+                    row = self._list_rows[side].get(key)
+                    item = self._list_items[side].get(key)
+                    if row is not None:
+                        row.set_metadata(
+                            vod,
+                            longest_seconds=longest_seconds,
+                            live=self._is_live_path(vod.path),
+                        )
+                    if item is not None:
+                        item.setData(_RECORDING_SEARCH_ROLE, recording_search_text(vod))
+                selected_item = self._list_items[side].get(str(selected))
+                frame = self._compare_run_widget(side, "list_frame")
+                if selected_item is not None and frame.currentItem() is not selected_item:
+                    frame.blockSignals(True)
+                    frame.setCurrentItem(selected_item)
+                    frame.blockSignals(False)
+            self._filter_compare_run_list("a")
+            self._filter_compare_run_list("b")
             return
 
         yield from self._populate_compare_run_list_steps(
@@ -687,6 +725,9 @@ class CompareRunsTab:
     ):
         list_frame.blockSignals(True)
         list_frame.clear()
+        side = "a" if list_frame is self._run_a_list_frame else "b"
+        self._list_items[side].clear()
+        self._list_rows[side].clear()
         if not vods:
             item = QListWidgetItem("No saved recordings")
             item.setFlags(Qt.NoItemFlags)
@@ -699,14 +740,22 @@ class CompareRunsTab:
             (max(0, int(getattr(vod, "duration_seconds", 0) or 0)) for vod in vods),
             default=0,
         )
+        self._list_longest_seconds = longest_seconds
         for row, vod in enumerate(vods):
             item = QListWidgetItem()
             item.setData(Qt.UserRole, str(vod.path))
             item.setData(_RECORDING_SEARCH_ROLE, recording_search_text(vod))
             widget = RecordingLibraryRow(vod, longest_seconds=longest_seconds)
+            widget.set_metadata(
+                vod,
+                longest_seconds=longest_seconds,
+                live=self._is_live_path(vod.path),
+            )
             item.setSizeHint(widget.sizeHint())
             list_frame.addItem(item)
             list_frame.setItemWidget(item, widget)
+            self._list_items[side][str(vod.path)] = item
+            self._list_rows[side][str(vod.path)] = widget
             if selected_path == vod.path:
                 selected_row = row
             if batch_size and (row + 1) % batch_size == 0:
@@ -737,21 +786,56 @@ class CompareRunsTab:
         if self._disposed:
             return
         path = Path(path)
-        self._report_compare_run_state(side, "Loading recording…")
+        resolved = path.resolve()
+        self._loading_paths[side] = resolved
+        state = self._library.state_for(resolved)
+        live = bool(state is not None and state.status == RECORDING)
+        self._live_auto_sync[side] = live
+        self._live_pending[side] = None
+        self._set_compare_run_vod(side, None)
+        self._set_compare_run_index(side, None)
+        _set_text(self._compare_run_widget(side, "status_label"), "Reading recording…")
+        if self._loading_spinners.get(side) is not None:
+            self._loading_spinners[side].setVisible(True)
+        self._refresh_compare_live_controls(side)
 
-        def finish(loaded_vod, error) -> None:
+        def finish(prepared, error) -> None:
             if self._disposed:
                 return
             if error is not None:
+                if self._loading_spinners.get(side) is not None:
+                    self._loading_spinners[side].setVisible(False)
                 self._report_compare_run_state(
                     side, f"Could not load recording: {error}"
                 )
                 return
+            if prepared is None:
+                return
+            if (
+                callable(self._schedule)
+                and Path(prepared.vod.metadata.path).resolve()
+                != self._loading_paths.get(side)
+            ):
+                return
             try:
-                self._set_compare_run_vod(side, loaded_vod)
-                self._set_compare_run_index(side, 0 if loaded_vod.snapshots else None)
-                self.refresh_compare_runs_list()
+                if self._loading_spinners.get(side) is not None:
+                    self._loading_spinners[side].setVisible(False)
+                self._prepared_sides[side] = prepared
+                self._set_compare_run_vod(side, prepared.vod, refresh_timeline=False)
+                self._time_indexes[side] = (prepared.vod, prepared.time_index)
+                self._live_applied_revision[side] = prepared.revision
+                index = (
+                    len(prepared.vod.snapshots) - 1
+                    if live and prepared.vod.snapshots
+                    else (0 if prepared.vod.snapshots else None)
+                )
+                self._set_compare_run_index(side, index)
+                self._install_prepared_compare_lane(side, prepared)
+                if live and index is not None:
+                    self._sync_compare_run_to_side("b" if side == "a" else "a", side)
+                self.refresh_compare_runs_list(refresh_index=False)
                 self.refresh_compare_runs_ui(changed_side=side)
+                self._refresh_compare_live_controls(side)
                 self._auto_close_compare_runs_chooser_if_ready()
             except Exception as exc:
                 # A malformed recording can fail after parsing, while building
@@ -771,13 +855,95 @@ class CompareRunsTab:
                     side, f"Could not display recording: {exc}"
                 )
 
+        model_keys = self._compare_model_keys()
+        cap_keys = self._enabled_cap_keys()
+
+        def progress(update) -> None:
+            phase = str(update.get("phase") or "Loading recording")
+            fraction = update.get("fraction")
+            suffix = "" if fraction is None else f" · {round(float(fraction) * 100)}%"
+            _set_text(
+                self._compare_run_widget(side, "status_label"),
+                f"{phase}{suffix}",
+            )
+
+        def load(request_path, cancel_event, publish_progress):
+            current = self._library.state_for(request_path)
+            if current is not None and current.status in {
+                RECORDING,
+                FINALIZED,
+                FINALIZE_FAILED,
+            }:
+                return prepare_loaded_recording(
+                    current.loaded_vod,
+                    series_keys=model_keys,
+                    cap_keys=cap_keys,
+                    revision=current.revision,
+                    cancelled=cancel_event.is_set,
+                    progress=publish_progress,
+                )
+            return load_and_prepare_recording(
+                request_path,
+                series_keys=model_keys,
+                cap_keys=cap_keys,
+                cancelled=cancel_event.is_set,
+                progress=publish_progress,
+            )
+
         if callable(self._schedule):
-            self._load_lanes[side].submit(path, load=load_vod, complete=finish)
+            self._load_lanes[side].submit(
+                path,
+                load=load,
+                complete=finish,
+                progress=progress,
+                cancellable=True,
+            )
         else:
             try:
-                finish(load_vod(path), None)
+                if state is not None:
+                    finish(
+                        prepare_loaded_recording(
+                            state.loaded_vod,
+                            series_keys=model_keys,
+                            cap_keys=cap_keys,
+                            revision=state.revision,
+                        ),
+                        None,
+                    )
+                else:
+                    finish(
+                        prepare_loaded_recording(
+                            load_vod(path), series_keys=model_keys, cap_keys=cap_keys
+                        ),
+                        None,
+                    )
             except Exception as exc:
                 finish(None, exc)
+
+    def _compare_model_keys(self) -> tuple[str, ...]:
+        series = tuple(key for slot in self._series_slots for key in slot)
+        return tuple(dict.fromkeys(series + self._enabled_cap_keys()))
+
+    def _install_prepared_compare_lane(self, side: str, prepared) -> None:
+        if self._timeline is None:
+            return
+        series = tuple(key for slot in self._series_slots for key in slot)
+        self._timeline.set_prepared_lane(
+            side,
+            prepared.vod,
+            prepared.scrubber_model,
+            projection=prepared.axis_projection,
+            series_keys=series,
+            cap_keys=self._enabled_cap_keys(),
+        )
+        self._timeline.set_axis_mode(AXIS_TIME)
+        self._timeline.set_compact(self._timeline_compact)
+        if self._compare_time_seconds is not None and not self._live_follow:
+            self._timeline.set_position(
+                self._compare_time_seconds / max(self._timeline.common_duration, 1.0)
+            )
+        self._refresh_series_slot_buttons()
+        self._refresh_compare_timeline_readout()
 
     def _marshal(self, callback) -> bool:
         schedule = self._schedule
@@ -786,6 +952,164 @@ class CompareRunsTab:
         else:
             callback()
             return True
+
+    def _on_active_recording_state(self, state) -> None:
+        if self._disposed:
+            return
+        for side in ("a", "b"):
+            vod = self._compare_run_vod(side)
+            current_path = (
+                Path(vod.metadata.path).resolve()
+                if vod is not None
+                else self._loading_paths.get(side)
+            )
+            if current_path != state.path.resolve():
+                continue
+            if state.status == DISCARDED:
+                self._set_compare_run_error(side, "Recording was discarded")
+                self._live_pending[side] = None
+                self._refresh_compare_live_controls(side)
+                continue
+            self._live_pending[side] = state
+            self._refresh_compare_live_controls(side)
+            if not self._is_active():
+                continue
+            if state.status == RECORDING and not self._live_auto_sync[side]:
+                continue
+            self._submit_compare_live_state(side, state)
+
+    def _submit_compare_live_state(self, side: str, state) -> None:
+        if self._live_requested_revision[side] == state.revision:
+            return
+        self._live_requested_revision[side] = state.revision
+        old_index = self._compare_run_index(side)
+        finalized = state.status in {FINALIZED, FINALIZE_FAILED}
+        model_keys = self._compare_model_keys()
+        cap_keys = self._enabled_cap_keys()
+
+        def load(_state, cancel_event, publish_progress):
+            return prepare_loaded_recording(
+                _state.loaded_vod,
+                series_keys=model_keys,
+                cap_keys=cap_keys,
+                revision=_state.revision,
+                cancelled=cancel_event.is_set,
+                progress=publish_progress,
+            )
+
+        def finish(prepared, error) -> None:
+            if self._live_requested_revision[side] == state.revision:
+                self._live_requested_revision[side] = None
+            if self._disposed or error is not None or prepared is None:
+                if error is not None:
+                    _set_text(
+                        self._compare_run_widget(side, "status_label"),
+                        f"Could not sync recording: {error}",
+                    )
+                return
+            newest = self._library.state_for(state.path)
+            if newest is not None and newest.revision != prepared.revision:
+                return
+            current = self._compare_run_vod(side)
+            if current is not None and Path(current.metadata.path).resolve() != state.path.resolve():
+                return
+            self._prepared_sides[side] = prepared
+            self._set_compare_run_vod(side, prepared.vod, refresh_timeline=False)
+            self._time_indexes[side] = (prepared.vod, prepared.time_index)
+            if prepared.vod.snapshots:
+                if self._live_follow and not finalized:
+                    index = len(prepared.vod.snapshots) - 1
+                else:
+                    index = min(max(int(old_index or 0), 0), len(prepared.vod.snapshots) - 1)
+            else:
+                index = None
+            self._set_compare_run_index(side, index)
+            self._install_prepared_compare_lane(side, prepared)
+            self._live_applied_revision[side] = prepared.revision
+            self._live_pending[side] = None
+            if self._live_follow and not finalized and index is not None:
+                other = "b" if side == "a" else "a"
+                self._sync_compare_run_to_side(other, side)
+                if self._timeline is not None:
+                    snapshot = self._compare_run_snapshot(side)
+                    compare_time = formatting._snapshot_compare_time(snapshot)
+                    if compare_time is not None:
+                        self._timeline.set_position(
+                            float(compare_time)
+                            / max(self._timeline.common_duration, 1.0)
+                        )
+            self.refresh_compare_runs_ui(changed_side=side)
+            self._refresh_compare_live_controls(side)
+            if state.status == FINALIZE_FAILED:
+                _set_text(
+                    self._compare_run_widget(side, "status_label"),
+                    "Finalization failed · data preserved in memory"
+                    + (f" · {state.detail}" if state.detail else ""),
+                )
+
+        if callable(self._schedule):
+            self._load_lanes[side].submit(
+                state,
+                load=load,
+                complete=finish,
+                cancellable=True,
+            )
+        else:
+            try:
+                finish(
+                    prepare_loaded_recording(
+                        state.loaded_vod,
+                        series_keys=model_keys,
+                        cap_keys=cap_keys,
+                        revision=state.revision,
+                    ),
+                    None,
+                )
+            except Exception as exc:
+                finish(None, exc)
+
+    def _on_compare_auto_sync_toggled(self, side: str, checked: bool) -> None:
+        self._live_auto_sync[side] = bool(checked)
+        if checked and self._live_pending[side] is not None:
+            self._submit_compare_live_state(side, self._live_pending[side])
+        self._refresh_compare_live_controls(side)
+
+    def _on_compare_live_sync_clicked(self, side: str) -> None:
+        pending = self._live_pending[side]
+        if not self._live_auto_sync[side] and pending is not None:
+            self._submit_compare_live_state(side, pending)
+            return
+        self._live_follow = True
+        state = pending
+        vod = self._compare_run_vod(side)
+        if state is None and vod is not None:
+            state = self._library.state_for(vod.metadata.path)
+        if state is not None:
+            self._submit_compare_live_state(side, state)
+        self._refresh_compare_live_controls(side)
+
+    def _refresh_compare_live_controls(self, side: str) -> None:
+        vod = self._compare_run_vod(side)
+        path = vod.metadata.path if vod is not None else self._loading_paths.get(side)
+        state = self._library.state_for(path) if path is not None else None
+        live = bool(state is not None and state.status == RECORDING)
+        checkbox = self._live_auto_sync_checks.get(side)
+        button = self._live_sync_buttons.get(side)
+        if checkbox is not None:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(self._live_auto_sync[side])
+            checkbox.setVisible(live)
+            checkbox.blockSignals(False)
+        if button is None:
+            return
+        applied_count = len(vod.snapshots) if vod is not None else 0
+        pending_count = max(0, len(state.snapshots) - applied_count) if state is not None else 0
+        button.setVisible(live and (pending_count > 0 or not self._live_follow))
+        button.setText(
+            f"Sync {pending_count}"
+            if not self._live_auto_sync[side] and pending_count
+            else "Go Live"
+        )
 
     def toggle_compare_runs_chooser(self):
         next_expanded = not bool(self._chooser_expanded)
@@ -906,6 +1230,15 @@ class CompareRunsTab:
             self._index_b,
             self._index_a,
         )
+        for mapping in (
+            self._prepared_sides,
+            self._live_pending,
+            self._live_applied_revision,
+            self._live_requested_revision,
+            self._live_auto_sync,
+            self._loading_paths,
+        ):
+            mapping["a"], mapping["b"] = mapping.get("b"), mapping.get("a")
         # A/B is part of every cached diff -- the overview literally reads
         # "Run B compared to Run A" -- so a swap invalidates all of them.
         self._invalidate_compare_runs_diff_cache()
@@ -921,6 +1254,15 @@ class CompareRunsTab:
         timeline = self._timeline
         if timeline is None:
             return
+        if any(
+            self._compare_run_vod(side) is not None
+            and self._is_live_path(self._compare_run_vod(side).metadata.path)
+            for side in ("a", "b")
+        ):
+            self._live_follow = False
+            self._compare_time_seconds = float(position) * timeline.common_duration
+            for side in ("a", "b"):
+                self._refresh_compare_live_controls(side)
         index_a, index_b = timeline.nearest_indices(position)
         self._set_compare_run_index("a", index_a)
         self._set_compare_run_index("b", index_b)
@@ -968,12 +1310,25 @@ class CompareRunsTab:
         if self._timeline is None:
             return
         keys = tuple(key for slot in self._series_slots for key in slot)
-        self._timeline.set_runs(
-            self._vod_a,
-            self._vod_b,
-            series_keys=keys,
-            cap_keys=self._enabled_cap_keys(),
-        )
+        if self._prepared_sides:
+            for side in ("a", "b"):
+                prepared = self._prepared_sides.get(side)
+                if prepared is not None:
+                    self._timeline.set_prepared_lane(
+                        side,
+                        prepared.vod,
+                        prepared.scrubber_model,
+                        projection=prepared.axis_projection,
+                        series_keys=keys,
+                        cap_keys=self._enabled_cap_keys(),
+                    )
+        else:
+            self._timeline.set_runs(
+                self._vod_a,
+                self._vod_b,
+                series_keys=keys,
+                cap_keys=self._enabled_cap_keys(),
+            )
         self._timeline.set_axis_mode(AXIS_TIME)
         self._timeline.set_compact(self._timeline_compact)
         self._refresh_series_slot_buttons()
@@ -990,8 +1345,8 @@ class CompareRunsTab:
             TIMELINE_CAPS_CONFIG_KEY,
             list(keys),
         )
-        if self._timeline is not None:
-            self._timeline.set_cap_keys(keys)
+        for side in ("a", "b"):
+            self._reprepare_compare_side(side)
 
     def _set_timeline_compact(self, compact: bool) -> None:
         compact = bool(compact)
@@ -1021,7 +1376,48 @@ class CompareRunsTab:
         if slots == self._series_slots:
             return
         self._series_slots = slots
-        self._refresh_compare_runs_timeline_model()
+        self._refresh_series_slot_buttons()
+        for side in ("a", "b"):
+            self._reprepare_compare_side(side)
+
+    def _reprepare_compare_side(self, side: str) -> None:
+        vod = self._compare_run_vod(side)
+        if vod is None:
+            return
+        model_keys = self._compare_model_keys()
+        cap_keys = self._enabled_cap_keys()
+
+        def load(_vod, cancel_event, publish_progress):
+            return prepare_loaded_recording(
+                _vod,
+                series_keys=model_keys,
+                cap_keys=cap_keys,
+                revision=self._live_applied_revision[side],
+                cancelled=cancel_event.is_set,
+                progress=publish_progress,
+            )
+
+        def finish(prepared, error) -> None:
+            if self._disposed or error is not None or self._compare_run_vod(side) is not vod:
+                return
+            self._prepared_sides[side] = prepared
+            self._time_indexes[side] = (vod, prepared.time_index)
+            self._install_prepared_compare_lane(side, prepared)
+
+        if callable(self._schedule):
+            self._load_lanes[side].submit(
+                vod,
+                load=load,
+                complete=finish,
+                cancellable=True,
+            )
+        else:
+            finish(
+                prepare_loaded_recording(
+                    vod, series_keys=model_keys, cap_keys=cap_keys
+                ),
+                None,
+            )
 
     def _refresh_series_slot_buttons(self) -> None:
         for index, button in enumerate(self._series_slot_buttons):
@@ -1186,10 +1582,25 @@ class CompareRunsTab:
                 slider.blockSignals(True)
                 slider.setValue(index)
                 slider.blockSignals(False)
+        live = self._is_live_path(vod.metadata.path)
+        ended = False
+        if not live:
+            other = self._compare_run_vod("b" if side == "a" else "a")
+            if other is not None and self._is_live_path(other.metadata.path):
+                active_snapshot = self._compare_run_snapshot("b" if side == "a" else "a")
+                active_time = formatting._snapshot_compare_time(active_snapshot)
+                final_time = formatting._snapshot_compare_time(vod.snapshots[-1])
+                ended = (
+                    active_time is not None
+                    and final_time is not None
+                    and active_time > final_time
+                    and index == snapshot_count - 1
+                )
+        suffix = " · LIVE" if live else (" · Run ended" if ended else "")
         if self._timeline is None:
             _set_text(status_label, f"{vod.metadata.name} | {index + 1}/{snapshot_count}")
         else:
-            _set_text(status_label, f"{vod.metadata.name} · {snapshot_count} snapshots")
+            _set_text(status_label, f"{vod.metadata.name} · {snapshot_count} snapshots{suffix}")
         _set_text(timeline_label, self._compare_run_timeline_text(side))
         _set_text(
             summary_label,
@@ -1770,14 +2181,31 @@ class CompareRunsTab:
     def _compare_run_vod(self, side: str):
         return self._vod_a if side == "a" else self._vod_b
 
-    def _set_compare_run_vod(self, side: str, vod) -> None:
+    def _is_active_path(self, path) -> bool:
+        predicate = getattr(self._library, "is_active_path", None)
+        return bool(callable(predicate) and predicate(path))
+
+    def _is_live_path(self, path) -> bool:
+        predicate = getattr(self._library, "is_live_path", None)
+        if callable(predicate):
+            return bool(predicate(path))
+        return self._is_active_path(path)
+
+    def _set_compare_run_vod(
+        self, side: str, vod, *, refresh_timeline: bool = True
+    ) -> None:
         if self._compare_run_vod(side) is not vod:
             self._invalidate_compare_runs_diff_cache()
         if side == "a":
             self._vod_a = vod
         else:
             self._vod_b = vod
-        self._refresh_compare_runs_timeline_model()
+        if vod is None:
+            self._prepared_sides.pop(side, None)
+            if self._timeline is not None:
+                self._timeline.clear_lane(side)
+        if refresh_timeline:
+            self._refresh_compare_runs_timeline_model()
 
     def _compare_run_index(self, side: str) -> int | None:
         return self._index_a if side == "a" else self._index_b
@@ -2124,6 +2552,9 @@ class CompareRunsTab:
         self._disposed = True
         for lane in self._load_lanes.values():
             lane.dispose()
+        if self._feed_token is not None and self._active_feed is not None:
+            self._active_feed.unsubscribe(self._feed_token)
+            self._feed_token = None
         self._load_generations = {
             side: int(self._load_generations.get(side, 0)) + 1
             for side in ("a", "b")
@@ -2339,8 +2770,37 @@ class CompareRunsTab:
         change.setToolTip("Choose a recording")
         change.clicked.connect(self.toggle_compare_runs_chooser)
         setattr(self, f"_run_{side}_change_btn", change)
+        auto_sync = QCheckBox("Auto-sync")
+        auto_sync.setObjectName("CompareRunsAutoSync")
+        auto_sync.setChecked(True)
+        auto_sync.setVisible(False)
+        auto_sync.toggled.connect(
+            lambda checked, run_side=side: self._on_compare_auto_sync_toggled(
+                run_side, checked
+            )
+        )
+        sync_button = QPushButton("Go Live")
+        sync_button.setObjectName("CompareRunsGoLive")
+        sync_button.setVisible(False)
+        sync_button.clicked.connect(
+            lambda _checked=False, run_side=side: self._on_compare_live_sync_clicked(
+                run_side
+            )
+        )
+        self._live_auto_sync_checks[side] = auto_sync
+        self._live_sync_buttons[side] = sync_button
         layout.addWidget(badge)
+        spinner = StagedLoadingSpinner(
+            colors=("#38BDF8",) if side == "a" else ("#C084FC",),
+            object_name=f"CompareRuns{side.upper()}LoadingSpinner",
+        )
+        spinner.setFixedSize(32, 32)
+        spinner.setVisible(False)
+        self._loading_spinners[side] = spinner
+        layout.addWidget(spinner)
         layout.addWidget(label, 1)
+        layout.addWidget(auto_sync)
+        layout.addWidget(sync_button)
         layout.addWidget(change)
         return plaque, label
 

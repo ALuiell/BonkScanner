@@ -28,32 +28,37 @@ class RecordingLibraryRow(QWidget):
         layout.setContentsMargins(9, 7, 9, 7)
         layout.setSpacing(3)
 
-        name = str(getattr(vod, "name", "") or "Unnamed recording")
-        name_label = QLabel(name)
-        name_label.setObjectName("RecordingRowName")
-        layout.addWidget(name_label)
+        self._name_label = QLabel()
+        self._name_label.setObjectName("RecordingRowName")
+        layout.addWidget(self._name_label)
+        self._meta_label = QLabel()
+        self._meta_label.setObjectName("RecordingRowMeta")
+        layout.addWidget(self._meta_label)
+        self._bar = QProgressBar()
+        self._bar.setObjectName("RecordingRowBar")
+        self._bar.setRange(0, 1000)
+        self._bar.setTextVisible(False)
+        self._bar.setFixedHeight(3)
+        layout.addWidget(self._bar)
+        self.metadata = None
+        self.set_metadata(vod, longest_seconds=longest_seconds)
 
+    def set_metadata(self, vod, *, longest_seconds: int, live: bool = False) -> None:
+        """Update an existing row; live duration changes must not rebuild lists."""
+        self.metadata = vod
+        name = str(getattr(vod, "name", "") or "Unnamed recording")
+        self._name_label.setText(name)
         created_label = str(getattr(vod, "created_label", "") or "")
         snapshot_count = max(0, int(getattr(vod, "snapshot_count", 0) or 0))
         duration_seconds = max(0, int(getattr(vod, "duration_seconds", 0) or 0))
-        parts = [
-            f"{snapshot_count} snapshots",
-            formatting.format_duration(duration_seconds),
-        ]
-        if created_label and created_label not in name:
+        parts = [f"{snapshot_count} snapshots", formatting.format_duration(duration_seconds)]
+        if live:
+            parts.insert(0, "LIVE")
+        elif created_label and created_label not in name:
             parts.insert(0, created_label)
-        meta_label = QLabel("  ·  ".join(parts))
-        meta_label.setObjectName("RecordingRowMeta")
-        layout.addWidget(meta_label)
-
-        bar = QProgressBar()
-        bar.setObjectName("RecordingRowBar")
-        bar.setRange(0, 1000)
-        bar.setTextVisible(False)
-        bar.setFixedHeight(3)
+        self._meta_label.setText("  ·  ".join(parts))
         longest = max(1, int(longest_seconds))
-        bar.setValue(round(min(1.0, duration_seconds / longest) * 1000))
-        layout.addWidget(bar)
+        self._bar.setValue(round(min(1.0, duration_seconds / longest) * 1000))
 
 
 def recording_search_text(vod) -> str:

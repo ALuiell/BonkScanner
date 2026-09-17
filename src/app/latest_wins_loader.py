@@ -14,6 +14,13 @@ class _Request:
     value: Any
     load: Callable[[Any], Any]
     complete: Callable[[Any, Exception | None], None]
+    progress: Callable[[Any], None] | None
+    cancellable: bool
+    cancel_event: threading.Event
+
+
+class LoadCancelled(Exception):
+    """Internal cooperative-cancellation signal; never delivered as an error."""
 
 
 class LatestWinsLoader:
@@ -29,6 +36,7 @@ class LatestWinsLoader:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=thread_name)
         self._lock = threading.Lock()
         self._active = False
+        self._active_request: _Request | None = None
         self._pending: _Request | None = None
         self._generation = 0
         self._disposed = False
@@ -39,16 +47,31 @@ class LatestWinsLoader:
         *,
         load: Callable[[Any], Any],
         complete: Callable[[Any, Exception | None], None],
+        progress: Callable[[Any], None] | None = None,
+        cancellable: bool = False,
     ) -> int:
         with self._lock:
             if self._disposed:
                 return self._generation
             self._generation += 1
-            request = _Request(self._generation, value, load, complete)
+            request = _Request(
+                self._generation,
+                value,
+                load,
+                complete,
+                progress,
+                bool(cancellable),
+                threading.Event(),
+            )
             if self._active:
+                if self._active_request is not None:
+                    self._active_request.cancel_event.set()
+                if self._pending is not None:
+                    self._pending.cancel_event.set()
                 self._pending = request
                 return request.generation
             self._active = True
+            self._active_request = request
         self._launch(request)
         return request.generation
 
@@ -58,6 +81,10 @@ class LatestWinsLoader:
                 return
             self._disposed = True
             self._generation += 1
+            if self._active_request is not None:
+                self._active_request.cancel_event.set()
+            if self._pending is not None:
+                self._pending.cancel_event.set()
             self._pending = None
         self._executor.shutdown(wait=False, cancel_futures=True)
 
@@ -69,7 +96,17 @@ class LatestWinsLoader:
 
     def _run(self, request: _Request) -> None:
         try:
-            result = request.load(request.value)
+            if request.cancellable:
+                result = request.load(
+                    request.value,
+                    request.cancel_event,
+                    lambda value: self._publish_progress(request, value),
+                )
+            else:
+                result = request.load(request.value)
+            error = None
+        except LoadCancelled:
+            result = None
             error = None
         except Exception as exc:
             result = None
@@ -81,13 +118,19 @@ class LatestWinsLoader:
         with self._lock:
             if self._disposed:
                 self._active = False
+                self._active_request = None
                 return
             next_request, self._pending = self._pending, None
             self._active = next_request is not None
+            self._active_request = next_request
 
         def deliver() -> None:
             with self._lock:
-                if self._disposed or request.generation != self._generation:
+                if (
+                    self._disposed
+                    or request.cancel_event.is_set()
+                    or request.generation != self._generation
+                ):
                     return
             request.complete(result, error)
 
@@ -97,3 +140,22 @@ class LatestWinsLoader:
             pass
         if next_request is not None:
             self._launch(next_request)
+
+    def _publish_progress(self, request: _Request, value: Any) -> None:
+        if request.progress is None or request.cancel_event.is_set():
+            return
+
+        def deliver() -> None:
+            with self._lock:
+                if (
+                    self._disposed
+                    or request.cancel_event.is_set()
+                    or request.generation != self._generation
+                ):
+                    return
+            request.progress(value)
+
+        try:
+            self._schedule(deliver)
+        except Exception:
+            pass

@@ -24,8 +24,8 @@ from core.stats.formats import PlayerStatFormat
 from core.stats.formatters import format_player_stat_value
 from projections.timeline_axis import (
     AXIS_MODES,
+    AXIS_PROGRESS,
     AXIS_TIME,
-    build_axis_projection,
     snapshot_times,
 )
 from ui.timeline_visuals import (
@@ -220,6 +220,63 @@ class CompareRunsTimeline(QWidget):
         )
         self._reproject()
 
+    def set_prepared_lane(
+        self,
+        side: str,
+        vod,
+        model: scrubber_model.ScrubberModel,
+        *,
+        projection=None,
+        series_keys=(),
+        cap_keys=(),
+    ) -> None:
+        """Install one prepared lane without rebuilding the other lane's model."""
+        keys = tuple(dict.fromkeys(series_keys))
+        caps = tuple(dict.fromkeys(cap_keys))
+        snapshots = tuple(getattr(vod, "snapshots", ()) or ())
+        prepared_times = tuple(getattr(projection, "times", ()) or ())
+        times = (
+            prepared_times
+            if len(prepared_times) == len(snapshots)
+            else snapshot_times(snapshots)
+        )
+        lane = _Lane(snapshots, model, times, ())
+        if side == "a":
+            self._lane_a = lane
+        elif side == "b":
+            self._lane_b = lane
+        else:
+            raise ValueError(f"Unknown timeline lane: {side}")
+        self._series_keys = keys
+        self._cap_keys = caps
+        model_keys = tuple(dict.fromkeys(keys + caps))
+        self._shared_scales = shared_series_scales(
+            self._lane_a.model,
+            self._lane_b.model,
+            model_keys,
+            cap_keys=caps,
+        )
+        self._stage_deltas = stage_start_deltas(
+            self._lane_a.model,
+            self._lane_b.model,
+            self._lane_a.times,
+            self._lane_b.times,
+        )
+        self._reproject()
+
+    def clear_lane(self, side: str) -> None:
+        """Clear one side while preserving the other side's prepared model."""
+        class _EmptyVod:
+            snapshots = ()
+
+        self.set_prepared_lane(
+            side,
+            _EmptyVod(),
+            scrubber_model.ScrubberModel(count=0),
+            series_keys=self._series_keys,
+            cap_keys=self._cap_keys,
+        )
+
     def set_cap_keys(self, cap_keys) -> None:
         """Which caps to draw, independent of which curves are plotted."""
         caps = tuple(dict.fromkeys(cap_keys))
@@ -279,27 +336,26 @@ class CompareRunsTimeline(QWidget):
             1.0,
         )
         self._common_duration = common_duration
-        projection_a = build_axis_projection(
-            self._lane_a.snapshots,
-            mode=self._axis_mode,
-            common_duration=common_duration,
-        )
-        projection_b = build_axis_projection(
-            self._lane_b.snapshots,
-            mode=self._axis_mode,
-            common_duration=common_duration,
-        )
+        def positions(lane: _Lane) -> tuple[float, ...]:
+            if self._axis_mode == AXIS_PROGRESS:
+                denominator = max(len(lane.times) - 1, 1)
+                return tuple(index / denominator for index in range(len(lane.times)))
+            return tuple(
+                max(0.0, min(1.0, value / common_duration))
+                for value in lane.times
+            )
+
         self._lane_a = _Lane(
             self._lane_a.snapshots,
             self._lane_a.model,
-            projection_a.times,
-            projection_a.positions,
+            self._lane_a.times,
+            positions(self._lane_a),
         )
         self._lane_b = _Lane(
             self._lane_b.snapshots,
             self._lane_b.model,
-            projection_b.times,
-            projection_b.positions,
+            self._lane_b.times,
+            positions(self._lane_b),
         )
         self._data_token += 1
         self._cache_key = None

@@ -7,6 +7,7 @@ import inspect
 from typing import Any, Callable
 
 from app import config
+from app.active_recording_feed import ActiveRecordingFeed
 from app.coordinator import AppCoordinator
 from app.player_stats_memory import PlayerStatsMemory
 from app.player_stats_refresh import PlayerStatsRefresh
@@ -63,6 +64,7 @@ class AppRuntime:
         self.snapshot_store = coordinator.snapshot_store
         self.live_run_tracker = coordinator.live_run_tracker
         self.vod_recorder = coordinator.vod_recorder
+        self.active_recording_feed = ActiveRecordingFeed()
         self.vod_library: VodLibrary | None = None
         self._started = False
         self._shutdown_report: ShutdownReport | None = None
@@ -103,6 +105,7 @@ class AppRuntime:
             log=ports.log,
             reset_snapshot_buffer=ports.reset_snapshot_buffer,
             read_character_identity=self._read_character_identity,
+            active_recording_feed=lambda: self.active_recording_feed,
         )
         self.refresh_tasks = RefreshTasks(
             memory=lambda: self.player_stats_memory,
@@ -146,6 +149,7 @@ class AppRuntime:
             set_game_data_client=lambda value: setattr(
                 coordinator, "player_stats_game_data_client", value
             ),
+            active_recording_feed=lambda: self.active_recording_feed,
         )
         coordinator.player_stats_memory = self.player_stats_memory
         coordinator.run_lifecycle = self.run_lifecycle
@@ -201,6 +205,7 @@ class AppRuntime:
             self.vod_library = VodLibrary(
                 settings=self.coordinator.recording_settings,
                 schedule=schedule,
+                active_recording_feed=self.active_recording_feed,
             )
         return self.vod_library
 
@@ -219,7 +224,10 @@ class AppRuntime:
         timed_out.extend(f"in_game_overlay.{name}" for name in self._pending(overlay_result))
         self._step(
             "vod_recorder",
-            lambda: self.vod_recorder.stop()
+            lambda: self.vod_capture.stop_recording(
+                refresh_live_stats=False,
+                refresh_library=False,
+            )
             if self.vod_recorder.is_recording
             else self.vod_recorder.close(),
         )

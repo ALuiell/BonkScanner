@@ -506,6 +506,7 @@ def build_recordings_tab(**overrides) -> RecordingsTab:
         # frame may simply never arrive.
         "snapshot_throttle": None,
         "timeline_series_slots": None,
+        "active_recording_feed": None,
     }
     unknown = set(overrides) - set(defaults)
     assert not unknown, f"not RecordingsTab constructor arguments: {sorted(unknown)}"

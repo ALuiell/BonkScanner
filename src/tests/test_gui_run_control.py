@@ -1854,8 +1854,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._loaded_vod = None
         app._snapshot_index = None
         app._name_entry = None
-        app.refresh_loaded_vod_ui = lambda: None
-        app.refresh_vods_list = lambda: None
+        app.refresh_loaded_vod_ui = lambda **_kwargs: None
+        app.refresh_vods_list = lambda **_kwargs: None
 
         with patch_everywhere("load_vod", return_value=loaded_vod) as load_vod:
             app.load_selected_vod("C:/tmp/run.jsonl")
@@ -1869,7 +1869,7 @@ class GuiRunControlTests(unittest.TestCase):
             snapshots=(object(),),
         )
         loaded_vod = types.SimpleNamespace(
-            metadata=types.SimpleNamespace(path=Path("new.jsonl"), name="New"),
+            metadata=types.SimpleNamespace(path=Path("C:/tmp/new.jsonl"), name="New"),
             snapshots=(object(),),
         )
         # `schedule=` is what puts the load on a worker thread: the mixin read
@@ -1887,12 +1887,12 @@ class GuiRunControlTests(unittest.TestCase):
         app._delete_btn = FakeControl()
         app._scrubber = FakeControl()
         app._status_label = FakeLabel()
-        app.refresh_loaded_vod_ui = lambda: None
-        app.refresh_vods_list = lambda: None
+        app.refresh_loaded_vod_ui = lambda **_kwargs: None
+        app.refresh_vods_list = lambda **_kwargs: None
         pending = []
         app._load_lane.dispose()
         app._load_lane = SimpleNamespace(
-            submit=lambda path, *, load, complete: pending.append((path, load, complete))
+            submit=lambda path, *, load, complete, **_kwargs: pending.append((path, load, complete))
         )
 
         with patch_everywhere("load_vod", return_value=loaded_vod):
@@ -1912,8 +1912,8 @@ class GuiRunControlTests(unittest.TestCase):
                 app.rename_selected_vod()
             rename_vod.assert_not_called()
 
-            path, load, complete = pending[0]
-            complete(load(path), None)
+            _path, _load, complete = pending[0]
+            complete(SimpleNamespace(vod=loaded_vod, revision=None), None)
 
         self.assertIs(app._loaded_vod, loaded_vod)
         self.assertTrue(app._name_entry.enabled)

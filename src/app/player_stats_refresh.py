@@ -139,6 +139,7 @@ class PlayerStatsRefresh:
         select_snapshot: Callable[[Any], None],
         game_data_client: Callable[[], Any],
         set_game_data_client: Callable[[Any], None],
+        active_recording_feed: Callable[[], Any] | None = None,
     ) -> None:
         self._shutdown_requested = shutdown_requested
         self._lifecycle_service = lifecycle_service
@@ -157,6 +158,7 @@ class PlayerStatsRefresh:
         self._select_snapshot = select_snapshot
         self._game_data_client = game_data_client
         self._set_game_data_client = set_game_data_client
+        self._active_recording_feed = active_recording_feed or (lambda: None)
 
     def tick(self) -> None:
         """The per-tick body of the fast refresh loop.
@@ -500,10 +502,12 @@ class PlayerStatsRefresh:
             snapshot = self._recorder_handle().capture(capture_payload)
             pinned = self._snapshot_is_pinned()
             self._snapshot_buffer().append(snapshot)
+            feed = self._active_recording_feed()
+            if feed is not None:
+                feed.append(self._recorder_handle().current_metadata(), snapshot)
             if not pinned:
                 self._select_snapshot(len(self._snapshot_buffer()) - 1)
             view.refresh_player_stats_timeline_ui()
-            self._recordings_list()._refresh_vods_list_if_visible()
             if is_live_tab_active and not pinned:
                 # The newest capture is still the live view. Keep its Stage
                 # Summary on the same fast tracker projection OBS just received;
