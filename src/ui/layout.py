@@ -333,6 +333,13 @@ def _build_header(app, parent_layout):
     title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     header.addWidget(title, 0, Qt.AlignVCenter)
 
+    status_cluster = QWidget()
+    status_cluster.setObjectName("headerStatusCluster")
+    status_cluster_layout = QHBoxLayout(status_cluster)
+    status_cluster_layout.setContentsMargins(0, 0, 0, 0)
+    status_cluster_layout.setSpacing(6)
+    header.addWidget(status_cluster, 0, Qt.AlignVCenter)
+
     app.premium_access_badge = PremiumAccessBadge()
     _apply_button_icon(
         app.premium_access_badge,
@@ -343,7 +350,7 @@ def _build_header(app, parent_layout):
         lambda: app.open_settings_dialog(page="support")
     )
     app.supporter_access.add_listener(app.premium_access_badge.set_access_state)
-    header.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
+    status_cluster_layout.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
     # The access state may make the badge visible immediately. Reparent it via
     # the layout first so an active Premium account cannot flash a transient
     # top-level native window during startup.
@@ -351,7 +358,7 @@ def _build_header(app, parent_layout):
 
     divider = QFrame()
     divider.setObjectName("headerDivider")
-    header.addWidget(divider, 0, Qt.AlignVCenter)
+    status_cluster_layout.addWidget(divider, 0, Qt.AlignVCenter)
 
     # Status reads next to the logo: the dot for the colour, the text for which
     # of the four states it is. The scanner's switch stays at the far end of
@@ -387,7 +394,7 @@ def _build_header(app, parent_layout):
     app.status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     status_pair_layout.addWidget(app.status_label, 0, Qt.AlignVCenter)
 
-    header.addWidget(status_pair, 0, Qt.AlignVCenter)
+    status_cluster_layout.addWidget(status_pair, 0, Qt.AlignVCenter)
 
     header.addStretch(1)
 

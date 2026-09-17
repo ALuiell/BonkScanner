@@ -218,8 +218,11 @@ class StatusIndicatorTests(unittest.TestCase):
             host.show()
             app.processEvents()
             title = host.findChild(QLabel, "appTitle")
+            status_cluster = host.findChild(QWidget, "headerStatusCluster")
             status_pair = host.findChild(QWidget, "statusPair")
-            assert title is not None and status_pair is not None
+            assert title is not None and status_cluster is not None and status_pair is not None
+            assert status_cluster.layout().spacing() == 6
+            assert status_cluster.layout().getContentsMargins() == (0, 0, 0, 0)
             assert status_pair.height() == 30
             assert status_pair.layout().spacing() == 3
             assert status_pair.layout().getContentsMargins() == (0, 4, 0, 0)
