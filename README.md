@@ -22,6 +22,14 @@ release build is created.
 Use the Python setup below only if you want to run from source or develop the
 project.
 
+## Linux
+**Linux users:** You can try the unofficial community port maintained independently
+by [cybWasHere](https://github.com/cybWasHere/BonkScanner). I haven’t tested it
+personally, and it isn’t officially supported as part of BonkScanner. Installation
+instructions and Linux-specific support are available in its repository, so
+Linux-specific issues should be reported there. Thanks to cybWasHere for taking
+the time to bring BonkScanner to Linux.
+
 ## Run From Source on Windows
 1. Install **Python 3.12 x64**.
 2. Open the project folder.
