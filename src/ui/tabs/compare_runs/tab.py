@@ -399,7 +399,6 @@ class CompareRunsTab:
         self._chooser_expanded = False
         self._guided_selection_active = False
         self._stats_config_expanded = False
-        self._item_details_expanded = False
         self._syncing = False
         self._load_generations = {}
         self._load_lanes = {
@@ -450,7 +449,6 @@ class CompareRunsTab:
         self._chaos_checkbox = None
         self._shrines_checkbox = None
         self._passives_checkbox = None
-        self._item_details_btn = None
         self._diff_overview_group = None
         self._diff_overview_label = None
         self._diff_stats_group = None
@@ -1160,15 +1158,7 @@ class CompareRunsTab:
         self._chaos_enabled = sections["chaos"]
         self._shrines_enabled = sections["shrines"]
         self._passives_enabled = sections["passives"]
-        if not self._items_enabled:
-            self._item_details_expanded = False
         self._save_compare_run_sections()
-        self.refresh_compare_runs_ui()
-
-    def toggle_compare_runs_item_details(self):
-        self._item_details_expanded = not bool(
-            self._item_details_expanded
-        )
         self.refresh_compare_runs_ui()
 
     def on_compare_run_stat_selection_changed(self):
@@ -1639,11 +1629,9 @@ class CompareRunsTab:
         snapshot_b = self._compare_run_snapshot("b")
         if vod_a is None or vod_b is None:
             self._set_compare_runs_diff_cards("Select two recordings")
-            self._refresh_compare_runs_item_details_button(False)
             return
         if snapshot_a is None or snapshot_b is None:
             self._set_compare_runs_diff_cards("Both recordings need snapshots")
-            self._refresh_compare_runs_item_details_button(False)
             return
         show_items = bool(self._items_enabled)
         show_stage_summary = bool(self._stage_summary_enabled)
@@ -1652,15 +1640,13 @@ class CompareRunsTab:
         show_chaos = bool(self._chaos_enabled)
         show_shrines = bool(self._shrines_enabled)
         show_passives = bool(self._passives_enabled)
-        item_details_expanded = bool(self._item_details_expanded)
         stat_labels = tuple(self._compare_run_selected_stat_labels())
         legacy_diff_cards = self._detail_tabs is None
 
         # Everything that can change a formatted diff is in this key -- both
         # recordings, both indexes, which sections are on, the selected stats,
-        # and the item-details toggle -- so a hit is safe without any
-        # invalidation beyond replacing a recording, which clears the cache
-        # outright.
+        # so a hit is safe without any invalidation beyond replacing a
+        # recording, which clears the cache outright.
         cache_key = (
             id(vod_a),
             int(self._compare_run_index("a") or 0),
@@ -1668,7 +1654,6 @@ class CompareRunsTab:
             int(self._compare_run_index("b") or 0),
             stat_labels,
             show_items,
-            item_details_expanded,
             show_stage_summary,
             show_weapons,
             show_tomes,
@@ -1700,7 +1685,6 @@ class CompareRunsTab:
                     formatting.build_compare_runs_items_summary(
                         snapshot_a,
                         snapshot_b,
-                        details_expanded=item_details_expanded,
                     )
                     if show_items
                     else "--"
@@ -1709,7 +1693,6 @@ class CompareRunsTab:
                     formatting.build_compare_runs_items_table(
                         snapshot_a,
                         snapshot_b,
-                        details_expanded=item_details_expanded,
                     )
                     if show_items
                     else EMPTY_METRIC_TABLE
@@ -1829,7 +1812,6 @@ class CompareRunsTab:
             card_kwargs["luck_loot"] = luck_loot
             card_kwargs["hub_facts"] = hub_facts
         self._set_compare_runs_diff_cards(overview_text, **card_kwargs)
-        self._refresh_compare_runs_item_details_button(show_items)
 
     def _store_compare_runs_diff(self, key, payload) -> None:
         cache = self._diff_cache
@@ -1878,17 +1860,6 @@ class CompareRunsTab:
             except RuntimeError:
                 # The status widget was deleted during application teardown.
                 pass
-
-    def _refresh_compare_runs_item_details_button(self, visible: bool) -> None:
-        item_details_btn = self._item_details_btn
-        if item_details_btn is None:
-            return
-        item_details_btn.setVisible(visible)
-        item_details_btn.setText(
-            "Hide Item Details"
-            if bool(self._item_details_expanded)
-            else "Show Item Details"
-        )
 
     def _set_compare_runs_diff_cards(
         self,
@@ -2384,17 +2355,12 @@ class CompareRunsTab:
             "Items",
             "--",
         )
-        # The card is a summary line plus, when expanded, a per-item table. The
-        # table is the widget-rendered half for the same reason the three cards
+        # The card is a summary line plus a complete per-item table. The table
+        # is the widget-rendered half for the same reason the three cards
         # below are: as `<table>` markup it was 19 KB and 70 ms of layout per
         # frame -- the most expensive card of the seven.
         self._diff_items_table = MetricTableView()
         self._diff_items_group.layout().addWidget(self._diff_items_table)
-        self._item_details_btn = QPushButton("Show Item Details")
-        self._item_details_btn.setProperty("class", "SmallGhostButton")
-        self._item_details_btn.clicked.connect(self.toggle_compare_runs_item_details)
-        self._item_details_btn.setVisible(False)
-        self._diff_items_group.layout().addWidget(self._item_details_btn, 0, Qt.AlignLeft)
         self._diff_stage_summary_group, self._diff_stage_summary_label = self._build_diff_card(
             "Stage Summary",
             "--",
@@ -2973,16 +2939,12 @@ class CompareRunsTab:
     def _build_items_page(self) -> None:
         page, _content, layout = self._new_scroll_page()
         self._diff_items_group, self._diff_items_label = self._build_diff_card(
-            "Item differences", "--"
+            "Item comparison", "--"
         )
         self._diff_items_group.setObjectName("CompareRunsItemsDiff")
         self._diff_items_table = MetricTableView()
         self._diff_items_table.setObjectName("CompareRunsItemsTable")
         self._diff_items_group.layout().addWidget(self._diff_items_table)
-        self._item_details_btn = QPushButton("Show Item Details")
-        self._item_details_btn.setObjectName("CompareRunsItemDetails")
-        self._item_details_btn.clicked.connect(self.toggle_compare_runs_item_details)
-        self._diff_items_group.layout().addWidget(self._item_details_btn, 0, Qt.AlignLeft)
         layout.addWidget(self._diff_items_group)
         inventories = QHBoxLayout()
         for side in ("a", "b"):

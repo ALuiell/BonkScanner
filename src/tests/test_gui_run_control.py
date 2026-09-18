@@ -5523,7 +5523,6 @@ class GuiRunControlTests(unittest.TestCase):
         app._run_a_slider = MagicMock()
         app._run_a_items_view = RecordingItemsSectionView()
         app._set_compare_runs_diff_cards = MagicMock()
-        app._refresh_compare_runs_item_details_button = MagicMock()
         app._refresh_compare_runs_selected_labels = MagicMock()
 
         app._set_compare_run_error("a", "Could not load recording")
@@ -5551,10 +5550,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._chaos_enabled = False
         app._shrines_enabled = False
         app._passives_enabled = False
-        app._item_details_expanded = False
         app._compare_run_selected_stat_labels = MagicMock(return_value=("Damage",))
         app._set_compare_runs_diff_cards = MagicMock()
-        app._refresh_compare_runs_item_details_button = MagicMock()
 
         # Patched on `projections.formatting`, not stubbed on the tab: step 21d
         # deleted the nine `format_compare_runs_*` passthroughs, so the tab calls

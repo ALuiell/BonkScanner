@@ -225,7 +225,6 @@ class CompareRunsScrubTests(unittest.TestCase):
         tab._run_a_summary_label = FakeLabel()
         tab._run_a_items_view = MagicMock()
         tab._set_compare_runs_diff_cards = MagicMock()
-        tab._refresh_compare_runs_item_details_button = MagicMock()
         tab._refresh_compare_runs_selected_labels = MagicMock()
         for value in (1, 2):
             tab.on_compare_run_slider_changed("a", value)
@@ -251,7 +250,6 @@ def build_diffable_compare_tab():
     tab._shrines_enabled = False
     tab._passives_enabled = False
     tab._compare_run_selected_stat_labels = MagicMock(return_value=("Damage",))
-    tab._refresh_compare_runs_item_details_button = MagicMock()
     return tab
 
 
@@ -414,7 +412,6 @@ class CompareRunsStaleDataTests(unittest.TestCase):
         tab._diff_weapons_table = FakeMetricTable()
         tab._diff_tomes_table = FakeMetricTable()
         tab._diff_chaos_table = FakeMetricTable()
-        tab._refresh_compare_runs_item_details_button = MagicMock()
         tab.refresh_compare_runs_list = MagicMock()
         tab._refresh_compare_runs_chooser = MagicMock()
         tab._refresh_compare_runs_stats_config = MagicMock()
