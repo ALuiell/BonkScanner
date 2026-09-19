@@ -1218,6 +1218,15 @@ class TestTwitchBotWorker(unittest.TestCase):
             "channel", "Chests: T1:20/46 | Total: 20/46 | Paid: 18 | Key Procs: 0/18 (0.0%) | Expected: -- | Free Chests: 2 | Keys: 0 (0.0%)"
         )
 
+        # A first unconfirmed factual pair must not be rendered as zero procs.
+        self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
+            1, 46, 1, 0, 0, None, {1: 1}, {1: 46}, False
+        )
+        self.bot._handle_chests("channel")
+        self.bot._send_chat.assert_called_with(
+            "channel", "Chests: T1:1/46 | Total: 1/46 | Paid: -- | Key Procs: --/-- (--) | Expected: -- | Free Chests: -- | Keys: 1 (9.1%)"
+        )
+
         self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
             20, 46, 0, 17, 34, None, {1: -1, 2: 20}, {1: 46, 2: 46}, True, 0.0, 0, False, 51, True
         )

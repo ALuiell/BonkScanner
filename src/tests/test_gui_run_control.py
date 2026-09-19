@@ -4108,6 +4108,48 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(owner_reads, ["owner"])
 
+    def test_fast_chest_counter_task_publishes_the_factual_pair(self) -> None:
+        reads: list[str] = []
+        updates: list[tuple[int, int, bool]] = []
+        client = SimpleNamespace(
+            get_chest_counters=lambda **kwargs: (
+                reads.append(f"counters:{kwargs['include_opening']}")
+                or (7, 6, True)
+            ),
+        )
+        service, world = build_refresh_tasks(stats_client=client)
+        world.tracker.update_chest_counters = (
+            lambda bought, purchased, *, chest_opening: (
+                updates.append((bought, purchased, chest_opening)) or True
+            )
+        )
+
+        result = service._refresh_chest_counters_task(
+            RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(reads, ["counters:True"])
+        self.assertEqual(updates, [(7, 6, True)])
+
+    def test_fast_map_activity_updates_chest_progress_for_counter_confirmation(self) -> None:
+        activity = {
+            "Chests": SimpleNamespace(current=4, max=46),
+        }
+        service, world = build_refresh_tasks()
+        world.memory.read_map_activity_values = lambda _context: activity
+        world.tracker.get_chests_and_keys = lambda: (3, 46, 2, 0, {}, {})
+        updates: list[tuple[int, int, int]] = []
+        world.tracker.update_chests_and_keys = (
+            lambda opened, total, keys: updates.append((opened, total, keys))
+        )
+
+        service._publish_fast_map_activity(
+            RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+        )
+
+        self.assertEqual(updates, [(4, 46, 2)])
+
     def test_dice_receives_permanent_modifiers_without_chaos_tome(self) -> None:
         modifier = SimpleNamespace(object_ptr=0xCAFE, modify_type=0)
         permanent_modifiers = {12: (modifier,)}

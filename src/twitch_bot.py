@@ -1353,15 +1353,16 @@ class TwitchBotWorker(QThread):
         if runtime.latest_snapshot is not None:
             stats = runtime.chest_stats
             keys_count = stats.keys_count
-            paid_opens = stats.paid
-            key_procs = stats.key_procs
+            counters_available = stats.counters_available
+            paid_opens = stats.paid if counters_available else "--"
+            key_procs = stats.key_procs if counters_available else "--"
             free_chests = stats.free_chests
             chests_by_stage = stats.opened_by_stage
             total_by_stage = stats.total_by_stage
             total_opened = stats.total_opened
             total_opened_is_minimum = stats.total_opened_is_minimum
             total_chests = stats.total_chests
-            normal_opened = stats.normal_opened
+            normal_opened = stats.normal_opened if counters_available else "--"
             expected_procs = (
                 f"{stats.expected_key_procs:.1f}"
                 if stats.expected_complete
@@ -1386,8 +1387,15 @@ class TwitchBotWorker(QThread):
         else:
             chance_val = (0.10 * keys_count) / (0.10 * keys_count + 1.0) * 100.0
         chance_str = f"{chance_val:.1f}%"
-        proc_rate = (key_procs / normal_opened * 100.0) if normal_opened > 0 else 0.0
-        proc_rate_str = f"{proc_rate:.1f}%"
+        if counters_available:
+            proc_rate = (
+                stats.key_procs / stats.normal_opened * 100.0
+                if stats.normal_opened > 0
+                else 0.0
+            )
+            proc_rate_str = f"{proc_rate:.1f}%"
+        else:
+            proc_rate_str = "--"
         free_text = "--" if free_chests is None else str(free_chests)
         text = self._format_template(
             "chests",

@@ -1187,6 +1187,98 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertEqual(client.get_chest_counters(), (0, 0))
 
+    def test_chest_counter_snapshot_reports_active_interactable_chest(self) -> None:
+        memory = self.build_memory()
+        base = memory.module_base
+        memory.mono_strings[0x20001200] = "chestsBought"
+        memory.floats[
+            0x20001100
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.RUN_STATS_ENTRY_VALUE_OFFSET
+        ] = 19.0
+        my_player_class = 0x21000000
+        my_player_static = 0x21000100
+        player = 0x21000200
+        player_input = 0x21000300
+        detector = 0x21000400
+        chest = 0x21000500
+        chest_class = 0x21000600
+        chest_class_name = 0x21000700
+        memory.pointers.update(
+            {
+                base + PlayerStatsClient.MY_PLAYER_TYPE_INFO_OFFSET: my_player_class,
+                my_player_class + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: my_player_static,
+                my_player_static + PlayerStatsClient.MY_PLAYER_INSTANCE_OFFSET: player,
+                player + PlayerStatsClient.PLAYER_INPUT_OFFSET: player_input,
+                player_input + PlayerStatsClient.DETECT_INTERACTABLES_OFFSET: detector,
+                detector + PlayerStatsClient.CURRENT_INTERACTABLE_OFFSET: chest,
+                chest + PlayerStatsClient.OBJECT_KLASS_OFFSET: chest_class,
+                chest_class + PlayerStatsClient.KLASS_NAME_PTR_OFFSET: chest_class_name,
+            }
+        )
+        memory.ascii_strings[chest_class_name] = "InteractableChest"
+        memory.bytes[
+            chest + PlayerStatsClient.INTERACTABLE_CHEST_OPENING_OFFSET
+        ] = 1
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(
+            client.get_chest_counters(include_opening=True),
+            (19, 12, True),
+        )
+
+    def test_chest_counter_snapshot_guards_chest_opening_during_counter_read(self) -> None:
+        memory = self.build_memory()
+        base = memory.module_base
+        memory.mono_strings[0x20001200] = "chestsBought"
+        memory.floats[
+            0x20001100
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.RUN_STATS_ENTRY_VALUE_OFFSET
+        ] = 19.0
+        my_player_class = 0x22000000
+        my_player_static = 0x22000100
+        player = 0x22000200
+        player_input = 0x22000300
+        detector = 0x22000400
+        chest = 0x22000500
+        chest_class = 0x22000600
+        chest_class_name = 0x22000700
+        current_address = detector + PlayerStatsClient.CURRENT_INTERACTABLE_OFFSET
+        memory.pointers.update(
+            {
+                base + PlayerStatsClient.MY_PLAYER_TYPE_INFO_OFFSET: my_player_class,
+                my_player_class
+                + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: my_player_static,
+                my_player_static + PlayerStatsClient.MY_PLAYER_INSTANCE_OFFSET: player,
+                player + PlayerStatsClient.PLAYER_INPUT_OFFSET: player_input,
+                player_input
+                + PlayerStatsClient.DETECT_INTERACTABLES_OFFSET: detector,
+                current_address: 0,
+                chest + PlayerStatsClient.OBJECT_KLASS_OFFSET: chest_class,
+                chest_class + PlayerStatsClient.KLASS_NAME_PTR_OFFSET: chest_class_name,
+            }
+        )
+        memory.ascii_strings[chest_class_name] = "InteractableChest"
+        memory.bytes[
+            chest + PlayerStatsClient.INTERACTABLE_CHEST_OPENING_OFFSET
+        ] = 1
+        underlying_read_ptr = memory.read_ptr
+        current_reads = iter((0, chest))
+
+        def read_ptr(address: int) -> int:
+            if address == current_address:
+                return next(current_reads)
+            return underlying_read_ptr(address)
+
+        memory.read_ptr = read_ptr
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(
+            client.get_chest_counters(include_opening=True),
+            (19, 12, True),
+        )
+
     def test_expected_chest_inputs_reuse_validated_entry_addresses(self) -> None:
         memory = self.build_memory()
         memory.ascii_strings[0x20000B00] = "ItemKey"

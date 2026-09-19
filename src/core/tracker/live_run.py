@@ -1401,14 +1401,34 @@ class LiveRunTracker:
         )
 
     @with_lock
-    def update_chest_counters(self, chests_bought: int, chests_purchased: int) -> bool:
-        accepted = chests.update_chest_counters(
-            self._chest_state, chests_bought, chests_purchased
-        )
+    def update_chest_counters(
+        self,
+        chests_bought: int,
+        chests_purchased: int,
+        *,
+        chest_opening: bool = False,
+    ) -> bool:
         now = self.clock()
-        if accepted:
+        confirmed_before = (
+            self._chest_state.confirmed_chests_bought,
+            self._chest_state.confirmed_chests_purchased,
+        )
+        accepted = chests.update_chest_counters(
+            self._chest_state,
+            chests_bought,
+            chests_purchased,
+            chest_opening=chest_opening,
+        )
+        confirmed_after = (
+            self._chest_state.confirmed_chests_bought,
+            self._chest_state.confirmed_chests_purchased,
+        )
+        if accepted and confirmed_after == (
+            int(chests_bought),
+            int(chests_purchased),
+        ):
             self._mark_feature_success_unlocked("chest_counters", now)
-        else:
+        elif not accepted:
             self._mark_feature_failure_unlocked(
                 "chest_counters",
                 now,
@@ -1417,6 +1437,12 @@ class LiveRunTracker:
                     f"bought={int(chests_bought)}, purchased={int(chests_purchased)}"
                 ),
             )
+        elif confirmed_after == confirmed_before:
+            # A changed pair is guarded by the active chest or is still awaiting
+            # its second post-close fast-lane sample.
+            # Keep the previous factual freshness rather than claiming the
+            # unconfirmed candidate succeeded or failed.
+            pass
         return accepted
 
     # Called class-qualified from projections/formatting.py, so it has to stay

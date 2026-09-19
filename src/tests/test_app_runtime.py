@@ -125,6 +125,7 @@ class AppRuntimeTests(unittest.TestCase):
 
         self.assertLess(order.index("run_lifecycle_probe"), order.index("recording_lifecycle"))
         self.assertLess(order.index("recording_lifecycle"), order.index("full_player_snapshot"))
+        self.assertLess(order.index("expected_chest_inputs"), order.index("chest_counters"))
         self.assertLess(order.index("charge_shrines"), order.index("chaos_tome"))
 
     def test_shutdown_closes_gates_first_and_shares_one_deadline(self) -> None:
