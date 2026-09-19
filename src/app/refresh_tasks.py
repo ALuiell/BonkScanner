@@ -90,6 +90,7 @@ from app.in_game_overlay_demand import (
 from app.read_sources import (
     CHARACTER_PASSIVE_READING,
     CHAOS_TRACKING_STATE,
+    CHEST_COUNTERS,
     EXPECTED_CHEST_INPUTS,
     KPS_GROUP_SPAN_LIMIT_SECONDS,
     LIVE_BANISHES,
@@ -339,6 +340,14 @@ def build_refresh_coordinator(
             interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
             required=service._should_refresh_expected_chest_inputs,
             run=service._refresh_expected_chest_inputs_task,
+        )
+    )
+    coordinator.register(
+        RefreshTask(
+            task_id="chest_counters",
+            interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
+            required=service._should_refresh_expected_chest_inputs,
+            run=service._refresh_chest_counters_task,
         )
     )
     coordinator.register(
@@ -651,6 +660,26 @@ class RefreshTasks:
             self._mark_fast_feature_failed("expected_chests", exc)
             return False
 
+    def _refresh_chest_counters_task(self, context: RefreshTickContext) -> bool:
+        """Publish only tracker-confirmed factual chest counter pairs."""
+        try:
+            client = self._fast_task_client(context)
+            chests_bought, chests_purchased, chest_opening = read_memory_source(
+                context,
+                CHEST_COUNTERS,
+                lambda: client.get_chest_counters(include_opening=True),
+            )
+            self._memory().record_memory_success()
+            return self._tracker().update_chest_counters(
+                chests_bought,
+                chests_purchased,
+                chest_opening=chest_opening,
+            ) is not False
+        except Exception as exc:
+            self._memory().record_memory_failure(exc)
+            self._mark_fast_feature_failed("chest_counters", exc)
+            return False
+
     def _publish_fast_luck(self, context: RefreshTickContext) -> None:
         """Luck, from the same pass as the inventory.
 
@@ -776,6 +805,23 @@ class RefreshTasks:
             # it. Publishing an empty context would replace a good reading with
             # a blank one.
             return
+        chest_stat = activity_values.get("Chests")
+        get_chests_and_keys = getattr(self._tracker(), "get_chests_and_keys", None)
+        update_chests_and_keys = getattr(
+            self._tracker(), "update_chests_and_keys", None
+        )
+        if (
+            chest_stat is not None
+            and callable(get_chests_and_keys)
+            and callable(update_chests_and_keys)
+        ):
+            previous = get_chests_and_keys()
+            keys_count = int(previous[2]) if len(previous) >= 3 else 0
+            update_chests_and_keys(
+                int(chest_stat.current),
+                int(chest_stat.max),
+                keys_count,
+            )
         # `current` (numUsed), not `max`: the loot tracker's exclusions key on a
         # counter *moving*, which is the only observable the game gives for a
         # Moai pick or a completed merchant trade. Published before the item

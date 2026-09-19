@@ -72,7 +72,7 @@ import time
 from typing import Any, Callable
 
 from app import config
-from app.read_sources import CHEST_COUNTERS, MAP_ACTIVITY_VALUES, read_source
+from app.read_sources import MAP_ACTIVITY_VALUES, read_source
 from core.game_state import MapStat, RuntimeGameMode
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
@@ -448,22 +448,6 @@ class PlayerStatsRefresh:
             should_update_chests_and_keys = True
         if should_update_chests_and_keys:
             self._live_tracker().update_chests_and_keys(chests_opened, chests_total, keys_count)
-
-        try:
-            client = self._memory_service()._get_player_stats_client()
-            chests_bought, chests_purchased = read_source(
-                context, CHEST_COUNTERS, client.get_chest_counters
-            )
-            self._live_tracker().update_chest_counters(
-                chests_bought,
-                chests_purchased,
-            )
-        except Exception as exc:
-            mark_feature_failed = getattr(
-                self._live_tracker(), "mark_feature_failed", None
-            )
-            if callable(mark_feature_failed):
-                mark_feature_failed("chest_counters", exc)
 
         view = self._live_stats_view()
         overlay = self._overlay()

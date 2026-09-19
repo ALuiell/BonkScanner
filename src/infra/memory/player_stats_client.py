@@ -192,6 +192,7 @@ class _CooldownSlot:
 class PlayerStatsClient:
     TYPE_INFO_OFFSET = 0x02F6A4B8
     MONEY_UTILITY_TYPE_INFO_OFFSET = 0x02F5E0B0
+    MY_PLAYER_TYPE_INFO_OFFSET = 0x02F620F8
     MAP_CONTROLLER_TYPE_INFO_OFFSET = 0x02F58E08
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
     RUN_STATS_TYPE_INFO_OFFSET = 0x02F7A170
@@ -199,6 +200,11 @@ class PlayerStatsClient:
     DATA_MANAGER_TYPE_INFO_OFFSET = 0x02F85790
     POTATO_TYPE_INFO_OFFSET = 0x02F6FC78
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
+    MY_PLAYER_INSTANCE_OFFSET = 0x08
+    PLAYER_INPUT_OFFSET = 0x48
+    DETECT_INTERACTABLES_OFFSET = 0x20
+    CURRENT_INTERACTABLE_OFFSET = 0x28
+    INTERACTABLE_CHEST_OPENING_OFFSET = 0x68
     STATIC_ROOT_OFFSET = 0x0
     OWNER_STATS_OFFSET = 0x40
     MY_TIME_TIME_OFFSET = 0x04
@@ -2291,8 +2297,30 @@ class PlayerStatsClient:
     def get_killed_mobs(self) -> int:
         return self._get_cached_killed_mobs()
 
-    def get_chest_counters(self) -> tuple[int, int]:
-        chests_bought = self.get_chests_bought()
+    def get_chest_counters(
+        self,
+        *,
+        include_opening: bool = False,
+    ) -> tuple[int, int] | tuple[int, int, bool]:
+        """Read factual chest counters, optionally with their lifecycle guard."""
+        if not include_opening:
+            return self._read_chest_counters()
+
+        # The counters live in independent game objects. Read the opening flag
+        # on both sides to close both race directions: if the chest opens or
+        # closes during this method, the sample remains guarded and is retried
+        # on a later fast pass.
+        opening_before = self._is_interactable_chest_opening()
+        chests_bought, chests_purchased = self._read_chest_counters()
+        opening_after = self._is_interactable_chest_opening()
+        return chests_bought, chests_purchased, opening_before or opening_after
+
+    def _read_chest_counters(self) -> tuple[int, int]:
+        # This source now runs on the fast tracker cadence. Reuse the validated
+        # entry-address cache instead of walking the RunStats dictionary on
+        # every sample; count/version changes still invalidate the address when
+        # the lazily-created ``chestsBought`` entry appears.
+        chests_bought = self._get_cached_chests_bought()
 
         type_info_address = self.memory.module_offset(
             self.module_name,
@@ -2313,6 +2341,43 @@ class PlayerStatsClient:
             ),
         )
         return chests_bought, chests_purchased
+
+    def _is_interactable_chest_opening(self) -> bool:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.MY_PLAYER_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("MyPlayer type info is not initialized.")
+        static_fields = self.memory.read_ptr(
+            class_ptr + self.CLASS_STATIC_FIELDS_OFFSET
+        )
+        if not static_fields:
+            raise MemoryReadError("MyPlayer static fields are not initialized.")
+        player = self.memory.read_ptr(static_fields + self.MY_PLAYER_INSTANCE_OFFSET)
+        if not player:
+            raise MemoryReadError("MyPlayer.Instance is not initialized.")
+        player_input = self.memory.read_ptr(player + self.PLAYER_INPUT_OFFSET)
+        if not player_input:
+            raise MemoryReadError("PlayerInput is not initialized.")
+        detector = self.memory.read_ptr(
+            player_input + self.DETECT_INTERACTABLES_OFFSET
+        )
+        if not detector:
+            raise MemoryReadError("DetectInteractables is not initialized.")
+        interactable = self.memory.read_ptr(
+            detector + self.CURRENT_INTERACTABLE_OFFSET
+        )
+        if not interactable:
+            return False
+        if self._read_object_class_name(interactable) != "InteractableChest":
+            return False
+        return bool(
+            self.memory.read_u8(
+                interactable + self.INTERACTABLE_CHEST_OPENING_OFFSET
+            )
+        )
 
     def get_chests_bought(self) -> int:
         run_stats = self.get_run_stat_values(("chestsBought",))

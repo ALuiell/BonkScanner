@@ -1363,6 +1363,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker.update_chests_and_keys(10, 46, 5)
 
         self.assertTrue(tracker.update_chest_counters(8, 3))
+        self.assertTrue(tracker.update_chest_counters(8, 3))
         stats = tracker.get_chest_stats()
 
         self.assertEqual(stats.total_opened, 10)
@@ -1376,25 +1377,28 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker.update(snapshot(time_seconds=1.0, map_seed=100, stage_ptr=1000))
         tracker.update_chests_and_keys(4, 46, 0)
         self.assertTrue(tracker.update_chest_counters(3, 2))
+        self.assertTrue(tracker.update_chest_counters(3, 2))
 
-        self.assertFalse(tracker.update_chest_counters(5, 2))
+        self.assertFalse(tracker.update_chest_counters(3, 4))
         stats = tracker.get_chest_stats()
         counter_status = tracker.runtime_snapshot().feature_status["chest_counters"]
 
         self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (2, 1, 1))
         self.assertEqual(counter_status.availability, FeatureAvailability.STALE)
-        self.assertIn("bought=5", counter_status.last_error or "")
+        self.assertIn("purchased=4", counter_status.last_error or "")
 
     def test_chest_counters_self_heal_after_new_stage_is_observed(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=1.0, map_seed=100, stage_ptr=1000))
         tracker.update_chests_and_keys(41, 46, 0)
         self.assertTrue(tracker.update_chest_counters(41, 20))
+        self.assertTrue(tracker.update_chest_counters(41, 20))
 
-        self.assertFalse(tracker.update_chest_counters(42, 20))
+        self.assertTrue(tracker.update_chest_counters(42, 20))
         tracker.update(snapshot(time_seconds=2.0, map_seed=100, stage_ptr=2000))
         tracker.update_chests_and_keys(1, 46, 0)
 
+        self.assertTrue(tracker.update_chest_counters(42, 20))
         self.assertTrue(tracker.update_chest_counters(42, 20))
         stats = tracker.get_chest_stats()
         self.assertEqual(stats.total_opened, 42)
@@ -1405,6 +1409,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker.update(snapshot(time_seconds=120.0, map_seed=100, stage_ptr=2000, stage_index=1))
         tracker.update_chests_and_keys(20, 46, 0)
         self.assertTrue(tracker.update_chest_counters(51, 17))
+        self.assertTrue(tracker.update_chest_counters(51, 17))
         stats = tracker.get_chest_stats()
 
         self.assertEqual(stats.total_opened, 51)
@@ -1413,6 +1418,69 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(stats.opened_by_stage, {1: -1, 2: 20})
         self.assertEqual(stats.total_by_stage, {1: 46, 2: 46})
         self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (17, 34, None))
+
+    def test_paid_chest_torn_pair_is_not_published_as_key_proc(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0, map_seed=100, stage_ptr=1000))
+        tracker.update_chests_and_keys(0, 46, 1)
+        tracker.update_chest_counters(0, 0)
+        tracker.update_chest_counters(0, 0)
+
+        tracker.update_chests_and_keys(1, 46, 1)
+        for _sample in range(40):
+            tracker.update_chest_counters(1, 0, chest_opening=True)
+            self.assertEqual(tracker.get_chest_stats().key_procs, 0)
+
+        tracker.update_chest_counters(1, 1)
+        self.assertEqual(tracker.get_chest_stats().key_procs, 0)
+        tracker.update_chest_counters(1, 1)
+
+        stats = tracker.get_chest_stats()
+        self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (1, 0, 0))
+
+    def test_stable_key_proc_pair_is_published_after_confirmation(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0, map_seed=100, stage_ptr=1000))
+        tracker.update_chests_and_keys(1, 46, 1)
+
+        tracker.update_chest_counters(1, 0, chest_opening=True)
+        self.assertFalse(tracker.get_chest_stats().counters_available)
+        tracker.update_chest_counters(1, 0)
+        self.assertFalse(tracker.get_chest_stats().counters_available)
+        tracker.update_chest_counters(1, 0)
+
+        stats = tracker.get_chest_stats()
+        self.assertTrue(stats.counters_available)
+        self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (0, 1, 0))
+
+    def test_confirmed_pair_recomputes_free_chests_when_map_progress_changes(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0, map_seed=100, stage_ptr=1000))
+        tracker.update_chests_and_keys(1, 46, 0)
+        tracker.update_chest_counters(1, 1)
+        tracker.update_chest_counters(1, 1)
+        self.assertEqual(tracker.get_chest_stats().free_chests, 0)
+
+        tracker.update_chests_and_keys(2, 46, 0)
+        tracker.update_chest_counters(1, 1)
+
+        self.assertEqual(tracker.get_chest_stats().free_chests, 1)
+
+    def test_pending_chest_counter_candidate_does_not_cross_run_reset(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=20.0, map_seed=100, stage_ptr=1000))
+        tracker.update_chests_and_keys(1, 46, 1)
+        tracker.update_chest_counters(1, 0)
+
+        tracker.update(snapshot(time_seconds=1.0, map_seed=200, stage_ptr=2000))
+        tracker.update_chests_and_keys(0, 46, 0)
+        tracker.update_chest_counters(0, 0)
+
+        self.assertFalse(tracker.get_chest_stats().counters_available)
+        tracker.update_chest_counters(0, 0)
+        stats = tracker.get_chest_stats()
+        self.assertTrue(stats.counters_available)
+        self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (0, 0, 0))
 
     def test_run_identity_starts_from_raw_stage_index_on_late_attach(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
@@ -2068,6 +2136,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker.update(snapshot(time_seconds=10.0))
         tracker.update_chests_and_keys(1, 46, 1)
         self.assertTrue(tracker.update_chest_counters(1, 1))
+        self.assertTrue(tracker.update_chest_counters(1, 1))
         stats = tracker.get_chest_stats()
 
         self.assertTrue(stats.expected_available)
@@ -2082,6 +2151,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker.update(snapshot(time_seconds=1.0))
         tracker.update_chests_and_keys(0, 46, 0)
 
+        self.assertTrue(tracker.update_chest_counters(0, 0))
         self.assertTrue(tracker.update_chest_counters(0, 0))
         stats = tracker.get_chest_stats()
 

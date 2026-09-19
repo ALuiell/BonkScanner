@@ -73,6 +73,9 @@ def build_refresh_tasks(
         tracker = SimpleNamespace(
             update_powerups=lambda _snapshot: True,
             track_expected_key_procs=lambda _bought, _keys: None,
+            update_chest_counters=lambda _bought, _purchased, **_kwargs: True,
+            get_chests_and_keys=lambda: (0, 46, 0, 0, {}, {}),
+            update_chests_and_keys=lambda _opened, _total, _keys: None,
             track_kills=lambda _timer, _kills: None,
             update_fast_run_timer=lambda _timer: None,
             update_chaos_tome=lambda **_kwargs: None,

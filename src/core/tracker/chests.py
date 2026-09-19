@@ -23,6 +23,10 @@ class _ChestState:
     key_chest_procs: int = 0
     free_chest_opens: int | None = None
     chest_counters_available: bool = False
+    confirmed_chests_bought: int | None = None
+    confirmed_chests_purchased: int | None = None
+    pending_chest_counters: tuple[int, int] | None = None
+    pending_chest_counter_samples: int = 0
     chest_history_incomplete: bool = False
     total_opened_minimum: int | None = None
     total_opened_is_minimum: bool = False
@@ -76,6 +80,10 @@ def reset(
     state.key_chest_procs = 0
     state.free_chest_opens = None
     state.chest_counters_available = False
+    state.confirmed_chests_bought = None
+    state.confirmed_chests_purchased = None
+    state.pending_chest_counters = None
+    state.pending_chest_counter_samples = 0
     state.chest_history_incomplete = False
     state.total_opened_minimum = None
     state.total_opened_is_minimum = False
@@ -166,6 +174,8 @@ def update_chest_counters(
     state: _ChestState,
     chests_bought: int,
     chests_purchased: int,
+    *,
+    chest_opening: bool = False,
 ) -> bool:
     chests_bought = int(chests_bought)
     chests_purchased = int(chests_purchased)
@@ -181,13 +191,67 @@ def update_chest_counters(
         total_opened = max(known_total, chests_bought)
         total_opened_is_minimum = True
 
-    if not (
-        0 <= chests_purchased <= chests_bought <= total_opened
-    ):
+    if not 0 <= chests_purchased <= chests_bought:
+        state.pending_chest_counters = None
+        state.pending_chest_counter_samples = 0
         return False
 
-    # The slow factual read is an independent proof that no normal chest has
-    # been opened yet.  Use it to arm Expected even when the fast paired read
+    if chests_bought > total_opened:
+        # The cumulative RunStats counter can lead the map-activity counter by
+        # one fast pass. That is an expected cross-source ordering, not a bad
+        # factual pair. Wait for the one-second activity lane to catch up before
+        # starting confirmation; never publish negative inherently-free counts.
+        state.pending_chest_counters = None
+        state.pending_chest_counter_samples = 0
+        return True
+
+    # Live capture on 2026-09-19 showed that ``chestsBought`` advances when the
+    # chest window opens, but ``chestsPurchased`` may not advance until the
+    # reward is accepted. The gap lasted 1.17 s in one paid opening and at least
+    # 18.70 s when the choice was deliberately held open, so no time threshold
+    # can distinguish a paid opening from a Key proc. Keep the last confirmed
+    # values for the entire interaction and begin confirmation only after the
+    # game's own ``InteractableChest.opening`` flag clears.
+    if chest_opening:
+        state.pending_chest_counters = None
+        state.pending_chest_counter_samples = 0
+        return True
+
+    confirmed = (
+        state.confirmed_chests_bought,
+        state.confirmed_chests_purchased,
+    )
+    candidate = (chests_bought, chests_purchased)
+    already_confirmed = False
+    if None not in confirmed:
+        confirmed_bought, confirmed_purchased = confirmed
+        if (
+            chests_bought < int(confirmed_bought)
+            or chests_purchased < int(confirmed_purchased)
+        ):
+            state.pending_chest_counters = None
+            state.pending_chest_counter_samples = 0
+            return False
+        if candidate == confirmed:
+            state.pending_chest_counters = None
+            state.pending_chest_counter_samples = 0
+            already_confirmed = True
+
+    # ``chestsBought`` and ``chestsPurchased`` live in independent game
+    # objects. Even after the lifecycle guard clears, every changed pair needs
+    # a second consecutive post-close sample before it becomes factual.
+    if not already_confirmed:
+        if state.pending_chest_counters != candidate:
+            state.pending_chest_counters = candidate
+            state.pending_chest_counter_samples = 1
+            return True
+
+        state.pending_chest_counter_samples += 1
+        if state.pending_chest_counter_samples < 2:
+            return True
+
+    # A confirmed factual zero is independent proof that no normal chest has
+    # been opened yet. Use it to arm Expected even when the paired Key read
     # could not resolve the still-initialising passive-item dictionary.  No Key
     # probability is consumed at zero, so the current stack value is irrelevant
     # until a later fast sample observes an actual opening.
@@ -204,6 +268,10 @@ def update_chest_counters(
     state.total_opened_minimum = total_opened if total_opened_is_minimum else None
     state.total_opened_is_minimum = total_opened_is_minimum
     state.chest_counters_available = True
+    state.confirmed_chests_bought = chests_bought
+    state.confirmed_chests_purchased = chests_purchased
+    state.pending_chest_counters = None
+    state.pending_chest_counter_samples = 0
     return True
 
 
