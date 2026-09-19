@@ -121,6 +121,10 @@ class MerchantStockCapture:
     world_z: float
     items: tuple[MerchantOffer, ...]
     class_ptr: int = 0
+    game_process_identity: str = ""
+    stage_ptr: int = 0
+    raw_stage_index: int | None = None
+    map_seed: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

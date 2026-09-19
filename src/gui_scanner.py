@@ -81,6 +81,10 @@ class Scanner:
         current_runtime_snapshot: Callable[[], Any],
         reroll_warning_dialog: Callable[[], Any],
         obs_reminder_dialog: Callable[[], Any],
+        open_merchant_analytics_dialog: Callable[[], None] = lambda: None,
+        toggle_merchant_analytics: Callable[[bool], bool] = lambda _enabled: False,
+        merchant_analytics_status: Callable[[], Any] = lambda: None,
+        has_premium_access: Callable[[], bool] = lambda: False,
     ) -> None:
         self._coordinator = coordinator
         self._run_control = run_control
@@ -94,6 +98,10 @@ class Scanner:
         self._refresh_session_stats_snapshot = refresh_session_stats_snapshot
         self._refresh_session_tracked_item_stats_ui = refresh_session_tracked_item_stats_ui
         self._open_tracked_item_settings_dialog = open_tracked_item_settings_dialog
+        self._open_merchant_analytics_dialog = open_merchant_analytics_dialog
+        self._toggle_merchant_analytics = toggle_merchant_analytics
+        self._merchant_analytics_status = merchant_analytics_status
+        self._has_premium_access = has_premium_access
         self._is_recording = is_recording
         self._refresh_timeline = refresh_timeline
         self._is_shutting_down = is_shutting_down
@@ -723,6 +731,15 @@ class Scanner:
             seeds_found=self._session_seed_count(template_stats),
             all_time_rerolls=config.TOTAL_REROLLS,
         )
+        set_analytics_status = getattr(view, "set_merchant_analytics_status", None)
+        if callable(set_analytics_status):
+            analytics_status = self._merchant_analytics_status()
+            set_analytics_status(
+                enabled=bool(getattr(config, "MERCHANT_ANALYTICS_ENABLED", False)),
+                premium=bool(self._has_premium_access()),
+                session_recorded=int(getattr(analytics_status, "session_recorded", 0)),
+                error=getattr(analytics_status, "error", None),
+            )
         self._refresh_session_tracked_item_stats_ui()
         view.set_map_highlights(
             best_stats=best_stats,
@@ -1123,6 +1140,8 @@ class Scanner:
         """
         self._stats_view = SessionStatsTab(
             on_open_tracked_item_settings=self._open_tracked_item_settings_dialog,
+            on_open_merchant_analytics=self._open_merchant_analytics_dialog,
+            on_toggle_merchant_analytics=self._toggle_merchant_analytics,
         )
         self.tab_stats = self._stats_view.build()
         # See the slot's comment: two callers outside this file read it as
@@ -1174,6 +1193,12 @@ def build_scanner(
         refresh_session_stats_snapshot=lambda: app._refresh_session_stats_snapshot(),
         refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(),
         open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(),
+        open_merchant_analytics_dialog=lambda: _open_merchant_analytics_for_app(app),
+        toggle_merchant_analytics=lambda enabled: _toggle_merchant_analytics_for_app(
+            app, enabled
+        ),
+        merchant_analytics_status=coordinator.merchant_analytics.status,
+        has_premium_access=lambda: app.has_premium_access(),
         is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording),
         refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(
             update_slider=False
@@ -1183,3 +1208,15 @@ def build_scanner(
         reroll_warning_dialog=lambda: RerollWarningDialog(app.window),
         obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window),
     )
+
+
+def _open_merchant_analytics_for_app(app: Any) -> None:
+    from ui.dialogs.merchant_analytics import show_merchant_analytics
+
+    show_merchant_analytics(app)
+
+
+def _toggle_merchant_analytics_for_app(app: Any, enabled: bool) -> bool:
+    from ui.dialogs.merchant_analytics import set_merchant_analytics_collection
+
+    return set_merchant_analytics_collection(app, enabled, parent=app.window)

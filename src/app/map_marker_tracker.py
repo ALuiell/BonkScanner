@@ -92,6 +92,7 @@ class MapMarkerTracker:
         automatic_discovery: bool = False,
         minimap_enabled: bool = False,
         merchant_memory_enabled: bool = False,
+        map_surface_enabled: bool = True,
     ) -> MapMarkerSnapshot:
         automatic_enabled = bool(automatic_discovery)
         merchant_enabled = bool(merchant_memory_enabled)
@@ -145,6 +146,8 @@ class MapMarkerTracker:
                     merchant_memory_enabled=merchant_enabled,
                     sample_merchant_memory=(merchant_enabled and sample_heavy),
                 )
+            if not map_surface_enabled:
+                poll_kwargs["full_map_viewport_enabled"] = False
             frame = client.poll(**poll_kwargs)
         except FullMapNotReadyError:
             # FullMap type info is initialized lazily by the game. Keep this

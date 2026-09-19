@@ -43,7 +43,13 @@ class _Coordinator:
         return ()
 
 
-def _ports(calls: list[str], deadlines: list[object], *, scanner_result=True) -> AppRuntimePorts:
+def _ports(
+    calls: list[str],
+    deadlines: list[object],
+    *,
+    scanner_result=True,
+    merchant_analytics_active=False,
+) -> AppRuntimePorts:
     def with_deadline(name, result=None):
         def callback(deadline):
             calls.append(name)
@@ -73,6 +79,7 @@ def _ports(calls: list[str], deadlines: list[object], *, scanner_result=True) ->
         sync_overlay_state=lambda: None,
         sync_in_game_kps=lambda: None,
         refresh_session_tracked_items=lambda: None,
+        merchant_analytics_collection_active=lambda: merchant_analytics_active,
         log=lambda *_args, **_kwargs: None,
         stop_hotkeys=lambda: calls.append("hotkeys"),
         stop_in_game_overlay=with_deadline("in_game_overlay", ()),
@@ -84,6 +91,19 @@ def _ports(calls: list[str], deadlines: list[object], *, scanner_result=True) ->
 
 
 class AppRuntimeTests(unittest.TestCase):
+    def test_merchant_analytics_requests_player_context_only_while_active(self) -> None:
+        inactive = AppRuntime(_Coordinator([]), _ports([], []))
+        active = AppRuntime(
+            _Coordinator([]),
+            _ports([], [], merchant_analytics_active=True),
+        )
+
+        with patch("app.runtime.in_game_overlay_requires_player_stats_refresh", return_value=False), patch(
+            "app.runtime.config.AUTO_START_RECORDING", False
+        ):
+            self.assertFalse(inactive._player_stats_refresh_required())
+            self.assertTrue(active._player_stats_refresh_required())
+
     def test_create_is_the_production_coordinator_composition_root(self) -> None:
         calls: list[str] = []
         coordinator = _Coordinator(calls)

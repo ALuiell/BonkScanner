@@ -46,6 +46,7 @@ class AppRuntimePorts:
     sync_overlay_state: Callable[[], None]
     sync_in_game_kps: Callable[[], None]
     refresh_session_tracked_items: Callable[[], None]
+    merchant_analytics_collection_active: Callable[[], bool]
     log: Callable[..., None]
     stop_hotkeys: Callable[[], Any]
     stop_in_game_overlay: Callable[..., Any]
@@ -277,6 +278,7 @@ class AppRuntime:
             or self.vod_recorder.is_recording
             or self.vod_capture.is_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
+            or self.ports.merchant_analytics_collection_active()
             or any(
                 self.ports.overlay_widget_refresh_active(widget_id)
                 for widget_id in (

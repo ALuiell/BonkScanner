@@ -137,6 +137,8 @@ class InGameOverlay:
         build_progression_snapshot: Callable[[], Any] = lambda: None,
         open_build_progression_settings: Callable[[], None] = lambda: None,
         has_premium_access: Callable[[], bool] = lambda: False,
+        analytics_collection_enabled: Callable[[], bool] = lambda: False,
+        record_merchant_capture: Callable[[Any, Any], None] = lambda *_args: None,
         open_support_settings: Callable[[], None] = lambda: None,
         is_game_paused: Callable[[], bool] = lambda: False,
     ) -> None:
@@ -144,6 +146,8 @@ class InGameOverlay:
         self._build_progression_snapshot = build_progression_snapshot
         self._open_build_progression_settings = open_build_progression_settings
         self._has_premium_access = has_premium_access
+        self._analytics_collection_enabled = analytics_collection_enabled
+        self._record_merchant_capture = record_merchant_capture
         self._open_support_settings = open_support_settings
         self._is_scanning = is_scanning
         self._is_recording = is_recording
@@ -262,6 +266,7 @@ class InGameOverlay:
                 self.start_in_game_overlay()
 
             self._update_igo_status_ui()
+            self._sync_map_marker_runtime()
         except Exception as exc:
             if self.in_game_overlay_window is window:
                 self.in_game_overlay_window = None
@@ -293,19 +298,30 @@ class InGameOverlay:
         # One stale widget must not prevent the worker and hotkeys from being
         # released, so every independent cleanup step gets its own guard.
         cleanup_errors = []
-        for cleanup in (
+        analytics_active = bool(
+            not self._shutting_down
+            and self._analytics_collection_enabled()
+            and self._has_premium_access()
+        )
+        cleanups = [
             self.overlay_fast_timer.stop,
-            self.map_marker_timer.stop,
             (
                 self.in_game_overlay_window.hide
                 if self.in_game_overlay_window is not None
                 else None
             ),
-            lambda: self._stop_map_marker_worker(wait=False),
             self._map_marker_hotkeys.reset,
-            lambda: self._set_map_marker_snapshot(MapMarkerSnapshot()),
             lambda: self._set_map_marker_palette(None),
-        ):
+        ]
+        if not analytics_active:
+            cleanups.extend(
+                (
+                    self.map_marker_timer.stop,
+                    lambda: self._stop_map_marker_worker(wait=False),
+                    lambda: self._set_map_marker_snapshot(MapMarkerSnapshot()),
+                )
+            )
+        for cleanup in cleanups:
             if cleanup is None:
                 continue
             try:
@@ -322,6 +338,8 @@ class InGameOverlay:
                 + "; ".join(cleanup_errors),
                 tag="warning",
             )
+        if analytics_active:
+            self.map_marker_timer.start()
 
     def shutdown(self, deadline: ShutdownDeadline | None = None) -> tuple[str, ...]:
         """Permanently stop callbacks and dispose the parentless tool window."""
@@ -516,14 +534,19 @@ class InGameOverlay:
     # -- cadence -----------------------------------------------------------
 
     def _sync_map_marker_runtime(self) -> None:
-        enabled = bool(
+        overlay_enabled = bool(
             self._runtime_available()
             and config.IN_GAME_OVERLAY.get("enabled", False)
             and (config.IN_GAME_OVERLAY.get("map_markers", {}) or {}).get(
                 "enabled", False
             )
         )
-        if enabled:
+        analytics_enabled = bool(
+            self._runtime_available()
+            and self._analytics_collection_enabled()
+            and self._has_premium_access()
+        )
+        if overlay_enabled or analytics_enabled:
             self.map_marker_timer.start()
             return
         self.map_marker_timer.stop()
@@ -580,37 +603,49 @@ class InGameOverlay:
 
     def _map_marker_tick_once(self) -> bool:
         window = self.in_game_overlay_window
-        if window is None:
-            return False
         marker_cfg = config.IN_GAME_OVERLAY.get("map_markers", {}) or {}
-        if not (
-            config.IN_GAME_OVERLAY.get("enabled", False)
+        overlay_enabled = bool(
+            window is not None
+            and config.IN_GAME_OVERLAY.get("enabled", False)
             and marker_cfg.get("enabled", False)
-        ):
+        )
+        premium_access = bool(self._has_premium_access())
+        analytics_enabled = bool(
+            premium_access and self._analytics_collection_enabled()
+        )
+        if not (overlay_enabled or analytics_enabled):
+            self._sync_map_marker_runtime()
             self._set_map_marker_snapshot(MapMarkerSnapshot())
             return False
-
-        scale_reader = getattr(window, "devicePixelRatioF", None)
+        scale_reader = (
+            getattr(window, "devicePixelRatioF", None) if window is not None else None
+        )
         display_scale = float(scale_reader()) if callable(scale_reader) else 1.0
         display_scale = max(0.01, display_scale)
-        physical_geometry = self._in_game_overlay_physical_client_geometry()
+        physical_geometry = (
+            self._in_game_overlay_physical_client_geometry() if overlay_enabled else None
+        )
         if physical_geometry is not None:
             client_height = physical_geometry.height()
             client_width = physical_geometry.width()
         else:
-            height_reader = getattr(window, "height", None)
-            width_reader = getattr(window, "width", None)
+            height_reader = getattr(window, "height", None) if window is not None else None
+            width_reader = getattr(window, "width", None) if window is not None else None
             logical_height = int(height_reader()) if callable(height_reader) else 0
             logical_width = int(width_reader()) if callable(width_reader) else 0
             client_height = max(1, int(round(logical_height * display_scale)))
             client_width = max(1, int(round(logical_width * display_scale)))
-        key_reader = getattr(
-            self._map_marker_input,
-            "is_map_surface_key_pressed",
-            None,
+        key_reader = (
+            getattr(
+                self._map_marker_input,
+                "is_map_surface_key_pressed",
+                None,
+            )
+            if overlay_enabled
+            else None
         )
         surface_key_pressed = bool(callable(key_reader) and key_reader())
-        game_paused = bool(self._is_game_paused())
+        game_paused = bool(overlay_enabled and self._is_game_paused())
         minimap_suppressed = surface_key_pressed or game_paused
         suppression_changed = minimap_suppressed != (
             self._map_marker_surface_key_pressed or self._map_marker_game_paused
@@ -624,28 +659,43 @@ class InGameOverlay:
             self._invalidate_map_marker_samples()
             self._set_map_marker_snapshot(MapMarkerSnapshot())
 
-        premium_access = bool(self._has_premium_access())
         if self._map_marker_premium_access and not premium_access:
             self._invalidate_map_marker_samples()
         self._map_marker_premium_access = premium_access
         minimap_enabled = bool(
-            premium_access
+            overlay_enabled
+            and premium_access
             and marker_cfg.get("minimap_enabled", True)
             and not minimap_suppressed
         )
         merchant_memory_enabled = bool(
-            premium_access and marker_cfg.get("merchant_memory_enabled", True)
+            premium_access
+            and (
+                analytics_enabled
+                or (overlay_enabled and marker_cfg.get("merchant_memory_enabled", True))
+            )
         )
         snapshot = self._request_map_marker_sample(
             client_height=client_height,
             client_width=client_width,
             display_scale=display_scale,
             automatic_discovery=bool(
-                marker_cfg.get("automatic_discovery", False)
+                overlay_enabled and marker_cfg.get("automatic_discovery", False)
             ),
             minimap_enabled=minimap_enabled,
             merchant_memory_enabled=merchant_memory_enabled,
+            map_surface_enabled=overlay_enabled,
         )
+
+        if analytics_enabled:
+            tracker = self._tracker()
+            runtime_snapshot = tracker.runtime_snapshot() if tracker is not None else None
+            for capture in snapshot.merchant_stocks:
+                self._record_merchant_capture(capture, runtime_snapshot)
+
+        if not overlay_enabled or window is None:
+            self._set_map_marker_palette(None)
+            return True
 
         cursor_x, cursor_y = self._map_marker_input.cursor_position()
         if physical_geometry is not None:
@@ -995,6 +1045,7 @@ class InGameOverlay:
             if not premium_access:
                 self._invalidate_map_marker_samples()
                 self._set_map_marker_snapshot(MapMarkerSnapshot())
+            self._sync_map_marker_runtime()
 
         self._schedule(apply_change)
 
@@ -1609,6 +1660,15 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
         build_progression_snapshot=lambda: app.coordinator.build_progression_service.snapshot(),
         open_build_progression_settings=lambda: _open_build_progression_for_app(app),
         has_premium_access=lambda: app.has_premium_access(),
+        analytics_collection_enabled=lambda: bool(
+            getattr(config, "MERCHANT_ANALYTICS_ENABLED", False)
+            and app.coordinator.merchant_analytics.collection_available()
+        ),
+        record_merchant_capture=lambda capture, runtime_snapshot: (
+            app.coordinator.merchant_analytics.record_confirmed_capture(
+                capture, runtime_snapshot
+            )
+        ),
         open_support_settings=lambda: app.open_settings_dialog(page="support"),
         is_game_paused=lambda: app.coordinator.run_lifecycle.is_paused_run(),
         is_scanning=lambda: app._scanner.is_scanning(),

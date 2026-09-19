@@ -409,6 +409,9 @@ def build_in_game_overlay_test_component(
     can_run=lambda: True,
     log=lambda *_args, **_kwargs: None,
     map_marker_executor_factory=InlineMapMarkerExecutor,
+    has_premium_access=lambda: False,
+    analytics_collection_enabled=lambda: False,
+    record_merchant_capture=lambda *_args: None,
 ):
     return gui_in_game_overlay.InGameOverlay(
         tracker=lambda: tracker,
@@ -423,6 +426,9 @@ def build_in_game_overlay_test_component(
         can_run=can_run,
         log=log,
         map_marker_executor_factory=map_marker_executor_factory,
+        has_premium_access=has_premium_access,
+        analytics_collection_enabled=analytics_collection_enabled,
+        record_merchant_capture=record_merchant_capture,
     )
 
 
@@ -6991,6 +6997,47 @@ class GuiRunControlTests(unittest.TestCase):
             self.assertFalse(overlay._map_marker_tick())
 
         self.assertEqual(nested_results, [False])
+
+    def test_merchant_analytics_collects_with_overlay_disabled(self) -> None:
+        capture = SimpleNamespace(merchant_object_ptr=0x5150)
+        snapshot = gui_in_game_overlay.MapMarkerSnapshot(
+            map_id=77,
+            merchant_stocks=(capture,),
+        )
+        runtime_snapshot = SimpleNamespace(current_stage_index=2)
+        live_tracker = SimpleNamespace(runtime_snapshot=lambda: runtime_snapshot)
+        recorded = []
+        map_tracker = SimpleNamespace(
+            tick=MagicMock(return_value=snapshot),
+            close=MagicMock(),
+            snapshot=gui_in_game_overlay.MapMarkerSnapshot(),
+            place_manual_marker=MagicMock(return_value=False),
+        )
+        overlay = build_in_game_overlay_test_component(
+            tracker=live_tracker,
+            has_premium_access=lambda: True,
+            analytics_collection_enabled=lambda: True,
+            record_merchant_capture=lambda stock, runtime: recorded.append(
+                (stock, runtime)
+            ),
+        )
+        overlay._map_marker_tracker = map_tracker
+        overlay_cfg = {
+            "enabled": False,
+            "map_markers": {"enabled": False},
+        }
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            overlay._sync_map_marker_runtime()
+            self.assertTrue(overlay._map_marker_tick())
+
+        self.assertEqual(overlay.map_marker_timer.start_calls, 1)
+        self.assertEqual(recorded, [(capture, runtime_snapshot)])
+        call = map_tracker.tick.call_args.kwargs
+        self.assertFalse(call["automatic_discovery"])
+        self.assertFalse(call["minimap_enabled"])
+        self.assertTrue(call["merchant_memory_enabled"])
+        self.assertFalse(call["map_surface_enabled"])
 
     def test_map_marker_tick_stops_after_a_recoverable_callback_error(self) -> None:
         logs = []

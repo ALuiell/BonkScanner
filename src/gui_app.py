@@ -278,6 +278,12 @@ class MegabonkApp:
             sync_overlay_state=self.update_overlay_state_from_tracker,
             sync_in_game_kps=self.refresh_in_game_overlay_kps,
             refresh_session_tracked_items=self.refresh_session_tracked_item_stats_ui,
+            merchant_analytics_collection_active=lambda: bool(
+                getattr(config, "MERCHANT_ANALYTICS_ENABLED", False)
+                and self.has_premium_access()
+                and self.__dict__.get("runtime") is not None
+                and self.runtime.coordinator.merchant_analytics.collection_available()
+            ),
             log=self.log,
             stop_hotkeys=lambda: self._run_control.stop_hotkeys(),
             stop_in_game_overlay=self.shutdown_in_game_overlay,

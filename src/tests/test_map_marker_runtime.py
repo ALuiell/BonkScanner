@@ -1570,6 +1570,24 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         self.assertIsNone(frame.current_activity)
         self.assertFalse(frame.map_open)
 
+    def test_map_seed_changes_the_runtime_map_identity(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        full_map = 0x700000
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600.0
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 0
+        client._resolve_full_map = lambda: full_map
+        client._resolve_player = lambda: 0x400000
+        client._resolve_stage_scope = lambda: (0x500000, 1)
+        seeds = iter((42, 43))
+        client._resolve_map_seed_safe = lambda: next(seeds)
+
+        first = client.poll(client_height=600)
+        second = client.poll(client_height=600)
+
+        self.assertEqual((first.map_seed, second.map_seed), (42, 43))
+        self.assertNotEqual(first.map_id, second.map_id)
+
     def test_memory_client_skips_minimap_projection_while_a_full_map_is_open(
         self,
     ) -> None:
@@ -1661,9 +1679,11 @@ class MapMarkerLifecycleTests(unittest.TestCase):
             0x550000 if candidate == merchant else 0
         )
         client._transform_point = lambda _transform, _point: (12.5, 0.0, -40.0)
+        client._stage_ptr = 0x9000
+        client._stage_index = 1
 
-        self.assertIsNone(client._read_shady_stock_capture(77))
-        capture = client._read_shady_stock_capture(77)
+        self.assertIsNone(client._read_shady_stock_capture(77, map_seed=4242))
+        capture = client._read_shady_stock_capture(77, map_seed=4242)
 
         self.assertEqual(capture.map_id, 77)
         self.assertEqual(capture.merchant_object_ptr, merchant)
@@ -1672,6 +1692,11 @@ class MapMarkerLifecycleTests(unittest.TestCase):
             tuple(replace(item, price=0) for item in offers),
         )
         self.assertEqual((capture.world_x, capture.world_z), (12.5, -40.0))
+        self.assertEqual(capture.game_process_identity, "module:100000")
+        self.assertEqual(
+            (capture.stage_ptr, capture.raw_stage_index, capture.map_seed),
+            (0x9000, 1, 4242),
+        )
         self.assertEqual(
             client._tracked_classes[merchant],
             (class_ptr, "InteractableShadyGuy"),

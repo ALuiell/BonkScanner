@@ -41,6 +41,7 @@ from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -96,8 +97,16 @@ def average_bar_fractions(averages: Sequence[float]) -> list[float]:
 class SessionStatsTab:
     """Session Stats: the KPI strip, both map cards and the two tables."""
 
-    def __init__(self, *, on_open_tracked_item_settings: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        *,
+        on_open_tracked_item_settings: Callable[[], None],
+        on_open_merchant_analytics: Callable[[], None] = lambda: None,
+        on_toggle_merchant_analytics: Callable[[bool], bool] = lambda _enabled: False,
+    ) -> None:
         self._on_open_tracked_item_settings = on_open_tracked_item_settings
+        self._on_open_merchant_analytics = on_open_merchant_analytics
+        self._on_toggle_merchant_analytics = on_toggle_merchant_analytics
 
         self._root = None
         self._kpi_values: dict[str, QLabel] = {}
@@ -118,6 +127,7 @@ class SessionStatsTab:
         self._tracked_row_pool: dict[object, _TrackedRow] = {}
         self._tracked_rows: list[_TrackedRow] = []
         self._tracked_signature: tuple | None = None
+        self._merchant_analytics_collect = None
 
         # What the scanner has handed over so far, so a setter that only knows
         # part of the state can re-render the whole strip.
@@ -191,6 +201,21 @@ class SessionStatsTab:
             chips.addLayout(chip)
         chips.addStretch(1)
         layout.addLayout(chips)
+        layout.addSpacing(10)
+        analytics = QHBoxLayout()
+        analytics.setContentsMargins(0, 0, 0, 0)
+        self._merchant_analytics_collect = QCheckBox("Collect Shady Guy analytics")
+        self._merchant_analytics_collect.toggled.connect(
+            self._toggle_merchant_analytics
+        )
+        analytics.addWidget(self._merchant_analytics_collect)
+        analytics.addStretch(1)
+        open_analytics = QPushButton("Shady Analytics")
+        open_analytics.clicked.connect(
+            lambda _checked=False: self._on_open_merchant_analytics()
+        )
+        analytics.addWidget(open_analytics)
+        layout.addLayout(analytics)
         return card
 
     def _build_map_cards(self) -> QHBoxLayout:
@@ -293,6 +318,38 @@ class SessionStatsTab:
             rerolls_per_seed(self._rerolls, self._seeds_found),
         )
         _set_text(self._chip_values.get("all_time"), f"{max(0, int(all_time_rerolls)):,}")
+
+    def set_merchant_analytics_status(
+        self,
+        *,
+        enabled: bool,
+        premium: bool,
+        session_recorded: int,
+        error: str | None = None,
+    ) -> None:
+        if error:
+            text = "Collection paused"
+        elif enabled and premium:
+            text = f"Active · {max(0, int(session_recorded)):,} merchants recorded this session"
+        elif enabled:
+            text = "Collection paused · Premium required"
+        else:
+            text = "Collection off"
+        checkbox = self._merchant_analytics_collect
+        if checkbox is not None:
+            checkbox.setToolTip(error or text)
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(enabled))
+            checkbox.setEnabled(bool(premium or enabled))
+            checkbox.blockSignals(False)
+
+    def _toggle_merchant_analytics(self, enabled: bool) -> None:
+        actual = bool(self._on_toggle_merchant_analytics(bool(enabled)))
+        checkbox = self._merchant_analytics_collect
+        if checkbox is not None and checkbox.isChecked() != actual:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(actual)
+            checkbox.blockSignals(False)
 
     def set_map_highlights(self, *, best_stats, worst_stats, active_templates) -> None:
         for stats, score_label, rows_layout, kind in (

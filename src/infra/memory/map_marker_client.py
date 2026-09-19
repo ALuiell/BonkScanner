@@ -48,6 +48,7 @@ class MapMemoryFrame:
     current_activity: DetectedMapActivity | None
     minimap_projection: MinimapProjection | None = None
     merchant_stock_capture: MerchantStockCapture | None = None
+    map_seed: int | None = None
 
 
 _ITEM_METADATA_BY_ID = {item.item_id: item for item in ITEMS}
@@ -82,6 +83,8 @@ class MapMarkerMemoryClient:
     MAP_CONTROLLER_TYPE_INFO_OFFSET = 0x2F58E08
     MAP_CONTROLLER_INDEX_OFFSET = 0x08
     MAP_CONTROLLER_CURRENT_STAGE_OFFSET = 0x18
+    MAP_GENERATION_CONTROLLER_TYPE_INFO_OFFSET = 0x2F59000
+    MAP_GENERATION_MAP_SEED_OFFSET = 0x2C
 
     UI_MANAGER_TYPE_INFO_OFFSET = 0x2F9A528
     UI_MANAGER_INSTANCE_OFFSET = 0x00
@@ -214,10 +217,17 @@ class MapMarkerMemoryClient:
         self._owns_memory = memory is None
         self.memory = memory or ProcessMemory(str(process_name))
         self._module_base = int(self.memory.module_base_address(self.module_name))
+        identity_reader = getattr(self.memory, "process_identity", None)
+        self._game_process_identity = (
+            str(identity_reader())
+            if callable(identity_reader)
+            else f"module:{self._module_base:X}"
+        )
         self._full_map_ptr = 0
         self._player_ptr = 0
         self._detector_ptr = 0
         self._map_controller_static_fields = 0
+        self._map_generation_static_fields = 0
         self._stage_ptr = 0
         self._stage_index = -1
         self._map_was_open = False
@@ -252,6 +262,7 @@ class MapMarkerMemoryClient:
         minimap_enabled: bool = False,
         merchant_memory_enabled: bool = False,
         sample_merchant_memory: bool = True,
+        full_map_viewport_enabled: bool = True,
     ) -> MapMemoryFrame:
         previous_full_map = self._full_map_ptr
         full_map = self._resolve_full_map()
@@ -283,13 +294,14 @@ class MapMarkerMemoryClient:
                 int(client_height),
                 max(0.01, float(display_scale)),
             )
-            if map_open
+            if map_open and full_map_viewport_enabled
             else None
         )
         self._map_was_open = map_open
 
         player = self._resolve_player()
         stage, stage_index = self._resolve_stage_scope()
+        map_seed = self._resolve_map_seed_safe()
         if stage != self._stage_ptr or stage_index != self._stage_index:
             self._stage_ptr = stage
             self._stage_index = stage_index
@@ -297,7 +309,8 @@ class MapMarkerMemoryClient:
             self._viewport_cache = None
             self._clear_minimap_cache()
         map_id = (
-            ((full_map & 0xFFFFFFFFFFFFFFFF) << 160)
+            (((map_seed or 0) & 0xFFFFFFFF) << 224)
+            | ((full_map & 0xFFFFFFFFFFFFFFFF) << 160)
             | ((player & 0xFFFFFFFFFFFFFFFF) << 96)
             | ((stage & 0xFFFFFFFFFFFFFFFF) << 32)
             | (stage_index & 0xFFFFFFFF)
@@ -349,7 +362,9 @@ class MapMarkerMemoryClient:
             self._pending_stock_sample = None
         if merchant_memory_enabled and sample_merchant_memory:
             try:
-                merchant_stock_capture = self._read_shady_stock_capture(map_id)
+                merchant_stock_capture = self._read_shady_stock_capture(
+                    map_id, map_seed=map_seed
+                )
             except Exception:
                 # Incomplete UI population, a close between passes, and stale
                 # pointers all mean "not captured yet". The next valid opening
@@ -365,6 +380,7 @@ class MapMarkerMemoryClient:
             world_size=world_size,
             viewport=viewport,
             current_activity=current_activity,
+            map_seed=map_seed,
             minimap_projection=minimap_projection,
             merchant_stock_capture=merchant_stock_capture,
         )
@@ -560,6 +576,30 @@ class MapMarkerMemoryClient:
             static_fields + self.MAP_CONTROLLER_INDEX_OFFSET
         )
         return stage, stage_index
+
+    def _resolve_map_seed_safe(self) -> int | None:
+        try:
+            static_fields = self._map_generation_static_fields
+            if not static_fields:
+                type_info = self.memory.read_ptr(
+                    self._module_base
+                    + self.MAP_GENERATION_CONTROLLER_TYPE_INFO_OFFSET
+                )
+                if not type_info or self._is_uninitialized_type_info(type_info):
+                    return None
+                static_fields = self.memory.read_ptr(
+                    type_info + self.CLASS_STATIC_FIELDS_OFFSET
+                )
+                if not static_fields:
+                    return None
+                self._map_generation_static_fields = static_fields
+            return int(
+                self.memory.read_i32(
+                    static_fields + self.MAP_GENERATION_MAP_SEED_OFFSET
+                )
+            )
+        except Exception:
+            return None
 
     def _read_current_activity(self, object_ptr: int) -> DetectedMapActivity | None:
         if not object_ptr:
@@ -962,7 +1002,9 @@ class MapMarkerMemoryClient:
             )
         return found
 
-    def _read_shady_stock_capture(self, map_id: int) -> MerchantStockCapture | None:
+    def _read_shady_stock_capture(
+        self, map_id: int, *, map_seed: int | None = None
+    ) -> MerchantStockCapture | None:
         previous_sample = self._pending_stock_sample
         self._pending_stock_sample = None
         gate = self._read_shady_offer_gate()
@@ -1009,6 +1051,10 @@ class MapMarkerMemoryClient:
             world_z=world_z,
             items=first,
             class_ptr=class_ptr,
+            game_process_identity=self._game_process_identity,
+            stage_ptr=self._stage_ptr,
+            raw_stage_index=self._stage_index,
+            map_seed=map_seed,
         )
 
     def _read_shady_prices(self, gate, offers):

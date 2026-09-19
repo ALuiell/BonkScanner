@@ -1633,6 +1633,7 @@ MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
 PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
 TOTAL_REROLLS = coerce_nonnegative_int(user_config.get("TOTAL_REROLLS", 0))
+MERCHANT_ANALYTICS_ENABLED = bool(user_config.get("MERCHANT_ANALYTICS_ENABLED", False))
 
 # Load ignored updates
 SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
@@ -1766,6 +1767,7 @@ user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME
 user_config["TOTAL_REROLLS"] = TOTAL_REROLLS
+user_config["MERCHANT_ANALYTICS_ENABLED"] = MERCHANT_ANALYTICS_ENABLED
 user_config["TEMPLATES"] = TEMPLATES
 user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
 user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
@@ -1800,6 +1802,7 @@ def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
     global AUTO_START_RECORDING, SHOW_OBS_REMINDER_ON_START_SCANNER
     global STOP_SCANNING_ON_PLAYER_MOVEMENT, LEFT_RAIL_COLLAPSED
     global MENU_HOTKEY, RESET_HOTKEY, PROCESS_NAME, TOTAL_REROLLS
+    global MERCHANT_ANALYTICS_ENABLED
     global SKIPPED_UPDATE_VERSION, TEMPLATES, ACTIVE_TEMPLATES
     global EVALUATION_MODE, SCORES_SYSTEM, OVERLAY, IN_GAME_OVERLAY
     global SESSION_TRACKED_ITEMS, TWITCH_BOT, BUILD_PROGRESSION
@@ -1857,6 +1860,9 @@ def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
     RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
     PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
     TOTAL_REROLLS = coerce_nonnegative_int(user_config.get("TOTAL_REROLLS", 0))
+    MERCHANT_ANALYTICS_ENABLED = bool(
+        user_config.get("MERCHANT_ANALYTICS_ENABLED", False)
+    )
     SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
 
     TEMPLATES = normalize_templates_config(user_config.get("TEMPLATES"))
@@ -1895,6 +1901,7 @@ def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
             "RESET_HOTKEY": RESET_HOTKEY,
             "PROCESS_NAME": PROCESS_NAME,
             "TOTAL_REROLLS": TOTAL_REROLLS,
+            "MERCHANT_ANALYTICS_ENABLED": MERCHANT_ANALYTICS_ENABLED,
             "TEMPLATES": TEMPLATES,
             "ACTIVE_TEMPLATES": ACTIVE_TEMPLATES,
             "SKIPPED_UPDATE_VERSION": SKIPPED_UPDATE_VERSION,

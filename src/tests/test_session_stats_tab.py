@@ -83,7 +83,7 @@ class SessionStatsTabWidgetTests(unittest.TestCase):
             import os
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
             import src
-            from PySide6.QtWidgets import QApplication, QLabel
+            from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
             from ui.tabs.session_stats import SessionStatsTab
             from ui.styles import build_qt_app_stylesheet
 
@@ -137,6 +137,33 @@ class SessionStatsTabWidgetTests(unittest.TestCase):
             assert "18" in shown, shown          # seeds found
             assert "190" in shown, shown         # rerolls per seed
             assert "128,004" in shown, shown     # all-time rerolls
+            """
+        )
+
+    def test_merchant_collection_can_be_toggled_in_the_tab(self) -> None:
+        self._run(
+            """
+            toggled = []
+            view._on_toggle_merchant_analytics = lambda enabled: (
+                toggled.append(enabled) or enabled
+            )
+            view.set_merchant_analytics_status(
+                enabled=False, premium=True, session_recorded=0
+            )
+            checkbox = next(
+                widget for widget in root.findChildren(QCheckBox)
+                if widget.text() == "Collect Shady Guy analytics"
+            )
+            assert checkbox.isEnabled()
+            assert not checkbox.isChecked()
+            checkbox.click()
+            assert toggled == [True], toggled
+            assert checkbox.isChecked()
+
+            view.set_merchant_analytics_status(
+                enabled=False, premium=False, session_recorded=0
+            )
+            assert not checkbox.isEnabled()
             """
         )
 
