@@ -4,25 +4,28 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
-    QWidget,
 )
 
 from app import config
+from core.item_metadata import ITEMS, ITEM_RARITY_COLOR_MAP
+from projections.item_sort import ITEM_RARITY_SORT_ORDER
+from ui.tabs.player_stats.items_section import CompactItemsSortComboBox
 from ui.dialogs.shell import DIALOG_TALL, DIALOG_WIDE, dialog_body, dialog_footer
 
 
@@ -32,23 +35,24 @@ class MerchantAnalyticsWindow(QDialog):
         self._app = app
         self._service = app.coordinator.merchant_analytics
         self._last_snapshot_key = None
+        self._selected_rarity = None
+        self._item_colors = {
+            item.item_id: QColor(ITEM_RARITY_COLOR_MAP[item.rarity])
+            for item in ITEMS if item.rarity in ITEM_RARITY_COLOR_MAP
+        }
         self.setWindowTitle("Shady Guy Analytics")
         self.setModal(False)
 
-        self._collect = QCheckBox("Collect Shady Guy analytics")
-        self._collect.toggled.connect(self._toggle_collection)
+        self._status = QLabel()
+        self._status.setObjectName("dialogSubtitle")
         layout = dialog_body(
             self,
             title="Shady Guy Analytics",
             subtitle="Lifetime item availability from the merchants you have viewed.",
-            title_trailing=self._collect,
+            title_trailing=self._status,
             width=DIALOG_WIDE,
             height=DIALOG_TALL,
         )
-
-        self._status = QLabel()
-        self._status.setWordWrap(True)
-        layout.addWidget(self._status)
 
         filters = QHBoxLayout()
         self._family = QComboBox()
@@ -59,40 +63,65 @@ class MerchantAnalyticsWindow(QDialog):
         self._stage.addItem("All stages", None)
         for stage in range(1, 5):
             self._stage.addItem(f"Stage {stage}", stage)
-        self._rarity = QComboBox()
-        self._rarity.addItem("All merchant rarities", None)
-        for value, label in (
-            ("white", "White"),
-            ("blue", "Blue"),
-            ("purple", "Purple"),
-            ("gold", "Gold"),
-        ):
-            self._rarity.addItem(label, value)
+        self._item_sort = CompactItemsSortComboBox()
+        self._item_sort.addItem("Most offered", "default")
+        self._item_sort.addItem("Rarity: high to low", "rarity_desc")
+        self._item_sort.addItem("Rarity: low to high", "rarity_asc")
+        self._item_sort.setCurrentIndex(self._item_sort.findData("rarity_desc"))
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search item name or ID")
-        for widget in (self._family, self._stage, self._rarity):
+        for widget in (self._family, self._stage, self._item_sort):
             widget.currentIndexChanged.connect(self.refresh)
             filters.addWidget(widget)
         self._search.textChanged.connect(self.refresh)
         filters.addWidget(self._search, 1)
         layout.addLayout(filters)
 
-        totals = QGridLayout()
+        summary = QFrame()
+        summary.setObjectName("card")
+        totals = QGridLayout(summary)
+        totals.setContentsMargins(16, 12, 16, 12)
+        totals.setHorizontalSpacing(24)
         self._merchants = QLabel("0")
         self._offers = QLabel("0")
-        self._rarities = QLabel("White 0 · Blue 0 · Purple 0 · Gold 0")
-        totals.addWidget(QLabel("MERCHANTS VIEWED"), 0, 0)
-        totals.addWidget(QLabel("OFFERS RECORDED"), 0, 1)
-        totals.addWidget(QLabel("MERCHANT RARITIES"), 0, 2)
+        for column, caption in enumerate(("MERCHANTS VIEWED", "OFFERS RECORDED", "MERCHANT RARITIES")):
+            label = QLabel(caption)
+            label.setObjectName("kpiLabel")
+            totals.addWidget(label, 0, column)
+        for value in (self._merchants, self._offers):
+            value.setObjectName("kpiValueHero")
         totals.addWidget(self._merchants, 1, 0)
         totals.addWidget(self._offers, 1, 1)
-        totals.addWidget(self._rarities, 1, 2)
-        layout.addLayout(totals)
+        rarities = QHBoxLayout()
+        rarities.setSpacing(8)
+        self._rarities = {}
+        for name, color in (("white", "#EDF1F5"), ("blue", "#79B8FF"), ("purple", "#C49BFF"), ("gold", "#EBC56A")):
+            badge = QPushButton()
+            badge.setCheckable(True)
+            badge.setAutoDefault(False)
+            badge.setCursor(Qt.PointingHandCursor)
+            badge.setToolTip(f"Filter by {name} merchants. Click again to show all rarities.")
+            badge.setStyleSheet(
+                f"QPushButton {{ color: {color}; background: #161D25; border: 1px solid transparent;"
+                " border-radius: 6px; padding: 6px 9px; min-width: 0; }"
+                f"QPushButton:hover {{ border-color: {color}; }}"
+                f"QPushButton:checked {{ border-color: {color}; background: #263342; }}"
+            )
+            badge.clicked.connect(lambda checked, rarity=name: self._select_rarity(rarity, checked))
+            self._rarities[name] = badge
+            rarities.addWidget(badge)
+        rarities.addStretch(1)
+        totals.addLayout(rarities, 1, 2)
+        totals.setColumnStretch(2, 1)
+        layout.addWidget(summary)
 
-        self._table = QTableWidget(0, 4)
+        self._table = QTableWidget(0, 3)
         self._table.setHorizontalHeaderLabels(
-            ("Item", "ID", "Offers", "% of viewed merchants")
+            ("Item", "Offers", "% of viewed merchants")
         )
+        self._table.setShowGrid(False)
+        self._table.setStyleSheet("QTableWidget::item { border-bottom: 1px solid #1D2730; padding: 6px 12px; }")
+        self._table.verticalHeader().setDefaultSectionSize(38)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
@@ -100,29 +129,24 @@ class MerchantAnalyticsWindow(QDialog):
         header = self._table.horizontalHeader()
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.Stretch)
-        for column, width in ((1, 80), (2, 100), (3, 220)):
+        for column, width in ((1, 110), (2, 220)):
             header.setSectionResizeMode(column, QHeaderView.Fixed)
             self._table.setColumnWidth(column, width)
         layout.addWidget(self._table, 1)
 
-        open_folder = QPushButton("Open data folder")
-        export = QPushButton("Export JSON")
-        clear = QPushButton("Clear history")
+        data = QPushButton("Data")
+        menu = QMenu(data)
+        menu.addAction("Export JSON…", self._export)
+        menu.addAction("Open data folder", self._open_folder)
+        menu.addSeparator()
+        menu.addAction("Clear history…", self._clear)
+        data.setMenu(menu)
         close = QPushButton("Close")
-        open_folder.clicked.connect(self._open_folder)
-        export.clicked.connect(self._export)
-        clear.clicked.connect(self._clear)
         close.clicked.connect(self.close)
-        leading = QWidget()
-        leading_layout = QHBoxLayout(leading)
-        leading_layout.setContentsMargins(0, 0, 0, 0)
-        leading_layout.addWidget(open_folder)
-        leading_layout.addWidget(export)
         dialog_footer(
             self,
             secondary=close,
-            destructive=clear,
-            leading=leading,
+            leading=data,
         )
 
         self._timer = QTimer(self)
@@ -142,31 +166,29 @@ class MerchantAnalyticsWindow(QDialog):
     def refresh(self, *_args) -> None:
         enabled = bool(getattr(config, "MERCHANT_ANALYTICS_ENABLED", False))
         premium = bool(self._app.has_premium_access())
-        self._collect.blockSignals(True)
-        self._collect.setChecked(enabled)
-        self._collect.setEnabled(premium or enabled)
-        self._collect.blockSignals(False)
-
         status = self._service.status()
         if status.error:
-            status_text = status.error
+            status_text = "Collection paused · Storage error"
         elif enabled and premium:
             status_text = f"Collection active · {status.session_recorded} recorded this session"
         elif enabled:
-            status_text = "Collection paused: Premium access is required for new observations."
+            status_text = "Collection paused · Premium required"
         else:
-            status_text = "Collection off. Saved history remains available."
+            status_text = "Collection off"
         self._status.setText(status_text)
+        self._status.setToolTip(status.error or "Manage collection in Session Stats. Saved history remains available.")
 
         map_family = self._family.currentData()
         stage = self._stage.currentData()
-        merchant_rarity = self._rarity.currentData()
+        merchant_rarity = self._selected_rarity
+        item_sort = self._item_sort.currentData()
         search = self._search.text()
         snapshot_key = (
             status.revision,
             map_family,
             stage,
             merchant_rarity,
+            item_sort,
             search,
         )
         if snapshot_key == self._last_snapshot_key:
@@ -181,22 +203,43 @@ class MerchantAnalyticsWindow(QDialog):
         self._merchants.setText(f"{snapshot.merchants:,}")
         self._offers.setText(f"{snapshot.offers:,}")
         rarity_values = dict(snapshot.rarity_counts)
-        self._rarities.setText(
-            " · ".join(
-                f"{name.title()} {rarity_values.get(name, 0):,}"
-                for name in ("white", "blue", "purple", "gold")
-            )
-        )
-        self._table.setRowCount(len(snapshot.rows))
-        for row_index, row in enumerate(snapshot.rows):
+        for name, badge in self._rarities.items():
+            badge.setText(f"{name.title()} {rarity_values.get(name, 0):,}")
+        rows = snapshot.rows
+        if item_sort in ("rarity_desc", "rarity_asc"):
+            ranks = {item.item_id: ITEM_RARITY_SORT_ORDER.get(item.rarity) for item in ITEMS}
+            direction = -1 if item_sort == "rarity_desc" else 1
+            rows = sorted(rows, key=lambda row: (
+                ranks.get(row.item_id) is None,
+                direction * (ranks.get(row.item_id) or 0),
+                -row.offer_count, row.display_name.casefold(), row.item_id,
+            ))
+        self._table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
             values = (
                 row.display_name,
-                str(row.item_id),
                 f"{row.offer_count:,}",
-                f"{row.merchant_percent:.1f}%",
+                f"{row.merchant_percent:.1f}% · {row.merchant_count:,}/{snapshot.merchants:,}",
             )
             for column, value in enumerate(values):
-                self._table.setItem(row_index, column, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                item.setToolTip(f"{row.display_name} · ID {row.item_id}")
+                if column == 2:
+                    item.setToolTip(
+                        f"Available at {row.merchant_count:,} of {snapshot.merchants:,} viewed merchants"
+                        " matching the current filters."
+                    )
+                if column:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                elif row.item_id in self._item_colors:
+                    item.setForeground(self._item_colors[row.item_id])
+                self._table.setItem(row_index, column, item)
+
+    def _select_rarity(self, rarity: str, checked: bool) -> None:
+        self._selected_rarity = rarity if checked else None
+        for name, button in self._rarities.items():
+            button.setChecked(name == self._selected_rarity)
+        self.refresh()
 
     def _toggle_collection(self, enabled: bool) -> None:
         set_merchant_analytics_collection(self._app, enabled, parent=self)
@@ -255,7 +298,7 @@ def show_merchant_analytics(app) -> MerchantAnalyticsWindow:
 
 
 def set_merchant_analytics_collection(app, enabled: bool, *, parent=None) -> bool:
-    """Persist and apply the collection switch shared by both analytics views."""
+    """Persist collection changes from Session Stats or clearing history."""
 
     enabled = bool(enabled)
     current = bool(getattr(config, "MERCHANT_ANALYTICS_ENABLED", False))

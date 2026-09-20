@@ -118,6 +118,15 @@ class MerchantHistoryStoreTests(unittest.TestCase):
 
 
 class MerchantAggregationTests(unittest.TestCase):
+    def test_merchant_count_counts_each_merchant_once(self):
+        snapshot = aggregate_merchant_history((
+            record(items=(1, 1, 2)),
+            record(merchant="c" * 32, items=(2, 3, 4)),
+        ))
+        beer = next(row for row in snapshot.rows if row.item_id == 1)
+        self.assertEqual((beer.offer_count, beer.merchant_count, snapshot.merchants), (2, 1, 2))
+        self.assertEqual(beer.merchant_percent, 50.0)
+
     def test_filters_and_percent_use_selected_merchants(self):
         records = (
             record(items=(1, 2, 3)),
@@ -127,6 +136,15 @@ class MerchantAggregationTests(unittest.TestCase):
         self.assertEqual((snapshot.merchants, snapshot.offers), (2, 6))
         beer = next(row for row in snapshot.rows if row.item_id == 1)
         self.assertEqual((beer.offer_count, beer.merchant_percent), (2, 100.0))
+
+        rarity_filtered = aggregate_merchant_history(records, merchant_rarity="gold", search="beer")
+        self.assertEqual((rarity_filtered.merchants, rarity_filtered.offers), (1, 3))
+        self.assertEqual(dict(rarity_filtered.rarity_counts), dict(snapshot.rarity_counts))
+        self.assertEqual(rarity_filtered.rows[0].merchant_percent, 100.0)
+        stage_filtered = aggregate_merchant_history(records, stage=2, merchant_rarity="white")
+        self.assertEqual(stage_filtered.merchants, 0)
+        self.assertEqual(dict(stage_filtered.rarity_counts)["gold"], 1)
+        self.assertEqual(dict(stage_filtered.rarity_counts)["white"], 0)
 
         filtered = aggregate_merchant_history(records, stage=2, search="golden glove")
         self.assertEqual(filtered.merchants, 1)

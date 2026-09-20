@@ -202,6 +202,8 @@ class SessionStatsTab:
         chips.addStretch(1)
         layout.addLayout(chips)
         layout.addSpacing(10)
+        layout.addWidget(_divider())
+        layout.addSpacing(10)
         analytics = QHBoxLayout()
         analytics.setContentsMargins(0, 0, 0, 0)
         self._merchant_analytics_collect = QCheckBox("Collect Shady Guy analytics")

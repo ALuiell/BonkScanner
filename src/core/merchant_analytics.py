@@ -30,6 +30,7 @@ class MerchantAnalyticsRow:
     display_name: str
     offer_count: int
     merchant_percent: float
+    merchant_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,11 +81,13 @@ def aggregate_merchant_history(
         for record in records
         if (map_family is None or record.map_family == map_family)
         and (stage is None or record.stage == stage)
-        and (merchant_rarity is None or record.merchant_rarity == merchant_rarity)
     )
+    # Facet counts describe the map/stage scope, even while one rarity is selected.
+    rarity_counts = Counter(record.merchant_rarity for record in selected)
+    if merchant_rarity is not None:
+        selected = tuple(record for record in selected if record.merchant_rarity == merchant_rarity)
     merchants = len(selected)
     offers = sum(len(record.item_ids) for record in selected)
-    rarity_counts = Counter(record.merchant_rarity for record in selected)
     occurrences = Counter(item_id for record in selected for item_id in record.item_ids)
     containing = Counter()
     for record in selected:
@@ -111,7 +114,7 @@ def aggregate_merchant_history(
         if needle and needle not in searchable:
             continue
         percent = (containing[item_id] / merchants * 100.0) if merchants else 0.0
-        rows.append(MerchantAnalyticsRow(item_id, display_name, count, percent))
+        rows.append(MerchantAnalyticsRow(item_id, display_name, count, percent, containing[item_id]))
     rows.sort(key=lambda row: (-row.offer_count, row.display_name.casefold(), row.item_id))
     return MerchantAnalyticsSnapshot(
         merchants=merchants,
