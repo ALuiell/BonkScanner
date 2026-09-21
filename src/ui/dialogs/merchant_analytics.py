@@ -247,8 +247,20 @@ class MerchantAnalyticsWindow(QDialog):
 
     def _open_folder(self) -> None:
         folder = self._service.store.path.parent
-        folder.mkdir(parents=True, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+        except Exception as exc:
+            opened = False
+            reason = str(exc)
+        else:
+            reason = "Windows did not accept the folder request."
+        if not opened:
+            QMessageBox.warning(
+                self,
+                "Could Not Open Folder",
+                f"BonkScanner could not open this folder.\n\n{folder}\n\n{reason}",
+            )
 
     def _export(self) -> None:
         filename, _ = QFileDialog.getSaveFileName(

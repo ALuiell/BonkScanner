@@ -820,11 +820,13 @@ def _collect_legacy_native_hook_directories(saved_dll_path: str | None = None) -
     if not root_dir:
         return []
 
-    candidates: list[str] = [os.path.join(root_dir, "native-hook")]
-    if saved_dll_path:
-        dll_dir = os.path.dirname(saved_dll_path)
-        if dll_dir and _is_path_within(root_dir, dll_dir):
-            candidates.append(dll_dir)
+    # These are the only two historical cache directories BonkScanner owned.
+    # Never derive a directory to delete from config: LocalAppData\BonkScanner
+    # is now also the user's primary data folder.
+    candidates: list[str] = [
+        os.path.join(root_dir, "native-hook"),
+        os.path.join(root_dir, "native-hook-extracted"),
+    ]
 
     normalized: list[str] = []
     seen: set[str] = set()

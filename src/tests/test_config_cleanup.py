@@ -5,6 +5,7 @@ import json
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import src
@@ -550,6 +551,25 @@ class LegacyNativeHookCleanupTests(unittest.TestCase):
             self.assertTrue(os.path.exists(external_dir))
             self.assertTrue(os.path.exists(external_dll_path))
             self.assertFalse(os.path.exists(root_dir))
+
+    def test_cleanup_never_deletes_data_directory_named_by_saved_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            local_appdata = os.path.join(temp_dir, "AppData", "Local")
+            root_dir = os.path.join(local_appdata, "BonkScanner")
+            recordings_dir = os.path.join(root_dir, "stats_recordings")
+            os.makedirs(recordings_dir)
+            saved_path = os.path.join(recordings_dir, "BonkHook.dll")
+            with open(saved_path, "w", encoding="utf-8") as handle:
+                handle.write("user-data")
+
+            with patch.dict(os.environ, {"LOCALAPPDATA": local_appdata}, clear=False):
+                config.cleanup_legacy_native_hook_cache(saved_path)
+
+            self.assertTrue(os.path.isdir(recordings_dir))
+            self.assertEqual(
+                Path(saved_path).read_text(encoding="utf-8"),
+                "user-data",
+            )
 
 
 class InGameOverlayConfigTests(unittest.TestCase):

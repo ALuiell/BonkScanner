@@ -19,7 +19,7 @@ import traceback
 from datetime import datetime
 from typing import Any
 
-from infra.paths import application_path
+from infra.paths import application_path, installation_path
 
 
 _LOCK = threading.RLock()
@@ -50,7 +50,7 @@ def _pending_directory() -> Path:
 
 
 def _installation_key() -> str:
-    installed_at = str(Path(application_path()).resolve()).casefold()
+    installed_at = str(Path(installation_path()).resolve()).casefold()
     return hashlib.sha256(installed_at.encode("utf-8")).hexdigest()[:12]
 
 

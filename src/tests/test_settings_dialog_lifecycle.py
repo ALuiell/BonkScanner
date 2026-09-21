@@ -238,7 +238,7 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
                 dialog.settings_tabs.tabText(index)
                 for index in range(dialog.settings_tabs.count())
             ],
-            ["General", "Support"],
+            ["General", "Data", "Support"],
         )
         self.assertIsNone(
             dialog.general_settings_page.findChild(QWidget, "SupporterAccessCard")
@@ -308,9 +308,15 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
                 dialog.settings_header_tabs.tabText(index)
                 for index in range(dialog.settings_header_tabs.count())
             ],
-            ["General", "Support"],
+            ["General", "Data", "Support"],
         )
         dialog.settings_header_tabs.setCurrentIndex(1)
+        QApplication.processEvents()
+        self.assertIs(
+            dialog.settings_tabs.currentWidget(),
+            dialog.data_storage_page,
+        )
+        dialog.settings_header_tabs.setCurrentIndex(2)
         QApplication.processEvents()
         self.assertIs(
             dialog.settings_tabs.currentWidget(),

@@ -8,11 +8,18 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import main
+from infra.data_storage import StorageError
 
 
 class MainEntrypointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.initialize_storage = patch("infra.data_storage.initialize_storage").start()
+        self.release_storage_lock = patch("infra.data_storage.release_storage_lock").start()
+        self.addCleanup(patch.stopall)
+
     def test_crash_journal_is_installed_before_optional_and_gui_imports(self) -> None:
         events: list[str] = []
+        self.initialize_storage.side_effect = lambda: events.append("storage")
 
         class FakeApp:
             def __init__(self, **_kwargs) -> None:
@@ -48,10 +55,23 @@ class MainEntrypointTests(unittest.TestCase):
             main.main()
 
         self.assertEqual(
-            events[:5],
-            ["journal", "config", "keyboard", "gui", "construct"],
+            events[:6],
+            ["storage", "journal", "config", "keyboard", "gui", "construct"],
         )
         self.assertIn("start", events)
+        self.release_storage_lock.assert_called_once_with()
+
+    def test_storage_failure_stops_before_crash_journal_and_gui(self) -> None:
+        self.initialize_storage.side_effect = StorageError("data folder is read-only")
+        with patch.object(main, "install_crash_journal") as journal, patch.object(
+            main, "_show_startup_storage_error"
+        ) as show_error, patch.object(main, "_initialize_configuration") as config:
+            main.main()
+
+        journal.assert_not_called()
+        config.assert_not_called()
+        show_error.assert_called_once_with("data folder is read-only")
+        self.release_storage_lock.assert_not_called()
 
     def test_gui_import_failure_keeps_pending_crash_journal(self) -> None:
         with patch.object(main, "install_crash_journal"), patch.object(

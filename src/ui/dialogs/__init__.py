@@ -38,6 +38,7 @@ from ui.dialogs.shell import (
     dialog_note,
 )
 from ui.dialogs.supporter_access import SupporterAccessPage
+from ui.dialogs.data_storage import DataStoragePage
 from ui.shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
@@ -1537,6 +1538,7 @@ class SettingsDialog(QDialog):
         self.settings_header_tabs.setExpanding(False)
         self.settings_header_tabs.setUsesScrollButtons(False)
         self.settings_header_tabs.addTab("General")
+        self.settings_header_tabs.addTab("Data")
         self.settings_header_tabs.addTab("Support")
         shell_layout = dialog_body(
             self,
@@ -1563,6 +1565,12 @@ class SettingsDialog(QDialog):
         layout.setSpacing(12)
         general_page_layout.addWidget(settings_scroll)
         self.settings_tabs.addTab(self.general_settings_page, "General")
+
+        self.data_storage_page = DataStoragePage(
+            request_migration=self._request_data_migration,
+            parent=self.settings_tabs,
+        )
+        self.settings_tabs.addTab(self.data_storage_page, "Data")
 
         self.supporter_access_page = SupporterAccessPage(
             controller=getattr(self.master, "supporter_access", None),
@@ -1865,6 +1873,8 @@ class SettingsDialog(QDialog):
         target = (
             self.supporter_access_page
             if normalized == "support"
+            else self.data_storage_page
+            if normalized == "data"
             else self.general_settings_page
         )
         self.settings_tabs.setCurrentWidget(target)
@@ -1872,23 +1882,21 @@ class SettingsDialog(QDialog):
             QTimer.singleShot(0, self.supporter_access_page.focus_primary_action)
 
     def _on_settings_tab_changed(self, _index: int) -> None:
-        on_support = (
-            self.settings_tabs.currentWidget() is self.supporter_access_page
-        )
+        on_general = self.settings_tabs.currentWidget() is self.general_settings_page
         has_general_edits = bool(self._general_settings_dirty)
         self.save_btn.setText(
             "Save changes"
-            if on_support and has_general_edits
+            if not on_general and has_general_edits
             else "Done"
-            if on_support
+            if not on_general
             else "Save"
         )
-        self.cancel_btn.setVisible(not on_support or has_general_edits)
+        self.cancel_btn.setVisible(on_general or has_general_edits)
         # Key actions are explicit and immediate. Keep Support free of a dialog
         # default so Return in its key field can only reach Activate, while the
         # General page retains the conventional Save default.
-        self.save_btn.setDefault(not on_support)
-        self.save_btn.setAutoDefault(not on_support)
+        self.save_btn.setDefault(on_general)
+        self.save_btn.setAutoDefault(on_general)
         self.supporter_access_page.activate_button.setDefault(False)
         self.supporter_access_page.activate_button.setAutoDefault(False)
 
@@ -1900,12 +1908,35 @@ class SettingsDialog(QDialog):
 
     def _on_primary_action(self) -> None:
         if (
-            self.settings_tabs.currentWidget() is self.supporter_access_page
+            self.settings_tabs.currentWidget() is not self.general_settings_page
             and not self._general_settings_dirty
         ):
             self.accept()
         else:
             self.save()
+
+    def _request_data_migration(self):
+        from app.data_storage import MigrationActionResult, request_migration
+
+        if self._general_settings_dirty:
+            choice = QMessageBox.question(
+                self,
+                "Save Settings First",
+                "Save your General changes before scheduling the data migration?",
+                QMessageBox.Save | QMessageBox.Cancel,
+                QMessageBox.Save,
+            )
+            if choice != QMessageBox.Save:
+                return MigrationActionResult(
+                    False, "cancelled", "Migration was not scheduled."
+                )
+            if not self.save(close_dialog=False):
+                return MigrationActionResult(
+                    False,
+                    "failed",
+                    "Migration was not scheduled because the settings could not be saved.",
+                )
+        return request_migration()
 
     @staticmethod
     def _show_game_reset_notice(parent, **kwargs) -> None:
@@ -1962,6 +1993,7 @@ class SettingsDialog(QDialog):
         )
         self._refresh_reset_timing_preview()
         self.supporter_access_page.reload()
+        self.data_storage_page.refresh()
         self._general_settings_dirty = False
         self._reloading_general_settings = False
         self._on_settings_tab_changed(self.settings_tabs.currentIndex())
@@ -2047,7 +2079,7 @@ class SettingsDialog(QDialog):
                 f"BonkScanner could not open this page.\n\n{reason}",
             )
 
-    def save(self):
+    def save(self, *, close_dialog: bool = True) -> bool:
         new_hotkey = _read_text(self.hotkey_entry).strip()
         new_reset_hotkey = _read_text(self.reset_hotkey_entry).strip()
         new_record_hotkey = _read_text(self.record_hotkey_entry).strip()
@@ -2095,7 +2127,7 @@ class SettingsDialog(QDialog):
                 "Invalid Settings",
                 "Reset Hold Duration must be a valid number.",
             )
-            return
+            return False
 
         try:
             new_interval = max(
@@ -2108,7 +2140,7 @@ class SettingsDialog(QDialog):
                 "Invalid Settings",
                 "Snapshot interval must be a valid number.",
             )
-            return
+            return False
 
         initial_duration = round(
             float(getattr(self, "_initial_reset_hold_duration", config.RESET_HOLD_DURATION)),
@@ -2159,7 +2191,7 @@ class SettingsDialog(QDialog):
                 saved=False,
                 reason=reason,
             )
-            return
+            return False
 
         settings_updates = {
             "HOTKEY": new_hotkey,
@@ -2196,7 +2228,7 @@ class SettingsDialog(QDialog):
                 saved=False,
                 reason=save_result.reason or "The settings change could not be verified.",
             )
-            return
+            return False
 
         # The config transaction already committed these keys to the runtime
         # mapping. Keep this idempotent update for isolated dialog tests that
@@ -2319,7 +2351,11 @@ class SettingsDialog(QDialog):
         # always has `accept` -- and reachable only from the suite, whose
         # stand-ins carried `destroy` and no `accept`. Those stand-ins model a
         # `QDialog` now, so the branch that only the fakes could take is gone.
-        self.accept()
+        if isinstance(self, SettingsDialog):
+            self._general_settings_dirty = False
+            self._on_settings_tab_changed(self.settings_tabs.currentIndex())
+        if close_dialog:
+            self.accept()
         if timing_changed or needs_game_sync:
             parent_method = getattr(self, "parent", None)
             notice_parent = parent_method() if callable(parent_method) else None
@@ -2330,6 +2366,7 @@ class SettingsDialog(QDialog):
                 game_value=effective_game_value,
                 margin=effective_margin,
             )
+        return True
 
 
 class TwitchCommandSettingsDialog(QDialog):
