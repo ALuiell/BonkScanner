@@ -34,7 +34,12 @@ from typing import Any, Callable
 
 from app import config
 from infra.crash_journal import log_runtime_event
-from app.map_scoring import calculate_map_score, evaluate_candidate, format_stats
+from app.map_scoring import (
+    calculate_map_score,
+    evaluate_candidate,
+    format_candidate_gaps,
+    format_stats,
+)
 from ui.tabs.session_stats import SessionStatsTab
 from app.template_filters import TemplateRuntimeFilters
 # Top-level, not deferred into the builder. `gui_dialogs` imports nothing from
@@ -1079,6 +1084,14 @@ class Scanner:
                     continue
                 else:
                     self.log(f"Stats: {format_stats(stats, self.active_templates)}")
+                    if getattr(config, "SHOW_TARGET_GAPS", True):
+                        gap_text = format_candidate_gaps(
+                            stats,
+                            self.active_templates,
+                            context=eval_context,
+                        )
+                        if gap_text:
+                            self.log(gap_text)
 
                 if not self._run_control.wait_for_game_window_focus(process_name):
                     continue

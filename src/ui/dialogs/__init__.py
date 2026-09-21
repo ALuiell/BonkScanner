@@ -590,7 +590,7 @@ class ScoresHelpDialog(QDialog):
                 "(Moais &times; Moai points)<br>"
                 "+ (Shady Guys &times; Shady points)<br>"
                 "+ (Boss Curses &times; Boss points)<br>"
-                "+ (counted Magnets &times; Magnet points)<br>"
+                "+ (Magnet Shrines &times; Magnet points)<br>"
                 "+ (Challenges &times; Challenge points)<br><br>"
                 "Negative results are simply subtracted. A penalty is <b>soft</b>: "
                 "it lowers the number, but it never rejects a map by itself. Enough "
@@ -599,13 +599,10 @@ class ScoresHelpDialog(QDialog):
         )
         scroll_layout.addWidget(
             dialog_card(
-                "<b>4. The special Magnet rule</b><br><br>"
-                "Magnet rewards and Magnet penalties are counted differently:<br><br>"
-                "&bull; If Magnet points are positive, only the first two Magnet "
-                "Shrines add points. A third or fourth Magnet adds nothing.<br>"
-                "&bull; If Magnet points are zero, Magnets do not affect Score.<br>"
-                "&bull; If Magnet points are negative, <b>every</b> Magnet Shrine "
-                "removes points. Five unwanted Magnets receive five penalties."
+                "<b>4. How are Magnet Shrines counted?</b><br><br>"
+                "Every Magnet Shrine uses the configured Magnet points value. "
+                "Positive values reward every Magnet, zero ignores them, and "
+                "negative values penalize every Magnet. There is no two-Magnet cap."
             )
         )
         scroll_layout.addWidget(
@@ -662,11 +659,13 @@ class ScoresHelpDialog(QDialog):
             dialog_card(
                 "<b>9. Automatic vs Manual Thresholds</b><br><br>"
                 "<b>Automatic Thresholds</b> scale the tier targets when you change "
-                "positive Shrine Points. Negative values are excluded from this "
+                "positive Shrine Points and use the stronger positive Microwave "
+                "multiplier as the reference. Negative values are excluded from this "
                 "scaling, so making a penalty stronger never makes the target easier.<br><br>"
                 "If every Shrine Points value is zero or negative, automatic targets "
-                "cannot be calculated usefully. Add at least one positive value or "
-                "enable <b>Manual Thresholds</b> and enter the tier targets yourself."
+                "cannot be calculated usefully. The same is true if both Microwave "
+                "multipliers are zero. Add a positive value or enable "
+                "<b>Manual Thresholds</b> and enter the tier targets yourself."
             )
         )
         scroll_layout.addWidget(
@@ -753,8 +752,14 @@ class ScoresSettingsDialog(QDialog):
         multiplier_layout = QFormLayout(multiplier_group)
         for key in ("1", "2"):
             entry = QLineEdit(str(config.SCORES_SYSTEM.get("multipliers", {}).get("microwave", {}).get(key, 1.0)))
+            entry.setToolTip("Zero is allowed; negative multipliers are not.")
             self.multiplier_entries[key] = entry
             multiplier_layout.addRow(f"{key} Microwave(s):", entry)
+        multiplier_note = QLabel(
+            "Zero is allowed and makes maps in that Microwave bucket produce a final Score of 0."
+        )
+        multiplier_note.setWordWrap(True)
+        multiplier_layout.addRow(multiplier_note)
         scroll_layout.addWidget(multiplier_group)
         scroll_layout.addStretch(1)
 
@@ -800,16 +805,12 @@ class ScoresSettingsDialog(QDialog):
 
     def save(self):
         active_tiers = [tier for tier, cb in self.active_tier_checks.items() if cb.isChecked()]
-        if not active_tiers:
-            QMessageBox.warning(self, "Invalid Settings", "At least one score tier must stay active.")
-            return
-
         weights = {key: _safe_float(entry.text(), 0.0) for key, entry in self.weight_entries.items()}
         multipliers = {key: _safe_float(entry.text(), 1.0) for key, entry in self.multiplier_entries.items()}
         manual_thresholds = self.manual_thresholds_var.isChecked()
 
-        if any(value <= 0 for value in multipliers.values()):
-            QMessageBox.warning(self, "Invalid Settings", "Microwave multipliers must be greater than zero.")
+        if any(value < 0 for value in multipliers.values()):
+            QMessageBox.warning(self, "Invalid Settings", "Microwave multipliers cannot be negative.")
             return
         if not manual_thresholds and not any(value > 0 for value in weights.values()):
             QMessageBox.warning(
@@ -817,6 +818,14 @@ class ScoresSettingsDialog(QDialog):
                 "Invalid Settings",
                 "Automatic thresholds need at least one positive Shrine Points value. "
                 "Add a positive value or enable Manual Thresholds.",
+            )
+            return
+        if not manual_thresholds and not any(value > 0 for value in multipliers.values()):
+            QMessageBox.warning(
+                self,
+                "Invalid Settings",
+                "Automatic thresholds need at least one positive Microwave multiplier. "
+                "Add a positive multiplier or enable Manual Thresholds.",
             )
             return
 

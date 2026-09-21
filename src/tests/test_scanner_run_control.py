@@ -602,6 +602,22 @@ class ScanLifecycleTests(unittest.TestCase):
         messages = [message for message, _tag in scanner.calls["log"]]
         self.assertTrue(any("must select at least one template" in str(m) for m in messages))
 
+    def test_toggle_main_loop_refuses_to_start_without_a_score_tier(self) -> None:
+        scanner = build_scanner()
+        updated_scores = dict(config.SCORES_SYSTEM)
+        updated_scores["active_tiers"] = []
+
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}):
+            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
+                with patch.object(config, "EVALUATION_MODE", "scores"):
+                    with patch.object(config, "SCORES_SYSTEM", updated_scores):
+                        with patch.object(threading, "Thread", FakeThread):
+                            scanner.toggle_main_loop()
+
+        self.assertIsNone(scanner.scanner_thread)
+        messages = [message for message, _tag in scanner.calls["log"]]
+        self.assertTrue(any("No active tiers" in str(message) for message in messages))
+
     def test_enabled_guard_fails_closed_when_keyboard_hook_is_unavailable(self) -> None:
         scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
         scanner._run_control.player_movement_guard_available = False
@@ -1136,6 +1152,53 @@ class BackgroundLoopTests(unittest.TestCase):
         # `client` to None. The pre-step version of this test stubbed that
         # method out on the app double.
         self.assertEqual(client.get_map_stats_calls, 0)
+
+    def test_background_loop_logs_target_gaps_only_when_enabled(self) -> None:
+        class FakeClient:
+            def wait_for_map_ready(self, **_kwargs):
+                return {"Moais": 1, "Microwaves": 1}
+
+            def get_map_generation_state(self):
+                return object()
+
+            def close(self):
+                pass
+
+        def run_once(enabled: bool) -> list[str]:
+            holder = {}
+            scanner, run_control = build_pair(
+                provider=SimpleNamespace(
+                    restart_run=lambda: holder["scanner"].stop_event.set(),
+                )
+            )
+            holder["scanner"] = scanner
+            scanner.client = FakeClient()
+            scanner.scan_event.set()
+            scanner.is_running = True
+            scanner.is_ready_to_start = True
+            run_control.is_game_window_active = lambda _process_name: True
+            run_control.wait_for_game_window_focus = lambda _process_name: True
+
+            with patch.object(config, "SHOW_TARGET_GAPS", enabled), patch.object(
+                gui_scanner, "adapt_map_stats", lambda raw: raw
+            ), patch.object(
+                gui_scanner,
+                "evaluate_candidate",
+                lambda _stats, _active, context=None: None,
+            ), patch.object(
+                gui_scanner,
+                "format_candidate_gaps",
+                lambda _stats, _active, context=None: "Target gaps: LIGHT: Score 3.0/14.0 (−11.0)",
+            ):
+                scanner.background_loop()
+
+            return [str(message) for message, _tag in scanner.calls["log"]]
+
+        enabled_messages = run_once(True)
+        disabled_messages = run_once(False)
+
+        self.assertTrue(any(message.startswith("Target gaps:") for message in enabled_messages))
+        self.assertFalse(any(message.startswith("Target gaps:") for message in disabled_messages))
 
     def test_readiness_timeout_retries_current_map_before_any_restart(self) -> None:
         restart_calls: list[str] = []

@@ -41,6 +41,19 @@ class AutomaticScoreThresholdTests(unittest.TestCase):
             config.calculate_auto_thresholds(self.default_weights, self.multipliers)["Perfect+"],
         )
 
+    def test_zero_two_microwave_multiplier_uses_positive_one_microwave_reference(self) -> None:
+        multipliers = {"microwave": {"1": 1.0, "2": 0.0}}
+
+        thresholds = config.calculate_auto_thresholds(
+            self.default_weights,
+            multipliers,
+        )
+
+        self.assertEqual(
+            thresholds,
+            {"Light": 11.2, "Good": 16.0, "Perfect": 20.0, "Perfect+": 24.0},
+        )
+
     def test_no_positive_points_collapse_to_zero_for_ui_validation(self) -> None:
         penalties = {key: -1.0 for key in self.default_weights}
 

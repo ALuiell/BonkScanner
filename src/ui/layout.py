@@ -1207,6 +1207,23 @@ def _build_right_panel(app, splitter):
     return right_layout
 
 
+def _save_show_target_gaps(enabled: bool) -> bool:
+    """Persist the Logs diagnostic toggle and roll back on write failure."""
+    previous = bool(getattr(config, "SHOW_TARGET_GAPS", True))
+    previous_config = config.user_config.get("SHOW_TARGET_GAPS", previous)
+    config.SHOW_TARGET_GAPS = bool(enabled)
+    config.user_config["SHOW_TARGET_GAPS"] = bool(enabled)
+    try:
+        result = config.save_config(config.user_config)
+    except Exception:
+        result = None
+    if result is not None and getattr(result, "success", True) is not False:
+        return True
+    config.SHOW_TARGET_GAPS = previous
+    config.user_config["SHOW_TARGET_GAPS"] = previous_config
+    return False
+
+
 def _build_logs_tab(app):
     app.tab_logs = QWidget()
     logs_layout = QVBoxLayout(app.tab_logs)
@@ -1215,7 +1232,10 @@ def _build_logs_tab(app):
     # and the scanner still calls one method on it -- but that method is
     # `append_log` now rather than `insertHtml`, because the panel owns records
     # and derives the document from them. See `ui/log_view.py` for why.
-    app.log_box = LogView()
+    app.log_box = LogView(
+        show_target_gaps=bool(getattr(config, "SHOW_TARGET_GAPS", True)),
+        on_target_gaps_changed=_save_show_target_gaps,
+    )
     logs_layout.addWidget(app.log_box)
     app.tabview.addTab(app.tab_logs, "Logs")
 

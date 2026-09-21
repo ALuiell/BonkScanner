@@ -526,9 +526,7 @@ class _ScoresOverview(QWidget):
             "moais": _ScoreValueRow("Moais"),
             "shady": _ScoreValueRow("Shady"),
             "boss": _ScoreValueRow("Boss"),
-            "magnet": _ScoreValueRow(
-                "Magnet", "Positive counts up to 2; negative counts all."
-            ),
+            "magnet": _ScoreValueRow("Magnet"),
             "challenges": _ScoreValueRow("Challenges"),
         }
         for row in self.point_rows.values():
