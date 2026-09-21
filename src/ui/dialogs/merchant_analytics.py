@@ -26,7 +26,13 @@ from app import config
 from core.item_metadata import ITEMS, ITEM_RARITY_COLOR_MAP
 from projections.item_sort import ITEM_RARITY_SORT_ORDER
 from ui.tabs.player_stats.items_section import CompactItemsSortComboBox
-from ui.dialogs.shell import DIALOG_TALL, DIALOG_WIDE, dialog_body, dialog_footer
+from ui.dialogs.shell import (
+    DIALOG_TALL,
+    DIALOG_WIDE,
+    dialog_body,
+    dialog_footer,
+    show_app_notice,
+)
 
 
 class MerchantAnalyticsWindow(QDialog):
@@ -256,10 +262,12 @@ class MerchantAnalyticsWindow(QDialog):
         else:
             reason = "Windows did not accept the folder request."
         if not opened:
-            QMessageBox.warning(
+            show_app_notice(
                 self,
-                "Could Not Open Folder",
-                f"BonkScanner could not open this folder.\n\n{folder}\n\n{reason}",
+                title="Could not open folder",
+                subtitle="Shady Guy analytics",
+                message=f"BonkScanner could not open this folder.\n\n{folder}\n\n{reason}",
+                danger=True,
             )
 
     def _export(self) -> None:

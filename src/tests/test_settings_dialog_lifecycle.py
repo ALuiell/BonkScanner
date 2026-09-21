@@ -269,6 +269,7 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
             dialog.patreon_btn,
             dialog.supporter_access_page.patreon_btn,
         )
+
         self.assertEqual(
             dialog.supporter_access_page.patreon_btn.objectName(),
             "SupportPatreonPrimary",
@@ -287,6 +288,22 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
         QApplication.processEvents()
         self.assertEqual(dialog.save_btn.text(), "Save")
         self.assertTrue(dialog.cancel_btn.isVisible())
+
+    def test_data_migration_dirty_settings_prompt_uses_app_dialog(self) -> None:
+        self.owner.open_settings_dialog(page="data")
+        dialog = self.owner._settings_dialog
+        self.assertIsNotNone(dialog)
+        dialog._general_settings_dirty = True
+
+        with patch(
+            "ui.dialogs.ask_app_confirmation", return_value=False
+        ) as confirmation, patch.object(dialog, "save") as save:
+            result = dialog._request_data_migration()
+
+        confirmation.assert_called_once()
+        save.assert_not_called()
+        self.assertFalse(result.success)
+        self.assertEqual(result.status, "cancelled")
 
     def test_settings_navigation_replaces_title_and_frees_general_page_height(self) -> None:
         self.owner.open_settings_dialog()

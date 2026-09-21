@@ -30,6 +30,8 @@ content scrolls and therefore has no natural height to be.
 
 from __future__ import annotations
 
+from html import escape
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -248,3 +250,138 @@ def dialog_note(text: str, *, parent: QWidget | None = None) -> QLabel:
     note.setWordWrap(True)
     note.setTextFormat(Qt.RichText)
     return note
+
+
+class AppNoticeDialog(QDialog):
+    """A small app-styled outcome dialog for actions outside a full editor."""
+
+    def __init__(
+        self,
+        parent,
+        *,
+        title: str,
+        message: str,
+        subtitle: str = "",
+        danger: bool = False,
+        button_text: str = "Close",
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(str(title))
+        self.setModal(True)
+        body = dialog_body(
+            self,
+            title=str(title),
+            subtitle=str(subtitle),
+            width=DIALOG_REGULAR,
+        )
+        rendered = escape(str(message)).replace("\n", "<br>")
+        body.addWidget(
+            dialog_danger_card(rendered) if danger else dialog_info_card(rendered)
+        )
+        close_button = QPushButton(str(button_text))
+        close_button.clicked.connect(self.accept)
+        dialog_footer(self, primary=close_button)
+
+
+class AppConfirmDialog(QDialog):
+    """An app-styled confirmation with an explicit, testable result."""
+
+    def __init__(
+        self,
+        parent,
+        *,
+        title: str,
+        message: str,
+        confirm_text: str,
+        subtitle: str = "",
+        note: str = "",
+        destructive: bool = False,
+    ) -> None:
+        super().__init__(parent)
+        self.confirmed = False
+        self.setWindowTitle(str(title))
+        self.setModal(True)
+        body = dialog_body(
+            self,
+            title=str(title),
+            subtitle=str(subtitle),
+            width=DIALOG_REGULAR,
+        )
+        rendered = escape(str(message)).replace("\n", "<br>")
+        body.addWidget(
+            dialog_danger_card(rendered) if destructive else dialog_info_card(rendered)
+        )
+        if note:
+            body.addWidget(dialog_note(escape(str(note)).replace("\n", "<br>")))
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        confirm_button = QPushButton(str(confirm_text))
+        confirm_button.clicked.connect(self._confirm)
+        if destructive:
+            dialog_footer(
+                self,
+                secondary=cancel_button,
+                destructive=confirm_button,
+            )
+        else:
+            dialog_footer(self, secondary=cancel_button, primary=confirm_button)
+
+    def _confirm(self) -> None:
+        self.confirmed = True
+        self.accept()
+
+
+def _release_transient_dialog(dialog: QDialog) -> None:
+    try:
+        dialog.deleteLater()
+    except RuntimeError:
+        pass
+
+
+def show_app_notice(
+    parent,
+    *,
+    title: str,
+    message: str,
+    subtitle: str = "",
+    danger: bool = False,
+    button_text: str = "Close",
+) -> None:
+    dialog = AppNoticeDialog(
+        parent,
+        title=title,
+        message=message,
+        subtitle=subtitle,
+        danger=danger,
+        button_text=button_text,
+    )
+    try:
+        dialog.exec()
+    finally:
+        _release_transient_dialog(dialog)
+
+
+def ask_app_confirmation(
+    parent,
+    *,
+    title: str,
+    message: str,
+    confirm_text: str,
+    subtitle: str = "",
+    note: str = "",
+    destructive: bool = False,
+) -> bool:
+    dialog = AppConfirmDialog(
+        parent,
+        title=title,
+        message=message,
+        confirm_text=confirm_text,
+        subtitle=subtitle,
+        note=note,
+        destructive=destructive,
+    )
+    try:
+        dialog.exec()
+        return dialog.confirmed
+    finally:
+        _release_transient_dialog(dialog)

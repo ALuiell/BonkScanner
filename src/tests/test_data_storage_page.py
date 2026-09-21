@@ -6,10 +6,12 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialog, QFrame, QPushButton
 
 from infra.data_storage import MigrationActionResult, StorageContext
+from ui.dialogs import data_storage as data_storage_dialogs
 from ui.dialogs.data_storage import DataStoragePage
+from ui.dialogs.shell import AppConfirmDialog, AppNoticeDialog, DIALOG_REGULAR
 
 
 class DataStoragePageTests(unittest.TestCase):
@@ -27,6 +29,54 @@ class DataStoragePageTests(unittest.TestCase):
             request_migration=request or MagicMock(),
             context_provider=lambda: context,
         )
+
+    def test_storage_popups_use_the_shared_dialog_chrome(self) -> None:
+        confirm = AppConfirmDialog(
+            None,
+            title="Move BonkScanner data?",
+            subtitle="Data storage",
+            message="From:\nC:\\Old\n\nTo:\nC:\\New",
+            confirm_text="Schedule migration",
+        )
+        notice = AppNoticeDialog(
+            None,
+            title="Migration not scheduled",
+            subtitle="Data storage",
+            message="Access denied",
+            danger=True,
+        )
+        try:
+            self.assertGreaterEqual(confirm.minimumWidth(), DIALOG_REGULAR)
+            self.assertIsNotNone(confirm.findChild(QFrame, "dialogHeadRule"))
+            self.assertIsNotNone(confirm.findChild(QFrame, "InfoCard"))
+            primary = confirm.findChild(QPushButton, "primary")
+            self.assertIsNotNone(primary)
+            self.assertEqual(primary.text(), "Schedule migration")
+
+            self.assertGreaterEqual(notice.minimumWidth(), DIALOG_REGULAR)
+            self.assertIsNotNone(notice.findChild(QFrame, "dialogHeadRule"))
+            self.assertIsNotNone(notice.findChild(QFrame, "DangerInfoCard"))
+            self.assertTrue(notice.isModal())
+        finally:
+            confirm.close()
+            notice.close()
+
+    def test_destructive_confirmation_uses_danger_chrome(self) -> None:
+        confirm = AppConfirmDialog(
+            None,
+            title="Remove old BonkScanner data?",
+            subtitle="Data storage",
+            message="This action permanently removes migrated legacy data.",
+            confirm_text="Remove old data",
+            destructive=True,
+        )
+        try:
+            self.assertIsNotNone(confirm.findChild(QFrame, "DangerInfoCard"))
+            danger = confirm.findChild(QPushButton, "danger")
+            self.assertIsNotNone(danger)
+            self.assertEqual(danger.text(), "Remove old data")
+        finally:
+            confirm.close()
 
     def test_source_mode_shows_project_path_without_migration_controls(self) -> None:
         context = StorageContext(
@@ -88,10 +138,14 @@ class DataStoragePageTests(unittest.TestCase):
         try:
             page.show()
             QApplication.processEvents()
-            with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes), patch.object(
-                QMessageBox, "information"
-            ):
+            with patch.object(
+                data_storage_dialogs, "ask_app_confirmation", return_value=True
+            ) as confirm, patch.object(
+                data_storage_dialogs, "show_app_notice"
+            ) as notice:
                 page._schedule_migration()
+            confirm.assert_called_once()
+            notice.assert_called_once()
             request.assert_called_once_with()
             self.assertTrue(page.move_button.isHidden())
             self.assertFalse(page.cancel_migration_button.isHidden())
@@ -102,6 +156,7 @@ class DataStoragePageTests(unittest.TestCase):
     def test_success_mode_exposes_old_folder(self) -> None:
         local = self.root / "local"
         local.mkdir()
+        (self.root / "config.json").write_text("{}", encoding="utf-8")
         context = StorageContext(
             mode="local",
             installation_dir=self.root,
@@ -117,7 +172,49 @@ class DataStoragePageTests(unittest.TestCase):
             page.show()
             QApplication.processEvents()
             self.assertFalse(page.old_folder_button.isHidden())
+            self.assertFalse(page.remove_old_data_button.isHidden())
             self.assertIn("Migration completed", page.status_label.text())
+        finally:
+            page.close()
+
+    def test_remove_old_data_uses_destructive_confirmation_and_refreshes(self) -> None:
+        local = self.root / "local"
+        local.mkdir()
+        old_config = self.root / "config.json"
+        old_config.write_text("{}", encoding="utf-8")
+        context = StorageContext(
+            mode="local",
+            installation_dir=self.root,
+            data_dir=local,
+            recommended_dir=local,
+            installation_key="key",
+            migration_status="success",
+            migration_message="Data was copied and verified.",
+            legacy_dir=self.root,
+        )
+        page = self.page(context)
+
+        def remove():
+            old_config.unlink()
+            return MigrationActionResult(True, "success", "Old data removed.")
+
+        try:
+            page.show()
+            QApplication.processEvents()
+            with patch.object(
+                data_storage_dialogs, "ask_app_confirmation", return_value=True
+            ) as confirmation, patch.object(
+                data_storage_dialogs, "remove_legacy_data", side_effect=remove
+            ) as cleanup, patch.object(
+                data_storage_dialogs, "show_app_notice"
+            ) as notice:
+                page._remove_old_data()
+
+            self.assertTrue(confirmation.call_args.kwargs["destructive"])
+            cleanup.assert_called_once_with()
+            notice.assert_called_once()
+            self.assertTrue(page.remove_old_data_button.isHidden())
+            self.assertFalse(page.old_folder_button.isHidden())
         finally:
             page.close()
 

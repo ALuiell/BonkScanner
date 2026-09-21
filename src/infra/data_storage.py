@@ -38,6 +38,7 @@ PROFILE_FILES = (
 PROFILE_DIRECTORIES = ("stats_recordings", "vods")
 MIGRATION_FILES = PROFILE_FILES + ("supporter_access_cache.json",)
 MIGRATION_DIRECTORIES = PROFILE_DIRECTORIES + ("logs",)
+LEGACY_CLEANUP_FILES = MIGRATION_FILES + ("merchant_history.jsonl.lock",)
 
 
 class StorageError(RuntimeError):
@@ -54,6 +55,8 @@ class StorageContext:
     migration_status: str = ""
     migration_message: str = ""
     legacy_dir: Path | None = None
+    legacy_cleanup_status: str = ""
+    legacy_cleanup_message: str = ""
 
     @property
     def can_migrate(self) -> bool:
@@ -320,6 +323,50 @@ def _migration_sources(source: Path) -> tuple[tuple[Path, Path], ...]:
         for path in _iter_tree_files(root):
             pairs.append((path, Path(name) / path.relative_to(root)))
     return tuple(sorted(pairs, key=lambda pair: pair[1].as_posix().lower()))
+
+
+def _legacy_cleanup_targets(source: Path) -> tuple[Path, ...]:
+    targets: list[Path] = []
+    for name in LEGACY_CLEANUP_FILES:
+        path = source / name
+        if path.exists() or path.is_symlink():
+            targets.append(path)
+    targets.extend(
+        path
+        for path in sorted(source.glob("merchant_history.jsonl.broken-*"))
+        if path.exists() or path.is_symlink()
+    )
+    for name in MIGRATION_DIRECTORIES:
+        path = source / name
+        if path.exists() or path.is_symlink():
+            targets.append(path)
+    return tuple(dict.fromkeys(targets))
+
+
+def _validate_legacy_cleanup_target(path: Path) -> None:
+    if _is_reparse_point(path):
+        raise StorageError(f"Cleanup refused a linked path: {path}")
+    if path.is_dir():
+        tuple(_iter_tree_files(path))
+        return
+    if not path.is_file():
+        raise StorageError(f"Cleanup refused an unexpected path type: {path}")
+
+
+def _remove_legacy_cleanup_target(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def legacy_data_exists(source: Path) -> bool:
+    try:
+        return bool(_legacy_cleanup_targets(Path(source)))
+    except OSError:
+        # Keep the action available so the cleanup service can report the
+        # concrete access error instead of silently hiding the button.
+        return True
 
 
 def _file_signature(path: Path) -> tuple[int, int, str]:
@@ -748,6 +795,9 @@ def _context_from_state(
     migration = entry.get("migration", {}) if entry else {}
     status = str(migration.get("status") or "") if isinstance(migration, dict) else ""
     message = str(migration.get("message") or "") if isinstance(migration, dict) else ""
+    cleanup = entry.get("legacy_cleanup", {}) if entry else {}
+    cleanup_status = str(cleanup.get("status") or "") if isinstance(cleanup, dict) else ""
+    cleanup_message = str(cleanup.get("message") or "") if isinstance(cleanup, dict) else ""
     legacy_dir = None
     if entry and entry.get("legacy_path"):
         legacy_dir = Path(str(entry["legacy_path"]))
@@ -772,6 +822,8 @@ def _context_from_state(
         migration_status=status,
         migration_message=message,
         legacy_dir=legacy_dir,
+        legacy_cleanup_status=cleanup_status,
+        legacy_cleanup_message=cleanup_message,
     )
 
 
@@ -920,6 +972,178 @@ def cancel_migration() -> MigrationActionResult:
         return MigrationActionResult(False, "failed", str(exc))
     finally:
         state_lock.release()
+
+
+def remove_legacy_data() -> MigrationActionResult:
+    context = migration_status()
+    if (
+        context.mode != "local"
+        or context.migration_status != "success"
+        or context.recommended_dir is None
+        or context.legacy_dir is None
+    ):
+        return MigrationActionResult(
+            False,
+            "unavailable",
+            "Old data can be removed only after a successful migration.",
+        )
+    source = Path(os.path.abspath(context.legacy_dir))
+    if _normalized_path(source) in {
+        _normalized_path(context.data_dir),
+        _normalized_path(context.recommended_dir),
+    }:
+        return MigrationActionResult(
+            False,
+            "failed",
+            "Cleanup refused to remove the active data folder.",
+        )
+
+    state_lock = _ProcessFileLock(context.recommended_dir / STATE_LOCK_NAME)
+    if not state_lock.acquire():
+        return MigrationActionResult(False, "failed", "Storage state is in use by another instance.")
+    source_lock = _ProcessFileLock(source / DATA_LOCK_NAME)
+    source_lock_acquired = False
+    try:
+        state = _load_state(context.recommended_dir)
+        entry = _entry_for(
+            state,
+            context.installation_dir,
+            str(context.installation_key),
+        )
+        migration = entry.get("migration") if entry else None
+        if (
+            entry is None
+            or not isinstance(migration, dict)
+            or migration.get("status") != "success"
+            or _normalized_path(Path(str(entry.get("legacy_path") or "")))
+            != _normalized_path(source)
+        ):
+            return MigrationActionResult(
+                False,
+                "failed",
+                "The successful migration record does not match this old folder.",
+            )
+
+        try:
+            source_stat = source.lstat()
+        except FileNotFoundError:
+            message = "The old data folder no longer exists; there is nothing to remove."
+            entry["legacy_cleanup"] = {
+                "status": "success",
+                "completed_at": _utc_now(),
+                "message": message,
+            }
+            _write_state(context.recommended_dir, state)
+            return MigrationActionResult(True, "success", message)
+        except OSError as exc:
+            message = f"BonkScanner could not inspect the old data folder: {exc}"
+            entry["legacy_cleanup"] = {
+                "status": "failed",
+                "attempted_at": _utc_now(),
+                "message": message,
+            }
+            _write_state(context.recommended_dir, state)
+            return MigrationActionResult(False, "failed", message)
+
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        is_linked_source = stat.S_ISLNK(source_stat.st_mode) or bool(
+            getattr(source_stat, "st_file_attributes", 0) & reparse_flag
+        )
+        if is_linked_source:
+            message = f"Cleanup refused a linked old data folder: {source}"
+            entry["legacy_cleanup"] = {
+                "status": "failed",
+                "attempted_at": _utc_now(),
+                "message": message,
+            }
+            _write_state(context.recommended_dir, state)
+            return MigrationActionResult(False, "failed", message)
+        if not stat.S_ISDIR(source_stat.st_mode):
+            message = f"Cleanup refused an unexpected old data path: {source}"
+            entry["legacy_cleanup"] = {
+                "status": "failed",
+                "attempted_at": _utc_now(),
+                "message": message,
+            }
+            _write_state(context.recommended_dir, state)
+            return MigrationActionResult(False, "failed", message)
+
+        process_check = _running_process_from_installation(source)
+        if process_check is None:
+            return MigrationActionResult(
+                False,
+                "failed",
+                "BonkScanner could not verify that no other copy is using the old folder.",
+            )
+        if process_check:
+            return MigrationActionResult(
+                False,
+                "failed",
+                "Another BonkScanner from the old folder is still running.",
+            )
+        source_lock_acquired = source_lock.acquire()
+        if not source_lock_acquired:
+            return MigrationActionResult(
+                False,
+                "failed",
+                "The old data folder is in use by another BonkScanner instance.",
+            )
+
+        try:
+            targets = _legacy_cleanup_targets(source)
+            for target in targets:
+                _validate_legacy_cleanup_target(target)
+        except (OSError, StorageError) as exc:
+            message = f"BonkScanner could not safely inspect old data: {exc}"
+            entry["legacy_cleanup"] = {
+                "status": "failed",
+                "attempted_at": _utc_now(),
+                "message": message,
+            }
+            _write_state(context.recommended_dir, state)
+            return MigrationActionResult(False, "failed", message)
+
+        failures: list[str] = []
+        removed = 0
+        for target in targets:
+            try:
+                _validate_legacy_cleanup_target(target)
+                _remove_legacy_cleanup_target(target)
+                removed += 1
+            except (OSError, StorageError) as exc:
+                failures.append(f"{target}: {exc}")
+
+        if failures:
+            message = (
+                f"Removed {removed} old data item(s), but some paths could not be removed: "
+                + "; ".join(failures)
+            )
+            status = "partial"
+            success = False
+        else:
+            message = (
+                "Old migrated data was removed. BonkScanner.exe, updater files, "
+                "unknown files, and unfinished temporary files were left in place."
+            )
+            status = "success"
+            success = True
+        entry["legacy_cleanup"] = {
+            "status": status,
+            "completed_at": _utc_now(),
+            "message": message,
+        }
+        _write_state(context.recommended_dir, state)
+        return MigrationActionResult(success, status, message)
+    except StorageError as exc:
+        return MigrationActionResult(False, "failed", str(exc))
+    finally:
+        source_lock.release()
+        state_lock.release()
+        if source_lock_acquired:
+            try:
+                (source / DATA_LOCK_NAME).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def release_storage_lock() -> None:

@@ -30,6 +30,7 @@ from ui.dialogs.shell import (
     DIALOG_REGULAR,
     DIALOG_TALL,
     DIALOG_WIDE,
+    ask_app_confirmation,
     dialog_body,
     dialog_card,
     dialog_danger_card,
@@ -1919,14 +1920,18 @@ class SettingsDialog(QDialog):
         from app.data_storage import MigrationActionResult, request_migration
 
         if self._general_settings_dirty:
-            choice = QMessageBox.question(
+            save_first = ask_app_confirmation(
                 self,
-                "Save Settings First",
-                "Save your General changes before scheduling the data migration?",
-                QMessageBox.Save | QMessageBox.Cancel,
-                QMessageBox.Save,
+                title="Save settings first?",
+                subtitle="Data storage",
+                message=(
+                    "Your General settings contain unsaved changes. Save them before "
+                    "scheduling the data migration?"
+                ),
+                confirm_text="Save changes",
+                note="The migration will not be scheduled if you cancel.",
             )
-            if choice != QMessageBox.Save:
+            if not save_first:
                 return MigrationActionResult(
                     False, "cancelled", "Migration was not scheduled."
                 )

@@ -13,6 +13,7 @@ merchant_history.jsonl
 merchant_history.jsonl.lock
 merchant_history.jsonl.broken-*
 .bonkscanner-data.lock
+supporter_access_cache.json
 
 # === AGENT SCRATCH ===
 .scratch_diffs/

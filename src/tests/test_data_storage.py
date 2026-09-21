@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -171,6 +172,149 @@ class DataStorageTests(unittest.TestCase):
         self.assertFalse((self.local / "vod_metadata_index.json").exists())
         for relative, payload in originals.items():
             self.assertEqual((self.install / relative).read_bytes(), payload)
+
+    def test_remove_legacy_data_deletes_only_known_migrated_data(self) -> None:
+        originals = self.write_legacy_profile()
+        (self.install / "supporter_access_cache.json").write_text(
+            '{"active":true}', encoding="utf-8"
+        )
+        (self.install / "merchant_history.jsonl.broken-1").write_text(
+            "broken", encoding="utf-8"
+        )
+        logs = self.install / "logs"
+        logs.mkdir()
+        (logs / "crash.log").write_text("synthetic", encoding="utf-8")
+        executable = self.install / "BonkScanner.exe"
+        executable.write_bytes(b"synthetic-exe")
+        unknown = self.install / "keep-me.txt"
+        unknown.write_text("unknown", encoding="utf-8")
+        unfinished = self.install / "recording.tmp"
+        unfinished.write_text("partial", encoding="utf-8")
+
+        self.initialize()
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration().success)
+        data_storage._reset_for_tests()
+        migrated = self.initialize()
+        self.assertEqual(migrated.mode, "local")
+
+        with self.frozen():
+            result = data_storage.remove_legacy_data()
+            refreshed = data_storage.migration_status()
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.status, "success")
+        self.assertEqual(refreshed.legacy_cleanup_status, "success")
+        for name in data_storage.LEGACY_CLEANUP_FILES:
+            self.assertFalse((self.install / name).exists(), name)
+        self.assertFalse((self.install / "merchant_history.jsonl.broken-1").exists())
+        for name in data_storage.MIGRATION_DIRECTORIES:
+            self.assertFalse((self.install / name).exists(), name)
+        self.assertTrue(executable.exists())
+        self.assertTrue(unknown.exists())
+        self.assertTrue(unfinished.exists())
+        self.assertFalse((self.install / data_storage.DATA_LOCK_NAME).exists())
+        self.assertEqual(
+            (self.local / "config.json").read_bytes(), originals["config.json"]
+        )
+
+    def test_remove_legacy_data_stops_when_old_instance_is_running(self) -> None:
+        self.write_legacy_profile()
+        self.initialize()
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration().success)
+        data_storage._reset_for_tests()
+        self.initialize()
+
+        with self.frozen(), patch.object(
+            data_storage, "_running_process_from_installation", return_value=True
+        ):
+            result = data_storage.remove_legacy_data()
+
+        self.assertFalse(result.success)
+        self.assertIn("still running", result.message)
+        self.assertTrue((self.install / "config.json").exists())
+
+    def test_remove_legacy_data_does_not_recreate_a_missing_old_folder(self) -> None:
+        self.write_legacy_profile()
+        self.initialize()
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration().success)
+        data_storage._reset_for_tests()
+        self.initialize()
+        shutil.rmtree(self.install)
+
+        with self.frozen():
+            result = data_storage.remove_legacy_data()
+            refreshed = data_storage.migration_status()
+
+        self.assertTrue(result.success)
+        self.assertEqual(refreshed.legacy_cleanup_status, "success")
+        self.assertFalse(self.install.exists())
+
+    def test_remove_legacy_data_does_not_unlink_a_lock_it_did_not_acquire(self) -> None:
+        self.write_legacy_profile()
+        self.initialize()
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration().success)
+        data_storage._reset_for_tests()
+        self.initialize()
+        lock_path = self.install / data_storage.DATA_LOCK_NAME
+        lock_path.write_text("owned-by-another-process", encoding="utf-8")
+
+        with self.frozen(), patch.object(
+            data_storage._ProcessFileLock,
+            "acquire",
+            side_effect=[True, False],
+        ):
+            result = data_storage.remove_legacy_data()
+
+        self.assertFalse(result.success)
+        self.assertIn("in use", result.message)
+        self.assertEqual(lock_path.read_text(encoding="utf-8"), "owned-by-another-process")
+
+    def test_remove_legacy_data_preflights_links_before_deleting_anything(self) -> None:
+        self.write_legacy_profile()
+        self.initialize()
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration().success)
+        data_storage._reset_for_tests()
+        self.initialize()
+        linked = self.install / "stats_recordings"
+        original_reparse_check = data_storage._is_reparse_point
+
+        with self.frozen(), patch.object(
+            data_storage,
+            "_is_reparse_point",
+            side_effect=lambda path: path == linked or original_reparse_check(path),
+        ):
+            result = data_storage.remove_legacy_data()
+
+        self.assertFalse(result.success)
+        self.assertIn("linked path", result.message)
+        self.assertTrue((self.install / "config.json").exists())
+        self.assertTrue(linked.exists())
+
+    def test_remove_legacy_data_reports_a_target_inspection_error(self) -> None:
+        self.write_legacy_profile()
+        self.initialize()
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration().success)
+        data_storage._reset_for_tests()
+        self.initialize()
+
+        with self.frozen(), patch.object(
+            data_storage,
+            "_legacy_cleanup_targets",
+            side_effect=PermissionError("synthetic access denied"),
+        ):
+            result = data_storage.remove_legacy_data()
+            refreshed = data_storage.migration_status()
+
+        self.assertFalse(result.success)
+        self.assertIn("access denied", result.message)
+        self.assertEqual(refreshed.legacy_cleanup_status, "failed")
+        self.assertTrue((self.install / "config.json").exists())
 
     def test_existing_target_profile_blocks_migration_without_overwrite(self) -> None:
         self.write_legacy_profile()
