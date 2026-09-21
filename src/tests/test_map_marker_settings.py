@@ -189,7 +189,7 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
         finally:
             dialog.close()
 
-    def test_premium_controls_are_visible_but_locked_without_access(self) -> None:
+    def test_locked_placeholders_preserve_saved_premium_settings(self) -> None:
         open_support = MagicMock()
         locked = MapMarkerSettingsDialog(
             [],
@@ -213,6 +213,14 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
             self.assertIsInstance(locked.merchant_memory_switch, QCheckBox)
             self.assertFalse(locked.minimap_enabled_switch.isEnabled())
             self.assertFalse(locked.merchant_memory_switch.isEnabled())
+            self.assertFalse(locked.minimap_enabled_switch.isVisible())
+            self.assertFalse(locked.merchant_memory_switch.isVisible())
+            self.assertFalse(locked.minimap_scale_spin.isVisible())
+            self.assertFalse(locked.merchant_stock_display_combo.isVisible())
+            self.assertTrue(locked.minimap_enabled)
+            self.assertTrue(locked.merchant_memory_enabled)
+            for row in (locked.minimap_row, locked.merchant_row):
+                self.assertIsNotNone(row.findChild(QLabel, "PremiumFeatureLockedStatus"))
             self.assertEqual(
                 locked.minimap_enabled_switch.objectName(),
                 "PremiumFeatureCheck",
@@ -250,6 +258,15 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
             self.assertAlmostEqual(active.minimap_scale, 1.4)
             self.assertTrue(active.merchant_memory_enabled)
             self.assertEqual(active.merchant_stock_display, "cursor")
+            active.show()
+            QApplication.processEvents()
+            self.assertTrue(active.minimap_enabled_switch.isVisible())
+            self.assertTrue(active.merchant_memory_switch.isVisible())
+            for dialog in (locked, active):
+                notes = [row.findChild(QLabel, "PremiumFeatureNote")
+                         for row in (dialog.minimap_row, dialog.merchant_row)]
+                positions = [note.mapTo(dialog, QPoint(0, 0)).y() for note in notes]
+                self.assertLessEqual(abs(positions[0] - positions[1]), 2)
         finally:
             locked.close()
             active.close()

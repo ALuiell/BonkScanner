@@ -40,6 +40,7 @@ from __future__ import annotations
 from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -53,7 +54,7 @@ from PySide6.QtWidgets import (
 
 from app.map_scoring import map_highlight_rows
 from projections import formatting
-from ui.shared import _apply_button_icon, _make_scroll_section, _set_text
+from ui.shared import _apply_button_icon, _make_scroll_section, _set_text, resource_path
 
 #: The two conditions the settings dialog can produce. Everything else in
 #: `TrackedItemRule.mode` is unreachable from the UI, so the badge only ever
@@ -128,6 +129,7 @@ class SessionStatsTab:
         self._tracked_rows: list[_TrackedRow] = []
         self._tracked_signature: tuple | None = None
         self._merchant_analytics_collect = None
+        self._merchant_analytics_locked = None
 
         # What the scanner has handed over so far, so a setter that only knows
         # part of the state can re-render the whole strip.
@@ -206,13 +208,40 @@ class SessionStatsTab:
         layout.addSpacing(10)
         analytics = QHBoxLayout()
         analytics.setContentsMargins(0, 0, 0, 0)
+        analytics.setSpacing(12)
         self._merchant_analytics_collect = QCheckBox("Collect Shady Guy analytics")
         self._merchant_analytics_collect.toggled.connect(
             self._toggle_merchant_analytics
         )
-        analytics.addWidget(self._merchant_analytics_collect)
-        analytics.addStretch(1)
+        analytics.addWidget(self._merchant_analytics_collect, 1)
+        self._merchant_analytics_collect.hide()
+        locked = QFrame()
+        locked.setObjectName("PremiumFeatureLocked")
+        self._merchant_analytics_locked = locked
+        locked_layout = QVBoxLayout(locked)
+        locked_layout.setContentsMargins(14, 12, 14, 12)
+        locked_layout.setSpacing(4)
+        title = QLabel("Shady Guy Analytics")
+        title.setObjectName("PremiumFeatureLockedTitle")
+        locked_layout.addWidget(title)
+        note = QLabel("Lifetime item availability from the merchants you have viewed.")
+        note.setObjectName("PremiumFeatureNote")
+        note.setWordWrap(True)
+        locked_layout.addWidget(note)
+        status = QHBoxLayout()
+        status.setContentsMargins(0, 8, 0, 0)
+        status.setSpacing(6)
+        icon = QLabel()
+        icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
+        status.addWidget(icon)
+        label = QLabel("Requires Premium")
+        label.setObjectName("PremiumFeatureLockedStatus")
+        status.addWidget(label)
+        status.addStretch(1)
+        locked_layout.addLayout(status)
+        analytics.addWidget(locked, 1)
         open_analytics = QPushButton("Shady Analytics")
+        open_analytics.setToolTip("Open analytics. Saved history remains available without Premium.")
         open_analytics.clicked.connect(
             lambda _checked=False: self._on_open_merchant_analytics()
         )
@@ -342,8 +371,11 @@ class SessionStatsTab:
             checkbox.setToolTip(error or text)
             checkbox.blockSignals(True)
             checkbox.setChecked(bool(enabled))
-            checkbox.setEnabled(bool(premium or enabled))
+            checkbox.setEnabled(bool(premium))
+            checkbox.setVisible(bool(premium))
             checkbox.blockSignals(False)
+        if self._merchant_analytics_locked is not None:
+            self._merchant_analytics_locked.setVisible(not premium)
 
     def _toggle_merchant_analytics(self, enabled: bool) -> None:
         actual = bool(self._on_toggle_merchant_analytics(bool(enabled)))

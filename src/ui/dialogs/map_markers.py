@@ -69,27 +69,54 @@ class _PremiumMapGroup(QGroupBox):
             )
 
 
-def _premium_map_option(checkbox, description, control, parent):
-    option = QWidget(parent)
-    option.setObjectName("mapMarkerBehaviorOption")
+def _premium_map_option(checkbox, description, control, parent, *, locked=False):
+    option = QFrame(parent)
+    option.setObjectName("PremiumFeatureLocked" if locked else "mapMarkerBehaviorOption")
     column = QVBoxLayout(option)
-    column.setContentsMargins(14, 0, 14, 0)
+    column.setContentsMargins(14, 12 if locked else 0, 14, 12 if locked else 0)
     column.setSpacing(4)
     title = QHBoxLayout()
     title.setSpacing(8)
     if control is not None:
         control.setMinimumHeight(36)
     checkbox.setObjectName("PremiumFeatureCheck")
-    title.addWidget(checkbox)
+    if locked:
+        # Keep saved preferences in the hidden controls; saving unrelated
+        # settings without access must not turn Premium options off.
+        checkbox.setParent(option)
+        checkbox.hide()
+        if control is not None:
+            control.setParent(option)
+            control.hide()
+        name = QLabel(checkbox.text(), option)
+        name.setObjectName("PremiumFeatureLockedTitle")
+        title.addWidget(name)
+    else:
+        title.addWidget(checkbox)
     title.addStretch(1)
-    if control is not None:
+    if control is not None and not locked:
         title.addWidget(control)
     column.addLayout(title)
     note = QLabel(description, option)
     note.setObjectName("PremiumFeatureNote")
-    note.setContentsMargins(24, 0, 0, 0)
+    note.setContentsMargins(0 if locked else 24, 0, 0, 0)
+    note.setAlignment(Qt.AlignLeft | Qt.AlignTop)
     note.setWordWrap(True)
     column.addWidget(note)
+    # Surplus height belongs below the copy, never between title and copy.
+    column.addStretch(1)
+    if locked:
+        status = QHBoxLayout()
+        status.setContentsMargins(0, 8, 0, 0)
+        status.setSpacing(6)
+        icon = QLabel(option)
+        icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
+        status.addWidget(icon)
+        label = QLabel("Requires Premium", option)
+        label.setObjectName("PremiumFeatureLockedStatus")
+        status.addWidget(label)
+        status.addStretch(1)
+        column.addLayout(status)
     return option
 
 
@@ -403,6 +430,9 @@ class MapMarkerSettingsDialog(QDialog):
         premium_layout.setSpacing(8)
         premium_options = QHBoxLayout()
         premium_options.setSpacing(0)
+        if not self._has_premium_access:
+            premium_options.setContentsMargins(14, 0, 14, 0)
+            premium_options.setSpacing(12)
         premium_layout.addLayout(premium_options)
 
         self.minimap_enabled_switch = QCheckBox("Minimap markers")
@@ -418,12 +448,14 @@ class MapMarkerSettingsDialog(QDialog):
             "Live activity icons, clipped to the minimap circle.",
             self.minimap_scale_spin,
             premium_card,
+            locked=not self._has_premium_access,
         )
         premium_options.addWidget(self.minimap_row, 1)
 
         row_divider = QFrame(premium_card)
         row_divider.setObjectName("PremiumFeatureDivider")
         row_divider.setFixedWidth(1)
+        row_divider.setVisible(self._has_premium_access)
         premium_options.addWidget(row_divider)
 
         self.merchant_memory_switch = QCheckBox("Shady Guy stock memory")
@@ -451,6 +483,7 @@ class MapMarkerSettingsDialog(QDialog):
             "Remembers item names and prices from your last shop visit. Reopen the shop to refresh them.",
             self.merchant_stock_display_combo,
             premium_card,
+            locked=not self._has_premium_access,
         )
         premium_options.addWidget(self.merchant_row, 1)
         self.premium_group_badge = PremiumFeatureBadge(

@@ -1663,6 +1663,23 @@ QLabel#PremiumFeatureNote {
     color: #6F7E90;
     font-size: 11px;
 }
+QFrame#PremiumFeatureLocked {
+    background-color: #090D12;
+    border: 1px solid #232B35;
+    border-radius: 6px;
+}
+QLabel#PremiumFeatureLockedTitle {
+    color: #9AA5B4;
+    background: transparent;
+    border: none;
+    font-weight: 600;
+}
+QLabel#PremiumFeatureLockedStatus {
+    color: #8A97A8;
+    background: transparent;
+    border: none;
+    font-size: 11px;
+}
 QPushButton#PremiumFeatureBadge {
     background-color: #102532;
     border: 1px solid #28536A;

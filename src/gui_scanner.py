@@ -851,6 +851,11 @@ class Scanner:
         if changed:
             self._request_stats_refresh()
 
+    def on_supporter_access_changed(self, _state=None) -> None:
+        """Refresh collection controls when cached access is confirmed or revoked."""
+        if not self._is_shutting_down():
+            self._request_stats_refresh()
+
     def _request_stats_refresh(self) -> None:
         """Coalesce worker publications into one queued Qt repaint."""
         with self._filters.state_lock:
@@ -1176,7 +1181,7 @@ def build_scanner(
     `gui_dialogs` is top-level debt, so the composition root supplies the
     factory rather than the component importing it.
     """
-    return Scanner(
+    scanner = Scanner(
         coordinator,
         run_control=run_control,
         filters=filters,
@@ -1208,6 +1213,8 @@ def build_scanner(
         reroll_warning_dialog=lambda: RerollWarningDialog(app.window),
         obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window),
     )
+    app.supporter_access.add_listener(scanner.on_supporter_access_changed)
+    return scanner
 
 
 def _open_merchant_analytics_for_app(app: Any) -> None:

@@ -164,6 +164,55 @@ class SessionStatsTabWidgetTests(unittest.TestCase):
                 enabled=False, premium=False, session_recorded=0
             )
             assert not checkbox.isEnabled()
+            assert not checkbox.isVisible()
+            assert view._merchant_analytics_locked.isVisible()
+            view.set_merchant_analytics_status(
+                enabled=True, premium=False, session_recorded=0
+            )
+            assert checkbox.isChecked()
+            assert not checkbox.isVisible()
+            assert toggled == [True], toggled
+            view.set_merchant_analytics_status(
+                enabled=True, premium=True, session_recorded=0
+            )
+            assert checkbox.isVisible()
+            assert checkbox.isEnabled()
+            assert checkbox.isChecked()
+            assert not view._merchant_analytics_locked.isVisible()
+            """
+        )
+
+    def test_access_revocation_refreshes_idle_session_stats(self) -> None:
+        self._run(
+            """
+            from types import SimpleNamespace
+            from unittest.mock import MagicMock
+            from gui_scanner import build_scanner
+
+            listeners, scheduled = [], []
+            access = {"premium": True}
+            owner = SimpleNamespace(
+                supporter_access=SimpleNamespace(add_listener=listeners.append),
+                after=lambda delay, callback: scheduled.append(callback),
+                _is_shutting_down=False,
+            )
+            scanner = build_scanner(owner, MagicMock(), MagicMock(), MagicMock())
+            scanner.refresh_stats_ui = lambda: view.set_merchant_analytics_status(
+                enabled=True, premium=access["premium"], session_recorded=0
+            )
+            scanner.refresh_stats_ui()
+            assert view._merchant_analytics_collect.isVisible()
+            access["premium"] = False
+            listeners[0](SimpleNamespace(active=False))
+            assert len(scheduled) == 1
+            scheduled.pop()()
+            settle()
+            assert not view._merchant_analytics_collect.isVisible()
+            assert view._merchant_analytics_locked.isVisible()
+            assert view._merchant_analytics_collect.isChecked()
+            owner._is_shutting_down = True
+            listeners[0](SimpleNamespace(active=False))
+            assert not scheduled
             """
         )
 
