@@ -8075,6 +8075,26 @@ class GuiRunControlTests(unittest.TestCase):
         kps_widget.set_text.assert_called_once()
         self.assertIn("42", kps_widget.set_text.call_args.args[0])
 
+    def test_recording_indicator_uses_armed_state_while_writer_is_idle(self) -> None:
+        app = SimpleNamespace(
+            player_stats_vod_recorder=SimpleNamespace(is_recording=False),
+            coordinator=SimpleNamespace(
+                vod_capture=SimpleNamespace(is_recording_armed=lambda: True)
+            ),
+        )
+
+        self.assertTrue(gui_in_game_overlay._recording_indicator_active(app))
+
+    def test_recording_indicator_is_off_when_recording_is_not_active_or_armed(self) -> None:
+        app = SimpleNamespace(
+            player_stats_vod_recorder=SimpleNamespace(is_recording=False),
+            coordinator=SimpleNamespace(
+                vod_capture=SimpleNamespace(is_recording_armed=lambda: False)
+            ),
+        )
+
+        self.assertFalse(gui_in_game_overlay._recording_indicator_active(app))
+
     def test_overlay_fast_tick_paints_the_status_plaques_every_tick(self) -> None:
         """They read app state, not game memory: the scan flag flips the moment
         the user starts a scan, and `REC` flips on the record button or on

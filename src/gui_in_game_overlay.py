@@ -1632,6 +1632,14 @@ class InGameOverlay:
         self._open_build_progression_settings()
 
 
+def _recording_indicator_active(app: Any) -> bool:
+    recorder = getattr(app, "player_stats_vod_recorder", None)
+    return bool(
+        (recorder is not None and recorder.is_recording)
+        or app.coordinator.vod_capture.is_recording_armed()
+    )
+
+
 def build_in_game_overlay(app: Any) -> InGameOverlay:
     """Wire the component to the app, one named port per measured owner.
 
@@ -1672,10 +1680,7 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
         open_support_settings=lambda: app.open_settings_dialog(page="support"),
         is_game_paused=lambda: app.coordinator.run_lifecycle.is_paused_run(),
         is_scanning=lambda: app._scanner.is_scanning(),
-        is_recording=lambda: (
-            getattr(app, "player_stats_vod_recorder", None) is not None
-            and app.player_stats_vod_recorder.is_recording
-        ),
+        is_recording=lambda: _recording_indicator_active(app),
         is_game_window_active=lambda process_name: app._run_control.is_game_window_active(process_name),
         find_game_window=lambda process_name: app._run_control.find_game_window(process_name),
         schedule=lambda callback: app.after(0, callback),
