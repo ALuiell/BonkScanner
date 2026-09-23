@@ -40,6 +40,8 @@ class MapMarkerTracker:
         self._client: MapMarkerMemoryClient | None = None
         self._next_connect_at = 0.0
         self._map_id = 0
+        self._map_scope: tuple[str, int, int, int, int] | int | None = None
+        self._last_valid_seed: int | None = None
         self._markers: dict[str, WorldMapMarker] = {}
         self._automatic_by_object: dict[int, str] = {}
         # The memory client caches the class identity learned when an activity
@@ -74,6 +76,8 @@ class MapMarkerTracker:
                 pass
         self._next_automatic_scan_at = 0.0
         self._map_id = 0
+        self._map_scope = None
+        self._last_valid_seed = None
         self._markers.clear()
         self._automatic_by_object.clear()
         self._automatic_identity_by_object.clear()
@@ -177,8 +181,29 @@ class MapMarkerTracker:
             )
             return self._snapshot
 
-        if frame.map_id != self._map_id:
-            self._map_id = frame.map_id
+        # Keep instance identity separate from the optional seed sample. The
+        # tracker (unlike a replaced memory client) survives a reconnect.
+        # Older adapters without a structural scope retain their map_id contract.
+        scope = frame.map_scope if frame.map_scope is not None else frame.map_id
+        scope_changed = scope != self._map_scope
+        seed_changed = (
+            frame.map_seed is not None
+            and self._last_valid_seed is not None
+            and frame.map_seed != self._last_valid_seed
+        )
+        if not scope_changed and frame.map_seed is None:
+            # Keep public identity stable too (manual gestures and stock use it).
+            # Never relabel a capture belonging to another map.
+            capture = frame.merchant_stock_capture
+            if capture is not None:
+                capture = (
+                    replace(capture, map_id=self._map_id)
+                    if capture.map_id == frame.map_id else None
+                )
+            frame = replace(
+                frame, map_id=self._map_id, merchant_stock_capture=capture
+            )
+        if scope_changed or seed_changed:
             self._markers.clear()
             self._automatic_by_object.clear()
             self._automatic_identity_by_object.clear()
@@ -186,6 +211,19 @@ class MapMarkerTracker:
             self._lifecycle_serial = 0
             self._merchant_stocks.clear()
             self._merchant_created_objects.clear()
+        elif frame.map_id != self._map_id:
+            # The first successful seed enriches identity, not map lifetime.
+            # Keep stock attached without inventing its missing seed provenance.
+            self._merchant_stocks = {
+                ptr: replace(stock, map_id=frame.map_id)
+                for ptr, stock in self._merchant_stocks.items()
+            }
+        if scope_changed:
+            self._last_valid_seed = None
+        if frame.map_seed is not None:
+            self._last_valid_seed = frame.map_seed
+        self._map_scope = scope
+        self._map_id = frame.map_id
 
         if not heavy_reads_enabled:
             self._next_automatic_scan_at = 0.0

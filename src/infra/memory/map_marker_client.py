@@ -49,6 +49,8 @@ class MapMemoryFrame:
     minimap_projection: MinimapProjection | None = None
     merchant_stock_capture: MerchantStockCapture | None = None
     map_seed: int | None = None
+    # Seed-independent instance identity, including the game process lifetime.
+    map_scope: tuple[str, int, int, int, int] | None = None
 
 
 _ITEM_METADATA_BY_ID = {item.item_id: item for item in ITEMS}
@@ -338,11 +340,17 @@ class MapMarkerMemoryClient:
 
         current_activity = None
         if automatic_discovery and sample_automatic_discovery:
-            detector = self._resolve_detector(player)
-            current_ptr = self.memory.read_ptr(
-                detector + self.CURRENT_INTERACTABLE_OFFSET
-            )
-            current_activity = self._read_current_activity(current_ptr)
+            try:
+                detector = self._resolve_detector(player)
+                current_ptr = self.memory.read_ptr(
+                    detector + self.CURRENT_INTERACTABLE_OFFSET
+                )
+                current_activity = self._read_current_activity(current_ptr)
+            except MemoryReadError:
+                # Optional discovery must not discard a valid map/camera sample.
+                # Re-resolve the detector without reconnecting the whole client.
+                # Programming errors still reach the existing runtime boundary.
+                self._detector_ptr = 0
         elif not automatic_discovery:
             # Do not retain or walk automatic-discovery state while the opt-in
             # setting is off. Full Map/player/stage reads remain necessary for
@@ -381,6 +389,9 @@ class MapMarkerMemoryClient:
             viewport=viewport,
             current_activity=current_activity,
             map_seed=map_seed,
+            map_scope=(
+                self._game_process_identity, full_map, player, stage, stage_index
+            ),
             minimap_projection=minimap_projection,
             merchant_stock_capture=merchant_stock_capture,
         )
@@ -419,24 +430,35 @@ class MapMarkerMemoryClient:
             uses_left = self.memory.read_i32(
                 object_ptr + self.MICROWAVE_USES_LEFT_OFFSET
             )
-            is_cooking = bool(
-                self.memory.read_u8(object_ptr + self.MICROWAVE_IS_COOKING_OFFSET)
+            if uses_left < 0:
+                raise MemoryReadError(f"Invalid microwave uses remaining: {uses_left}")
+            is_cooking = self._read_activity_flag(
+                object_ptr, self.MICROWAVE_IS_COOKING_OFFSET
             )
-            has_item = bool(
-                self.memory.read_u8(object_ptr + self.MICROWAVE_HAS_ITEM_OFFSET)
+            has_item = self._read_activity_flag(
+                object_ptr, self.MICROWAVE_HAS_ITEM_OFFSET
             )
-            if uses_left >= 0:
-                self._last_microwave_uses = (object_ptr, uses_left)
+            self._last_microwave_uses = (object_ptr, uses_left)
             return uses_left > 0 or is_cooking or has_item
         if class_name == "InteractableShadyGuy":
-            return not bool(self.memory.read_u8(object_ptr + self.SHADY_DONE_OFFSET))
+            return not self._read_activity_flag(object_ptr, self.SHADY_DONE_OFFSET)
         if class_name == "InteractableEgg":
-            return not bool(self.memory.read_u8(object_ptr + self.EGG_DONE_OFFSET))
+            return not self._read_activity_flag(object_ptr, self.EGG_DONE_OFFSET)
         if class_name == "InteractableCharacterFight":
-            return not bool(
-                self.memory.read_u8(object_ptr + self.CHARACTER_FIGHT_DONE_OFFSET)
+            return not self._read_activity_flag(
+                object_ptr, self.CHARACTER_FIGHT_DONE_OFFSET
             )
-        return not bool(self.memory.read_u8(object_ptr + self.SHRINE_DONE_OFFSET))
+        return not self._read_activity_flag(object_ptr, self.SHRINE_DONE_OFFSET)
+
+    def _read_activity_flag(self, object_ptr: int, offset: int) -> bool:
+        value = self.memory.read_u8(object_ptr + offset)
+        if value not in (0, 1):
+            # Unknown state belongs to the tracker's preserve-and-retry path,
+            # not the completed/consumed activity path.
+            raise MemoryReadError(
+                f"Invalid activity flag at 0x{object_ptr + offset:X}: {value}"
+            )
+        return value == 1
 
     def last_microwave_uses(self, object_ptr: int) -> int | None:
         """Reuse the lifecycle sample without another process-memory read."""
