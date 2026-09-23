@@ -156,6 +156,8 @@ def build_run_control(
     # The component fixture represents the normal post-startup state. Tests of
     # hook registration and fail-closed behavior override this explicitly.
     run_control.player_movement_guard_available = True
+    # Unit fixtures must not inspect a real game process on the developer PC.
+    run_control.check_restart_permissions = lambda _pid=None: True
     run_control.calls = calls
     return run_control
 

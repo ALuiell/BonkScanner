@@ -67,16 +67,12 @@ class RunControlTests(unittest.TestCase):
 
         self.assertIsInstance(run_control.run_control_provider, KeyboardRunControlProvider)
 
-    def test_check_admin_rights_logs_keyboard_warnings_without_admin(self) -> None:
+    def test_non_elevated_scanner_alone_does_not_warn(self) -> None:
         run_control = build_run_control()
-
-        with patch.object(gui_run_control.os, "name", "nt"), \
-                patch.object(gui_run_control.process, "is_running_as_admin", lambda: False):
+        with patch.object(gui_run_control, "inspect_privileges") as inspect:
             run_control.check_admin_rights()
-
-        messages = [message for message, _tag in run_control.calls["log"]]
-        self.assertTrue(any("WARNING: Script is not running as Administrator" in m for m in messages))
-        self.assertTrue(any("Hotkeys may not work while the game window is active" in m for m in messages))
+        inspect.assert_not_called()
+        self.assertEqual(run_control.calls["log"], [])
 
     def test_game_window_focus_requires_foreground_pid_match(self) -> None:
         run_control = build_run_control()

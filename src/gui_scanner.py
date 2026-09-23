@@ -898,6 +898,7 @@ class Scanner:
         return True
 
     def close_client(self):
+        self._run_control.reset_restart_permission_check()
         if self.client:
             try:
                 self.client.close()
@@ -957,6 +958,9 @@ class Scanner:
         self.update_status_ui()
 
     def _run_background_loop(self):
+        self._run_control.reset_restart_permission_check()
+        if not self._run_control.check_restart_permissions():
+            return
         process_name = config.PROCESS_NAME.strip()
         wait_state = None
         last_state = None
@@ -966,7 +970,16 @@ class Scanner:
         while not self.stop_event.is_set():
             if self.client is None:
                 try:
+                    # Check before opening memory: elevated games may refuse
+                    # that open, so waiting for attachment could hide the cause.
+                    if not self._run_control.check_restart_permissions():
+                        return
                     self.client = GameDataClient(process_name=process_name)
+                    # Name lookup and attachment can race a game restart.
+                    if not self._run_control.check_restart_permissions(
+                        self._run_control.attached_game_process_id()
+                    ):
+                        return
                     self.log(f"[+] Game connected! Press '{config.HOTKEY}' to start auto-reroll.", tag="success")
                     self.is_ready_to_start = True
                     self._schedule(0, self.update_status_ui)
