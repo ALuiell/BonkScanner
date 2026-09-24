@@ -259,6 +259,7 @@ class PlayerStatsClient:
     DICT_COUNT_OFFSET = 0x20
     # Current IL2CPP Dictionary layout stores freeList/freeCount at 0x24/0x28.
     # The mutation version follows them at 0x2C.
+    DICT_FREE_COUNT_OFFSET = 0x28
     DICT_VERSION_OFFSET = 0x2C
     DICT_ENTRY_START_OFFSET = 0x20
     DICT_ENTRY_SIZE = 0x18
@@ -678,16 +679,18 @@ class PlayerStatsClient:
 
         Both routes to the passive inventory can hand back a **non-null pointer
         to an empty dictionary**, and which one does depends on run state.
-        Measured live on 2026-08-03, mid-run, with 25 items held: the container
-        route resolved `0x...EF750` with `count=0, version=0, entries=0x0` while
-        the player-inventory route resolved the real one with `count=25`. A
-        resolver that stops at "non-null" therefore picks the dead one and never
-        looks further.
+        ``count`` includes removed slots. A dictionary with allocated entries
+        and ``count=freeCount`` has no live items and must not prevent the
+        fallback route from being checked.
         """
         try:
             if not self.memory.read_ptr(dictionary + self.DICT_ENTRIES_OFFSET):
                 return False
-            return self.memory.read_i32(dictionary + self.DICT_COUNT_OFFSET) > 0
+            count = self.memory.read_i32(dictionary + self.DICT_COUNT_OFFSET)
+            if count <= 0:
+                return False
+            free_count = self.memory.read_i32(dictionary + self.DICT_FREE_COUNT_OFFSET)
+            return 0 <= free_count < count
         except MemoryReadError:
             return False
 

@@ -95,6 +95,7 @@ def build_memory(*, key_stack: int = 1, live_count: int = 2, live_version: int =
             DRAINED_DICT + C.DICT_COUNT_OFFSET: 0,
             DRAINED_DICT + C.DICT_VERSION_OFFSET: 0,
             LIVE_DICT + C.DICT_COUNT_OFFSET: live_count,
+            LIVE_DICT + C.DICT_FREE_COUNT_OFFSET: 0,
             LIVE_DICT + C.DICT_VERSION_OFFSET: live_version,
             entry_0 + C.DICT_ENTRY_KEY_OFFSET: 60,
             entry_1 + C.DICT_ENTRY_KEY_OFFSET: 41,
@@ -178,6 +179,7 @@ class DrainedDictionaryKeyCountTests(unittest.TestCase):
         memory.pointers[entry_0 + C.DICT_ENTRY_VALUE_OFFSET] = other_key_value
         memory.pointers[other_key_value + C.ITEM_CLASS_META_OFFSET] = KEY_META
         memory.ints[DRAINED_DICT + C.DICT_COUNT_OFFSET] = 1
+        memory.ints[DRAINED_DICT + C.DICT_FREE_COUNT_OFFSET] = 0
         memory.ints[DRAINED_DICT + C.DICT_VERSION_OFFSET] = 1
         memory.ints[entry_0 + C.DICT_ENTRY_KEY_OFFSET] = 60
         memory.ints[other_key_value + C.ITEM_STACK_COUNT_OFFSET] = 9

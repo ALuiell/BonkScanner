@@ -113,6 +113,7 @@ def build_memory(
         },
         ints={
             DICT + C.DICT_COUNT_OFFSET: 2,
+            DICT + C.DICT_FREE_COUNT_OFFSET: 0,
             DICT + C.DICT_VERSION_OFFSET: 7,
             entry_0 + C.DICT_ENTRY_KEY_OFFSET: LANTERN_ID,
             entry_1 + C.DICT_ENTRY_KEY_OFFSET: WRENCH_ID,
@@ -367,6 +368,26 @@ class DrainedDictionaryTests(unittest.TestCase):
         self.assertEqual(reading.stack_count, 4)
         self.assertAlmostEqual(reading.cooldown_seconds, 33.0, places=4)
 
+    def test_removed_container_slot_does_not_hide_bobs_light(self) -> None:
+        """A dictionary's count can stay positive after its last item is removed."""
+        C = PlayerStatsClient
+        memory = build_memory(my_time=100.0, next_trigger=133.0, stacks=2)
+        drained = self._drain_the_container_route(memory)
+        drained_entries = 0x38001000
+        memory.pointers[drained + C.DICT_ENTRIES_OFFSET] = drained_entries
+        memory.pointers[
+            drained_entries + C.DICT_ENTRY_START_OFFSET + C.DICT_ENTRY_VALUE_OFFSET
+        ] = 0
+        memory.ints[drained + C.DICT_COUNT_OFFSET] = 1
+        memory.ints[drained + C.DICT_FREE_COUNT_OFFSET] = 1
+        client = client_for(memory)
+
+        self.assertEqual(client._resolve_preferred_passive_item_dict(OWNER_STATS), DICT)
+        (reading,) = read(client).readings
+        self.assertEqual(reading.name, "Bob's Light")
+        self.assertEqual(reading.stack_count, 2)
+        self.assertAlmostEqual(reading.next_trigger_time - 100.0, 33.0)
+
     def test_an_empty_inventory_still_resolves_to_a_dictionary(self) -> None:
         """Both routes empty is "owns nothing yet", not a failed read."""
         C = PlayerStatsClient
@@ -421,7 +442,7 @@ class ItemCooldownCostTests(unittest.TestCase):
         client = client_for(memory)
 
         read(client)
-        self.assertEqual(memory.reads, 23, "cold pass: resolve, walk, clock, fields")
+        self.assertEqual(memory.reads, 24, "cold pass: resolve, walk, clock, fields")
 
         memory.reads = 0
         memory.float_reads = 0
@@ -429,7 +450,7 @@ class ItemCooldownCostTests(unittest.TestCase):
 
         self.assertEqual(
             memory.reads,
-            16,
+            17,
             "warm pass grew: something is re-walking the dictionary",
         )
         self.assertEqual(
