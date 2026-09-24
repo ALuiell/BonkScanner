@@ -26,10 +26,36 @@ from gui_in_game_overlay_settings import (
     _build_igo_widgets_card,
     _igo_widget_options,
     _open_map_marker_settings_dialog,
+    refresh_in_game_overlay_tab_state,
     refresh_map_marker_settings_summary,
     refresh_weapon_tracker_settings_summary,
 )
 from gui_in_game_overlay import InGameOverlay
+
+
+class InGameOverlayLiveStatusTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._app = QApplication.instance() or QApplication([])
+
+    def test_live_refresh_replaces_stale_waiting_when_overlay_appears(self) -> None:
+        window = SimpleNamespace(visible=False, edit_mode=False)
+        window.isVisible = lambda: window.visible
+        hero = SimpleNamespace(set_status=MagicMock())
+        tab = SimpleNamespace(
+            igo_hero=hero,
+            igo_toggle_btn=None,
+            igo_target_window_label=QLabel(),
+            in_game_overlay_window=window,
+            is_in_game_overlay_tab_active=lambda: True,
+            _in_game_overlay_target_geometry=lambda: object(),
+        )
+        with patch.object(config, "IN_GAME_OVERLAY", {"enabled": True}):
+            refresh_in_game_overlay_tab_state(tab)
+            self.assertEqual(hero.set_status.call_args.args[0], "WAITING")
+            window.visible = True
+            refresh_in_game_overlay_tab_state(tab)
+            self.assertEqual(hero.set_status.call_args.args[0], "RUNNING")
 
 
 class WeaponTrackerSettingsDialogTests(unittest.TestCase):

@@ -556,19 +556,16 @@ class InGameOverlay:
         self._set_map_marker_palette(None)
 
     def _map_marker_tick(self) -> bool:
-        # QDialog.exec() runs a nested event loop.  Updating a transparent
-        # top-level window while another GUI operation is only half-finished is
-        # unnecessary and makes lifetime/reentrancy bugs much harder to contain.
-        if (
-            not self._runtime_available()
-            or self._map_marker_tick_active
-            or QApplication.activeModalWidget() is not None
-        ):
+        # QDialog.exec() runs a nested event loop. Keep collecting map activity
+        # while a settings dialog is open, but leave the transparent window and
+        # manual input alone until the dialog closes.
+        if not self._runtime_available() or self._map_marker_tick_active:
             return False
 
+        background_only = QApplication.activeModalWidget() is not None
         self._map_marker_tick_active = True
         try:
-            return self._map_marker_tick_once()
+            return self._map_marker_tick_once(background_only=background_only)
         except Exception as exc:
             self._fail_map_marker_update(exc)
             return False
@@ -601,7 +598,7 @@ class InGameOverlay:
             tag="warning",
         )
 
-    def _map_marker_tick_once(self) -> bool:
+    def _map_marker_tick_once(self, *, background_only: bool = False) -> bool:
         window = self.in_game_overlay_window
         marker_cfg = config.IN_GAME_OVERLAY.get("map_markers", {}) or {}
         overlay_enabled = bool(
@@ -615,7 +612,8 @@ class InGameOverlay:
         )
         if not (overlay_enabled or analytics_enabled):
             self._sync_map_marker_runtime()
-            self._set_map_marker_snapshot(MapMarkerSnapshot())
+            if not background_only:
+                self._set_map_marker_snapshot(MapMarkerSnapshot())
             return False
         scale_reader = (
             getattr(window, "devicePixelRatioF", None) if window is not None else None
@@ -657,7 +655,8 @@ class InGameOverlay:
             # sampled on the other side of that transition. The cached runtime
             # pause flag keeps the minimap hidden after Escape is released.
             self._invalidate_map_marker_samples()
-            self._set_map_marker_snapshot(MapMarkerSnapshot())
+            if not background_only:
+                self._set_map_marker_snapshot(MapMarkerSnapshot())
 
         if self._map_marker_premium_access and not premium_access:
             self._invalidate_map_marker_samples()
@@ -692,6 +691,9 @@ class InGameOverlay:
             runtime_snapshot = tracker.runtime_snapshot() if tracker is not None else None
             for capture in snapshot.merchant_stocks:
                 self._record_merchant_capture(capture, runtime_snapshot)
+
+        if background_only:
+            return True
 
         if not overlay_enabled or window is None:
             self._set_map_marker_palette(None)

@@ -7040,7 +7040,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(nested_results, [False])
 
-    def test_merchant_analytics_collects_with_overlay_disabled(self) -> None:
+    def test_merchant_analytics_collects_with_overlay_disabled_and_modal_open(self) -> None:
         capture = SimpleNamespace(merchant_object_ptr=0x5150)
         snapshot = gui_in_game_overlay.MapMarkerSnapshot(
             map_id=77,
@@ -7069,7 +7069,9 @@ class GuiRunControlTests(unittest.TestCase):
             "map_markers": {"enabled": False},
         }
 
-        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), patch.object(
+            gui_in_game_overlay.QApplication, "activeModalWidget", return_value=object()
+        ):
             overlay._sync_map_marker_runtime()
             self.assertTrue(overlay._map_marker_tick())
 
@@ -7122,16 +7124,36 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(logs[0][1], "warning")
         self.assertIn("stale Qt wrapper", logs[0][0])
 
-    def test_map_marker_tick_skips_nested_modal_event_loops(self) -> None:
+    def test_map_marker_tick_collects_automatically_behind_modal_without_updating_ui(self) -> None:
         overlay = build_in_game_overlay_test_component()
-        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
-        tracker = MagicMock()
+        window = FakeInGameOverlayWindow(visible=True)
+        window.devicePixelRatioF = lambda: 1.0
+        window.height = lambda: 720
+        window.width = lambda: 1280
+        overlay.in_game_overlay_window = window
+        snapshot = gui_in_game_overlay.MapMarkerSnapshot(map_id=7)
+        tracker = SimpleNamespace(tick=MagicMock(return_value=snapshot))
         overlay._map_marker_tracker = tracker
+        overlay._map_marker_input = SimpleNamespace(
+            is_map_surface_key_pressed=lambda: False,
+            cursor_position=MagicMock(),
+        )
+        overlay._map_marker_hotkeys = SimpleNamespace(poll=MagicMock())
+        overlay._set_map_marker_snapshot = MagicMock()
+        overlay._publish_map_marker_snapshot = MagicMock()
+        cfg = {"enabled": True, "map_markers": {"enabled": True, "automatic_discovery": True}}
 
-        with patch.object(gui_in_game_overlay.QApplication, "activeModalWidget", return_value=object()):
-            self.assertFalse(overlay._map_marker_tick())
+        with patch.object(config, "IN_GAME_OVERLAY", cfg), patch.object(
+            gui_in_game_overlay.QApplication, "activeModalWidget", return_value=object()
+        ):
+            self.assertTrue(overlay._map_marker_tick())
 
-        tracker.tick.assert_not_called()
+        self.assertTrue(tracker.tick.call_args.kwargs["automatic_discovery"])
+        self.assertEqual(overlay._map_marker_latest_snapshot, snapshot)
+        overlay._map_marker_input.cursor_position.assert_not_called()
+        overlay._map_marker_hotkeys.poll.assert_not_called()
+        overlay._set_map_marker_snapshot.assert_not_called()
+        overlay._publish_map_marker_snapshot.assert_not_called()
 
     def test_map_marker_memory_poll_runs_off_the_gui_thread(self) -> None:
         gui_thread = threading.get_ident()

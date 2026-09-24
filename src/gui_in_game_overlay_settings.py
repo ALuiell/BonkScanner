@@ -232,18 +232,16 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
     main_column.addStretch(1)
 
     layout.addStretch(1)
-    update_in_game_overlay_status_ui(parent_mixin)
     refresh_in_game_overlay_hotkey_ui(parent_mixin)
-    refresh_in_game_overlay_target_window(parent_mixin)
+    refresh_in_game_overlay_tab_state(parent_mixin)
 
-    # A slow poll for the one live fact this tab still shows. It used to drive
-    # the canvas preview as well; the preview is gone and the detection line is
-    # not, because whether the game is running changes without anything else in
-    # this tab ticking.
+    # Both the target-window line and the status badge depend on live window
+    # state. Refresh them together so WAITING does not remain after the game
+    # comes to the foreground and the overlay becomes visible.
     parent_mixin.igo_target_window_timer = QTimer(parent_mixin.tab_in_game_overlay)
     parent_mixin.igo_target_window_timer.setInterval(1500)
     parent_mixin.igo_target_window_timer.timeout.connect(
-        lambda: refresh_in_game_overlay_target_window(parent_mixin)
+        lambda: refresh_in_game_overlay_tab_state(parent_mixin)
     )
     parent_mixin.igo_target_window_timer.start()
 
@@ -842,6 +840,11 @@ def _save_in_game_overlay_hotkey(parent_mixin: Any) -> None:
     # app restarts -- with the tip already telling the user to press it.
     parent_mixin.rebind_hotkeys()
     refresh_in_game_overlay_hotkey_ui(parent_mixin)
+
+
+def refresh_in_game_overlay_tab_state(parent_mixin: Any) -> None:
+    refresh_in_game_overlay_target_window(parent_mixin)
+    update_in_game_overlay_status_ui(parent_mixin)
 
 
 def refresh_in_game_overlay_target_window(parent_mixin: Any) -> None:
