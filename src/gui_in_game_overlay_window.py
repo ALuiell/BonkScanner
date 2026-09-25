@@ -733,7 +733,7 @@ class MapMarkerLayer(QWidget):
             )
             painter.drawRoundedRect(bounds, 4.0, 4.0)
 
-            swatch_size = row.height * 0.58
+            swatch_size = row.height * 0.66
             swatch = QRectF(
                 row.left + row.height * 0.20,
                 row.top + (row.height - swatch_size) / 2.0,
