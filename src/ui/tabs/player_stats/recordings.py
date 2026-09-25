@@ -1299,7 +1299,10 @@ class RecordingsTab:
             self._banishes_label,
             getattr(snapshot, "banishes", ()),
         )
-        self._stat_cards.display_weapons(getattr(snapshot, "weapons", ()))
+        self._stat_cards.display_weapons(
+            getattr(snapshot, "weapons", ()),
+            recorded_effective_stats=getattr(snapshot, "effective_weapon_stats", None),
+        )
         self._stat_cards.display_tomes(getattr(snapshot, "tomes", ()))
         self._stat_cards.display_chaos_tome(
             getattr(snapshot, "chaos_tome", None),

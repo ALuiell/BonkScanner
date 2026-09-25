@@ -46,9 +46,53 @@ def capture(recorder, stats, *values, **fields):
 
 
 class VodStorageTests(unittest.TestCase):
-    def test_vod_versions_one_through_ten_and_missing_version_are_supported(self) -> None:
+    def test_effective_weapon_values_are_frozen_per_recorded_snapshot(self) -> None:
+        weapon = WeaponSnapshot(
+            weapon_id=7, name="Aegis", level=2, upgrade_stat_ids=(12, 18),
+            upgraded_stats={
+                12: WeaponStatValue(12, "Damage", 10.0, WeaponStatFormat.FLAT),
+                18: WeaponStatValue(18, "Crit Chance", 0.2, WeaponStatFormat.PERCENT),
+            },
+            full_stats={
+                12: WeaponStatValue(12, "Damage", 10.0, WeaponStatFormat.FLAT),
+                18: WeaponStatValue(18, "Crit Chance", 0.2, WeaponStatFormat.PERCENT),
+            },
+        )
         with tempfile.TemporaryDirectory() as temp_dir:
-            for version in (None, *range(1, 11)):
+            recorder = VodRecorder(vods_dir=Path(temp_dir), clock=lambda: 1000.0)
+            path = recorder.start()
+            first = capture(recorder, {
+                "Damage": SimpleNamespace(value=2.0, display_value="2x"),
+                "Thorns": SimpleNamespace(value=7.0, display_value="7"),
+                "Crit Chance": SimpleNamespace(value=0.1, display_value="10%"),
+            }, (), (weapon,))
+            second = capture(recorder, {
+                "Damage": SimpleNamespace(value=3.0, display_value="3x"),
+                "Crit Chance": SimpleNamespace(value=0.2, display_value="20%"),
+            }, (), (weapon,))
+            recorder.stop()
+
+            self.assertEqual(first.effective_weapon_stats[0][12], 34.0)
+            self.assertAlmostEqual(first.effective_weapon_stats[0][18], 0.3)
+            self.assertEqual(second.effective_weapon_stats, ({18: 0.4},))
+            loaded = load_vod(path).snapshots
+            self.assertEqual(loaded[0].effective_weapon_stats, first.effective_weapon_stats)
+            self.assertEqual(loaded[1].effective_weapon_stats, second.effective_weapon_stats)
+            self.assertEqual(loaded[0].weapons[0].full_stats[12].value, 10.0)
+            legacy_path = Path(temp_dir) / "legacy.jsonl"
+            legacy_records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            legacy_records[0]["version"] = 10
+            for record in legacy_records:
+                record.pop("effective_weapon_stats", None)
+            legacy_path.write_text(
+                "\n".join(json.dumps(record) for record in legacy_records) + "\n",
+                encoding="utf-8",
+            )
+            self.assertIsNone(load_vod(legacy_path).snapshots[0].effective_weapon_stats)
+
+    def test_vod_versions_one_through_eleven_and_missing_version_are_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for version in (None, *range(1, 12)):
                 suffix = "" if version is None else f',"version":{version}'
                 path = Path(temp_dir) / f"v{version or 'missing'}.jsonl"
                 path.write_text(
@@ -60,7 +104,7 @@ class VodStorageTests(unittest.TestCase):
     def test_future_and_malformed_vod_versions_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             future = Path(temp_dir) / "future.jsonl"
-            future.write_text('{"type":"metadata","version":11,"name":"Run"}\n', encoding="utf-8")
+            future.write_text('{"type":"metadata","version":12,"name":"Run"}\n', encoding="utf-8")
             with self.assertRaises(UnsupportedVodVersionError):
                 load_vod(future)
 

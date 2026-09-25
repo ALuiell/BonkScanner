@@ -208,6 +208,7 @@ class WeaponIntegrationTests(unittest.TestCase):
         self.assertEqual(card._weapon_heading._weapon_value_label.text(), "Weapon")
         self.assertEqual(card._weapon_heading._value_label.text(), "With globals")
         self.assertFalse(card._weapon_heading.isHidden())
+
         original_rows = tuple(card._row_widgets)
         view.display_weapons((weapon,), general_stats=_globals(Damage=3))
         self.assertIs(view._weapon_cards[0], card)
@@ -219,7 +220,7 @@ class WeaponIntegrationTests(unittest.TestCase):
         self.assertEqual([row._weapon_value_label.text() for row in card._row_widgets], ["50", "8", "0"])
         self.assertEqual([row._value_label.text() for row in card._row_widgets], ["—", "—", "—"])
         self.assertIn("unavailable", card._row_widgets[0].toolTip())
-        # Existing Recordings callers omit globals and keep the original view.
+        # Older recordings without frozen values keep the original view.
         view.display_weapons((weapon,))
         self.assertEqual([row._value_label.text() for row in card._row_widgets], ["50", "8", "0"])
         self.assertEqual(card._row_widgets[0].toolTip(), "")
@@ -228,6 +229,26 @@ class WeaponIntegrationTests(unittest.TestCase):
         view.display_weapons((weapon,), general_stats=_globals())
         self.assertEqual(card._row_widgets[0]._value_label.text(), "100")
         self.assertFalse(card._weapon_heading.isHidden())
+
+    def test_recorded_weapon_values_use_frozen_values_and_old_runs_keep_raw_card(self):
+        root = QWidget()
+        self.addCleanup(root.deleteLater)
+        view = StatCardsView(
+            weapons_layout=QVBoxLayout(root), weapons_status_label=QLabel(root),
+            tomes_layout=None, tomes_status_label=None, chaos_layout=None,
+            chaos_status_label=None, damage_sources_layout=None,
+            damage_sources_status_label=None,
+        )
+        weapon = _weapon(values={12: 10, 18: 0.2}, upgrade_stat_ids=(12, 18))
+        view.display_weapons((weapon,), recorded_effective_stats=({12: 34.0},))
+        card = view._weapon_cards[0]
+        self.assertEqual([row._value_label.text() for row in card._row_widgets], ["34", "—"])
+        view.display_weapons((weapon,), recorded_effective_stats=({12: 51.0, 18: 0.4},))
+        self.assertIs(view._weapon_cards[0], card)
+        self.assertEqual([row._value_label.text() for row in card._row_widgets], ["51", "40%"])
+        view.display_weapons((weapon,))
+        self.assertEqual([row._value_label.text() for row in card._row_widgets], ["10", "0.2"])
+        self.assertTrue(card._weapon_heading.isHidden())
 
     def test_live_weapon_units_keep_raw_numbers_and_historical_format(self):
         root = QWidget()

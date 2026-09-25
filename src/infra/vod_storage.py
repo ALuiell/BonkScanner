@@ -25,14 +25,16 @@ from core.settings import (
 )
 from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
+from core.stats.weapon_tracker import WEAPON_TRACKER_METRIC_ORDER, calculate_weapon_tracker_row
 from core.vod_capture import VodCapturePayload
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, ChargeShrineSnapshot, ChargeShrineStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
+# 11 records frozen effective weapon values alongside the weapon-side values.
 # 10 lets the final summary publish the completed automatic name and kill count.
 # 9 added character identity metadata and the generic character-passive frame.
 # Older recordings omit newer fields and keep their original metadata name.
-VOD_FORMAT_VERSION = 10
+VOD_FORMAT_VERSION = 11
 RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
 LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -162,6 +164,7 @@ class VodSnapshot:
     # where the truth is "we do not know".
     loot_actual: dict[str, int] | None = None
     loot_expected: dict[str, float] | None = None
+    effective_weapon_stats: tuple[dict[int, float], ...] | None = None
 
     @property
     def time_label(self) -> str:
@@ -559,6 +562,7 @@ class VodRecorder:
             },
             items=payload.items,
             weapons=payload.weapons,
+            effective_weapon_stats=_capture_effective_weapon_stats(payload),
             tomes=payload.tomes,
             chaos_tome=payload.chaos_tome,
             shrines=payload.shrines,
@@ -940,6 +944,22 @@ def _metadata_from_records(
     )
 
 
+def _capture_effective_weapon_stats(
+    payload: VodCapturePayload,
+) -> tuple[dict[int, float], ...]:
+    """Freeze the calculated values from the same frame as the raw weapon stats."""
+    result: list[dict[int, float]] = []
+    for weapon in payload.weapons:
+        row = calculate_weapon_tracker_row(
+            weapon, payload.stats, WEAPON_TRACKER_METRIC_ORDER
+        )
+        result.append(
+            {metric.stat_id: metric.value for metric in row.metrics}
+            if row is not None else {}
+        )
+    return tuple(result)
+
+
 def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
     record = {
         "type": "snapshot",
@@ -963,6 +983,11 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         "banishes": list(snapshot.banishes),
         "damage_sources": [_damage_source_to_record(source) for source in snapshot.damage_sources],
     }
+    if snapshot.effective_weapon_stats is not None:
+        record["effective_weapon_stats"] = [
+            {str(stat_id): value for stat_id, value in values.items()}
+            for values in snapshot.effective_weapon_stats
+        ]
     if snapshot.chests_per_minute_recorded or snapshot.chests_per_minute is not None:
         record["chests_per_minute"] = snapshot.chests_per_minute
     if snapshot.game_time_seconds is not None:
@@ -1063,6 +1088,9 @@ def _record_to_snapshot(record: dict[str, Any], pool: dict[str, str] | None = No
         },
         items=tuple(_shared_name(item, share) for item in record.get("items") or ()),
         weapons=tuple(_record_to_weapon(weapon, share) for weapon in record.get("weapons") or ()),
+        effective_weapon_stats=_record_to_effective_weapon_stats(
+            record.get("effective_weapon_stats"), len(record.get("weapons") or ())
+        ),
         tomes=tuple(_record_to_tome(tome, share) for tome in record.get("tomes") or ()),
         chaos_tome=_record_to_chaos_tome(record.get("chaos_tome")),
         shrines=_record_to_charge_shrines(record.get("shrines"), share),
@@ -1519,6 +1547,26 @@ def _record_to_weapon_stats(raw_stats: Any) -> dict[int, WeaponStatValue]:
             value_format=value_format,
         )
     return stats
+
+
+def _record_to_effective_weapon_stats(
+    raw_values: Any, weapon_count: int,
+) -> tuple[dict[int, float], ...] | None:
+    if not isinstance(raw_values, list) or len(raw_values) != weapon_count:
+        return None
+    result: list[dict[int, float]] = []
+    for raw_weapon in raw_values:
+        if not isinstance(raw_weapon, dict):
+            return None
+        values: dict[int, float] = {}
+        for raw_stat_id, raw_value in raw_weapon.items():
+            if not _is_int_like(raw_stat_id):
+                continue
+            value = _coerce_optional_float(raw_value)
+            if value is not None:
+                values[int(raw_stat_id)] = value
+        result.append(values)
+    return tuple(result)
 
 
 def _coerce_optional_float(value: Any) -> float | None:

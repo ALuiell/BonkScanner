@@ -77,6 +77,7 @@ from core.stat_labels import abbreviate_stat_label
 from core.stats.types import TomeSnapshot, WeaponSnapshot
 from core.stats.weapon_tracker import (
     WEAPON_TRACKER_METRIC_ORDER, WEAPON_TRACKER_METRICS, calculate_weapon_tracker_row,
+    format_weapon_tracker_value,
 )
 from core.tracker.chaos import CHAOS_FINGERPRINTS, CHAOS_TOME_GAME_STAT_ORDER
 from core.tracker.shrines import SHRINE_RARITY_MULTIPLIERS
@@ -265,7 +266,8 @@ class _WeaponCard(QFrame):
         self._row_ids: tuple[object, ...] = ()
         self._row_widgets: list[_WeaponStatValueRow] = []
 
-    def update_weapon(self, weapon: WeaponSnapshot, effective=None, *, show_effective=False) -> None:
+    def update_weapon(self, weapon: WeaponSnapshot, effective=None, *, show_effective=False,
+                      recorded_effective=None) -> None:
         _set_text(self._name_label, str(weapon.name))
         _set_text(self._level_label, f"Lv. {weapon.level}")
         stats = tuple(
@@ -283,18 +285,27 @@ class _WeaponCard(QFrame):
                 self._rows_layout.addWidget(row)
                 self._row_widgets.append(row)
         metrics = {metric.stat_id: metric for metric in effective.metrics} if effective else {}
-        supported_ids = {spec.stat_id for spec in WEAPON_TRACKER_METRICS.values()}
+        metric_specs = {spec.stat_id: spec for spec in WEAPON_TRACKER_METRICS.values()}
+        supported_ids = set(metric_specs)
         for row, (stat_id, stat) in zip(self._row_widgets, stats):
             value = str(stat.display_value)
             if show_effective:
                 metric = metrics.get(stat_id)
+                effective_value = (
+                    format_weapon_tracker_value(
+                        metric_specs[stat_id].key, recorded_effective[stat_id]
+                    )
+                    if recorded_effective is not None and stat_id in recorded_effective
+                    and stat_id in supported_ids
+                    else metric.display_value if metric is not None else None
+                )
                 row.set_pair_values(
                     str(stat.label), _live_weapon_value(stat),
-                    metric.display_value if metric is not None else None,
+                    effective_value,
                 )
                 if stat_id in supported_ids:
                     tooltip = "Weapon value / Value with global stats"
-                    if metric is None:
+                    if effective_value is None:
                         tooltip += " (unavailable)"
                 else:
                     tooltip = "Value with global stats is not calculated for this stat"
@@ -303,7 +314,7 @@ class _WeaponCard(QFrame):
                 row.set_values(str(stat.label), value)
         self._empty_label.setVisible(not stats)
         if show_effective and self._weapon_heading is None:
-            # Recordings keeps its original card, without a live-value legend.
+            # Older recordings keep the original single-value card.
             self._weapon_heading = _WeaponStatValueRow(self)
             self._weapon_heading.set_pair_values("", "Weapon", "With globals")
             self._weapon_heading._separator_label.setText("")
@@ -1026,25 +1037,34 @@ class StatCardsView:
 
     # -- weapons --------------------------------------------------------------
 
-    def display_weapons(self, weapons, *, status_text: str | None = None, general_stats=None) -> None:
+    def display_weapons(self, weapons, *, status_text: str | None = None, general_stats=None,
+                        recorded_effective_stats=None) -> None:
         layout = self._weapons_layout
         status_label = self._weapons_status_label
         if layout is None or status_label is None:
             return
-        if self._defer("weapons", (weapons,), {"status_text": status_text, "general_stats": general_stats}):
+        if self._defer("weapons", (weapons,), {"status_text": status_text, "general_stats": general_stats,
+                                              "recorded_effective_stats": recorded_effective_stats}):
             return
 
         weapons = tuple(weapons or ())
+        if recorded_effective_stats is not None and len(recorded_effective_stats) != len(weapons):
+            recorded_effective_stats = None
         effective = tuple(
             calculate_weapon_tracker_row(weapon, general_stats, WEAPON_TRACKER_METRIC_ORDER)
-            if general_stats is not None else None for weapon in weapons
+            if general_stats is not None and recorded_effective_stats is None else None for weapon in weapons
         )
-        signature = (self._weapon_signature_for(weapons), effective, general_stats is not None)
+        recorded_signature = (
+            tuple(tuple(sorted(values.items())) for values in recorded_effective_stats)
+            if recorded_effective_stats is not None else None
+        )
+        show_effective = general_stats is not None or recorded_effective_stats is not None
+        signature = (self._weapon_signature_for(weapons), effective, recorded_signature, show_effective)
         if self._weapon_signature == signature and status_text is None:
             return
 
         self._weapon_signature = signature
-        self._weapon_pairs_enabled = general_stats is not None
+        self._weapon_pairs_enabled = show_effective
 
         if status_text is not None:
             _set_text(status_label, status_text)
@@ -1077,12 +1097,16 @@ class StatCardsView:
             ),
         )
         cards = []
-        for key, weapon, effective_row in zip(keys, weapons, effective):
+        for index, (key, weapon, effective_row) in enumerate(zip(keys, weapons, effective)):
             card = self._weapon_card_pool.get(key)
             if card is None:
                 card = _WeaponCard(self._weapon_grid)
                 self._weapon_card_pool[key] = card
-            card.update_weapon(weapon, effective_row, show_effective=general_stats is not None)
+            card.update_weapon(
+                weapon, effective_row, show_effective=show_effective,
+                recorded_effective=(recorded_effective_stats[index]
+                                    if recorded_effective_stats is not None else None),
+            )
             cards.append(card)
         self._weapon_cards = cards
         self._weapon_grid.set_cards(cards)
