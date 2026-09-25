@@ -73,6 +73,7 @@ class MapMarkerMemoryClient:
     # partial-copy error and forces the tracker through its reconnect backoff.
     IL2CPP_METADATA_USAGE_TAG_MASK = 0xE0000000
     IL2CPP_TYPE_INFO_USAGE_TAG = 0x20000000
+    IL2CPP_METADATA_TOKEN_FLAG = 0x1
 
     MY_PLAYER_TYPE_INFO_OFFSET = 0x2F620F8
     MY_PLAYER_INSTANCE_OFFSET = 0x08
@@ -526,9 +527,15 @@ class MapMarkerMemoryClient:
 
     @classmethod
     def _is_uninitialized_type_info(cls, value: int) -> bool:
+        # IL2CPP runtime metadata tokens have bit 0 set; initialized pointers
+        # do not. The upper usage tag alone also matches valid low addresses
+        # (e.g. 0x3258C080), so it cannot decide whether a slot is still lazy.
+        # A non-token is only a pointer candidate: the normal memory reads and
+        # live-object checks below must still succeed before accepting it.
         normalized = int(value)
         return bool(
             0 < normalized <= 0xFFFFFFFF
+            and normalized & cls.IL2CPP_METADATA_TOKEN_FLAG
             and normalized & cls.IL2CPP_METADATA_USAGE_TAG_MASK
             == cls.IL2CPP_TYPE_INFO_USAGE_TAG
         )
