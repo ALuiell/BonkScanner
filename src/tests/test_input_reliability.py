@@ -287,7 +287,10 @@ class KeyRepairTests(unittest.TestCase):
 
 class WindowsKeyStateTests(unittest.TestCase):
     def reader(self, result, context=123):
-        reader = object.__new__(WindowsKeyState)
+        class ReaderStub:
+            __call__ = WindowsKeyState.__call__
+
+        reader = ReaderStub()
         reader._readable_foreground = Mock(return_value=context)
         reader._virtual_keys = lambda code: (code,)
         reader._user = SimpleNamespace(GetAsyncKeyState=Mock(return_value=result))
