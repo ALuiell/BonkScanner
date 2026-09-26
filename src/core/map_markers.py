@@ -573,12 +573,13 @@ def project_world_to_minimap(
     world_z: float,
     *,
     projection: MinimapProjection,
+    clip_to_circle: bool = True,
 ) -> tuple[float, float] | None:
     """Project one remembered world point through the live minimap camera.
 
-    Centres outside the game's visible circular mask are rejected rather than
-    clamped to its edge. This keeps minimap markers as icons, not implicit
-    direction arrows.
+    Point-only callers reject centres outside the circle by default. Renderers
+    may defer that check to the icon footprint so partly visible icons are not
+    dropped at the rim. Coordinates are never clamped into direction arrows.
     """
 
     values = (
@@ -623,7 +624,9 @@ def project_world_to_minimap(
     v = 0.5 + camera_y / (2.0 * projection.orthographic_size)
     point_x = projection.content_rect.left + u * projection.content_rect.width
     point_y = projection.content_rect.bottom - v * projection.content_rect.height
-    if (
+    if not math.isfinite(point_x) or not math.isfinite(point_y):
+        return None
+    if clip_to_circle and (
         math.hypot(point_x - projection.center_x, point_y - projection.center_y)
         > projection.radius
     ):
@@ -642,6 +645,7 @@ def minimap_marker_screen_geometry(
         world_x,
         world_z,
         projection=projection,
+        clip_to_circle=False,
     )
     if point is None:
         return None
@@ -652,6 +656,15 @@ def minimap_marker_screen_geometry(
             int(round(MINIMAP_MARKER_BASE_ICON_SIZE * normalized_scale)),
         )
     )
+    # Conservative broad phase: include the classic/manual outline and the
+    # top-right badges (at most 26 px). The painter's circular clip, not the
+    # marker centre, decides which pixels remain visible. Keep distant markers
+    # out of the paint path without changing the projected position.
+    half_extent = max(icon_size / 2.0 + 3.0, icon_size * 0.31 + 13.0) + 1.0
+    nearest_x = max(0.0, abs(point[0] - projection.center_x) - half_extent)
+    nearest_y = max(0.0, abs(point[1] - projection.center_y) - half_extent)
+    if nearest_x * nearest_x + nearest_y * nearest_y > projection.radius ** 2:
+        return None
     return point[0], point[1], icon_size
 
 

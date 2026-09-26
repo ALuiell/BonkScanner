@@ -53,6 +53,8 @@ if TYPE_CHECKING:
 class MapMarkerLayer(QWidget):
     """Click-through painter for the game's Full Map and circular minimap."""
 
+    MINIMAP_PIXMAP_OVERSAMPLE = 1.5
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._snapshot = MapMarkerSnapshot()
@@ -354,17 +356,42 @@ class MapMarkerLayer(QWidget):
                     center_x,
                     center_y,
                     int(icon_size_value),
+                    subpixel=True,
                 )
                 if marker.object_ptr in stock_objects:
                     self._paint_stock_badge(
-                        painter, center_x, center_y, float(icon_size_value)
+                        painter, center_x, center_y, float(icon_size_value), subpixel=True
                     )
                 if action.family == "microwave":
                     self._paint_microwave_uses_badge(
-                        painter, center_x, center_y, float(icon_size_value), marker.uses_remaining
+                        painter, center_x, center_y, float(icon_size_value), marker.uses_remaining,
+                        subpixel=True,
                     )
         finally:
             painter.restore()
+
+    def _marker_sample_size(self, size: int, *, subpixel: bool) -> int:
+        # Raster Qt can snap even QPointF/QRectF pixmap draws at 1:1 scale.
+        # A cached, slightly oversampled source uses its smooth resampling path;
+        # no pixmaps are regenerated merely because a marker moved.
+        if not subpixel:
+            return size
+        return ceil(size * self.devicePixelRatioF() * self.MINIMAP_PIXMAP_OVERSAMPLE)
+
+    @staticmethod
+    def _draw_marker_pixmap(
+        painter: QPainter, pixmap: QPixmap, left: float, top: float,
+        size: int, *, subpixel: bool,
+    ) -> None:
+        if pixmap.isNull():
+            return
+        if subpixel:
+            painter.drawPixmap(
+                QRectF(left, top, float(size), float(size)), pixmap, QRectF(pixmap.rect())
+            )
+        else:
+            # Preserve the existing static Full Map/palette rendering path.
+            painter.drawPixmap(int(round(left)), int(round(top)), pixmap)
 
     def _paint_marker(
         self,
@@ -374,6 +401,8 @@ class MapMarkerLayer(QWidget):
         center_x: float,
         center_y: float,
         icon_size: int,
+        *,
+        subpixel: bool = False,
     ) -> None:
         if self._style == "classic":
             marker_size = max(
@@ -413,15 +442,13 @@ class MapMarkerLayer(QWidget):
 
         pixmap = self._pictogram_pixmap(
             action,
-            pictogram_size,
+            self._marker_sample_size(pictogram_size, subpixel=subpixel),
             style=self._style,
         )
-        if not pixmap.isNull():
-            painter.drawPixmap(
-                int(round(center_x - pictogram_size / 2.0)),
-                int(round(center_y - pictogram_size / 2.0)),
-                pixmap,
-            )
+        self._draw_marker_pixmap(
+            painter, pixmap, center_x - pictogram_size / 2.0,
+            center_y - pictogram_size / 2.0, pictogram_size, subpixel=subpixel,
+        )
 
     def _paint_stock_badge(
         self,
@@ -429,24 +456,25 @@ class MapMarkerLayer(QWidget):
         center_x: float,
         center_y: float,
         icon_size: float,
+        *,
+        subpixel: bool = False,
     ) -> None:
         # A 22 px badge on the default 36 px minimap marker matches the preview.
         # Cache the entire circle/list together so moving markers still use one blit.
         size = max(16, min(26, int(round(icon_size * 0.61))))
         badge_x = center_x + icon_size * 0.31
         badge_y = center_y - icon_size * 0.31
-        pixmap = self._stock_badge_pixmap(size)
-        if pixmap.isNull():
-            return
-        painter.drawPixmap(
-            int(round(badge_x - size / 2.0)),
-            int(round(badge_y - size / 2.0)),
-            pixmap,
+        pixmap = self._stock_badge_pixmap(self._marker_sample_size(size, subpixel=subpixel))
+        self._draw_marker_pixmap(
+            painter, pixmap, badge_x - size / 2.0, badge_y - size / 2.0,
+            size, subpixel=subpixel,
         )
 
-    def _microwave_badge_pixmap(self, uses: int, size: int) -> QPixmap:
+    def _microwave_badge_pixmap(
+        self, uses: int, size: int, *, subpixel: bool = False,
+    ) -> QPixmap:
         text = str(uses) if uses < 100 else "99+"
-        dpr = self.devicePixelRatioF()
+        dpr = self.devicePixelRatioF() * (self.MINIMAP_PIXMAP_OVERSAMPLE if subpixel else 1.0)
         key = (text, size, dpr)
         cached = self._microwave_badge_cache.get(key)
         if cached is not None:
@@ -476,15 +504,15 @@ class MapMarkerLayer(QWidget):
 
     def _paint_microwave_uses_badge(
         self, painter, center_x, center_y, icon_size, uses: int | None,
+        *, subpixel: bool = False,
     ) -> None:
         if uses is None or uses < 0:
             return
         size = max(16, min(26, int(round(icon_size * 0.61))))
-        pixmap = self._microwave_badge_pixmap(uses, size)
-        painter.drawPixmap(
-            int(round(center_x + icon_size * 0.31 - size / 2.0)),
-            int(round(center_y - icon_size * 0.31 - size / 2.0)),
-            pixmap,
+        pixmap = self._microwave_badge_pixmap(uses, size, subpixel=subpixel)
+        self._draw_marker_pixmap(
+            painter, pixmap, center_x + icon_size * 0.31 - size / 2.0,
+            center_y - icon_size * 0.31 - size / 2.0, size, subpixel=subpixel,
         )
 
     def _paint_stock_cards(self, painter, viewport, stock_geometries, obstacles=()) -> None:
