@@ -115,7 +115,7 @@ class DataStorageTests(unittest.TestCase):
         ):
             context = data_storage.initialize_storage(acquire_active_lock=False)
         self.assertEqual(context.mode, "local")
-        self.assertFalse(context.can_migrate)
+        self.assertTrue(context.can_migrate)
 
     def test_existing_profile_stays_beside_executable(self) -> None:
         self.write_legacy_profile()
@@ -172,6 +172,181 @@ class DataStorageTests(unittest.TestCase):
         self.assertFalse((self.local / "vod_metadata_index.json").exists())
         for relative, payload in originals.items():
             self.assertEqual((self.install / relative).read_bytes(), payload)
+
+    def test_legacy_profile_can_move_to_selected_folder(self) -> None:
+        originals = self.write_legacy_profile()
+        custom = self.root / "my-data"
+        self.initialize()
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration(custom).success)
+            self.assertEqual(data_storage.migration_status().pending_target, custom)
+        data_storage._reset_for_tests()
+
+        moved = self.initialize()
+        self.assertEqual(moved.data_dir, custom)
+        self.assertEqual(moved.previous_dir, self.install)
+        self.assertEqual((custom / "config.json").read_bytes(), originals["config.json"])
+        self.assertFalse((self.local / "config.json").exists())
+        self.assertEqual((self.install / "config.json").read_bytes(), originals["config.json"])
+
+    def test_existing_appdata_profile_can_move_and_return_after_target_is_cleared(self) -> None:
+        self.initialize()
+        (self.local / "config.json").write_text('{"HOTKEY":"f7"}', encoding="utf-8")
+        custom = self.root / "selected-data"
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration(custom).success)
+        data_storage._reset_for_tests()
+
+        with self.frozen():
+            moved = data_storage.initialize_storage(acquire_active_lock=False)
+            blocked = data_storage.request_migration(self.local)
+        self.assertEqual(moved.data_dir, custom)
+        self.assertFalse(blocked.success)
+        self.assertIn("already contains", blocked.message)
+        self.assertTrue((self.local / "config.json").exists())
+
+        with self.frozen():
+            cleared = data_storage.remove_legacy_data()
+        self.assertTrue(cleared.success)
+        self.assertFalse((self.local / "config.json").exists())
+        self.assertTrue((self.local / data_storage.STATE_FILE_NAME).exists())
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration(self.local).success)
+        data_storage._reset_for_tests()
+        returned = self.initialize()
+        self.assertEqual(returned.data_dir, self.local)
+        self.assertEqual(returned.previous_dir, custom)
+        self.assertEqual((self.local / "config.json").read_text(encoding="utf-8"), '{"HOTKEY":"f7"}')
+        self.assertTrue((custom / "config.json").exists())
+
+    def test_previous_appdata_cleanup_refuses_another_registered_user(self) -> None:
+        self.initialize()
+        (self.local / "config.json").write_text("{}", encoding="utf-8")
+        custom = self.root / "selected-data"
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration(custom).success)
+        data_storage._reset_for_tests()
+        self.initialize()
+        state_path = self.local / data_storage.STATE_FILE_NAME
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["installations"]["other"] = {
+            "installation_path": str(self.root / "other-install"),
+            "mode": "local",
+        }
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        with self.frozen():
+            result = data_storage.remove_legacy_data()
+        self.assertFalse(result.success)
+        self.assertIn("Another BonkScanner installation", result.message)
+        self.assertTrue((self.local / "config.json").exists())
+
+    def test_missing_selected_folder_stops_startup_without_fallback(self) -> None:
+        self.initialize()
+        (self.local / "config.json").write_text("{}", encoding="utf-8")
+        custom = self.root / "selected-data"
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration(custom).success)
+        data_storage._reset_for_tests()
+        self.initialize()
+        shutil.rmtree(custom)
+        data_storage._reset_for_tests()
+
+        with self.frozen(), self.assertRaisesRegex(data_storage.StorageError, "selected data folder"):
+            data_storage.initialize_storage(acquire_active_lock=False)
+        self.assertFalse(custom.exists())
+
+    def test_cancel_selected_folder_move_keeps_active_profile(self) -> None:
+        self.initialize()
+        (self.local / "config.json").write_text("{}", encoding="utf-8")
+        custom = self.root / "selected-data"
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration(custom).success)
+            self.assertEqual(data_storage.migration_status().pending_target, custom)
+            self.assertTrue(data_storage.cancel_migration().success)
+            self.assertEqual(data_storage.migration_status().data_dir, self.local)
+        data_storage._reset_for_tests()
+        self.assertEqual(self.initialize().data_dir, self.local)
+        self.assertFalse((custom / "config.json").exists())
+
+    def test_state_write_failure_after_copy_restores_active_folder(self) -> None:
+        self.initialize()
+        (self.local / "config.json").write_text("{}", encoding="utf-8")
+        custom = self.root / "selected-data"
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration(custom).success)
+        data_storage._reset_for_tests()
+        original_write = data_storage._write_state
+        failed_once = False
+
+        def fail_first_state_write(recommended, state):
+            nonlocal failed_once
+            if not failed_once:
+                failed_once = True
+                raise data_storage.StorageError("synthetic state write failure")
+            return original_write(recommended, state)
+
+        with self.frozen(), patch.object(
+            data_storage, "_write_state", side_effect=fail_first_state_write
+        ):
+            context = data_storage.initialize_storage(acquire_active_lock=False)
+
+        self.assertEqual(context.data_dir, self.local)
+        self.assertEqual(context.migration_status, "failed")
+        self.assertFalse((custom / "config.json").exists())
+        self.assertTrue((self.local / "config.json").exists())
+
+    def test_linked_selected_folder_is_refused_before_scheduling(self) -> None:
+        self.initialize()
+        (self.local / "config.json").write_text("{}", encoding="utf-8")
+        custom = self.root / "selected-data"
+        custom.mkdir()
+        original_check = data_storage._is_reparse_point
+        with self.frozen(), patch.object(
+            data_storage,
+            "_is_reparse_point",
+            side_effect=lambda path: path == custom or original_check(path),
+        ):
+            result = data_storage.request_migration(custom)
+        self.assertFalse(result.success)
+        self.assertIn("linked data folder", result.message)
+
+    def test_linked_destination_child_blocks_publish_without_touching_source(self) -> None:
+        self.write_legacy_profile()
+        source_logs = self.install / "logs"
+        source_logs.mkdir()
+        (source_logs / "crash.log").write_text("old log", encoding="utf-8")
+        custom = self.root / "selected-data"
+        target_logs = custom / "logs"
+        target_logs.mkdir(parents=True)
+        self.initialize()
+        with self.frozen():
+            self.assertTrue(data_storage.request_migration(custom).success)
+        data_storage._reset_for_tests()
+        original_check = data_storage._is_reparse_point
+        with self.frozen(), patch.object(
+            data_storage,
+            "_is_reparse_point",
+            side_effect=lambda path: path == target_logs or original_check(path),
+        ):
+            context = data_storage.initialize_storage(acquire_active_lock=False)
+        self.assertEqual(context.mode, "legacy")
+        self.assertEqual(context.migration_status, "failed")
+        self.assertIn("linked destination", context.migration_message)
+        self.assertFalse((custom / "config.json").exists())
+        self.assertEqual((source_logs / "crash.log").read_text(encoding="utf-8"), "old log")
+
+    def test_nested_destination_is_refused_without_changing_state(self) -> None:
+        self.write_legacy_profile()
+        self.initialize()
+        with self.frozen():
+            nested = data_storage.request_migration(self.install / "nested")
+            appdata_child = data_storage.request_migration(self.local / "nested")
+            context = data_storage.migration_status()
+        self.assertFalse(nested.success)
+        self.assertFalse(appdata_child.success)
+        self.assertEqual(context.mode, "legacy")
+        self.assertEqual(context.migration_status, "")
 
     def test_remove_legacy_data_deletes_only_known_migrated_data(self) -> None:
         originals = self.write_legacy_profile()
@@ -323,14 +498,13 @@ class DataStorageTests(unittest.TestCase):
         target_config.write_text('{"HOTKEY":"f9"}', encoding="utf-8")
         self.initialize()
         with self.frozen():
-            self.assertTrue(data_storage.request_migration().success)
-        data_storage._reset_for_tests()
+            result = data_storage.request_migration()
+            context = data_storage.migration_status()
 
-        context = self.initialize()
-
+        self.assertFalse(result.success)
         self.assertEqual(context.mode, "legacy")
-        self.assertEqual(context.migration_status, "failed")
-        self.assertIn("another BonkScanner profile", context.migration_message)
+        self.assertEqual(context.migration_status, "")
+        self.assertIn("BonkScanner profile", result.message)
         self.assertEqual(target_config.read_text(encoding="utf-8"), '{"HOTKEY":"f9"}')
 
     def test_copy_failure_leaves_source_active_and_target_unpublished(self) -> None:

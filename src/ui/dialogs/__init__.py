@@ -1916,7 +1916,7 @@ class SettingsDialog(QDialog):
         else:
             self.save()
 
-    def _request_data_migration(self):
+    def _request_data_migration(self, destination=None):
         from app.data_storage import MigrationActionResult, request_migration
 
         if self._general_settings_dirty:
@@ -1941,7 +1941,7 @@ class SettingsDialog(QDialog):
                     "failed",
                     "Migration was not scheduled because the settings could not be saved.",
                 )
-        return request_migration()
+        return request_migration(destination)
 
     @staticmethod
     def _show_game_reset_notice(parent, **kwargs) -> None:

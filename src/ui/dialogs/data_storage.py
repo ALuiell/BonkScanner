@@ -8,6 +8,7 @@ from typing import Callable
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -31,7 +32,7 @@ class DataStoragePage(QWidget):
     def __init__(
         self,
         *,
-        request_migration: Callable[[], MigrationActionResult],
+        request_migration: Callable[..., MigrationActionResult],
         context_provider: Callable[[], StorageContext] = migration_status,
         parent=None,
     ) -> None:
@@ -104,6 +105,12 @@ class DataStoragePage(QWidget):
         self.recommended_path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         migration_layout.addWidget(self.recommended_path_label)
 
+        self.pending_path_label = QLabel(self.migration_card)
+        self.pending_path_label.setObjectName("DataStoragePendingPath")
+        self.pending_path_label.setWordWrap(True)
+        self.pending_path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        migration_layout.addWidget(self.pending_path_label)
+
         self.migration_note = QLabel(self.migration_card)
         self.migration_note.setObjectName("dialogHint")
         self.migration_note.setWordWrap(True)
@@ -112,10 +119,14 @@ class DataStoragePage(QWidget):
         migration_actions = QHBoxLayout()
         migration_actions.setContentsMargins(0, 4, 0, 0)
         migration_actions.setSpacing(8)
-        self.move_button = QPushButton("Move to recommended folder", self.migration_card)
+        self.move_button = QPushButton("Use recommended folder", self.migration_card)
         self.move_button.setObjectName("DataStorageMove")
-        self.move_button.clicked.connect(self._schedule_migration)
+        self.move_button.clicked.connect(lambda: self._schedule_migration())
         migration_actions.addWidget(self.move_button)
+        self.choose_button = QPushButton("Choose another folder…", self.migration_card)
+        self.choose_button.setObjectName("DataStorageChoose")
+        self.choose_button.clicked.connect(self._choose_folder)
+        migration_actions.addWidget(self.choose_button)
         self.cancel_migration_button = QPushButton("Cancel migration", self.migration_card)
         self.cancel_migration_button.setObjectName("DataStorageCancelMigration")
         self.cancel_migration_button.clicked.connect(self._cancel_migration)
@@ -159,23 +170,31 @@ class DataStoragePage(QWidget):
             )
         elif context.mode == "legacy":
             mode_text = "Legacy installation: data is still stored beside BonkScanner.exe."
-        else:
+        elif context.data_dir == context.recommended_dir:
             mode_text = "BonkScanner is using the recommended per-user data folder."
+        else:
+            mode_text = "BonkScanner is using a folder you selected."
         self.mode_label.setText(mode_text)
 
-        show_migration = context.mode == "legacy" and context.recommended_dir is not None
+        show_migration = context.can_migrate
         self.migration_card.setVisible(show_migration)
         if context.recommended_dir is not None:
             self.recommended_path_label.setText(str(context.recommended_dir))
             self.recommended_path_label.setToolTip(str(context.recommended_dir))
         pending = context.migration_status == "pending"
-        self.move_button.setVisible(show_migration and not pending)
+        self.move_button.setVisible(
+            show_migration and not pending and context.data_dir != context.recommended_dir
+        )
+        self.choose_button.setVisible(show_migration and not pending)
         self.cancel_migration_button.setVisible(show_migration and pending)
+        self.pending_path_label.setVisible(pending)
+        if pending and context.pending_target is not None:
+            self.pending_path_label.setText(f"Scheduled destination: {context.pending_target}")
         self.migration_note.setText(
             "The next BonkScanner start will copy and verify all known data. "
             "The original files will remain unchanged."
             if pending
-            else "Migration runs on the next start. Files are copied and verified before BonkScanner switches folders; the originals are kept."
+            else "Choose a destination. On the next start, files are copied and verified before BonkScanner switches folders; the originals are kept."
         )
 
         status_parts = []
@@ -206,16 +225,18 @@ class DataStoragePage(QWidget):
         self.status_label.setText(" — ".join(status_parts))
         self.status_label.setVisible(bool(status_parts))
 
-        legacy = context.legacy_dir
+        legacy = context.previous_dir or context.legacy_dir
         show_old = (
             context.mode == "local"
-            and context.migration_status == "success"
             and legacy is not None
             and legacy.is_dir()
+            and legacy != context.data_dir
         )
         self.old_folder_button.setVisible(show_old)
         self.remove_old_data_button.setVisible(
-            show_old and legacy_data_exists(legacy)
+            show_old
+            and context.migration_status == "success"
+            and legacy_data_exists(legacy)
         )
 
     def _open_folder(self, folder: Path) -> None:
@@ -240,26 +261,35 @@ class DataStoragePage(QWidget):
         self._open_folder(self._context.data_dir)
 
     def _open_old_folder(self) -> None:
-        if self._context.legacy_dir is not None:
-            self._open_folder(self._context.legacy_dir)
+        previous = self._context.previous_dir or self._context.legacy_dir
+        if previous is not None:
+            self._open_folder(previous)
 
-    def _schedule_migration(self) -> None:
+    def _choose_folder(self) -> None:
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose BonkScanner data folder", str(self._context.data_dir.parent)
+        )
+        if chosen:
+            self._schedule_migration(Path(chosen))
+
+    def _schedule_migration(self, destination: Path | None = None) -> None:
         context = self._context
         if context.recommended_dir is None:
             return
+        target = destination or context.recommended_dir
         confirmed = ask_app_confirmation(
             self,
             title="Move BonkScanner data?",
             subtitle="Data storage",
             message="BonkScanner will copy and verify all known data on the next start.\n\n"
-            f"From:\n{context.data_dir}\n\nTo:\n{context.recommended_dir}\n\n"
+            f"From:\n{context.data_dir}\n\nTo:\n{target}\n\n"
             "The original files will be kept as a backup.",
             confirm_text="Schedule migration",
             note="Nothing is moved during the current session.",
         )
         if not confirmed:
             return
-        result = self._request_migration()
+        result = self._request_migration(target) if destination is not None else self._request_migration()
         self.refresh()
         if not result.success:
             show_app_notice(
@@ -301,7 +331,7 @@ class DataStoragePage(QWidget):
             )
 
     def _remove_old_data(self) -> None:
-        legacy = self._context.legacy_dir
+        legacy = self._context.previous_dir or self._context.legacy_dir
         if legacy is None:
             return
         confirmed = ask_app_confirmation(
@@ -314,8 +344,9 @@ class DataStoragePage(QWidget):
             ),
             confirm_text="Remove old data",
             note=(
-                "This cannot be undone. BonkScanner.exe, updater files, unknown files, "
-                "and unfinished temporary files will remain."
+                "This cannot be undone. The storage selection record, BonkScanner.exe, "
+                "updater files, unknown files, and unfinished temporary files will remain. "
+                "Other BonkScanner copies may share this old folder."
             ),
             destructive=True,
         )

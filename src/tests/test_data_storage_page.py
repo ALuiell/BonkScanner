@@ -153,6 +153,57 @@ class DataStoragePageTests(unittest.TestCase):
         finally:
             page.close()
 
+    def test_installed_mode_can_choose_a_folder_after_initial_setup(self) -> None:
+        local = self.root / "local"
+        custom = self.root / "chosen"
+        contexts = [
+            StorageContext(
+                mode="local",
+                installation_dir=self.root,
+                data_dir=local,
+                recommended_dir=local,
+                installation_key="key",
+            ),
+            StorageContext(
+                mode="local",
+                installation_dir=self.root,
+                data_dir=local,
+                recommended_dir=local,
+                installation_key="key",
+                migration_status="pending",
+                pending_target=custom,
+            ),
+        ]
+        selected = {"index": 0}
+
+        def request(destination):
+            self.assertEqual(destination, custom)
+            selected["index"] = 1
+            return MigrationActionResult(True, "pending", "Scheduled.")
+
+        page = DataStoragePage(
+            request_migration=request,
+            context_provider=lambda: contexts[selected["index"]],
+        )
+        try:
+            page.show()
+            QApplication.processEvents()
+            self.assertFalse(page.choose_button.isHidden())
+            self.assertTrue(page.move_button.isHidden())
+            with patch.object(
+                data_storage_dialogs.QFileDialog,
+                "getExistingDirectory",
+                return_value=str(custom),
+            ), patch.object(
+                data_storage_dialogs, "ask_app_confirmation", return_value=True
+            ) as confirm, patch.object(data_storage_dialogs, "show_app_notice"):
+                page._choose_folder()
+            self.assertIn(str(custom), confirm.call_args.kwargs["message"])
+            self.assertIn(str(custom), page.pending_path_label.text())
+            self.assertFalse(page.cancel_migration_button.isHidden())
+        finally:
+            page.close()
+
     def test_success_mode_exposes_old_folder(self) -> None:
         local = self.root / "local"
         local.mkdir()
@@ -174,6 +225,31 @@ class DataStoragePageTests(unittest.TestCase):
             self.assertFalse(page.old_folder_button.isHidden())
             self.assertFalse(page.remove_old_data_button.isHidden())
             self.assertIn("Migration completed", page.status_label.text())
+        finally:
+            page.close()
+
+    def test_custom_folder_move_can_offer_cleanup_of_previous_appdata(self) -> None:
+        local = self.root / "local"
+        local.mkdir()
+        (local / "config.json").write_text("{}", encoding="utf-8")
+        custom = self.root / "custom"
+        custom.mkdir()
+        context = StorageContext(
+            mode="local",
+            installation_dir=self.root,
+            data_dir=custom,
+            recommended_dir=local,
+            installation_key="key",
+            migration_status="success",
+            previous_dir=local,
+        )
+        page = self.page(context)
+        try:
+            page.show()
+            QApplication.processEvents()
+            self.assertFalse(page.old_folder_button.isHidden())
+            self.assertFalse(page.remove_old_data_button.isHidden())
+            self.assertFalse(page.move_button.isHidden())
         finally:
             page.close()
 

@@ -2,8 +2,9 @@
 
 Source checkouts deliberately remain portable: they keep their data in the
 repository root and never consult the installed-build migration state. Frozen
-builds use one shared LocalAppData directory unless the executable directory
-already contains a legacy BonkScanner profile.
+builds default to one shared LocalAppData directory unless the executable
+directory already contains a legacy profile. A selected installed-build path
+is saved in LocalAppData so it survives restarts.
 """
 
 from __future__ import annotations
@@ -57,10 +58,12 @@ class StorageContext:
     legacy_dir: Path | None = None
     legacy_cleanup_status: str = ""
     legacy_cleanup_message: str = ""
+    previous_dir: Path | None = None
+    pending_target: Path | None = None
 
     @property
     def can_migrate(self) -> bool:
-        return self.mode == "legacy" and self.recommended_dir is not None
+        return self.mode != "source" and self.recommended_dir is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +165,48 @@ def recommended_data_directory() -> Path:
 
 def _normalized_path(path: Path) -> str:
     return os.path.normcase(os.path.normpath(str(path.resolve())))
+
+
+def _storage_path(value: str | Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute() or path == path.parent:
+        raise StorageError("Choose a data folder, not a relative path or drive root.")
+    for component in (path, *path.parents):
+        if (component.exists() or component.is_symlink()) and _is_reparse_point(component):
+            raise StorageError(f"A linked data folder is not supported: {component}")
+    return path
+
+
+def _reject_linked_destination(root: Path, path: Path) -> None:
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise StorageError("Migration destination escaped the selected data folder.") from exc
+    current = path
+    while True:
+        if (current.exists() or current.is_symlink()) and _is_reparse_point(current):
+            raise StorageError(f"Migration refused a linked destination: {current}")
+        if current == root:
+            return
+        current = current.parent
+
+
+def _paths_overlap(first: Path, second: Path) -> bool:
+    left, right = _normalized_path(first), _normalized_path(second)
+    try:
+        common = os.path.commonpath((left, right))
+    except ValueError:
+        return False
+    return common == left or common == right
+
+
+def _selected_data_path(entry: dict[str, Any] | None, recommended: Path) -> Path:
+    value = entry.get("data_path") if entry else None
+    if value is None:
+        return recommended
+    if not isinstance(value, str) or not value.strip():
+        raise StorageError("The saved data folder path is invalid.")
+    return _storage_path(value)
 
 
 def _installation_key(path: Path) -> str:
@@ -510,12 +555,14 @@ def _running_process_from_installation(installation: Path) -> bool | None:
 def _publish_staging(staging: Path, target: Path, published: list[Path]) -> None:
     for child in sorted(staging.iterdir(), key=lambda value: value.name.lower()):
         destination = target / child.name
+        _reject_linked_destination(target, destination)
         if child.name == "supporter_access_cache.json" and destination.exists():
             continue
         if child.name == "logs" and destination.is_dir():
             for log_path in _iter_tree_files(child):
                 relative = log_path.relative_to(child)
                 log_destination = destination / relative
+                _reject_linked_destination(target, log_destination)
                 if log_destination.exists():
                     continue
                 log_destination.parent.mkdir(parents=True, exist_ok=True)
@@ -526,15 +573,23 @@ def _publish_staging(staging: Path, target: Path, published: list[Path]) -> None
             raise StorageError(f"The destination changed during migration: {destination}")
         os.replace(child, destination)
         published.append(destination)
+
+
 def _rollback_published(paths: Iterable[Path]) -> bool:
     complete = True
     for path in reversed(tuple(paths)):
         try:
+            if not path.exists() and not path.is_symlink():
+                continue
+            if _is_reparse_point(path):
+                complete = False
+                continue
             if path.is_dir() and not path.is_symlink():
+                tuple(_iter_tree_files(path))
                 shutil.rmtree(path)
             else:
                 path.unlink(missing_ok=True)
-        except OSError:
+        except (OSError, StorageError):
             complete = False
     return complete
 
@@ -544,6 +599,7 @@ def _publish_manifest(staging: Path, target: Path) -> dict[str, dict[str, Any]]:
     for path in _iter_tree_files(staging):
         relative = path.relative_to(staging)
         destination = target / relative
+        _reject_linked_destination(target, destination)
         if destination.exists():
             if relative == Path("supporter_access_cache.json") or relative.parts[0] == "logs":
                 continue
@@ -588,6 +644,7 @@ def _recover_interrupted_publish(recommended: Path, key: str, source: Path) -> N
             raise StorageError("The migration recovery journal contains an invalid file entry.")
         relative = _safe_manifest_relative(raw_relative)
         destination = recommended / relative
+        _reject_linked_destination(recommended, destination)
         if not destination.exists():
             continue
         if not destination.is_file() or destination.is_symlink():
@@ -610,8 +667,11 @@ def _recover_interrupted_publish(recommended: Path, key: str, source: Path) -> N
             ) from exc
     for directory_name in MIGRATION_DIRECTORIES:
         root = recommended / directory_name
-        if not root.is_dir() or root.is_symlink():
+        if not root.is_dir():
             continue
+        if _is_reparse_point(root):
+            raise StorageError(f"Migration recovery refused a linked directory: {root}")
+        tuple(_iter_tree_files(root))
         directories = sorted(
             (path for path in root.rglob("*") if path.is_dir()),
             key=lambda value: len(value.parts),
@@ -667,31 +727,42 @@ def _perform_pending_migration(
     migration = entry.get("migration")
     if not isinstance(migration, dict) or migration.get("status") != "pending":
         return state
-    source = Path(str(migration.get("source") or installation)).resolve()
-    if _normalized_path(source) != _normalized_path(installation):
-        raise StorageError("The pending migration source does not match this installation.")
+    source = _storage_path(str(migration.get("source") or installation))
+    target = _storage_path(str(migration.get("target") or recommended))
+    current = _context_from_state(installation, recommended, key, state).data_dir
+    if _normalized_path(source) != _normalized_path(current):
+        raise StorageError("The pending migration source does not match the active data folder.")
+    if _paths_overlap(source, target):
+        raise StorageError("The source and destination data folders must be separate.")
 
-    staging = recommended / f".migration-{key}"
+    staging = target / f".migration-{key}"
     source_lock = _ProcessFileLock(source / DATA_LOCK_NAME)
-    target_lock = _ProcessFileLock(recommended / DATA_LOCK_NAME)
+    target_lock = _ProcessFileLock(target / DATA_LOCK_NAME)
     published: list[Path] = []
-    journal_path = _journal_path(recommended, key)
+    journal_path = _journal_path(target, key)
+    entry_before = dict(entry)
     try:
+        _ensure_writable(target)
+        if not source.is_dir() or not _profile_exists(source):
+            raise StorageError(f"The source data folder has no BonkScanner profile: {source}")
         process_check = _running_process_from_installation(installation)
         if process_check is None:
             raise StorageError(
-                "BonkScanner could not verify that the legacy installation is closed."
+                "BonkScanner could not verify that this installation is closed."
             )
         if process_check:
-            raise StorageError("Another BonkScanner from the legacy folder is still running.")
+            raise StorageError("Another BonkScanner from this installation is still running.")
         if not source_lock.acquire():
-            raise StorageError("The legacy data folder is in use by another BonkScanner instance.")
+            raise StorageError("The source data folder is in use by another BonkScanner instance.")
         if not target_lock.acquire():
-            raise StorageError("The recommended data folder is in use by another BonkScanner instance.")
-        _recover_interrupted_publish(recommended, key, source)
-        if _target_has_profile(recommended):
+            raise StorageError("The destination data folder is in use by another BonkScanner instance.")
+        if not _profile_exists(source):
+            raise StorageError(f"The source data folder has no BonkScanner profile: {source}")
+        _guard_other_installation_journals(target, state, key)
+        _recover_interrupted_publish(target, key, source)
+        if _target_has_profile(target):
             raise StorageError(
-                "The recommended folder already contains another BonkScanner profile. Nothing was overwritten."
+                "The destination folder already contains another BonkScanner profile. Nothing was overwritten."
             )
         _validate_config(source / "config.json")
         _validate_merchant_history(source / "merchant_history.jsonl")
@@ -699,6 +770,9 @@ def _perform_pending_migration(
         before = {relative: _file_signature(path) for path, relative in sources}
 
         if staging.exists():
+            if _is_reparse_point(staging):
+                raise StorageError(f"Migration refused a linked staging folder: {staging}")
+            tuple(_iter_tree_files(staging))
             shutil.rmtree(staging)
         staging.mkdir(parents=True)
         for source_path, relative in sources:
@@ -719,19 +793,19 @@ def _perform_pending_migration(
         process_check = _running_process_from_installation(installation)
         if process_check is None:
             raise StorageError(
-                "BonkScanner could not recheck that the legacy installation is closed."
+                "BonkScanner could not recheck that this installation is closed."
             )
         if process_check:
             raise StorageError(
-                "Another BonkScanner from the legacy folder started during migration."
+                "Another BonkScanner from this installation started during migration."
             )
 
-        # The recording index contains absolute legacy paths. Let the normal
+        # The recording index contains absolute source paths. Let the normal
         # library refresh rebuild it against the newly selected data directory.
         index_path = staging / "vod_metadata_index.json"
         index_path.unlink(missing_ok=True)
 
-        manifest = _publish_manifest(staging, recommended)
+        manifest = _publish_manifest(staging, target)
         _write_journal(
             journal_path,
             {
@@ -741,12 +815,17 @@ def _perform_pending_migration(
                 "files": manifest,
             },
         )
-        _publish_staging(staging, recommended, published)
+        _publish_staging(staging, target, published)
         entry["mode"] = "local"
-        entry["legacy_path"] = str(source)
+        entry["data_path"] = str(target)
+        entry["previous_path"] = str(source)
+        entry.pop("legacy_cleanup", None)
+        if _normalized_path(source) == _normalized_path(installation):
+            entry["legacy_path"] = str(source)
         entry["migration"] = {
             "status": "success",
             "source": str(source),
+            "target": str(target),
             "completed_at": _utc_now(),
             "message": "Data was copied and verified. The original files were kept.",
         }
@@ -758,6 +837,8 @@ def _perform_pending_migration(
         return state
     except Exception as exc:
         rollback_complete = _rollback_published(published)
+        entry.clear()
+        entry.update(entry_before)
         if isinstance(exc, StorageError):
             message = str(exc)
         else:
@@ -765,6 +846,7 @@ def _perform_pending_migration(
         entry["migration"] = {
             "status": "failed",
             "source": str(source),
+            "target": str(target),
             "failed_at": _utc_now(),
             "message": message,
         }
@@ -778,8 +860,10 @@ def _perform_pending_migration(
     finally:
         try:
             if staging.exists():
-                shutil.rmtree(staging)
-        except OSError:
+                if not _is_reparse_point(staging):
+                    tuple(_iter_tree_files(staging))
+                    shutil.rmtree(staging)
+        except (OSError, StorageError):
             pass
         target_lock.release()
         source_lock.release()
@@ -801,12 +885,18 @@ def _context_from_state(
     legacy_dir = None
     if entry and entry.get("legacy_path"):
         legacy_dir = Path(str(entry["legacy_path"]))
+    previous_dir = None
+    if entry and (entry.get("previous_path") or entry.get("legacy_path")):
+        previous_dir = Path(str(entry.get("previous_path") or entry["legacy_path"]))
+    pending_target = None
+    if status == "pending":
+        pending_target = _storage_path(str(migration.get("target") or recommended))
     if _normalized_path(installation) == _normalized_path(recommended):
         mode = "local"
-        data_dir = recommended
+        data_dir = _selected_data_path(entry, recommended)
     elif entry and entry.get("mode") == "local":
         mode = "local"
-        data_dir = recommended
+        data_dir = _selected_data_path(entry, recommended)
     elif _profile_exists(installation):
         mode = "legacy"
         data_dir = installation
@@ -824,6 +914,8 @@ def _context_from_state(
         legacy_dir=legacy_dir,
         legacy_cleanup_status=cleanup_status,
         legacy_cleanup_message=cleanup_message,
+        previous_dir=previous_dir,
+        pending_target=pending_target,
     )
 
 
@@ -859,18 +951,30 @@ def initialize_storage(*, acquire_active_lock: bool = True) -> StorageContext:
                 state = _load_state(recommended)
                 _guard_other_installation_journals(recommended, state, key)
                 entry = _entry_for(state, installation, key)
-                current_journal = _journal_path(recommended, key)
                 migration = entry.get("migration") if entry else None
+                journal_target = (
+                    _storage_path(str(migration.get("target") or recommended))
+                    if isinstance(migration, dict)
+                    else recommended
+                )
+                current_journal = _journal_path(journal_target, key)
                 if current_journal.exists() and (
                     not isinstance(migration, dict)
                     or migration.get("status") != "success"
                 ):
-                    _recover_interrupted_publish(recommended, key, installation)
+                    journal_source = Path(str(migration.get("source") or installation)) if isinstance(migration, dict) else installation
+                    recovery_lock = _ProcessFileLock(journal_target / DATA_LOCK_NAME)
+                    if not recovery_lock.acquire():
+                        raise StorageError("The destination data folder is in use during migration recovery.")
+                    try:
+                        _recover_interrupted_publish(journal_target, key, journal_source)
+                    finally:
+                        recovery_lock.release()
                 if entry and entry.get("mode") == "local":
                     migration = entry.get("migration")
                     if isinstance(migration, dict) and migration.get("status") == "success":
                         try:
-                            _journal_path(recommended, key).unlink(missing_ok=True)
+                            current_journal.unlink(missing_ok=True)
                         except OSError:
                             pass
                 if entry and isinstance(entry.get("migration"), dict):
@@ -880,6 +984,15 @@ def initialize_storage(*, acquire_active_lock: bool = True) -> StorageContext:
                 context = _context_from_state(installation, recommended, key, state)
             finally:
                 state_lock.release()
+        if (
+            context.mode == "local"
+            and context.recommended_dir is not None
+            and _normalized_path(context.data_dir) != _normalized_path(context.recommended_dir)
+            and (not context.data_dir.is_dir() or not _profile_exists(context.data_dir))
+        ):
+            raise StorageError(
+                f"The selected data folder is missing or has no BonkScanner profile: {context.data_dir}"
+            )
         _ensure_writable(context.data_dir)
         if acquire_active_lock:
             active_lock = _ProcessFileLock(context.data_dir / DATA_LOCK_NAME)
@@ -917,10 +1030,25 @@ def migration_status() -> StorageContext:
         )
 
 
-def request_migration() -> MigrationActionResult:
+def request_migration(destination: str | Path | None = None) -> MigrationActionResult:
     context = storage_context()
     if not context.can_migrate or context.recommended_dir is None:
-        return MigrationActionResult(False, "unavailable", "This installation does not need migration.")
+        return MigrationActionResult(False, "unavailable", "Data folder changes are unavailable for this run.")
+    try:
+        target = _storage_path(destination if destination is not None else context.recommended_dir)
+        if _paths_overlap(context.data_dir, target):
+            return MigrationActionResult(
+                False, "unavailable", "Choose a different folder outside the current data folder."
+            )
+        if (
+            _normalized_path(target) != _normalized_path(context.recommended_dir)
+            and _paths_overlap(target, context.recommended_dir)
+        ):
+            return MigrationActionResult(
+                False, "failed", "Choose a folder outside the recommended BonkScanner data folder."
+            )
+    except (OSError, StorageError) as exc:
+        return MigrationActionResult(False, "failed", str(exc))
     state_lock = _ProcessFileLock(context.recommended_dir / STATE_LOCK_NAME)
     if not state_lock.acquire():
         return MigrationActionResult(False, "failed", "Storage state is in use by another instance.")
@@ -933,11 +1061,22 @@ def request_migration() -> MigrationActionResult:
             create=True,
         )
         assert entry is not None
+        migration = entry.get("migration")
+        if isinstance(migration, dict) and migration.get("status") == "pending":
+            return MigrationActionResult(False, "unavailable", "Cancel the scheduled move before choosing another folder.")
+        if not _profile_exists(context.data_dir):
+            return MigrationActionResult(False, "failed", "The current data folder has no BonkScanner profile to move.")
+        _ensure_writable(target)
+        if _target_has_profile(target):
+            return MigrationActionResult(
+                False, "failed", "The destination folder already contains a BonkScanner profile. Nothing was overwritten."
+            )
         entry["migration"] = {
             "status": "pending",
-            "source": str(context.installation_dir),
+            "source": str(context.data_dir),
+            "target": str(target),
             "requested_at": _utc_now(),
-            "message": "Migration is scheduled for the next BonkScanner start.",
+            "message": f"Data will be copied to {target} on the next BonkScanner start.",
         }
         _write_state(context.recommended_dir, state)
         return MigrationActionResult(True, "pending", str(entry["migration"]["message"]))
@@ -949,7 +1088,7 @@ def request_migration() -> MigrationActionResult:
 
 def cancel_migration() -> MigrationActionResult:
     context = storage_context()
-    if context.mode != "legacy" or context.recommended_dir is None:
+    if not context.can_migrate or context.recommended_dir is None:
         return MigrationActionResult(False, "unavailable", "There is no pending migration.")
     state_lock = _ProcessFileLock(context.recommended_dir / STATE_LOCK_NAME)
     if not state_lock.acquire():
@@ -962,7 +1101,8 @@ def cancel_migration() -> MigrationActionResult:
             return MigrationActionResult(False, "unavailable", "There is no pending migration.")
         entry["migration"] = {
             "status": "cancelled",
-            "source": str(context.installation_dir),
+            "source": str(context.data_dir),
+            "target": str(migration.get("target") or context.recommended_dir),
             "cancelled_at": _utc_now(),
             "message": "The scheduled migration was cancelled.",
         }
@@ -975,23 +1115,21 @@ def cancel_migration() -> MigrationActionResult:
 
 
 def remove_legacy_data() -> MigrationActionResult:
+    """Remove only known files from the last successfully migrated source."""
     context = migration_status()
     if (
         context.mode != "local"
         or context.migration_status != "success"
         or context.recommended_dir is None
-        or context.legacy_dir is None
+        or context.previous_dir is None
     ):
         return MigrationActionResult(
             False,
             "unavailable",
             "Old data can be removed only after a successful migration.",
         )
-    source = Path(os.path.abspath(context.legacy_dir))
-    if _normalized_path(source) in {
-        _normalized_path(context.data_dir),
-        _normalized_path(context.recommended_dir),
-    }:
+    source = Path(os.path.abspath(context.previous_dir))
+    if _paths_overlap(source, context.data_dir):
         return MigrationActionResult(
             False,
             "failed",
@@ -1015,7 +1153,9 @@ def remove_legacy_data() -> MigrationActionResult:
             entry is None
             or not isinstance(migration, dict)
             or migration.get("status") != "success"
-            or _normalized_path(Path(str(entry.get("legacy_path") or "")))
+            or _normalized_path(Path(str(entry.get("previous_path") or entry.get("legacy_path") or "")))
+            != _normalized_path(source)
+            or _normalized_path(Path(str(migration.get("source") or "")))
             != _normalized_path(source)
         ):
             return MigrationActionResult(
@@ -1023,6 +1163,18 @@ def remove_legacy_data() -> MigrationActionResult:
                 "failed",
                 "The successful migration record does not match this old folder.",
             )
+
+        for other_key, other_entry in state["installations"].items():
+            if other_key == context.installation_key or not isinstance(other_entry, dict):
+                continue
+            if other_entry.get("mode") == "local" and _normalized_path(
+                _selected_data_path(other_entry, context.recommended_dir)
+            ) == _normalized_path(source):
+                return MigrationActionResult(
+                    False,
+                    "failed",
+                    "Another BonkScanner installation still uses the old data folder.",
+                )
 
         try:
             source_stat = source.lstat()
@@ -1122,7 +1274,7 @@ def remove_legacy_data() -> MigrationActionResult:
             success = False
         else:
             message = (
-                "Old migrated data was removed. BonkScanner.exe, updater files, "
+                "Old migrated data was removed. Storage state, BonkScanner.exe, updater files, "
                 "unknown files, and unfinished temporary files were left in place."
             )
             status = "success"
