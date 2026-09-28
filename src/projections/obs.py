@@ -136,7 +136,7 @@ def weapon_tracker_payload(snapshot) -> dict[str, Any]:
             {"weapon_id": row.weapon_id, "name": row.name, "level": row.level,
              "metrics": [
                  {"key": metric.key, "label": metric.label, "value": metric.value,
-                  "display_value": metric.display_value,
+                  "display_value": metric.overlay_value(),
                   "display_value_with_cap": metric.overlay_value(True),
                   "cap_text": metric.cap_text,
                   "cap_kind": metric.cap.kind, "cap_value": metric.cap.value,

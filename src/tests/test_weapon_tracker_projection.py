@@ -12,6 +12,7 @@ from core.stats.weapon_tracker import (
     WEAPON_TRACKER_METRIC_ORDER,
     calculate_weapon_tracker_row,
     calculate_weapon_tracker_rows,
+    format_weapon_tracker_overlay_value,
     format_weapon_tracker_value,
     normalize_weapon_tracker_metric_keys,
 )
@@ -230,6 +231,30 @@ class WeaponTrackerProjectionTests(unittest.TestCase):
         self.assertEqual(format_weapon_tracker_value("duration", 3.456), "3.46s")
         self.assertEqual(format_weapon_tracker_value("crit_chance", 0.25001), "25%")
         self.assertEqual(format_weapon_tracker_value("crit_damage", 2.005), "×2")
+
+    def test_overlay_formatting_uses_three_significant_digits_and_units(self) -> None:
+        damage_examples = (
+            (12.34, "12.3"),
+            (999, "999"),
+            (999.5, "1K"),
+            (1234, "1.23K"),
+            (10000, "10K"),
+            (101000, "101K"),
+            (999000, "999K"),
+            (999950, "1M"),
+            (1100000, "1.1M"),
+            (1234000, "1.23M"),
+        )
+        for value, expected in damage_examples:
+            with self.subTest(value=value):
+                self.assertEqual(format_weapon_tracker_overlay_value("damage", value), expected)
+
+        self.assertEqual(format_weapon_tracker_overlay_value("projectile_count", 1234.9), "1.23K")
+        self.assertEqual(format_weapon_tracker_overlay_value("size", 2.345), "×2.35")
+        self.assertEqual(format_weapon_tracker_overlay_value("duration", 4.567), "4.57s")
+        self.assertEqual(format_weapon_tracker_overlay_value("crit_chance", 0.25001), "25%")
+        self.assertEqual(format_weapon_tracker_overlay_value("crit_damage", 2.345), "×2.35")
+        self.assertEqual(format_weapon_tracker_value("damage", 1234), "1234")
 
 
 if __name__ == "__main__":
