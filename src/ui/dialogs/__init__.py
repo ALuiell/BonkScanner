@@ -1258,6 +1258,7 @@ class GameResetTimeNoticeDialog(QDialog):
         scanner_hold: float | None = None,
         game_value: float | None = None,
         margin: float | None = None,
+        game_updated: bool = True,
     ):
         super().__init__(parent)
         self.setModal(True)
@@ -1276,13 +1277,18 @@ class GameResetTimeNoticeDialog(QDialog):
                     f"<br><b>Megabonk quick reset:</b> {game_value:.2f} s"
                     f"<br><b>Safety margin:</b> {margin:.2f} s"
                 )
-            layout.addWidget(
-                dialog_info_card(
+            if game_updated:
+                detail = (
                     "Reset Speed was written to and verified in both config files."
                     f"{value_summary}"
                     "<br><br>The value will be active the next time Megabonk starts."
                 )
-            )
+            else:
+                detail = (
+                    "BonkScanner's reset hold was saved. Megabonk's config was not changed."
+                    f"{value_summary}"
+                )
+            layout.addWidget(dialog_info_card(detail))
         else:
             self.setWindowTitle("Settings Not Saved")
             layout = dialog_body(
@@ -1706,9 +1712,9 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(_settings_group_label("Timing"))
         reset_hold_note = QLabel(
-            "Close Megabonk before changing Reset Speed. The game value is calculated "
-            "for you and both config files are verified when you save. Safety margin "
-            "is an advanced setting: lower is faster, but less tolerant."
+            "BonkScanner saves its hold without changing Megabonk when the current "
+            "game value already fits the safety margin. Lowering the game value "
+            "requires Megabonk to be closed."
         )
         reset_hold_note.setObjectName("dialogHint")
         reset_hold_note.setWordWrap(True)
@@ -2034,21 +2040,32 @@ class SettingsDialog(QDialog):
             scanner_hold,
             safety_margin=margin,
         )
-        self.reset_game_value_label.setText(f"{game_value:.2f} s")
-
         game_running, detection_error = self._detect_game_running()
         try:
             game_read = config.read_game_quick_reset_time()
         except Exception as exc:
             game_read = config.GameConfigReadResult(False, reason=str(exc))
-        if detection_error:
+        self.reset_game_value_label.setText(
+            f"{game_read.value:.2f} s"
+            if game_read.success and game_read.value is not None
+            else "Unavailable"
+        )
+        game_floor = (
+            round(game_read.value + margin, 2)
+            if game_read.success and game_read.value is not None
+            else None
+        )
+        if game_floor is not None and scanner_hold >= game_floor:
+            status = (
+                f"Megabonk stays at {game_read.value:.2f} s. "
+                "Save will change BonkScanner only."
+            )
+        elif detection_error:
             status = detection_error
         elif game_running:
-            status = "Megabonk is running. Close it before saving Reset Speed changes."
+            status = "Close Megabonk to lower its reset value before saving this hold."
         elif not game_read.success or game_read.value is None:
             status = game_read.reason or "Megabonk quick_reset_time could not be read."
-        elif round(float(game_read.value), 2) == game_value:
-            status = "Scanner and Megabonk reset values are in sync."
         else:
             status = (
                 f"Megabonk currently uses {game_read.value:.2f} s. "
@@ -2178,18 +2195,19 @@ class SettingsDialog(QDialog):
             game_read = config.read_game_quick_reset_time()
         except Exception as exc:
             game_read = config.GameConfigReadResult(False, reason=str(exc))
-        game_matches = (
+        scanner_only = (
             game_read.success
             and game_read.value is not None
-            and round(float(game_read.value), 2) == game_value
+            and new_duration >= round(float(game_read.value) + new_margin, 2)
         )
-        needs_game_sync = not game_matches
-        game_running, detection_error = SettingsDialog._detect_game_running(self)
-        if game_running and (timing_changed or needs_game_sync):
+        sync_game = timing_changed and not scanner_only
+        game_running, detection_error = (
+            SettingsDialog._detect_game_running(self) if sync_game else (False, "")
+        )
+        if game_running:
             reason = detection_error or (
-                "Megabonk is currently running. Close the game before saving Reset "
-                "Speed so it cannot overwrite config.json and so the scanner and game "
-                "cannot start with different reset values."
+                "Megabonk is currently running. Close it before lowering the game "
+                "quick reset value for this Reset Hold Duration."
             )
             SettingsDialog._show_game_reset_notice(
                 self,
@@ -2219,11 +2237,9 @@ class SettingsDialog(QDialog):
         try:
             save_result = config.save_settings_with_game_reset(
                 settings_updates,
-                game_value if timing_changed else None,
-                # When the game is closed, always write and read back its value. This
-                # both repairs hand-edited drift and closes the old false-success gap
-                # where an unchanged UI field meant the game file was never checked.
-                sync_game=not game_running,
+                game_value if sync_game else None,
+                sync_game=sync_game,
+                verify_game_floor=timing_changed and scanner_only,
             )
         except Exception as exc:
             save_result = config.SettingsSaveResult(False, reason=str(exc))
@@ -2257,6 +2273,8 @@ class SettingsDialog(QDialog):
             effective_duration,
             safety_margin=effective_margin,
         )
+        if timing_changed and scanner_only and game_read.value is not None:
+            effective_game_value = round(float(game_read.value), 2)
         self._initial_reset_hold_duration = effective_duration
         self._initial_reset_hold_safety_margin = effective_margin
         runtime_errors: list[str] = []
@@ -2361,7 +2379,7 @@ class SettingsDialog(QDialog):
             self._on_settings_tab_changed(self.settings_tabs.currentIndex())
         if close_dialog:
             self.accept()
-        if timing_changed or needs_game_sync:
+        if timing_changed:
             parent_method = getattr(self, "parent", None)
             notice_parent = parent_method() if callable(parent_method) else None
             SettingsDialog._show_game_reset_notice(
@@ -2370,6 +2388,7 @@ class SettingsDialog(QDialog):
                 scanner_hold=effective_duration,
                 game_value=effective_game_value,
                 margin=effective_margin,
+                **({"game_updated": False} if scanner_only else {}),
             )
         return True
 

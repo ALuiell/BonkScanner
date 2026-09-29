@@ -82,6 +82,47 @@ class GameResetTimeConfigTests(unittest.TestCase):
 
 
 class VerifiedSettingsSaveTests(unittest.TestCase):
+    def test_scanner_only_save_keeps_game_file_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            scanner_path = os.path.join(temp_dir, "scanner.json")
+            game_path = os.path.join(temp_dir, "game.json")
+            previous = {"RESET_HOLD_DURATION": 0.37, "RESET_HOLD_SAFETY_MARGIN": 0.02}
+            with open(scanner_path, "w", encoding="utf-8") as handle:
+                json.dump(previous, handle)
+            with open(game_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": 0.01}}, handle)
+            game_bytes = Path(game_path).read_bytes()
+
+            with patch.object(config, "config_path", scanner_path), patch.object(
+                config, "user_config", previous
+            ), patch.object(config, "get_game_config_path", return_value=game_path):
+                result = config.save_settings_with_game_reset(
+                    {"RESET_HOLD_DURATION": 0.03},
+                    None,
+                    sync_game=False,
+                    verify_game_floor=True,
+                )
+
+            self.assertTrue(result.success)
+            self.assertEqual(Path(game_path).read_bytes(), game_bytes)
+            with open(scanner_path, "r", encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["RESET_HOLD_DURATION"], 0.03)
+
+    def test_scanner_only_save_rejects_hold_below_live_game_floor(self) -> None:
+        with patch.object(config, "read_game_quick_reset_time", return_value=(
+            config.GameConfigReadResult(True, value=0.20)
+        )), patch.object(config, "save_config") as save_config:
+            result = config.save_settings_with_game_reset(
+                {"RESET_HOLD_DURATION": 0.03, "RESET_HOLD_SAFETY_MARGIN": 0.02},
+                None,
+                sync_game=False,
+                verify_game_floor=True,
+            )
+
+        self.assertFalse(result.success)
+        self.assertIn("0.22 s", result.reason)
+        save_config.assert_not_called()
+
     def test_unchanged_timing_is_derived_from_live_config_under_the_lock(self) -> None:
         live_config = {
             "HOTKEY": "f6",

@@ -727,6 +727,7 @@ def save_settings_with_game_reset(
     game_value: float | None,
     *,
     sync_game: bool,
+    verify_game_floor: bool = False,
 ) -> SettingsSaveResult:
     """Persist Settings as one verified operation, rolling back on failure.
 
@@ -739,6 +740,24 @@ def save_settings_with_game_reset(
         previous_scanner_config = deepcopy(user_config)
         candidate_config = deepcopy(user_config)
         candidate_config.update(deepcopy(settings_updates))
+        if verify_game_floor:
+            game_read = read_game_quick_reset_time()
+            if not game_read.success or game_read.value is None:
+                return SettingsSaveResult(
+                    False,
+                    game_read.reason or "Megabonk quick_reset_time could not be read.",
+                )
+            margin = normalize_reset_hold_safety_margin(
+                candidate_config.get("RESET_HOLD_SAFETY_MARGIN", RESET_HOLD_SAFETY_MARGIN)
+            )
+            hold = round(float(candidate_config.get("RESET_HOLD_DURATION", RESET_HOLD_DURATION)), 2)
+            required_hold = round(game_read.value + margin, 2)
+            if hold < required_hold:
+                return SettingsSaveResult(
+                    False,
+                    f"Reset hold must be at least {required_hold:.2f} s "
+                    f"(Megabonk {game_read.value:.2f} s + safety margin {margin:.2f} s).",
+                )
         resolved_game_value = game_value
         if sync_game and resolved_game_value is None:
             # Timing fields are intentionally absent when the dialog did not

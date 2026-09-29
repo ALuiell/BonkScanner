@@ -70,21 +70,31 @@ class SettingsResetHoldInputTests(unittest.TestCase):
         self.assertEqual(entry.value(), 0.03)
         self.assertEqual(entry.text(), "0.03 s")
 
-    def test_margin_updates_the_dynamic_minimum_and_derived_game_value(self) -> None:
+    def test_margin_updates_the_dynamic_minimum_and_shows_current_game_value(self) -> None:
         with patch.object(config, "RESET_HOLD_SAFETY_MARGIN", 0.02):
             with patch.object(config, "RESET_HOLD_DURATION", 0.07):
-                dialog = SettingsDialog(None, master=MagicMock())
+                with patch.object(
+                    config,
+                    "read_game_quick_reset_time",
+                    return_value=config.GameConfigReadResult(True, value=0.01),
+                ):
+                    dialog = SettingsDialog(None, master=MagicMock())
         self.addCleanup(dialog.close)
 
         self.assertEqual(dialog.reset_hold_duration_entry.singleStep(), 0.01)
         self.assertEqual(dialog.reset_hold_safety_margin_entry.singleStep(), 0.01)
         self.assertEqual(dialog.reset_hold_duration_entry.minimum(), 0.03)
-        self.assertEqual(dialog.reset_game_value_label.text(), "0.05 s")
+        self.assertEqual(dialog.reset_game_value_label.text(), "0.01 s")
 
-        dialog.reset_hold_safety_margin_entry.setValue(0.03)
+        with patch.object(
+            config,
+            "read_game_quick_reset_time",
+            return_value=config.GameConfigReadResult(True, value=0.01),
+        ):
+            dialog.reset_hold_safety_margin_entry.setValue(0.03)
 
         self.assertEqual(dialog.reset_hold_duration_entry.minimum(), 0.04)
-        self.assertEqual(dialog.reset_game_value_label.text(), "0.04 s")
+        self.assertEqual(dialog.reset_game_value_label.text(), "0.01 s")
 
 
 if __name__ == "__main__":

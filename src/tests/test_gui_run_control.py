@@ -1203,8 +1203,9 @@ class GuiRunControlTests(unittest.TestCase):
             saved_candidate["PLAYER_STATS_RECORD_INTERVAL_SECONDS"],
             config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
         )
-        self.assertEqual(saved_game_value, 0.23)
-        self.assertTrue(save_settings.call_args.kwargs["sync_game"])
+        self.assertIsNone(saved_game_value)
+        self.assertFalse(save_settings.call_args.kwargs["sync_game"])
+        self.assertTrue(save_settings.call_args.kwargs["verify_game_floor"])
         self.assertEqual(config.RESET_HOLD_SAFETY_MARGIN, 0.02)
         self.assertEqual(
             config.PLAYER_STATS_RECORD_INTERVAL_SECONDS,
@@ -1292,7 +1293,7 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(
             config,
             "read_game_quick_reset_time",
-            return_value=config.GameConfigReadResult(True, value=0.23),
+            return_value=config.GameConfigReadResult(True, value=0.24),
         ):
             with patch.object(
                 config,
@@ -1311,6 +1312,47 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("currently running", notice_cls.call_args.kwargs["reason"])
         notice.exec.assert_called_once_with()
         notice.deleteLater.assert_called_once_with()
+
+    def test_settings_save_scanner_only_while_game_is_running(self) -> None:
+        master = FakeSettingsMaster()
+        master.is_game_running = lambda: True
+        accepted: list[bool] = []
+        dialog = types.SimpleNamespace(
+            hotkey_entry=FakeEntry("f7"),
+            reset_hotkey_entry=FakeEntry("r"),
+            record_hotkey_entry=FakeEntry("f8"),
+            auto_start_recording_var=FakeCheckbox(False),
+            show_obs_reminder_on_start_scanner_var=FakeCheckbox(False),
+            reset_hold_duration_entry=FakeEntry("0.03"),
+            _initial_reset_hold_duration=0.37,
+            reset_hold_safety_margin_entry=FakeEntry("0.02"),
+            _initial_reset_hold_safety_margin=0.02,
+            record_interval_entry=FakeEntry("60"),
+            master=master,
+            parent=lambda: None,
+            accept=lambda: accepted.append(True),
+        )
+
+        with patch.object(
+            config,
+            "read_game_quick_reset_time",
+            return_value=config.GameConfigReadResult(True, value=0.01),
+        ), patch.object(
+            config,
+            "save_settings_with_game_reset",
+            return_value=config.SettingsSaveResult(True),
+        ) as save_settings, patch.object(
+            gui_dialogs, "GameResetTimeNoticeDialog", return_value=MagicMock()
+        ) as notice_cls:
+            result = SettingsDialog.save(dialog)
+
+        self.assertTrue(result)
+        self.assertEqual(accepted, [True])
+        self.assertEqual(save_settings.call_args.args[0]["RESET_HOLD_DURATION"], 0.03)
+        self.assertFalse(save_settings.call_args.kwargs["sync_game"])
+        self.assertTrue(save_settings.call_args.kwargs["verify_game_floor"])
+        self.assertEqual(notice_cls.call_args.kwargs["game_value"], 0.01)
+        self.assertFalse(notice_cls.call_args.kwargs["game_updated"])
 
     def test_settings_save_reports_exact_verified_reset_values(self) -> None:
         master = FakeSettingsMaster()
@@ -1336,7 +1378,7 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(
             config,
             "read_game_quick_reset_time",
-            return_value=config.GameConfigReadResult(True, value=0.05),
+            return_value=config.GameConfigReadResult(True, value=0.30),
         ):
             with patch.object(
                 config,
@@ -1478,7 +1520,7 @@ class GuiRunControlTests(unittest.TestCase):
         notice.exec.assert_called_once_with()
         notice.deleteLater.assert_called_once_with()
 
-    def test_unchanged_reset_values_are_still_verified_and_game_drift_is_repaired(self) -> None:
+    def test_unchanged_reset_values_do_not_rewrite_game_drift(self) -> None:
         duration = round(float(config.RESET_HOLD_DURATION), 2)
         margin = round(float(config.RESET_HOLD_SAFETY_MARGIN), 2)
         dialog = types.SimpleNamespace(
@@ -1518,9 +1560,8 @@ class GuiRunControlTests(unittest.TestCase):
                     SettingsDialog.save(dialog)
 
         self.assertIsNone(save_settings.call_args.args[1])
-        self.assertTrue(save_settings.call_args.kwargs["sync_game"])
-        notice.exec.assert_called_once_with()
-        notice.deleteLater.assert_called_once_with()
+        self.assertFalse(save_settings.call_args.kwargs["sync_game"])
+        notice.exec.assert_not_called()
 
     def test_aligned_unchanged_reset_values_save_without_a_notice(self) -> None:
         duration = round(float(config.RESET_HOLD_DURATION), 2)
@@ -1559,7 +1600,7 @@ class GuiRunControlTests(unittest.TestCase):
                 with patch.object(gui_dialogs, "GameResetTimeNoticeDialog") as notice_cls:
                     SettingsDialog.save(dialog)
 
-        self.assertTrue(save_settings.call_args.kwargs["sync_game"])
+        self.assertFalse(save_settings.call_args.kwargs["sync_game"])
         notice_cls.assert_not_called()
 
     def test_stale_open_dialog_preserves_scanner_refreshed_reset_timing(self) -> None:
@@ -1620,7 +1661,7 @@ class GuiRunControlTests(unittest.TestCase):
             self.assertNotIn("RESET_HOLD_DURATION", settings_updates)
             self.assertNotIn("RESET_HOLD_SAFETY_MARGIN", settings_updates)
             self.assertIsNone(save_settings.call_args.args[1])
-            self.assertTrue(save_settings.call_args.kwargs["sync_game"])
+            self.assertFalse(save_settings.call_args.kwargs["sync_game"])
             self.assertEqual(config.RESET_HOLD_DURATION, refreshed_duration)
             self.assertEqual(
                 config.user_config["RESET_HOLD_DURATION"],
