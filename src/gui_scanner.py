@@ -33,6 +33,7 @@ import time
 from typing import Any, Callable
 
 from app import config
+from app.reroll_rate import RollingRerollPeak
 from infra.crash_journal import log_runtime_event
 from app.map_scoring import (
     calculate_map_score,
@@ -130,6 +131,7 @@ class Scanner:
         # Session counters, read by the tab below and by `SessionStats`.
         self.session_start_time = None
         self.session_rerolls = 0
+        self._reroll_peak = RollingRerollPeak()
         self.best_map_stats = None
         self.best_map_score = -1
         self.worst_map_stats = None
@@ -317,6 +319,7 @@ class Scanner:
         with self._filters.state_lock:
             session_start_time = self.session_start_time
             session_rerolls = self.session_rerolls
+            peak_rpm = self._reroll_peak.sample(time.monotonic())
         if self.is_scanning() and session_start_time:
             elapsed = int(time.time() - session_start_time)
             td = datetime.timedelta(seconds=elapsed)
@@ -324,6 +327,8 @@ class Scanner:
                 rpm = (session_rerolls / elapsed) * 60
             if self._stats_view is not None:
                 self._stats_view.set_session_clock(elapsed_text=str(td), rpm=rpm)
+        if self._stats_view is not None:
+            self._stats_view.set_peak_rpm(peak_rpm)
 
         status_label = self._status_label()
         session_meta = getattr(status_label, "_session_meta_label", None)
@@ -625,6 +630,7 @@ class Scanner:
             with self._filters.state_lock:
                 self.session_start_time = time.time()
                 self.session_rerolls = 0
+                self._reroll_peak.start(time.monotonic())
                 self.best_map_stats = None
                 self.best_map_score = -1
                 self.worst_map_stats = None
@@ -731,11 +737,13 @@ class Scanner:
                 else self.worst_map_stats
             )
             active_templates, template_stats = self._filters.snapshot()
+            peak_rpm = self._reroll_peak.maximum
         view.set_counters(
             rerolls=session_rerolls,
             seeds_found=self._session_seed_count(template_stats),
             all_time_rerolls=config.TOTAL_REROLLS,
         )
+        view.set_peak_rpm(peak_rpm)
         set_analytics_status = getattr(view, "set_merchant_analytics_status", None)
         if callable(set_analytics_status):
             analytics_status = self._merchant_analytics_status()
@@ -806,6 +814,7 @@ class Scanner:
     def log_reroll_stats(self):
         with self._filters.state_lock:
             self.session_rerolls += 1
+            self._reroll_peak.record(time.monotonic())
             session_rerolls = self.session_rerolls
             for name in list(self.template_stats):
                 self.template_stats[name]["rerolls_since_last"] += 1

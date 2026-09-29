@@ -427,6 +427,7 @@ QLabel#kpiLabel {
 }
 QLabel#kpiValue      { font-size: 24px; font-weight: 800; color: #EDF1F5; }
 QLabel#kpiValueHero  { font-size: 30px; font-weight: 800; color: #EDF1F5; letter-spacing: -0.5px; }
+QLabel#kpiPeakValue  { font-size: 13px; font-weight: 700; color: #8A94A3; }
 QLabel#rowLabel      { color: #8A94A3; font-size: 12px; }
 QLabel#rowValue      { color: #EDF1F5; font-size: 12px; font-weight: 700; }
 QLabel#rowValueMuted { color: #8A94A3; font-size: 12px; font-weight: 700; }

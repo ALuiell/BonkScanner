@@ -140,6 +140,22 @@ class SessionStatsTabWidgetTests(unittest.TestCase):
             """
         )
 
+    def test_rpm_peak_has_a_separate_label_and_pending_state(self) -> None:
+        self._run(
+            """
+            view.set_session_clock(elapsed_text="0:01:30", rpm=42.5)
+            settle()
+            assert "42.5" in texts(), texts()
+            assert "Max --" in texts(), texts()
+            view.set_peak_rpm(126)
+            settle()
+            assert "Max 126" in texts(), texts()
+            view.set_peak_rpm(None)
+            settle()
+            assert "Max --" in texts(), texts()
+            """
+        )
+
     def test_merchant_collection_can_be_toggled_in_the_tab(self) -> None:
         self._run(
             """

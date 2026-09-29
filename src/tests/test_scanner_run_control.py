@@ -1062,6 +1062,8 @@ class BackgroundLoopTests(unittest.TestCase):
 
     def test_session_stats_failure_does_not_abort_scanner_start(self) -> None:
         scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        scanner._reroll_peak.start(time.monotonic() - 61.0)
+        scanner._reroll_peak.record(time.monotonic())
         scanner._stats_view = SimpleNamespace(
             set_counters=MagicMock(side_effect=RuntimeError("deleted stats label"))
         )
@@ -1074,6 +1076,7 @@ class BackgroundLoopTests(unittest.TestCase):
             scanner.toggle_main_loop()
 
         self.assertTrue(scanner.scanner_thread.started)
+        self.assertIsNone(scanner._reroll_peak.maximum)
         self.assertTrue(
             any(
                 "Session Stats refresh skipped" in str(message)
@@ -1540,6 +1543,7 @@ class SessionStatsTests(unittest.TestCase):
             refresh_session_stats_snapshot=lambda: refreshed.append(scanner.session_rerolls),
         )
         scanner.session_rerolls = 3
+        scanner._reroll_peak.start(time.monotonic() - 61.0)
         scanner.template_stats = {"Perfect": {"rerolls_since_last": 2, "history": []}}
 
         with patch.object(config, "TOTAL_REROLLS", 10):
@@ -1547,6 +1551,7 @@ class SessionStatsTests(unittest.TestCase):
                 scanner.log_reroll_stats()
 
                 self.assertEqual(scanner.session_rerolls, 4)
+                self.assertEqual(scanner._reroll_peak.maximum, 1)
                 self.assertEqual(scanner.template_stats["Perfect"]["rerolls_since_last"], 3)
                 self.assertEqual(config.TOTAL_REROLLS, 11)
                 self.assertEqual(config.user_config["TOTAL_REROLLS"], 11)
@@ -1579,6 +1584,9 @@ class SessionStatsTests(unittest.TestCase):
             def set_map_highlights(self, **values):
                 delivered["active_templates"] = values["active_templates"]
 
+            def set_peak_rpm(self, value):
+                delivered["peak_rpm"] = value
+
             def set_average_rows(self, rows):
                 delivered["averages"] = rows
 
@@ -1591,6 +1599,7 @@ class SessionStatsTests(unittest.TestCase):
             scanner.refresh_stats_ui()
 
         self.assertEqual(delivered["counters"]["seeds_found"], 2)
+        self.assertIsNone(delivered["peak_rpm"])
         self.assertEqual(delivered["active_templates"], ["Alpha"])
         self.assertEqual(delivered["averages"][0][0], "Alpha")
         self.assertEqual(delivered["averages"][0][2:], (3.0, 2))
@@ -1687,6 +1696,20 @@ class SessionStatsTests(unittest.TestCase):
         )
         shutting_down.update_timer()
         self.assertEqual(scheduled, [1000])
+
+    def test_peak_is_rendered_after_the_scanner_worker_stops(self) -> None:
+        shown = []
+        scanner = build_scanner(schedule=lambda _delay_ms, _callback: None)
+        scanner._reroll_peak.start(time.monotonic() - 61.0)
+        scanner._reroll_peak.record(time.monotonic())
+        scanner._stats_view = SimpleNamespace(
+            set_peak_rpm=shown.append,
+            set_session_clock=lambda **_values: self.fail("stopped clock was updated"),
+        )
+
+        scanner.update_timer()
+
+        self.assertEqual(shown, [1])
 
     def test_shutdown_releases_the_worker_and_forces_the_reroll_flush(self) -> None:
         scanner = build_scanner()

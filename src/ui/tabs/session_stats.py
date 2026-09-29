@@ -111,6 +111,7 @@ class SessionStatsTab:
 
         self._root = None
         self._kpi_values: dict[str, QLabel] = {}
+        self._peak_rpm_value: QLabel | None = None
         self._chip_values: dict[str, QLabel] = {}
         self._best_score = None
         self._worst_score = None
@@ -173,11 +174,34 @@ class SessionStatsTab:
                 ("rpm", "Rerolls / min"),
             )
         ):
-            grid.addWidget(_eyebrow(caption), 0, column)
+            label = _eyebrow(caption)
+            if key == "rpm":
+                label.setToolTip(
+                    "Current: average since the scanner session started. "
+                    "Max: most rerolls in a completed rolling 60-second window."
+                )
+            grid.addWidget(label, 0, column)
             value = QLabel("--")
             value.setObjectName("kpiValueHero")
             self._kpi_values[key] = value
-            grid.addWidget(value, 1, column)
+            if key == "rpm":
+                value.setToolTip("Average rerolls per minute since this scanner session started.")
+                row = QHBoxLayout()
+                row.setContentsMargins(0, 0, 0, 0)
+                row.setSpacing(8)
+                row.addWidget(value, 0, Qt.AlignBottom)
+                peak = QLabel("Max --")
+                peak.setObjectName("kpiPeakValue")
+                peak.setToolTip(
+                    "Most rerolls in any completed 60-second window this scanner session. "
+                    "Available after the first minute."
+                )
+                self._peak_rpm_value = peak
+                row.addWidget(peak, 0, Qt.AlignBottom)
+                row.addStretch(1)
+                grid.addLayout(row, 1, column)
+            else:
+                grid.addWidget(value, 1, column)
             grid.setColumnStretch(column, 1)
         layout.addLayout(grid)
 
@@ -338,6 +362,10 @@ class SessionStatsTab:
     def set_session_clock(self, *, elapsed_text: str, rpm: float) -> None:
         _set_text(self._kpi_values.get("time"), elapsed_text)
         _set_text(self._kpi_values.get("rpm"), f"{rpm:.1f}")
+
+    def set_peak_rpm(self, peak_rpm: int | None) -> None:
+        text = "Max --" if peak_rpm is None else f"Max {peak_rpm:,}"
+        _set_text(self._peak_rpm_value, text)
 
     def set_counters(self, *, rerolls: int, seeds_found: int, all_time_rerolls: int) -> None:
         self._rerolls = max(0, int(rerolls))
