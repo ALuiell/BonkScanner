@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Any
 
 from infra.paths import application_path, installation_path
+from infra.edition import EDITION
 
 
 _LOCK = threading.RLock()
@@ -71,7 +72,7 @@ def _logs_directory() -> Path:
 
 def _crash_log_name() -> str:
     stamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
-    return f"crash-{stamp}.log"
+    return f"crash-{EDITION}-{stamp}-{os.getpid()}.log"
 
 
 def _write(event: str, *, durable: bool = False, **fields: Any) -> None:
@@ -81,6 +82,7 @@ def _write(event: str, *, durable: bool = False, **fields: Any) -> None:
     parts = [
         _timestamp(),
         f"pid={os.getpid()}",
+        f"edition={EDITION}",
         f"thread={_safe_value(threading.current_thread().name)}",
         event,
     ]

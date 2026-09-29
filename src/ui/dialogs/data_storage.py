@@ -227,7 +227,7 @@ class DataStoragePage(QWidget):
 
         legacy = context.previous_dir or context.legacy_dir
         show_old = (
-            context.mode == "local"
+            context.mode in ("local", "shared")
             and legacy is not None
             and legacy.is_dir()
             and legacy != context.data_dir
@@ -235,6 +235,7 @@ class DataStoragePage(QWidget):
         self.old_folder_button.setVisible(show_old)
         self.remove_old_data_button.setVisible(
             show_old
+            and context.mode == "local"
             and context.migration_status == "success"
             and legacy_data_exists(legacy)
         )

@@ -1,7 +1,7 @@
 """Select and migrate BonkScanner's writable application data directory.
 
-Source checkouts deliberately remain portable: they keep their data in the
-repository root and never consult the installed-build migration state. Frozen
+Source checkouts remain portable unless explicitly connected to shared data.
+Unlinked checkouts keep their data in the repository root. Frozen
 builds default to one shared LocalAppData directory unless the executable
 directory already contains a legacy profile. A selected installed-build path
 is saved in LocalAppData so it survives restarts.
@@ -18,11 +18,13 @@ import stat
 import sys
 import tempfile
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from uuid import uuid4
+
+from infra.edition import CONFIG_FILE_NAMES
 
 
 STATE_SCHEMA_VERSION = 1
@@ -31,8 +33,7 @@ STATE_FILE_NAME = ".storage-state.json"
 STATE_LOCK_NAME = ".storage-state.lock"
 DATA_LOCK_NAME = ".bonkscanner-data.lock"
 
-PROFILE_FILES = (
-    "config.json",
+PROFILE_FILES = CONFIG_FILE_NAMES + (
     "merchant_history.jsonl",
     "vod_metadata_index.json",
 )
@@ -432,9 +433,9 @@ def _validate_config(path: Path) -> None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise StorageError(f"The legacy config.json could not be validated: {exc}") from exc
+        raise StorageError(f"The configuration {path.name} could not be validated: {exc}") from exc
     if not isinstance(payload, dict):
-        raise StorageError("The legacy config.json does not contain a settings object.")
+        raise StorageError(f"The configuration {path.name} does not contain a settings object.")
 
 
 def _validate_merchant_history(path: Path) -> None:
@@ -764,7 +765,8 @@ def _perform_pending_migration(
             raise StorageError(
                 "The destination folder already contains another BonkScanner profile. Nothing was overwritten."
             )
-        _validate_config(source / "config.json")
+        for config_name in CONFIG_FILE_NAMES:
+            _validate_config(source / config_name)
         _validate_merchant_history(source / "merchant_history.jsonl")
         sources = _migration_sources(source)
         before = {relative: _file_signature(path) for path, relative in sources}
@@ -919,6 +921,63 @@ def _context_from_state(
     )
 
 
+def _load_selected_context(installation: Path, recommended: Path, key: str) -> StorageContext:
+    _ensure_writable(recommended)
+    state_lock = _ProcessFileLock(recommended / STATE_LOCK_NAME)
+    if not state_lock.acquire():
+        raise StorageError("BonkScanner storage state is being changed by another instance.")
+    try:
+        state = _load_state(recommended)
+        _guard_other_installation_journals(recommended, state, key)
+        entry = _entry_for(state, installation, key)
+        migration = entry.get("migration") if entry else None
+        journal_target = (
+            _storage_path(str(migration.get("target") or recommended))
+            if isinstance(migration, dict)
+            else recommended
+        )
+        current_journal = _journal_path(journal_target, key)
+        if current_journal.exists() and (
+            not isinstance(migration, dict)
+            or migration.get("status") != "success"
+        ):
+            journal_source = Path(str(migration.get("source") or installation)) if isinstance(migration, dict) else installation
+            recovery_lock = _ProcessFileLock(journal_target / DATA_LOCK_NAME)
+            if not recovery_lock.acquire():
+                raise StorageError("The destination data folder is in use during migration recovery.")
+            try:
+                _recover_interrupted_publish(journal_target, key, journal_source)
+            finally:
+                recovery_lock.release()
+        if entry and entry.get("mode") == "local":
+            migration = entry.get("migration")
+            if isinstance(migration, dict) and migration.get("status") == "success":
+                try:
+                    current_journal.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        if entry and isinstance(entry.get("migration"), dict):
+            state = _perform_pending_migration(
+                installation, recommended, key, state, entry
+            )
+        context = _context_from_state(installation, recommended, key, state)
+    finally:
+        state_lock.release()
+    return context
+
+
+def _prepare_config_for_bootstrap(data_dir: Path) -> None:
+    global _active_lock
+    from infra.shared_storage import prepare_edition_config
+    try:
+        prepare_edition_config(data_dir)
+    except Exception:
+        if _active_lock is not None:
+            _active_lock.release()
+            _active_lock = None
+        raise
+
+
 def initialize_storage(*, acquire_active_lock: bool = True) -> StorageContext:
     global _context, _active_lock
     with _context_lock:
@@ -930,9 +989,15 @@ def initialize_storage(*, acquire_active_lock: bool = True) -> StorageContext:
                         f"Another BonkScanner instance is already using {_context.data_dir}."
                     )
                 _active_lock = active_lock
+            if acquire_active_lock:
+                _prepare_config_for_bootstrap(_context.data_dir)
             return _context
         installation = installation_directory()
-        if not is_frozen_build():
+        from infra.shared_storage import selected_shared_context
+        shared = selected_shared_context(installation, source_run=not is_frozen_build())
+        if shared is not None:
+            context = shared
+        elif not is_frozen_build():
             context = StorageContext(
                 mode="source",
                 installation_dir=installation,
@@ -941,51 +1006,9 @@ def initialize_storage(*, acquire_active_lock: bool = True) -> StorageContext:
                 installation_key=None,
             )
         else:
-            recommended = recommended_data_directory()
-            _ensure_writable(recommended)
-            key = _installation_key(installation)
-            state_lock = _ProcessFileLock(recommended / STATE_LOCK_NAME)
-            if not state_lock.acquire():
-                raise StorageError("BonkScanner storage state is being changed by another instance.")
-            try:
-                state = _load_state(recommended)
-                _guard_other_installation_journals(recommended, state, key)
-                entry = _entry_for(state, installation, key)
-                migration = entry.get("migration") if entry else None
-                journal_target = (
-                    _storage_path(str(migration.get("target") or recommended))
-                    if isinstance(migration, dict)
-                    else recommended
-                )
-                current_journal = _journal_path(journal_target, key)
-                if current_journal.exists() and (
-                    not isinstance(migration, dict)
-                    or migration.get("status") != "success"
-                ):
-                    journal_source = Path(str(migration.get("source") or installation)) if isinstance(migration, dict) else installation
-                    recovery_lock = _ProcessFileLock(journal_target / DATA_LOCK_NAME)
-                    if not recovery_lock.acquire():
-                        raise StorageError("The destination data folder is in use during migration recovery.")
-                    try:
-                        _recover_interrupted_publish(journal_target, key, journal_source)
-                    finally:
-                        recovery_lock.release()
-                if entry and entry.get("mode") == "local":
-                    migration = entry.get("migration")
-                    if isinstance(migration, dict) and migration.get("status") == "success":
-                        try:
-                            current_journal.unlink(missing_ok=True)
-                        except OSError:
-                            pass
-                if entry and isinstance(entry.get("migration"), dict):
-                    state = _perform_pending_migration(
-                        installation, recommended, key, state, entry
-                    )
-                context = _context_from_state(installation, recommended, key, state)
-            finally:
-                state_lock.release()
+            context = _load_selected_context(installation, recommended_data_directory(), _installation_key(installation))
         if (
-            context.mode == "local"
+            context.mode in ("local", "shared")
             and context.recommended_dir is not None
             and _normalized_path(context.data_dir) != _normalized_path(context.recommended_dir)
             and (not context.data_dir.is_dir() or not _profile_exists(context.data_dir))
@@ -1001,6 +1024,8 @@ def initialize_storage(*, acquire_active_lock: bool = True) -> StorageContext:
                     f"Another BonkScanner instance is already using {context.data_dir}."
                 )
             _active_lock = active_lock
+        if acquire_active_lock:
+            _prepare_config_for_bootstrap(context.data_dir)
         _context = context
         return context
 
@@ -1018,6 +1043,9 @@ def active_data_directory() -> Path:
 
 def migration_status() -> StorageContext:
     context = storage_context()
+    if context.mode == "shared":
+        from infra.shared_storage import shared_status
+        return shared_status(context)
     if context.mode == "source" or context.recommended_dir is None:
         return context
     with _context_lock:
@@ -1056,7 +1084,7 @@ def request_migration(destination: str | Path | None = None) -> MigrationActionR
         state = _load_state(context.recommended_dir)
         entry = _entry_for(
             state,
-            context.installation_dir,
+            (context.recommended_dir if context.mode == "shared" else context.installation_dir),
             str(context.installation_key),
             create=True,
         )
@@ -1095,7 +1123,7 @@ def cancel_migration() -> MigrationActionResult:
         return MigrationActionResult(False, "failed", "Storage state is in use by another instance.")
     try:
         state = _load_state(context.recommended_dir)
-        entry = _entry_for(state, context.installation_dir, str(context.installation_key))
+        entry = _entry_for(state, (context.recommended_dir if context.mode == "shared" else context.installation_dir), str(context.installation_key))
         migration = entry.get("migration") if entry else None
         if not isinstance(migration, dict) or migration.get("status") != "pending":
             return MigrationActionResult(False, "unavailable", "There is no pending migration.")

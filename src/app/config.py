@@ -16,6 +16,7 @@ from core.json_safety import dumps_strict_json, load_legacy_json
 from core.map_markers import normalize_map_marker_settings
 from core.settings import MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS
 from infra import paths
+from infra.edition import CONFIG_FILE_NAME
 from app.config_repository import ConfigLoadResult, ConfigRepository
 
 colorama.init(autoreset=True)
@@ -622,7 +623,7 @@ def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
 # ==========================================
 # LOAD JSON CONFIG
 # ==========================================
-config_path = os.path.join(application_path, "config.json")
+config_path = os.path.join(application_path, CONFIG_FILE_NAME)
 CONFIG_FILE_EXISTED_AT_STARTUP = False
 
 def load_config():

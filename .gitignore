@@ -69,3 +69,7 @@ reports/
 ui_assets/
 
 Dump
+
+# Local opt-in to the shared user-data profile.
+/.bonkscanner-shared.json
+/config_advanced.json
