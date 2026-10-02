@@ -178,7 +178,7 @@ class SessionStatsTab:
             if key == "rpm":
                 label.setToolTip(
                     "Current: average since the scanner session started. "
-                    "Max: most rerolls in a completed rolling 60-second window."
+                    "Max: highest average speed over 10 consecutive complete reroll cycles."
                 )
             grid.addWidget(label, 0, column)
             value = QLabel("--")
@@ -193,8 +193,10 @@ class SessionStatsTab:
                 peak = QLabel("Max --")
                 peak.setObjectName("kpiPeakValue")
                 peak.setToolTip(
-                    "Most rerolls in any completed 60-second window this scanner session. "
-                    "Available after the first minute."
+                    "Highest average rerolls per minute over 10 consecutive complete cycles "
+                    "this scanner session, including map loading. "
+                    "Pauses break the measurement sequence but preserve Max. "
+                    "Available after 10 complete rerolls."
                 )
                 self._peak_rpm_value = peak
                 row.addWidget(peak, 0, Qt.AlignBottom)
@@ -363,8 +365,8 @@ class SessionStatsTab:
         _set_text(self._kpi_values.get("time"), elapsed_text)
         _set_text(self._kpi_values.get("rpm"), f"{rpm:.1f}")
 
-    def set_peak_rpm(self, peak_rpm: int | None) -> None:
-        text = "Max --" if peak_rpm is None else f"Max {peak_rpm:,}"
+    def set_peak_rpm(self, peak_rpm: float | None) -> None:
+        text = "Max --" if peak_rpm is None else f"Max {peak_rpm:,.1f}"
         _set_text(self._peak_rpm_value, text)
 
     def set_counters(self, *, rerolls: int, seeds_found: int, all_time_rerolls: int) -> None:

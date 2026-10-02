@@ -1,4 +1,4 @@
-"""The peak is a count in completed 60-second windows, not a startup estimate."""
+"""Peak RPM measures consecutive complete cycles, even in a short search."""
 
 from __future__ import annotations
 
@@ -6,37 +6,88 @@ import unittest
 
 import src  # noqa: F401  -- path bootstrap
 
-from app.reroll_rate import RollingRerollPeak
+from app.reroll_rate import RerollCyclePeak
 
 
-class RollingRerollPeakTests(unittest.TestCase):
-    def test_first_complete_window_is_kept_when_the_ui_tick_is_late(self) -> None:
-        peak = RollingRerollPeak()
-        peak.start(0.0)
-        peak.record(0.25)
-        peak.record(1.0)
-        self.assertIsNone(peak.sample(59.9))
-        self.assertEqual(peak.sample(61.0), 2)
-        self.assertEqual(peak.sample(120.0), 2)
-
-    def test_new_sixty_second_peak_survives_idle_time_and_reset_clears_it(self) -> None:
-        peak = RollingRerollPeak()
-        peak.start(0.0)
-        for moment in (1.0, 2.0, 3.0):
-            peak.record(moment)
-        self.assertEqual(peak.sample(60.0), 3)
-        self.assertEqual(peak.sample(180.0), 3)
-        for moment in (181.0, 182.0, 183.0, 184.0):
-            peak.record(moment)
-        self.assertEqual(peak.maximum, 4)
-        self.assertEqual(peak.sample(300.0), 4)
-        peak.start(300.0)
+class RerollCyclePeakTests(unittest.TestCase):
+    def test_first_peak_needs_ten_loaded_cycles_and_no_minute_wait(self) -> None:
+        peak = RerollCyclePeak()
+        peak.start()
+        peak.map_ready(100.0)  # Initial map and armed time are not rerolls.
+        for index in range(1, 10):
+            peak.restarted()
+            peak.map_ready(100.0 + index * 0.5)
         self.assertIsNone(peak.maximum)
-        self.assertEqual(peak.sample(360.0), 0)
+        peak.restarted()
+        self.assertIsNone(peak.maximum)  # Reset accepted, loading not finished.
+        peak.map_ready(105.0)
+        self.assertEqual(peak.maximum, 120.0)
 
-    def test_exactly_expired_reroll_is_not_counted_twice(self) -> None:
-        peak = RollingRerollPeak()
-        peak.start(0.0)
-        peak.record(1.0)
-        peak.record(61.0)
-        self.assertEqual(peak.maximum, 1)
+    def test_slow_cycle_is_included_in_the_average(self) -> None:
+        peak = RerollCyclePeak()
+        peak.map_ready(0.0)
+        for index in range(1, 10):
+            peak.restarted()
+            peak.map_ready(index * 0.5)
+        peak.restarted()
+        peak.map_ready(5.3)
+        self.assertAlmostEqual(peak.maximum, 600.0 / 5.3)
+
+    def test_window_slides_and_slower_cycles_do_not_reduce_the_peak(self) -> None:
+        peak = RerollCyclePeak()
+        now = 0.0
+        peak.map_ready(now)
+        for duration in [1.0] * 10 + [0.5] * 10 + [2.0] * 10:
+            now += duration
+            peak.restarted()
+            peak.map_ready(now)
+        self.assertEqual(peak.maximum, 120.0)
+
+    def test_pause_preserves_peak_and_requires_a_new_complete_sequence(self) -> None:
+        peak = RerollCyclePeak()
+        peak.map_ready(0.0)
+        for index in range(1, 11):
+            peak.restarted()
+            peak.map_ready(float(index))
+        self.assertEqual(peak.maximum, 60.0)
+        peak.restarted()
+        peak.break_sequence()
+        peak.map_ready(300.0)
+        for index in range(1, 10):
+            peak.restarted()
+            peak.map_ready(300.0 + index * 0.25)
+        self.assertEqual(peak.maximum, 60.0)
+        peak.restarted()
+        peak.map_ready(302.5)
+        self.assertEqual(peak.maximum, 240.0)
+        peak.start()
+        self.assertIsNone(peak.maximum)
+
+    def test_repeated_map_reads_without_restarts_cannot_create_a_peak(self) -> None:
+        peak = RerollCyclePeak()
+        for index in range(20):
+            peak.map_ready(index * 0.01)
+        self.assertIsNone(peak.maximum)
+
+    def test_multiple_resets_without_loaded_maps_break_the_sequence(self) -> None:
+        peak = RerollCyclePeak()
+        peak.map_ready(0.0)
+        for index in range(1, 10):
+            peak.restarted()
+            peak.map_ready(index * 0.5)
+        peak.restarted()
+        peak.restarted()
+        peak.map_ready(5.0)
+        self.assertIsNone(peak.maximum)
+
+    def test_equal_or_backwards_timestamps_cannot_create_a_peak(self) -> None:
+        for last_time in (4.5, 4.0):
+            with self.subTest(last_time=last_time):
+                peak = RerollCyclePeak()
+                peak.map_ready(0.0)
+                for index in range(1, 10):
+                    peak.restarted()
+                    peak.map_ready(index * 0.5)
+                peak.restarted()
+                peak.map_ready(last_time)
+                self.assertIsNone(peak.maximum)

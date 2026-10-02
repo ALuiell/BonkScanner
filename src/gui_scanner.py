@@ -33,7 +33,7 @@ import time
 from typing import Any, Callable
 
 from app import config
-from app.reroll_rate import RollingRerollPeak
+from app.reroll_rate import RerollCyclePeak
 from infra.crash_journal import log_runtime_event
 from app.map_scoring import (
     calculate_map_score,
@@ -131,7 +131,7 @@ class Scanner:
         # Session counters, read by the tab below and by `SessionStats`.
         self.session_start_time = None
         self.session_rerolls = 0
-        self._reroll_peak = RollingRerollPeak()
+        self._reroll_peak = RerollCyclePeak()
         self.best_map_stats = None
         self.best_map_score = -1
         self.worst_map_stats = None
@@ -223,6 +223,10 @@ class Scanner:
     def _scan_abort_requested(self) -> bool:
         return self.stop_event.is_set() or not self.scan_event.is_set()
 
+    def _break_reroll_sequence(self) -> None:
+        with self._filters.state_lock:
+            self._reroll_peak.break_sequence()
+
     def handle_player_movement(self) -> None:
         """Pause an active scan after W/A/S/D/Space in the game window.
 
@@ -247,6 +251,7 @@ class Scanner:
             self.is_running = False
             self.pause_reason = "player_movement"
             self.scan_event.clear()
+            self._break_reroll_sequence()
 
         self.log("[SAFETY] Player movement detected. Auto-reroll paused.", tag="warning")
         self._schedule(0, self.update_status_ui)
@@ -266,6 +271,7 @@ class Scanner:
             self.is_running = False
             self.stop_event.set()
             self.scan_event.set()
+            self._break_reroll_sequence()
         self._flush_total_rerolls(force=True)
         worker = self.scanner_thread
         if worker is None:
@@ -319,7 +325,7 @@ class Scanner:
         with self._filters.state_lock:
             session_start_time = self.session_start_time
             session_rerolls = self.session_rerolls
-            peak_rpm = self._reroll_peak.sample(time.monotonic())
+            peak_rpm = self._reroll_peak.maximum
         if self.is_scanning() and session_start_time:
             elapsed = int(time.time() - session_start_time)
             td = datetime.timedelta(seconds=elapsed)
@@ -489,6 +495,7 @@ class Scanner:
             self.is_running = False
             self.pause_reason = "manual"
             self.scan_event.clear()
+            self._break_reroll_sequence()
             self.log("[*] Scan paused. Press the scan hotkey again to resume.")
         else:
             if self._is_late_forest_or_desert_stage():
@@ -501,6 +508,7 @@ class Scanner:
                 return
             self.is_running = True
             self.pause_reason = None
+            self._break_reroll_sequence()
             self.scan_event.set()
             self.log("[*] Scan started. Looking for selected target...")
             # A movement key may already be held when scanning is resumed, so
@@ -630,7 +638,7 @@ class Scanner:
             with self._filters.state_lock:
                 self.session_start_time = time.time()
                 self.session_rerolls = 0
-                self._reroll_peak.start(time.monotonic())
+                self._reroll_peak.start()
                 self.best_map_stats = None
                 self.best_map_score = -1
                 self.worst_map_stats = None
@@ -680,6 +688,7 @@ class Scanner:
 
     def request_stop(self) -> None:
         """Signal the scan worker and return immediately to the Qt loop."""
+        self._break_reroll_sequence()
         if self._stop_pending:
             return
         worker = self.scanner_thread
@@ -814,7 +823,6 @@ class Scanner:
     def log_reroll_stats(self):
         with self._filters.state_lock:
             self.session_rerolls += 1
-            self._reroll_peak.record(time.monotonic())
             session_rerolls = self.session_rerolls
             for name in list(self.template_stats):
                 self.template_stats[name]["rerolls_since_last"] += 1
@@ -890,23 +898,30 @@ class Scanner:
 
     def reroll_map(self) -> bool:
         if self._run_control.run_control_provider is None:
+            self._break_reroll_sequence()
             self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
             return False
 
         with self._restart_lock:
             if self._scan_abort_requested():
+                self._break_reroll_sequence()
                 return False
 
             try:
                 self._run_control.run_control_provider.restart_run()
             except RunControlError as exc:
+                self._break_reroll_sequence()
                 self.log(f"[-] {exc}", tag="error")
                 return False
+
+            with self._filters.state_lock:
+                self._reroll_peak.restarted()
 
         self.log_reroll_stats()
         return True
 
     def close_client(self):
+        self._break_reroll_sequence()
         self._run_control.reset_restart_permission_check()
         if self.client:
             try:
@@ -1008,6 +1023,8 @@ class Scanner:
                     continue
 
             was_waiting = not self.scan_event.is_set()
+            if was_waiting:
+                self._break_reroll_sequence()
             if not self.scan_event.wait(timeout=0.25):
                 continue
             if was_waiting:
@@ -1020,7 +1037,10 @@ class Scanner:
 
             try:
                 focus_was_active = self._run_control.is_game_window_active(process_name)
+                if not focus_was_active:
+                    self._break_reroll_sequence()
                 if not self._run_control.wait_for_game_window_focus(process_name):
+                    self._break_reroll_sequence()
                     continue
                 if self._disconnect_stale_scanner_client(process_name):
                     is_first_scan = True
@@ -1042,10 +1062,14 @@ class Scanner:
                         timeout=10.0,
                     )
                 except InterruptedError:
+                    self._break_reroll_sequence()
                     continue
 
                 if self._scan_abort_requested():
+                    self._break_reroll_sequence()
                     continue
+                with self._filters.state_lock:
+                    self._reroll_peak.map_ready(time.monotonic())
                 is_first_scan = False
                 # `wait_for_map_ready` captured this state in the same strict
                 # sample that confirmed the stats. Re-reading through the
@@ -1069,6 +1093,7 @@ class Scanner:
                     continue
 
                 if candidate is not None:
+                    self._break_reroll_sequence()
                     if not self._run_control.wait_for_game_window_focus(process_name):
                         continue
                     if self._scan_abort_requested():
@@ -1115,12 +1140,16 @@ class Scanner:
                         if gap_text:
                             self.log(gap_text)
 
+                if not self._run_control.is_game_window_active(process_name):
+                    self._break_reroll_sequence()
                 if not self._run_control.wait_for_game_window_focus(process_name):
+                    self._break_reroll_sequence()
                     continue
 
                 self.reroll_map()
 
             except TimeoutError as exc:
+                self._break_reroll_sequence()
                 # `wait_for_map_ready` spells out *which* readiness gate never
                 # opened -- change_seen/generation_seen separate "the reset key
                 # was never accepted by the game" from "the map really is slow
@@ -1142,6 +1171,7 @@ class Scanner:
                 last_state = None
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
+                self._break_reroll_sequence()
                 self.is_running = False
                 self.is_ready_to_start = False
                 self.pause_reason = None
@@ -1154,6 +1184,7 @@ class Scanner:
                 self._schedule(0, self.update_status_ui)
                 self.stop_event.wait(1.0)
             except Exception as exc:
+                self._break_reroll_sequence()
                 self.log(f"[-] Error during execution: {exc}", tag="error")
                 self.stop_event.wait(1.0)
 
