@@ -419,7 +419,7 @@ class ScanLifecycleTests(unittest.TestCase):
         refresh.assert_called_once()
         messages = [str(message) for message, _tag in scanner.calls["log"]]
         self.assertFalse(
-            any("Reset Hold Duration was" in m for m in messages),
+            any("Reset key hold increased" in m for m in messages),
             f"a scan start must not log a correction that did not happen: {messages}",
         )
 

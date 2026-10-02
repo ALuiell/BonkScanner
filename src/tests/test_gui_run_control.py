@@ -1216,8 +1216,8 @@ class GuiRunControlTests(unittest.TestCase):
             config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
         )
         self.assertEqual(accepted, [True])
-        notice.exec.assert_called_once_with()
-        notice.deleteLater.assert_called_once_with()
+        notice.show.assert_called_once_with()
+        notice.exec.assert_not_called()
 
     def test_settings_save_contains_live_refresh_failure_after_persistence(self) -> None:
         master = FakeSettingsMaster()

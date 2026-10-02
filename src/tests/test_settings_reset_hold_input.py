@@ -32,15 +32,15 @@ class SettingsResetHoldInputTests(unittest.TestCase):
         dialog = SettingsDialog(None, master=MagicMock())
         self.addCleanup(dialog.close)
 
-        self.assertEqual(dialog.crypto_btn.text(), "Crypto")
-        self.assertEqual(dialog.crypto_btn.objectName(), "CryptoButton")
-        self.assertFalse(dialog.crypto_btn.icon().isNull())
+        self.assertEqual(dialog.supporter_access_page.crypto_btn.text(), "Open Crypto")
+        self.assertEqual(dialog.supporter_access_page.crypto_btn.objectName(), "SupportCryptoPrimary")
+        self.assertFalse(dialog.supporter_access_page.crypto_btn.icon().isNull())
         self.assertEqual(
-            dialog.crypto_btn.isEnabled(),
+            dialog.supporter_access_page.crypto_btn.isEnabled(),
             bool(dialogs_module.CRYPTO_SUPPORT_URL),
         )
 
-    def test_a_value_below_the_minimum_clamps_instead_of_restoring_the_old_value(
+    def test_a_value_below_the_minimum_stays_visible_and_blocks_save(
         self,
     ) -> None:
         with patch.object(config, "RESET_HOLD_SAFETY_MARGIN", 0.02):
@@ -49,15 +49,12 @@ class SettingsResetHoldInputTests(unittest.TestCase):
         self.addCleanup(dialog.close)
         entry = dialog.reset_hold_duration_entry
 
-        self.assertEqual(
-            entry.correctionMode(),
-            QAbstractSpinBox.CorrectionMode.CorrectToNearestValue,
-        )
         entry.lineEdit().setText("0.01")
         entry.interpretText()
 
-        self.assertEqual(entry.value(), 0.03)
-        self.assertEqual(entry.text(), "0.03 s")
+        self.assertEqual(entry.value(), 0.01)
+        self.assertEqual(entry.text(), "0.01")
+        self.assertFalse(dialog.save_btn.isEnabled())
 
     def test_zero_margin_allows_the_game_minimum_hold_duration(self) -> None:
         with patch.object(config, "RESET_HOLD_SAFETY_MARGIN", 0.0):

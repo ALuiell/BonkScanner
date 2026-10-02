@@ -63,6 +63,30 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
         original_user_config = dict(config.user_config)
         self.addCleanup(config.user_config.update, original_user_config)
         self.addCleanup(config.user_config.clear)
+        config.user_config["RESET_TIMING_SETUP_PENDING"] = False
+
+    def test_pending_new_install_attempts_recommendations_even_after_guide_acknowledgement(self):
+        owner = self._guide_owner()
+        owner.is_game_running = lambda: True
+        owner.log = MagicMock()
+        config.user_config["RESET_TIMING_SETUP_PENDING"] = True
+        with patch.object(config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", True), patch.object(
+            config, "apply_recommended_reset_timing",
+            return_value=config.SettingsSaveResult(False, "Close Megabonk"),
+        ) as apply:
+            MegabonkApp._show_auto_reroll_setup_guide(owner)
+        apply.assert_called_once()
+        self.assertEqual(apply.call_args.args[0](), (True, ""))
+        owner.log.assert_called_once()
+        self.assertTrue(config.user_config["RESET_TIMING_SETUP_PENDING"])
+
+    def test_existing_install_does_not_apply_recommendations_automatically(self):
+        owner = self._guide_owner()
+        with patch.object(config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", True), patch.object(
+            config, "apply_recommended_reset_timing"
+        ) as apply:
+            MegabonkApp._show_auto_reroll_setup_guide(owner)
+        apply.assert_not_called()
 
     def _guide_owner(self, *, visible: bool = False):
         window = QWidget()
@@ -95,13 +119,13 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
         self.assertIn(f"{minimum_hold:.2f} s", text)
         self.assertIn(f"{margin:.2f}-second safety margin", text)
         self.assertIn(f"{minimum_game_value:.2f} s", text)
-        self.assertIn("0.10 s minimum has been removed", text)
-        self.assertIn("set below 0.10 s", text)
+        self.assertNotIn("0.10 s minimum has been removed", text)
+        self.assertIn("Close Megabonk only if its config needs changing", text)
         self.assertIn("Safety Margin", text)
-        self.assertIn("Experimental tuning", text)
-        self.assertIn("release R before the game reliably registers the reset", text)
-        self.assertIn("both config files", text)
-        self.assertIn("automatic adjustment", text)
+        self.assertIn("If a reset is missed", text)
+        self.assertIn("preserving the current or planned game threshold", text)
+        self.assertIn("next game launch", text)
+        self.assertIn("automatically raises a hold that is too short", text)
         self.assertIn("Megabonk's game config", text)
         self.assertIn("%USERPROFILE%", text)
         self.assertEqual(dialog.minimumWidth(), DIALOG_WIDE)

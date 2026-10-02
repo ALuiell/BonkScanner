@@ -850,6 +850,13 @@ class MegabonkApp:
             pass
 
     def _show_auto_reroll_setup_guide(self) -> None:
+        if config.user_config.get("RESET_TIMING_SETUP_PENDING", False):
+            result = config.apply_recommended_reset_timing(
+                lambda: (self.is_game_running(), "")
+            )
+            if not result.success:
+                self.log("[!] Reset timing setup: " + result.reason +
+                         " Open Settings → Restart → Use recommended values.", tag="warning")
         if config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED or getattr(
             self,
             "_auto_reroll_setup_guide",

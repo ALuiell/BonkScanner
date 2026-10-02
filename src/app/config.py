@@ -429,6 +429,7 @@ class ConfigSaveResult:
 class SettingsSaveResult:
     success: bool
     reason: str = ""
+    game_value: float | None = None
 
 
 def get_game_config_path() -> str | None:
@@ -741,6 +742,7 @@ def save_settings_with_game_reset(
         previous_scanner_config = deepcopy(user_config)
         candidate_config = deepcopy(user_config)
         candidate_config.update(deepcopy(settings_updates))
+        verified_game_value = None
         if verify_game_floor:
             game_read = read_game_quick_reset_time()
             if not game_read.success or game_read.value is None:
@@ -753,6 +755,7 @@ def save_settings_with_game_reset(
             )
             hold = round(float(candidate_config.get("RESET_HOLD_DURATION", RESET_HOLD_DURATION)), 2)
             required_hold = round(game_read.value + margin, 2)
+            verified_game_value = game_read.value
             if hold < required_hold:
                 return SettingsSaveResult(
                     False,
@@ -807,7 +810,9 @@ def save_settings_with_game_reset(
         # Update only Settings-owned keys; background writers own the rest of
         # this shared mapping and may have committed while the dialog was open.
         user_config.update(deepcopy(settings_updates))
-        return SettingsSaveResult(True)
+        return SettingsSaveResult(
+            True, game_value=resolved_game_value if sync_game else verified_game_value
+        )
 
 
 def get_local_appdata_dir() -> str | None:
@@ -933,10 +938,12 @@ def resolve_auto_reroll_setup_guide_acknowledged(
     *,
     config_existed: bool,
     saved_version=None,
-    current_version: int = 2,
+    current_version: int | None = None,
 ) -> bool:
     """Require every install to acknowledge the current guide revision once."""
     del config_existed
+    if current_version is None:
+        current_version = AUTO_REROLL_SETUP_GUIDE_VERSION
     return (
         saved_value is True
         and coerce_nonnegative_int(saved_version, 0) >= int(current_version)
@@ -948,10 +955,9 @@ def resolve_stop_scanning_on_player_movement(saved_value) -> bool:
     return saved_value if isinstance(saved_value, bool) else False
 
 
-# Version 2 documents the editable margin, the derived Megabonk value and the
-# requirement to close the game before saving. Every existing installation has
-# version 0/1 and therefore sees it once, even if the old guide was acknowledged.
-AUTO_REROLL_SETUP_GUIDE_VERSION = 2
+# Version 3 explains scanner-only saving and margin changes that extend the hold.
+# Existing installations see the updated instructions once.
+AUTO_REROLL_SETUP_GUIDE_VERSION = 3
 AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = (
     resolve_auto_reroll_setup_guide_acknowledged(
         user_config.get("AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"),
@@ -1514,7 +1520,48 @@ user_config.pop("MIN_DELAY", None)
 user_config.pop("MAP_LOAD_DELAY", None)
 
 #: Used only when neither user config nor the game config can supply a value.
-DEFAULT_RESET_HOLD_DURATION = 0.4
+DEFAULT_RESET_HOLD_DURATION = 0.06
+
+
+def apply_recommended_reset_timing(detect_game_running) -> SettingsSaveResult:
+    """Apply only reset timing, retaining unrelated Settings drafts and config keys."""
+    global RESET_HOLD_DURATION, RESET_HOLD_SAFETY_MARGIN
+    global GAME_RESET_HOLD_FLOOR, RESET_HOLD_DURATION_RAISED_FROM
+    global RESET_HOLD_SYNC_WARNING
+    with config_lock:
+        try:
+            game = read_game_quick_reset_time()
+        except Exception as exc:
+            return SettingsSaveResult(False, f"Could not read game config: {exc}")
+        if not game.success or game.value is None:
+            return SettingsSaveResult(False, game.reason or "Game config unavailable.")
+        sync_game = game.value != MIN_GAME_QUICK_RESET_TIME
+        if sync_game:
+            try:
+                running, error = detect_game_running()
+            except Exception as exc:
+                return SettingsSaveResult(False, f"Could not check Megabonk: {exc}")
+            if running or error:
+                return SettingsSaveResult(False, error or "Close Megabonk to apply recommended values.")
+        updates = {
+            "RESET_HOLD_DURATION": 0.06,
+            "RESET_HOLD_SAFETY_MARGIN": 0.05,
+            "RESET_TIMING_SETUP_PENDING": False,
+        }
+        try:
+            result = save_settings_with_game_reset(
+                updates, MIN_GAME_QUICK_RESET_TIME if sync_game else None,
+                sync_game=sync_game, verify_game_floor=not sync_game,
+            )
+        except Exception as exc:
+            return SettingsSaveResult(False, f"Could not apply recommended values: {exc}")
+        if result.success:
+            RESET_HOLD_DURATION = 0.06
+            RESET_HOLD_SAFETY_MARGIN = 0.05
+            GAME_RESET_HOLD_FLOOR = 0.06
+            RESET_HOLD_DURATION_RAISED_FROM = None
+            RESET_HOLD_SYNC_WARNING = ""
+        return result
 
 
 def resolve_reset_hold_duration(
@@ -1557,6 +1604,7 @@ def resolve_reset_hold_duration(
 # Load RESET_HOLD_DURATION from user_config first, fallback to game config,
 # fallback to the default -- then hold it to the game's floor either way.
 GAME_RESET_HOLD_FLOOR = None
+RESET_HOLD_SYNC_WARNING = ""
 RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM = resolve_reset_hold_duration(
     user_config.get("RESET_HOLD_DURATION"),
     GAME_RESET_HOLD_FLOOR,
@@ -1578,9 +1626,20 @@ def refresh_reset_hold_duration() -> float | None:
     than once per scan.
     """
     global GAME_RESET_HOLD_FLOOR, RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM
+    global RESET_HOLD_SYNC_WARNING
+    global RESET_HOLD_SAFETY_MARGIN
 
     with config_lock:
-        GAME_RESET_HOLD_FLOOR = get_game_reset_time()
+        game_read = read_game_quick_reset_time()
+        GAME_RESET_HOLD_FLOOR = (
+            round(game_read.value + RESET_HOLD_SAFETY_MARGIN, 2)
+            if game_read.success and game_read.value is not None else None
+        )
+        RESET_HOLD_SYNC_WARNING = (
+            "" if GAME_RESET_HOLD_FLOOR is not None else
+            "The game-file reset threshold could not be checked. "
+            + (game_read.reason or "Check the game config in Settings.")
+        )
         # Resolve against the live value, not the stored one: they agree (both
         # the dialog and import write both), and the live one is what the next
         # reroll will actually hold for.
@@ -1589,8 +1648,25 @@ def refresh_reset_hold_duration() -> float | None:
             GAME_RESET_HOLD_FLOOR,
         )
         if RESET_HOLD_DURATION_RAISED_FROM is not None:
+            corrected_hold = RESET_HOLD_DURATION
+            raised_from = RESET_HOLD_DURATION_RAISED_FROM
+            corrected_margin = RESET_HOLD_SAFETY_MARGIN
+            checked_floor = GAME_RESET_HOLD_FLOOR
             user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
-            save_config(user_config)
+            save_result = save_config(user_config)
+            if getattr(save_result, "success", True) is False:
+                # save_config can restore an older runtime snapshot on failure.
+                # Keep the safe live hold even when it could not be persisted.
+                RESET_HOLD_DURATION = corrected_hold
+                RESET_HOLD_DURATION_RAISED_FROM = raised_from
+                RESET_HOLD_SAFETY_MARGIN = corrected_margin
+                GAME_RESET_HOLD_FLOOR = checked_floor
+                user_config["RESET_HOLD_DURATION"] = round(corrected_hold, 2)
+                user_config["RESET_HOLD_SAFETY_MARGIN"] = corrected_margin
+                RESET_HOLD_SYNC_WARNING = (
+                    "The longer key hold is active for this session, but could not be saved. "
+                    + save_result.reason
+                )
         return RESET_HOLD_DURATION_RAISED_FROM
 
 
@@ -1599,8 +1675,11 @@ def reset_hold_duration_notice(raised_from: float | None) -> str | None:
     if raised_from is None:
         return None
     return (
-        f"[*] Reset Hold Duration was {raised_from:.2f}s, below the game's quick reset "
-        f"threshold. Raised to {RESET_HOLD_DURATION:.2f}s so restarts register."
+        f"[*] Reset key hold increased from {raised_from:.2f}s to {RESET_HOLD_DURATION:.2f}s "
+        "to cover the game-file threshold and extra hold time. "
+        + ("" if GAME_RESET_HOLD_FLOOR is None else
+           f"Game threshold: {GAME_RESET_HOLD_FLOOR - RESET_HOLD_SAFETY_MARGIN:.2f}s; ")
+        + f"extra hold time: {RESET_HOLD_SAFETY_MARGIN:.2f}s."
     )
 
 
@@ -1838,6 +1917,8 @@ def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
 
     user_config.clear()
     user_config.update(deepcopy(loaded if isinstance(loaded, dict) else {}))
+    if not config_existed:
+        user_config["RESET_TIMING_SETUP_PENDING"] = True
     saved_native_hook_path = user_config.get("NATIVE_HOOK_DLL_PATH")
 
     RESET_HOLD_SAFETY_MARGIN = normalize_reset_hold_safety_margin(

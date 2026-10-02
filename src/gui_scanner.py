@@ -529,6 +529,10 @@ class Scanner:
         notice = config.reset_hold_duration_notice(config.refresh_reset_hold_duration())
         if notice is not None:
             self.log(notice, tag="warning")
+        warning = config.RESET_HOLD_SYNC_WARNING
+        if warning and warning != getattr(self, "_last_reset_timing_warning", ""):
+            self.log("[!] " + warning, tag="warning")
+        self._last_reset_timing_warning = warning
 
     def toggle_main_loop(self):
         """Queue a start or request a non-blocking interactive stop.

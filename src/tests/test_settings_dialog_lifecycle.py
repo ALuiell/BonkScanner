@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QLabel, QScrollArea, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QScrollArea, QWidget
 
 import gui_app
 from app import config
@@ -226,7 +226,7 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
             config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
         )
 
-    def test_support_page_and_general_both_expose_support_routes(self) -> None:
+    def test_support_routes_are_available_on_all_settings_pages(self) -> None:
         self.owner.open_settings_dialog()
         dialog = self.owner._settings_dialog
         self.assertIsNotNone(dialog)
@@ -238,7 +238,7 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
                 dialog.settings_tabs.tabText(index)
                 for index in range(dialog.settings_tabs.count())
             ],
-            ["General", "Data", "Support"],
+            ["General", "Restart", "Data", "Support"],
         )
         self.assertIsNone(
             dialog.general_settings_page.findChild(QWidget, "SupporterAccessCard")
@@ -246,29 +246,27 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(
             dialog.supporter_access_page.findChild(QWidget, "SupporterAccessCard")
         )
-        self.assertTrue(dialog.general_settings_page.isAncestorOf(dialog.patreon_btn))
-        for button in (
-            dialog.patreon_btn,
-            dialog.crypto_btn,
-            dialog.github_btn,
-            dialog.discord_btn,
-        ):
-            self.assertEqual(button.property("settingsSupportAction"), "true")
-            self.assertGreater(button.width(), 104)
-            self.assertEqual(button.height(), 32)
-            self.assertEqual(
-                (button.iconSize().width(), button.iconSize().height()),
-                (16, 16),
-            )
-        self.assertTrue(
-            dialog.supporter_access_page.isAncestorOf(
-                dialog.supporter_access_page.patreon_btn
-            )
-        )
-        self.assertNotEqual(
-            dialog.patreon_btn,
-            dialog.supporter_access_page.patreon_btn,
-        )
+        for button in (dialog.patreon_btn, dialog.crypto_btn, dialog.github_btn, dialog.discord_btn):
+            self.assertTrue(dialog.general_settings_page.isAncestorOf(button))
+            self.assertTrue(button.isVisible())
+        for page in (dialog.general_settings_page, dialog.restart_settings_page, dialog.data_storage_page):
+            dialog.settings_tabs.setCurrentWidget(page)
+            QApplication.processEvents()
+            with patch.object(dialog, "_open_external_page") as open_page:
+                for name, label in (("PatreonButton", "Patreon"), ("CryptoButton", "Crypto"),
+                                    ("GithubButton", "GitHub"), ("DiscordButton", "Discord")):
+                    button = page.findChild(QPushButton, name)
+                    self.assertIsNotNone(button)
+                    self.assertEqual(button.text(), label)
+                    self.assertTrue(button.isVisible())
+                    if button.isEnabled():
+                        button.click()
+                        open_page.assert_called_once()
+                        open_page.reset_mock()
+        for name in ("PatreonButton", "CryptoButton", "GithubButton", "DiscordButton"):
+            self.assertIsNone(dialog.supporter_access_page.findChild(QPushButton, name))
+        self.assertTrue(dialog.supporter_access_page.isAncestorOf(dialog.supporter_access_page.patreon_btn))
+        self.assertFalse(dialog.general_settings_page.isAncestorOf(dialog.supporter_access_page.patreon_btn))
 
         self.assertEqual(
             dialog.supporter_access_page.patreon_btn.objectName(),
@@ -305,6 +303,25 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.status, "cancelled")
 
+    def test_settings_keep_support_page_size_and_status_only_on_restart(self):
+        self.owner.open_settings_dialog(page="support")
+        dialog = self.owner._settings_dialog
+        dialog.show()
+        QApplication.processEvents()
+        support_size = dialog.size()
+        for page in ("general", "restart", "data", "support", "restart"):
+            dialog.show_page(page)
+            QApplication.processEvents()
+            self.assertEqual(dialog.size(), support_size)
+            self.assertEqual(dialog.reset_timing_status_label.isVisible(),
+                             page == "restart" and bool(dialog.reset_timing_status_label.text()))
+        self.assertFalse(dialog.reset_hold_safety_margin_entry.isVisible())
+        dialog.advanced_reset_timing.set_expanded(True)
+        QApplication.processEvents()
+        self.assertTrue(dialog.reset_hold_safety_margin_entry.isVisible())
+        QApplication.processEvents()
+        self.assertEqual(dialog.size(), support_size)
+
     def test_settings_navigation_replaces_title_and_frees_general_page_height(self) -> None:
         self.owner.open_settings_dialog()
         dialog = self.owner._settings_dialog
@@ -325,15 +342,29 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
                 dialog.settings_header_tabs.tabText(index)
                 for index in range(dialog.settings_header_tabs.count())
             ],
-            ["General", "Data", "Support"],
+            ["General", "Restart", "Data", "Support"],
         )
-        dialog.settings_header_tabs.setCurrentIndex(1)
+        dialog.settings_header_tabs.setCurrentIndex(0)
+        QApplication.processEvents()
+        self.assertIs(
+            dialog.settings_tabs.currentWidget(),
+            dialog.general_settings_page,
+        )
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(dialog.reset_hold_duration_entry))
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(dialog.reset_hold_safety_margin_entry))
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(dialog.stop_scanning_on_player_movement_var))
+        self.assertFalse(dialog.general_settings_page.isAncestorOf(dialog.reset_hold_duration_entry))
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(dialog.reset_timing_status_label))
+        self.assertEqual(dialog.save_btn.text(), "Save")
+        self.assertTrue(dialog.save_btn.isDefault())
+        self.assertTrue(dialog.cancel_btn.isVisible())
+        dialog.settings_header_tabs.setCurrentIndex(2)
         QApplication.processEvents()
         self.assertIs(
             dialog.settings_tabs.currentWidget(),
             dialog.data_storage_page,
         )
-        dialog.settings_header_tabs.setCurrentIndex(2)
+        dialog.settings_header_tabs.setCurrentIndex(3)
         QApplication.processEvents()
         self.assertIs(
             dialog.settings_tabs.currentWidget(),
@@ -346,7 +377,10 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
             dialog.general_settings_page,
         )
         settings_scroll = dialog.findChild(QScrollArea, "SettingsScroll")
-        self.assertFalse(settings_scroll.verticalScrollBar().isVisible())
+        # Each page scrolls independently while the Save footer stays reachable.
+        self.assertFalse(settings_scroll.horizontalScrollBar().isVisible())
+        self.assertTrue(dialog.save_btn.isVisible())
+        self.assertTrue(dialog.cancel_btn.isVisible())
 
     def test_migration_restart_saves_edits_before_closing(self) -> None:
         self.owner.open_settings_dialog(page="data")
