@@ -348,6 +348,25 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
         settings_scroll = dialog.findChild(QScrollArea, "SettingsScroll")
         self.assertFalse(settings_scroll.verticalScrollBar().isVisible())
 
+    def test_migration_restart_saves_edits_before_closing(self) -> None:
+        self.owner.open_settings_dialog(page="data")
+        dialog = self.owner._settings_dialog
+        dialog._general_settings_dirty = True
+        with patch.object(dialog, "save", return_value=False), patch(
+            "ui.dialogs.QTimer.singleShot"
+        ) as schedule:
+            dialog._restart_for_data_migration()
+            schedule.assert_not_called()
+            self.assertFalse(getattr(self.owner, "_restart_requested", False))
+        with patch.object(dialog, "save", return_value=True) as save, patch(
+            "ui.dialogs.QTimer.singleShot"
+        ) as schedule:
+            dialog._restart_for_data_migration()
+            save.assert_called_once_with(close_dialog=False)
+            self.assertTrue(self.owner._restart_requested)
+            self.assertEqual(dialog.result(), QDialog.Accepted)
+            self.assertEqual(schedule.call_args.args, (0, self.owner.window.close))
+
     def test_support_does_not_silently_discard_general_edits(self) -> None:
         self.owner.open_settings_dialog()
         dialog = self.owner._settings_dialog

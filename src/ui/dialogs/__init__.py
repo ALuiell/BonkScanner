@@ -1575,6 +1575,7 @@ class SettingsDialog(QDialog):
 
         self.data_storage_page = DataStoragePage(
             request_migration=self._request_data_migration,
+            restart_application=self._restart_for_data_migration,
             parent=self.settings_tabs,
         )
         self.settings_tabs.addTab(self.data_storage_page, "Data")
@@ -1921,6 +1922,13 @@ class SettingsDialog(QDialog):
             self.accept()
         else:
             self.save()
+
+    def _restart_for_data_migration(self):
+        if self._general_settings_dirty and not self.save(close_dialog=False):
+            return
+        self.master._restart_requested = True
+        self.accept()
+        QTimer.singleShot(0, self.master.window.close)
 
     def _request_data_migration(self, destination=None):
         from app.data_storage import MigrationActionResult, request_migration

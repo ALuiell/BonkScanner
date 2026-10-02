@@ -71,6 +71,7 @@ def _show_startup_storage_error(message: str) -> None:
 
 
 def main():
+    from infra.app_restart import launch_restart, wait_for_previous_instance
     from infra.data_storage import (
         StorageError,
         initialize_storage,
@@ -78,11 +79,13 @@ def main():
     )
 
     try:
+        wait_for_previous_instance()
         initialize_storage()
-    except StorageError as exc:
+    except (StorageError, OSError) as exc:
         _show_startup_storage_error(str(exc))
         return
     install_crash_journal()
+    restart_requested = False
     try:
         _initialize_configuration()
         if _load_keyboard_dependency() is None:
@@ -111,8 +114,17 @@ def main():
         log_runtime_event("application.mainloop_return")
         if not event_loop_failed and clean_shutdown is not False:
             mark_clean_exit()
+            restart_requested = getattr(app, "_restart_requested", False) is True
     finally:
         release_storage_lock()
+    if restart_requested:
+        try:
+            launch_restart()
+        except OSError as exc:
+            _show_startup_storage_error(
+                f"Automatic restart failed: {exc}\n\n"
+                "Start BonkScanner manually to perform the scheduled migration."
+            )
 
 if __name__ == "__main__":
     main()

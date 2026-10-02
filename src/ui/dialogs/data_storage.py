@@ -33,11 +33,13 @@ class DataStoragePage(QWidget):
         self,
         *,
         request_migration: Callable[..., MigrationActionResult],
+        restart_application: Callable[[], None] | None = None,
         context_provider: Callable[[], StorageContext] = migration_status,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self._request_migration = request_migration
+        self._restart_application = restart_application
         self._context_provider = context_provider
         self._context = context_provider()
 
@@ -133,6 +135,10 @@ class DataStoragePage(QWidget):
         migration_actions.addWidget(self.cancel_migration_button)
         migration_actions.addStretch(1)
         migration_layout.addLayout(migration_actions)
+        self.migrate_now_button = QPushButton("Migrate now and restart BonkScanner", self.migration_card)
+        self.migrate_now_button.setObjectName("DataStorageMigrateNow")
+        self.migrate_now_button.clicked.connect(self._migrate_now)
+        migration_layout.addWidget(self.migrate_now_button)
         outer.addWidget(self.migration_card)
 
         self.status_label = QLabel(self)
@@ -187,11 +193,15 @@ class DataStoragePage(QWidget):
         )
         self.choose_button.setVisible(show_migration and not pending)
         self.cancel_migration_button.setVisible(show_migration and pending)
+        self.migrate_now_button.setVisible(
+            show_migration and pending and self._restart_application is not None
+        )
         self.pending_path_label.setVisible(pending)
         if pending and context.pending_target is not None:
             self.pending_path_label.setText(f"Scheduled destination: {context.pending_target}")
         self.migration_note.setText(
-            "The next BonkScanner start will copy and verify all known data. "
+            "Restart now to migrate, or leave it scheduled for the next start. "
+            "BonkScanner will copy and verify all known data. "
             "The original files will remain unchanged."
             if pending
             else "Choose a destination. On the next start, files are copied and verified before BonkScanner switches folders; the originals are kept."
@@ -300,6 +310,8 @@ class DataStoragePage(QWidget):
                 message=result.message,
                 danger=True,
             )
+        elif self._restart_application is not None:
+            self._migrate_now()
         else:
             show_app_notice(
                 self,
@@ -309,6 +321,25 @@ class DataStoragePage(QWidget):
                 + "\n\nClose BonkScanner normally, then start it again.",
                 button_text="Got it",
             )
+
+    def _migrate_now(self) -> None:
+        self.refresh()
+        if self._context.migration_status != "pending" or self._restart_application is None:
+            return
+        if ask_app_confirmation(
+            self,
+            title="Migrate now and restart BonkScanner?",
+            subtitle="Data storage",
+            message=(
+                "BonkScanner will stop scanning and finish the current recording, "
+                "then restart to copy and verify your data before opening again.\n\n"
+                f"Destination:\n{self._context.pending_target or self._context.recommended_dir}\n\n"
+                "The original files will be kept as a backup."
+            ),
+            confirm_text="Migrate now and restart",
+            note="Cancel to keep the migration scheduled for the next start.",
+        ):
+            self._restart_application()
 
     def _cancel_migration(self) -> None:
         confirmed = ask_app_confirmation(

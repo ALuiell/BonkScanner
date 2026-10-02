@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
@@ -227,6 +228,39 @@ class DataStoragePageTests(unittest.TestCase):
             self.assertIn("Migration completed", page.status_label.text())
         finally:
             page.close()
+
+    def test_immediate_migration_restarts_only_after_success_and_confirmation(self) -> None:
+        for success, restart_now in ((True, True), (True, False), (False, True)):
+            with self.subTest(success=success, restart_now=restart_now):
+                context = StorageContext(
+                    mode="legacy", installation_dir=self.root, data_dir=self.root,
+                    recommended_dir=self.root / "local", installation_key="key",
+                )
+                restart = MagicMock()
+
+                def request():
+                    nonlocal context
+                    if success:
+                        context = replace(context, migration_status="pending", pending_target=self.root / "local")
+                    return MigrationActionResult(success, "pending" if success else "failed", "Result")
+
+                page = DataStoragePage(
+                    request_migration=request, restart_application=restart,
+                    context_provider=lambda: context,
+                )
+                try:
+                    with patch.object(data_storage_dialogs, "ask_app_confirmation", side_effect=[True, restart_now]), patch.object(
+                        data_storage_dialogs, "show_app_notice"
+                    ):
+                        page._schedule_migration()
+                    self.assertEqual(restart.call_count, int(success and restart_now))
+                    self.assertEqual(page.migrate_now_button.isHidden(), not success)
+                    if success and not restart_now:
+                        with patch.object(data_storage_dialogs, "ask_app_confirmation", return_value=True):
+                            page.migrate_now_button.click()
+                        restart.assert_called_once_with()
+                finally:
+                    page.close()
 
     def test_custom_folder_move_can_offer_cleanup_of_previous_appdata(self) -> None:
         local = self.root / "local"
