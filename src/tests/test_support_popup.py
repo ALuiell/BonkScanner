@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import QPoint, QRect, QSize
-from PySide6.QtGui import QPalette
+from PySide6.QtGui import QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QWidget
 
 from app import supporters as supporters_flow
@@ -297,6 +297,13 @@ class SupportPopupTests(unittest.TestCase):
             )
 
     def test_two_row_legend_does_not_clip_any_caption(self):
+        # Windows' offscreen Qt backend has no system fonts until explicitly loaded.
+        for filename in ("segoeui.ttf", "segoeuib.ttf", "seguisb.ttf"):
+            font_path = Path("C:/Windows/Fonts") / filename
+            if font_path.exists():
+                font_id = QFontDatabase.addApplicationFont(str(font_path))
+                if font_id >= 0:
+                    self.addCleanup(QFontDatabase.removeApplicationFont, font_id)
         previous_stylesheet = _app.styleSheet()
         self.addCleanup(_app.setStyleSheet, previous_stylesheet)
         checkmark_path = resource_path("media/checkmark.svg").replace("\\", "/")
