@@ -1352,6 +1352,8 @@ class SupportPopup(QFrame):
                 Qt.AlignVCenter,
             )
             item_layout.addWidget(label, 0, Qt.AlignVCenter)
+            if badge_key == "founder":
+                self._founder_legend_layout = item_layout
             badge_row.addWidget(item, 0, Qt.AlignVCenter)
         badge_row.addStretch(1)
         legend_layout.addLayout(badge_row)
@@ -1360,9 +1362,11 @@ class SupportPopup(QFrame):
 
         self._founder_count = QLabel("Founder availability unavailable", card)
         self._founder_count.setObjectName("supporterFounderCount")
+        self._founder_count.setToolTip("Claimed Founder slots / total capacity")
         self._founder_count.setVisible(False)
         self._founder_host = QWidget(card)
         founder_row = QHBoxLayout(self._founder_host)
+        self._founder_empty_layout = founder_row
         founder_row.setContentsMargins(0, 0, 0, 0)
         founder_row.setSpacing(4)
         founder_row.addWidget(_support_badge_icon(
@@ -1510,11 +1514,8 @@ class SupportPopup(QFrame):
             supporters = (self._last_supporters if supporters.supporters is None
                           else supporters.supporters)
         self._last_supporters = tuple(supporters or ())
-        self._founder_count.setVisible(directory_update)
-        self._founder_host.setVisible(directory_update)
         self._founder_count.setText(
-            f"Founder · {slots.used}/{slots.limit} · "
-            + (f"{slots.remaining} spots left" if slots.remaining else "No spots left")
+            f"{slots.used}/{slots.limit}"
             if slots else "Founder availability unavailable"
         )
         people = []
@@ -1548,6 +1549,17 @@ class SupportPopup(QFrame):
                 badges = ()
             if name:
                 people.append((name, style, self._supporter_badges(badges)))
+
+        # Share one counter between the inline Founder legend and the compact
+        # empty-list fallback, so live metadata remains visible without names.
+        counter_layout = self._founder_legend_layout if people else self._founder_empty_layout
+        if self._founder_count.parentWidget() is not counter_layout.parentWidget():
+            self._founder_count.parentWidget().layout().removeWidget(self._founder_count)
+            counter_layout.insertWidget(2 if people else 1, self._founder_count, 0, Qt.AlignVCenter)
+        if people and not slots:
+            self._founder_count.setText("unavailable")
+        self._founder_count.setVisible(directory_update)
+        self._founder_host.setVisible(directory_update and not people)
 
         _clear_layout(self._names_grid)
         self._legend.setVisible(bool(people))

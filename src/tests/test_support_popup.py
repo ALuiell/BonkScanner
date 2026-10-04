@@ -486,13 +486,37 @@ class SupportPopupTests(unittest.TestCase):
     def test_empty_live_directory_still_shows_founder_counter(self):
         self.popup.set_supporters(SupporterDirectory((), FounderSlots(9, 20, 11)))
         self.assertEqual(_names(self.popup), [])
-        self.assertIn("9/20", self.popup._founder_count.text())
-        self.assertIn("11 spots left", self.popup._founder_count.text())
+        self.assertEqual("9/20", self.popup._founder_count.text())
         self.assertFalse(self.popup._founder_count.isHidden())
+
+    def test_founder_counter_is_muted_and_compact(self):
+        previous_style = _app.styleSheet()
+        self.addCleanup(_app.setStyleSheet, previous_style)
+        _app.setStyleSheet(build_qt_app_stylesheet(resource_path("media/checkmark.svg").replace("\\", "/")))
+        self.popup.set_supporters(SupporterDirectory(("Existing",), FounderSlots(10, 20, 10)))
+        self.popup.ensurePolished()
+        self.popup._founder_count.ensurePolished()
+        self.assertEqual(self.popup._founder_count.text(), "10/20")
+        self.assertEqual(self.popup._founder_count.palette().color(QPalette.WindowText).name(), "#8a94a3")
+
+    def test_founder_counter_moves_inline_and_back_for_empty_list(self):
+        slots = FounderSlots(10, 20, 10)
+        self.popup.set_supporters(SupporterDirectory(("Existing",), slots))
+        founder = self.popup.findChild(QLabel, "supporterLegendFounder")
+        self.assertIs(self.popup._founder_count.parentWidget(), founder.parentWidget())
+        self.assertTrue(self.popup._founder_host.isHidden())
+        self.assertEqual(founder.parentWidget().layout().indexOf(self.popup._founder_count), 2)
+        self.popup.set_supporters(SupporterDirectory((), slots))
+        self.assertIs(self.popup._founder_count.parentWidget(), self.popup._founder_host)
+        self.assertFalse(self.popup._founder_host.isHidden())
+        self.assertEqual(self.popup._founder_count.text(), "10/20")
+        self.popup.set_supporters(SupporterDirectory(("Existing",), slots))
+        self.assertIs(self.popup._founder_count.parentWidget(), founder.parentWidget())
+        self.assertTrue(self.popup._founder_host.isHidden())
 
     def test_failure_keeps_names_but_invalidates_counter_and_empty_clears(self):
         self.popup.set_supporters(SupporterDirectory(("Existing",), FounderSlots(20, 20, 0)))
-        self.assertIn("No spots left", self.popup._founder_count.text())
+        self.assertEqual("20/20", self.popup._founder_count.text())
         self.popup.set_supporters(SupporterDirectory(None))
         self.assertEqual(_names(self.popup), ["Existing"])
         self.assertNotIn("20/20", self.popup._founder_count.text())
