@@ -51,6 +51,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QScrollArea,
+    QSizePolicy,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -61,6 +63,7 @@ from PySide6.QtWidgets import (
 
 from app import config
 from app.version import CURRENT_VERSION
+from core.supporter_listing import SupporterDirectory
 from ui.dialogs.update_prompt import start_update_check
 from ui.shared import _clear_layout, resource_path
 
@@ -1173,6 +1176,23 @@ def _support_badge_icon(
     return icon
 
 
+class _SupporterNameLabel(QLabel):
+    """Keep the exact name for accessibility while painting an elided label."""
+
+    def __init__(self, name, parent):
+        super().__init__(name, parent)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(0)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setFont(self.font())
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        text = self.fontMetrics().elidedText(self.text(), Qt.ElideRight, self.contentsRect().width())
+        painter.drawText(self.contentsRect(), self.alignment(), text)
+        painter.end()
+
+
 class _SupporterNameRow(QWidget):
     """One supporter name with zero or more real icons, not font glyphs."""
 
@@ -1190,7 +1210,7 @@ class _SupporterNameRow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self.name_label = QLabel(name, self)
+        self.name_label = _SupporterNameLabel(name, self)
         self.name_label.setObjectName(name_object)
         self.name_label.setTextFormat(Qt.PlainText)
         self.name_label.setToolTip(name)
@@ -1243,6 +1263,7 @@ class SupportPopup(QFrame):
         #: The widget this was last opened against, so the card can re-anchor
         #: itself if its contents change while it is on screen.
         self._anchor: QWidget | None = None
+        self._last_supporters = ()
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1337,6 +1358,22 @@ class SupportPopup(QFrame):
         self._legend.setVisible(False)
         body.addWidget(self._legend)
 
+        self._founder_count = QLabel("Founder availability unavailable", card)
+        self._founder_count.setObjectName("supporterFounderCount")
+        self._founder_count.setVisible(False)
+        self._founder_host = QWidget(card)
+        founder_row = QHBoxLayout(self._founder_host)
+        founder_row.setContentsMargins(0, 0, 0, 0)
+        founder_row.setSpacing(4)
+        founder_row.addWidget(_support_badge_icon(
+            "founder", SUPPORT_BADGE_DEFINITIONS[0][1], "Founder slots",
+            self._founder_count, self._founder_host,
+        ))
+        founder_row.addWidget(self._founder_count)
+        founder_row.addStretch(1)
+        self._founder_host.setVisible(False)
+        body.addWidget(self._founder_host)
+
         # The names, when there are any. Built empty and hidden, so the popup
         # is exactly what it was until something calls `set_supporters` -- see
         # that method for why the empty case must look like this and not like a
@@ -1351,7 +1388,14 @@ class SupportPopup(QFrame):
         self._names_grid.setHorizontalSpacing(16)
         self._names_grid.setVerticalSpacing(1)
         self._names_host.setVisible(False)
-        body.addWidget(self._names_host)
+        self._names_scroll = QScrollArea(card)
+        self._names_scroll.setObjectName("supporterListScroll")
+        self._names_scroll.setFrameShape(QFrame.NoFrame)
+        self._names_scroll.setWidgetResizable(True)
+        self._names_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._names_scroll.setWidget(self._names_host)
+        self._names_scroll.setVisible(False)
+        body.addWidget(self._names_scroll)
 
         self._rule = QFrame(card)
         self._rule.setObjectName("supportPopupRule")
@@ -1390,10 +1434,8 @@ class SupportPopup(QFrame):
     NARROW_WIDTH = 320
     WIDE_WIDTH = 560
     DEFAULT_NOTE = "If it helps your runs, you can throw a little fuel its way."
-    #: Names past this are not listed; the count in the caption still includes
-    #: them. A popup is not a page, and a scroll bar inside one is a worse
-    #: answer than "and 40 others".
-    MAX_LISTED = 24
+    #: Bound the viewport, not the list: every supporter remains scrollable.
+    MAX_VISIBLE_ROWS = 12
 
     #: How a `source` value is drawn: `(object name, sort rank)`.
     #:
@@ -1461,6 +1503,20 @@ class SupportPopup(QFrame):
         negotiation: `"Nyxaria"` and
         `{"name": "Nyxaria", "source": "patreon"}` both work.
         """
+        slots = None
+        directory_update = isinstance(supporters, SupporterDirectory)
+        if directory_update:
+            slots = supporters.founder_slots
+            supporters = (self._last_supporters if supporters.supporters is None
+                          else supporters.supporters)
+        self._last_supporters = tuple(supporters or ())
+        self._founder_count.setVisible(directory_update)
+        self._founder_host.setVisible(directory_update)
+        self._founder_count.setText(
+            f"Founder · {slots.used}/{slots.limit} · "
+            + (f"{slots.remaining} spots left" if slots.remaining else "No spots left")
+            if slots else "Founder availability unavailable"
+        )
         people = []
         for entry in supporters or ():
             if isinstance(entry, dict):
@@ -1496,6 +1552,7 @@ class SupportPopup(QFrame):
         _clear_layout(self._names_grid)
         self._legend.setVisible(bool(people))
         self._names_host.setVisible(bool(people))
+        self._names_scroll.setVisible(bool(people))
         self._rule.setVisible(bool(people))
         self._card.setFixedWidth(self.WIDE_WIDTH if people else self.NARROW_WIDTH)
 
@@ -1511,18 +1568,10 @@ class SupportPopup(QFrame):
             if count == 1
             else f"{count} people support BonkScanner"
         )
-        # Grouped by source, and inside a group the order they arrived in. Not
-        # alphabetical: a list someone maintains by hand has an order, and
-        # re-sorting it throws away whatever they meant by it. `sort` is stable,
-        # so the file's order survives within each group.
-        people.sort(key=lambda person: person[1][1])
-        listed = people[: self.MAX_LISTED]
-        hidden = len(people) - len(listed)
-        self._note.setText(
-            "Thank you." if not hidden else f"Thank you, and {hidden} more."
-        )
+        # The service owns badge priority; source changes colour only.
+        listed = people
+        self._note.setText("Thank you.")
 
-        rows = (len(listed) + 1) // 2
         for index, (name, (object_name, _rank), badges) in enumerate(
             listed
         ):
@@ -1535,10 +1584,24 @@ class SupportPopup(QFrame):
             # Elided rather than wrapped, and the grid column carries the width:
             # a display name is whatever its owner typed, and one long one must
             # not be allowed to widen the popup or reflow the column beside it.
-            self._names_grid.addWidget(row, index % rows, index // rows)
+            self._names_grid.addWidget(row, index // 2, index % 2)
         self._names_grid.setColumnStretch(0, 1)
         self._names_grid.setColumnStretch(1, 1)
+        self._resize_supporter_scroll()
         self._reanchor()
+
+    def _resize_supporter_scroll(self, available_height=None):
+        self._names_grid.activate()
+        natural = self._names_host.sizeHint().height()
+        row_height = max(22, self.fontMetrics().height() + 6)
+        maximum = self.MAX_VISIBLE_ROWS * row_height + 12
+        if available_height is not None:
+            chrome = self._card.layout().sizeHint().height() - self._names_scroll.height()
+            maximum = min(maximum, max(row_height, available_height - chrome - 20))
+        self._names_scroll.setFixedHeight(min(natural, maximum))
+        self._card.layout().invalidate()
+        self._card.layout().activate()
+        self.layout().invalidate()
 
     def _reanchor(self) -> None:
         """Re-place the card if it is on screen and just changed size.
@@ -1620,6 +1683,11 @@ class SupportPopup(QFrame):
         card nudged a few pixels out of line with its button is much better than
         one rendered half off the edge.
         """
+        screen = self.screen() or anchor.screen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            width = self.NARROW_WIDTH if self._names_scroll.isHidden() else self.WIDE_WIDTH
+            self._card.setFixedWidth(min(width, max(1, available.width() - 16)))
         self.ensurePolished()
         # Invalidated innermost first, and this is not belt-and-braces. A layout
         # caches the size hint it computed for its parent, so activating only
@@ -1638,9 +1706,14 @@ class SupportPopup(QFrame):
         x = top_right.x() - size.width()
         y = top_right.y() - size.height() - 8
 
-        screen = self.screen() or anchor.screen()
         if screen is not None:
             available = screen.availableGeometry()
+            self._resize_supporter_scroll(available.height())
+            self.layout().activate()
+            self.adjustSize()
+            size = self.sizeHint()
+            x = top_right.x() - size.width()
+            y = top_right.y() - size.height() - 8
             x = min(max(x, available.left()), available.right() - size.width() + 1)
             y = min(max(y, available.top()), available.bottom() - size.height() + 1)
 
@@ -1669,6 +1742,8 @@ class FooterView:
         self._support_btn = support_btn
         self._popup: SupportPopup | None = None
         self._supporters: tuple = ()
+        self._supporter_directory = SupporterDirectory(())
+        self.refresh_supporters_if_stale = None
         self._reminder: _SupportReminder | None = None
         self._supporter_access_listener = self._on_supporter_access_changed
         supporter_access = getattr(app, "supporter_access", None)
@@ -1815,18 +1890,25 @@ class FooterView:
         together, so the two cannot disagree, and passing nothing puts the strip
         back exactly as it ships.
         """
-        self._supporters = tuple(supporters or ())
+        if isinstance(supporters, SupporterDirectory):
+            entries = self._supporters if supporters.supporters is None else supporters.supporters
+            self._supporter_directory = SupporterDirectory(tuple(entries), supporters.founder_slots)
+        else:
+            self._supporter_directory = SupporterDirectory(tuple(supporters or ()))
+        self._supporters = self._supporter_directory.supporters
         count = len(self._supporters)
         self._support_btn.setText(
             "♥  Support" if not count else f"♥  {count} supporters"
         )
         if self._popup is not None:
             try:
-                self._popup.set_supporters(self._supporters)
+                self._popup.set_supporters(self._supporter_directory)
             except Exception:
                 self._popup = None
 
     def open_support_popup(self) -> None:
+        if callable(self.refresh_supporters_if_stale):
+            self.refresh_supporters_if_stale()
         # Built on the first click, not at launch: it is a dozen widgets nobody
         # has asked for yet, and the same discipline `LazyPage` applies to the
         # tabs. Kept afterwards, so clicking twice does not leak a second one.
@@ -1843,7 +1925,7 @@ class FooterView:
                     lambda *_args, expected=popup: self._popup_destroyed(expected)
                 )
                 # Built late, so it has to be told what the view already knows.
-                self._popup.set_supporters(self._supporters)
+                self._popup.set_supporters(self._supporter_directory)
             self._popup.show_above(self._support_btn)
         except Exception as exc:
             # A stale wrapper can survive until DeferredDelete is processed.

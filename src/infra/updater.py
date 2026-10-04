@@ -11,6 +11,7 @@ import uuid
 
 from core.update_types import PreparedUpdate, ProgressCallback, ReleaseInfo
 from core.supporter_service import PUBLIC_SUPPORTERS_PATH, supporter_service_url
+from core.supporter_listing import FounderSlots, SupporterDirectory
 
 # `requests` is deliberately imported inside the functions that use it. It is
 # one of the heaviest imports in the application and neither checking GitHub nor
@@ -173,6 +174,28 @@ def fetch_supporters() -> list:
         if SUPPORTERS_URL == SUPPORTERS_FALLBACK_URL:
             raise
         return _fetch_supporters_from(SUPPORTERS_FALLBACK_URL)
+
+
+def fetch_supporter_directory() -> SupporterDirectory:
+    """Keep live slot metadata; a static fallback cannot report availability."""
+    import requests
+
+    def fetch(url, *, live):
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        payload = response.json()
+        entries = payload.get(SUPPORTERS_KEY) if isinstance(payload, dict) else payload
+        if not isinstance(entries, list):
+            raise ValueError("Invalid supporter directory")
+        slots = FounderSlots.parse(payload.get("founder_slots")) if live and isinstance(payload, dict) else None
+        return SupporterDirectory(tuple(clean_supporters(entries)), slots)
+
+    try:
+        return fetch(SUPPORTERS_URL, live=True)
+    except (requests.RequestException, ValueError):
+        if SUPPORTERS_URL == SUPPORTERS_FALLBACK_URL:
+            raise
+        return fetch(SUPPORTERS_FALLBACK_URL, live=False)
 
 
 def _safe_executable_name(exe_path: str) -> str:

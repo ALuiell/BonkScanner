@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 from app.supporters import load_supporters
 from app.update_flow import (
@@ -303,6 +304,9 @@ def start_supporters_load(app_instance):
     if not isinstance(state, dict) or state.get(_SUPPORTERS_REFRESH_STARTED_KEY):
         return None
     state[_SUPPORTERS_REFRESH_STARTED_KEY] = True
+    flight_lock = threading.Lock()
+    busy = False
+    last_checked = 0.0
 
     def is_shutting_down() -> bool:
         return bool(state.get("_is_shutting_down", False))
@@ -317,12 +321,14 @@ def start_supporters_load(app_instance):
             return False
         return True
 
-    def report_to_footer(supporters: list) -> None:
+    def report_to_footer(supporters) -> None:
         if is_shutting_down():
             return
 
         def apply() -> None:
+            nonlocal last_checked
             if not is_shutting_down():
+                last_checked = time.monotonic()
                 try:
                     footer.set_supporters(supporters)
                 except Exception:
@@ -331,30 +337,49 @@ def start_supporters_load(app_instance):
         schedule(0, apply)
 
     def refresh_worker() -> None:
+        nonlocal busy
         try:
             load_supporters(report_to_footer)
         finally:
-            schedule(SUPPORTERS_REFRESH_INTERVAL_MS, refresh)
+            with flight_lock:
+                busy = False
 
     def refresh():
+        nonlocal busy
         if is_shutting_down():
             return None
+        with flight_lock:
+            if busy:
+                return state.get(_SUPPORTERS_REFRESH_THREAD_KEY)
+            busy = True
         previous = state.get(_SUPPORTERS_REFRESH_THREAD_KEY)
         registry = state.get("_background_threads")
         is_alive = getattr(previous, "is_alive", None)
         if isinstance(registry, set) and callable(is_alive) and not is_alive():
             registry.discard(previous)
 
-        worker = _start_registered_thread(
-            app_instance,
-            target=refresh_worker,
-            name="BonkSupportersLoad",
-        )
+        try:
+            worker = _start_registered_thread(
+                app_instance, target=refresh_worker, name="BonkSupportersLoad",
+            )
+        except Exception:
+            with flight_lock:
+                busy = False
+            raise
         state[_SUPPORTERS_REFRESH_THREAD_KEY] = worker
         return worker
 
+    def periodic_refresh():
+        try:
+            return refresh()
+        finally:
+            schedule(SUPPORTERS_REFRESH_INTERVAL_MS, periodic_refresh)
+
+    footer.refresh_supporters_if_stale = lambda: refresh() if time.monotonic() - last_checked > 300 else None
+    schedule(SUPPORTERS_REFRESH_INTERVAL_MS, periodic_refresh)
     try:
         return refresh()
     except Exception:
-        state.pop(_SUPPORTERS_REFRESH_STARTED_KEY, None)
+        # The periodic timer is already registered; retain its ownership so a
+        # retry of startup cannot create a second refresh loop.
         raise

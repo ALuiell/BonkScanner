@@ -15,29 +15,24 @@ from __future__ import annotations
 from typing import Callable
 
 from infra import updater
+from core.supporter_listing import SupporterDirectory
 
 #: Called with the supporters list, on the thread this ran on.
-ReportCallback = Callable[[list], None]
+ReportCallback = Callable[[SupporterDirectory], None]
 
 
 def load_supporters(report: ReportCallback) -> None:
-    """Fetch the published list and hand it over, or say nothing at all.
+    """Report live/fallback data, including successful empty lists.
 
-    **Every failure ends as silence, and that is the whole design.** No network,
-    GitHub down, a half-saved edit to `supporters.json`, or a list that is
-    simply empty because nobody has subscribed yet: none of them call `report`,
-    so the footer keeps the plain `♥ Support` card it ships with. There is no
-    state between "no list" and "a list" -- no error to show, no empty heading,
-    no `♥ 0 supporters`. The periodic footer refresh asks again later.
+    Failure preserves previous names but invalidates the live Founder counter.
 
     Runs on whatever thread the caller provides, so a `report` that touches
     widgets has to hop threads itself. `start_supporters_load` does.
     """
     try:
-        supporters = updater.fetch_supporters()
+        supporters = updater.fetch_supporter_directory()
     except Exception:
         print("Failed to fetch supporters: no connection")
-        return
-    if not supporters:
+        report(SupporterDirectory(None))
         return
     report(supporters)
