@@ -302,13 +302,21 @@ class SupportPopupTests(unittest.TestCase):
         checkmark_path = resource_path("media/checkmark.svg").replace("\\", "/")
         _app.setStyleSheet(build_qt_app_stylesheet(checkmark_path))
 
-        self.popup.set_supporters(["PrestoOmento"])
-        self.popup.show()
-        _app.processEvents()
+        for payload in (
+            ["PrestoOmento"],
+            SupporterDirectory(("PrestoOmento",), FounderSlots(10, 20, 10)),
+            SupporterDirectory(None),
+        ):
+            self.popup.set_supporters(payload)
+            self.popup.show()
+            _app.processEvents()
+            _app.processEvents()  # Settle deferred layout changes after switching payloads.
 
-        for label in self.popup._legend.findChildren(QLabel):
-            with self.subTest(label=label.objectName()):
-                self.assertGreaterEqual(label.width(), label.sizeHint().width())
+            for label in self.popup._legend.findChildren(QLabel):
+                if label.isHidden():
+                    continue  # Hidden legacy counters do not occupy layout space.
+                with self.subTest(payload=payload, label=label.objectName()):
+                    self.assertGreaterEqual(label.width(), label.sizeHint().width())
 
     def test_source_controls_colour_and_badges_control_icons(self):
         self.popup.set_supporters(
