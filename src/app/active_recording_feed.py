@@ -13,6 +13,7 @@ import threading
 from typing import Any, Callable
 
 from infra.vod_storage import LoadedVod, VodMetadata, VodSnapshot
+from core.powerup_history import PowerupHistory
 
 
 RECORDING = "recording"
@@ -29,10 +30,12 @@ class ActiveRecordingState:
     revision: int
     status: str
     detail: str | None = None
+    powerup_history: PowerupHistory | None = None
 
     @property
     def loaded_vod(self) -> LoadedVod:
-        return LoadedVod(metadata=self.metadata, snapshots=self.snapshots)
+        return LoadedVod(metadata=self.metadata, snapshots=self.snapshots,
+                         powerup_history=self.powerup_history)
 
 
 class ActiveRecordingFeed:
@@ -101,6 +104,7 @@ class ActiveRecordingFeed:
                 snapshots=(),
                 revision=self._revision,
                 status=RECORDING,
+                powerup_history=PowerupHistory(),
             )
             self._states[key] = state
             self._active_path = key
@@ -122,6 +126,7 @@ class ActiveRecordingFeed:
                 snapshots=current.snapshots + (snapshot,),
                 revision=self._revision,
                 status=RECORDING,
+                powerup_history=current.powerup_history,
             )
             self._states[key] = state
             self._active_path = key
@@ -130,6 +135,17 @@ class ActiveRecordingFeed:
 
     def finalize(self, metadata: VodMetadata) -> ActiveRecordingState:
         return self._finish(metadata, FINALIZED)
+
+    def update_powerups(self, history: PowerupHistory) -> ActiveRecordingState | None:
+        with self._lock:
+            current = self.active_state
+            if current is None or current.status != RECORDING or current.powerup_history is history:
+                return current
+            self._revision += 1
+            state = replace(current, powerup_history=history, revision=self._revision)
+            self._states[current.path] = state
+        self._publish(state)
+        return state
 
     def discard(self, reason: str) -> ActiveRecordingState | None:
         with self._lock:

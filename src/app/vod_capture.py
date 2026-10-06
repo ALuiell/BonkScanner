@@ -245,6 +245,24 @@ class VodCapture:
 
     # -- the recording lifecycle ------------------------------------------
 
+    def observe_powerups(self, snapshot, run_id=None) -> None:
+        from core.powerup_history import observation_from_snapshot
+
+        recorder = self._recorder()
+        if not recorder.is_recording or not callable(getattr(recorder, "observe_powerups", None)):
+            return
+        captured_at = getattr(getattr(snapshot, "timing_health", None), "captured_at", None)
+        observation = observation_from_snapshot(
+            snapshot, run_id, captured_at=captured_at or self._clock())
+        try:
+            recorder.observe_powerups(observation)
+        except OSError as exc:
+            self._log(f"Could not write power-up history: {exc}", tag="error")
+        finally:
+            feed = self._active_recording_feed()
+            if feed is not None:
+                feed.update_powerups(recorder.powerup_history)
+
     def toggle_recording(self):
         recorder = self._recorder()
         if recorder.is_recording or self.is_recording_armed():
@@ -370,6 +388,9 @@ class VodCapture:
             feed = self._active_recording_feed()
             if feed is not None:
                 try:
+                    history = getattr(recorder, "powerup_history", None)
+                    if history is not None:
+                        feed.update_powerups(history)
                     if stop_error is not None:
                         feed.fail_finalize(stop_error)
                     elif stop_status in {"deleted_empty", "deleted_short"}:

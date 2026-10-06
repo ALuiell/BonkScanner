@@ -65,6 +65,8 @@ from app.prepared_recording import (
     load_and_prepare_recording,
     prepare_loaded_recording,
     replace_prepared_metadata,
+    live_preparation_matches,
+    merge_live_powerup_revision,
 )
 from app.vod_library import (
     delete_vod,
@@ -479,6 +481,7 @@ class RecordingsTab:
         self._live_follow = True
         self._live_applied_revision: int | None = None
         self._live_pending_state = None
+        self._live_prepare_request = None
         self._load_lane = LatestWinsLoader(
             schedule=lambda callback: self._marshal(callback),
             thread_name="recordings-loader",
@@ -883,6 +886,7 @@ class RecordingsTab:
             button.setEnabled(has_snapshots)
         self._refresh_vod_compare_controls()
     def load_selected_vod(self, path):
+        self._live_prepare_request = None
         path = Path(path)
         state = self._library.state_for(path)
         self._loaded_vod = None
@@ -1057,11 +1061,29 @@ class RecordingsTab:
     def _submit_live_state(self, state) -> None:
         if state is None:
             return
+        prepared = self._prepared_recording
+        if (state.status == RECORDING and prepared is not None
+                and prepared.vod.snapshots is state.snapshots
+                and Path(prepared.vod.metadata.path).resolve() == state.path.resolve()
+                and prepared.series_signature == self._recording_model_keys()
+                and prepared.cap_signature == checked_timeline_caps(self._cap_checkboxes)):
+            self._loaded_vod = state.loaded_vod
+            self._prepared_recording = merge_live_powerup_revision(prepared, state)
+            self._live_applied_revision = state.revision
+            self._live_pending_state = None
+            visible_index = (self._requested_snapshot_index if self._snapshot_throttle.has_pending
+                             else self._snapshot_index)
+            self._refresh_powerup_timeline(visible_index or 0)
+            self._refresh_live_controls()
+            return
         path = state.path.resolve()
         old_index = self._snapshot_index
-        was_finalized = state.status in {FINALIZED, FINALIZE_FAILED}
         keys = self._recording_model_keys()
         cap_keys = checked_timeline_caps(self._cap_checkboxes)
+        if live_preparation_matches(getattr(self, "_live_prepare_request", None), state, keys, cap_keys):
+            return
+        request = (state, keys, cap_keys)
+        self._live_prepare_request = request
 
         def load(_state, cancel_event, publish_progress):
             return prepare_loaded_recording(
@@ -1074,13 +1096,19 @@ class RecordingsTab:
             )
 
         def finish(prepared, error) -> None:
+            if self._live_prepare_request is request:
+                self._live_prepare_request = None
             if error is not None or prepared is None:
                 if error is not None:
                     _set_text(self._status_label, f"Could not sync recording: {error}")
                 return
             newest = self._library.state_for(path)
+            current_state = state
             if newest is not None and newest.revision != prepared.revision:
-                return
+                if newest.status == DISCARDED or newest.snapshots is not prepared.vod.snapshots:
+                    return
+                prepared = merge_live_powerup_revision(prepared, newest)
+                current_state = newest
             if self._loaded_vod is not None and Path(self._loaded_vod.metadata.path).resolve() != path:
                 return
             self._loading_path = path
@@ -1088,10 +1116,14 @@ class RecordingsTab:
             self._loaded_vod = prepared.vod
             if not prepared.vod.snapshots:
                 index = None
-            elif self._live_follow and not was_finalized:
+            elif self._live_follow and current_state.status == RECORDING:
                 index = len(prepared.vod.snapshots) - 1
             else:
-                index = min(max(int(old_index or 0), 0), len(prepared.vod.snapshots) - 1)
+                current_index = (self._requested_snapshot_index if self._snapshot_throttle.has_pending
+                                 else self._snapshot_index)
+                if current_index is None:
+                    current_index = old_index
+                index = min(max(int(current_index or 0), 0), len(prepared.vod.snapshots) - 1)
             self._snapshot_index = index
             self._requested_snapshot_index = index
             self._live_applied_revision = prepared.revision
@@ -1099,11 +1131,11 @@ class RecordingsTab:
             self.refresh_loaded_vod_ui(prepared=prepared)
             self._set_vod_loading_state(False)
             self._refresh_live_controls()
-            if state.status == FINALIZE_FAILED:
+            if current_state.status == FINALIZE_FAILED:
                 _set_text(
                     self._status_label,
                     "Finalization failed · data preserved in memory"
-                    + (f" · {state.detail}" if state.detail else ""),
+                    + (f" · {current_state.detail}" if current_state.detail else ""),
                 )
 
         def progress(update) -> None:
@@ -1370,6 +1402,8 @@ class RecordingsTab:
         metadata = getattr(self._loaded_vod, "metadata", None)
         if metadata is not None and self._is_live_path(metadata.path):
             self._live_follow = False
+            if self._scrubber is not None:
+                self._scrubber.set_live_position(None)
             self._refresh_live_controls()
         index = min(max(int(round(float(value))), 0), len(self._loaded_vod.snapshots) - 1)
         # With nothing queued the rendered index *is* the truth, and comparing
@@ -1384,6 +1418,7 @@ class RecordingsTab:
             else self._snapshot_index
         )
         if current == index:
+            self._refresh_powerup_timeline(index)
             return
         self._requested_snapshot_index = index
         # Immediate and cheap, so the caption tracks the drag; the full
@@ -1413,6 +1448,46 @@ class RecordingsTab:
             _set_text(self._legend_label, series)
             _set_text(self._legend_meta_label, meta)
         self._refresh_compare_hint()
+        self._refresh_powerup_timeline(index)
+
+    def _refresh_powerup_timeline(self, index: int) -> None:
+        from core.powerup_history import POWERUPS_SERIES
+        from projections.powerup_history import PowerupProjection
+        row = getattr(self, "_powerup_row", None)
+        if row is None:
+            return
+        enabled = any(POWERUPS_SERIES in slot for slot in self._slots)
+        row.setVisible(enabled and self._loaded_vod is not None)
+        vod = self._loaded_vod
+        if vod is None or not vod.snapshots:
+            if self._scrubber is not None:
+                self._scrubber.set_powerups(None)
+            return
+        prepared = self._prepared_recording
+        projection = prepared.powerups if prepared is not None else PowerupProjection(vod.powerup_history)
+        if projection is None:
+            projection = PowerupProjection(vod.powerup_history)
+        snapshot = vod.snapshots[min(max(index, 0), len(vod.snapshots) - 1)]
+        capture = snapshot.captured_at
+        axis = formatting._snapshot_compare_time(snapshot) or 0.0
+        live_tail = (enabled and self._live_follow and self._compare_start_index is None
+                     and self._is_live_path(vod.metadata.path)
+                     and index == len(vod.snapshots) - 1 and bool(projection.observations))
+        if live_tail:
+            capture, axis = projection.latest_capture, projection.latest_axis
+            _set_text(self._position_label,
+                      f"{index + 1} / {len(vod.snapshots)} · LIVE {formatting.format_elapsed_time(axis)}")
+        pin = self._compare_start_index
+        other = vod.snapshots[pin] if pin is not None and 0 <= pin < len(vod.snapshots) else None
+        row.set_state(projection, capture, other.captured_at if other is not None else None,
+                      axis_a=axis, axis_b=formatting._snapshot_compare_time(other) if other is not None else None)
+        if self._scrubber is not None:
+            self._scrubber.set_powerups(projection)
+            # The fast tail extends the same time axis without adding a stat snapshot.
+            if prepared is not None:
+                duration = max(prepared.axis_projection.duration, projection.latest_axis if enabled else 0.0)
+                self._scrubber.set_projection(build_axis_projection(vod.snapshots, common_duration=duration))
+                self._scrubber.set_live_position(axis / max(duration, 1.0) if live_tail else None)
 
     def _position_text(self, index: int) -> str:
         if self._loaded_vod is None or not self._loaded_vod.snapshots:
@@ -1522,6 +1597,10 @@ class RecordingsTab:
     def set_vod_compare_start(self, index: int | None = None):
         if self._loaded_vod is None or not self._loaded_vod.snapshots:
             return
+        path = getattr(getattr(self._loaded_vod, "metadata", None), "path", None)
+        if path is not None and self._is_live_path(path):
+            self._live_follow = False
+            self._refresh_live_controls()
         if index is None:
             index = self._snapshot_index
         if index is None:
@@ -1668,7 +1747,12 @@ class RecordingsTab:
         )
         self.refresh_vods_list()
     def _clear_loaded_vod_selection(self) -> None:
+        self._live_prepare_request = None
         self._loaded_vod = None
+        row = getattr(self, "_powerup_row", None)
+        if row is not None:
+            row.hide()
+            self._scrubber.set_powerups(None)
         self._snapshot_index = None
         self._snapshot_throttle.cancel()
         self._requested_snapshot_index = None
@@ -2195,6 +2279,7 @@ class RecordingsTab:
         self._reprepare_loaded_recording()
 
     def _reprepare_loaded_recording(self) -> None:
+        self._live_prepare_request = None
         vod = self._loaded_vod
         if vod is None:
             return
@@ -2379,6 +2464,9 @@ class RecordingsTab:
         self._scrubber.indexChanged.connect(self.on_scrub_index_changed)
         self._scrubber.pinChanged.connect(self.on_scrub_pin_changed)
         vods_detail_layout.addWidget(self._scrubber)
+        from ui.powerup_timeline import PowerupTimelineRow
+        self._powerup_row = PowerupTimelineRow()
+        vods_detail_layout.addWidget(self._powerup_row)
         legend_row = QHBoxLayout()
         legend_row.setContentsMargins(0, 0, 0, 0)
         legend_row.setSpacing(8)

@@ -75,6 +75,9 @@ class RecordingScrubber(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._model = model_module.ScrubberModel(count=0)
+        self._powerups = None
+        self._powerup_hits = ()
+        self._live_position = None
         self._projection = TimelineAxisProjection((), (), 1.0, AXIS_PROGRESS)
         self._slots: tuple[tuple[str, ...], ...] = model_module.DEFAULT_SLOTS
         self._index = 0
@@ -103,6 +106,23 @@ class RecordingScrubber(QWidget):
 
     # -- state ------------------------------------------------------------
 
+    def set_powerups(self, projection) -> None:
+        if projection is self._powerups:
+            return
+        self._powerups = projection
+        self._invalidate_static_layer()
+        self.update()
+
+    def set_live_position(self, position) -> None:
+        if position == self._live_position:
+            return
+        self._live_position = position
+        self.update()
+
+    def _playhead_position(self):
+        return (self._live_position if self._live_position is not None
+                else self._projection.positions[self._index])
+
     @property
     def model(self) -> model_module.ScrubberModel:
         return self._model
@@ -114,6 +134,7 @@ class RecordingScrubber(QWidget):
         projection: TimelineAxisProjection | None = None,
     ) -> None:
         self._model = model
+        self._live_position = None
         if projection is None or len(projection.positions) != model.count:
             denominator = max(model.count - 1, 1)
             positions = tuple(index / denominator for index in range(model.count))
@@ -205,6 +226,10 @@ class RecordingScrubber(QWidget):
             return
         index = min(max(int(index), 0), self._model.count - 1)
         if index == self._index:
+            if emit and self._live_position is not None:
+                self._live_position = None
+                self.update()
+                self.indexChanged.emit(index)
             return
         self._index = index
         self.update()
@@ -303,6 +328,9 @@ class RecordingScrubber(QWidget):
         for glyph in self._cached_markers:
             if glyph.hit_rect.contains(point):
                 return glyph.tooltip
+        for rect, text in self._powerup_hits:
+            if rect.contains(point):
+                return text
         return ""
 
     def keyPressEvent(self, event) -> None:
@@ -393,6 +421,12 @@ class RecordingScrubber(QWidget):
         self._paint_stage_bands(painter, track)
         self._paint_caps(painter)
         self._paint_series(painter)
+        self._powerup_hits = ()
+        if model_module.POWERUPS_SERIES in self.series_keys:
+            from ui.powerup_timeline import paint_powerups
+            self._powerup_hits = paint_powerups(
+                painter, self._powerups, self._plot_rect(), self._projection.duration,
+                axis_projection=self._projection)
         self._paint_cap_labels(painter)
         self._paint_no_series_hint(painter)
         self._paint_markers(painter, track)
@@ -555,7 +589,7 @@ class RecordingScrubber(QWidget):
         says so, which is the same reason `_paint_stage_bands` announces a
         recording with no stages instead of drawing nothing.
         """
-        if self._cached_paths:
+        if self._cached_paths or model_module.POWERUPS_SERIES in self.series_keys:
             return
         painter.setPen(_MUTED_TEXT)
         painter.setFont(self._small_font())
@@ -608,8 +642,9 @@ class RecordingScrubber(QWidget):
     def _paint_segment(self, painter: QPainter, track: QRectF) -> None:
         if self._pin is None:
             return
-        left = min(self._x_of(self._pin), self._x_of(self._index))
-        right = max(self._x_of(self._pin), self._x_of(self._index))
+        playhead_x = track.left() + self._playhead_position() * track.width()
+        left = min(self._x_of(self._pin), playhead_x)
+        right = max(self._x_of(self._pin), playhead_x)
         painter.fillRect(QRectF(left, track.top(), max(right - left, 1.0), track.height()), _SEGMENT_FILL)
         painter.setPen(QPen(_SEGMENT_EDGE, 1.0))
         painter.drawLine(left, track.top(), left, track.bottom())
@@ -635,7 +670,7 @@ class RecordingScrubber(QWidget):
         paint_playhead(
             painter,
             track,
-            self._projection.positions[self._index],
+            self._playhead_position(),
             color=_PLAYHEAD,
             label="A",
             font=self._small_font(),

@@ -140,6 +140,7 @@ class CompareRunsTimeline(QWidget):
         self._series_keys: tuple[str, ...] = ()
         self._cap_keys: tuple[str, ...] = ()
         self._shared_scales: dict[str, float] = {}
+        self._powerups = {"a": None, "b": None}
         self._stage_deltas: dict[int, float | None] = {}
         self._position = 0.0
         self._common_duration = 1.0
@@ -266,6 +267,7 @@ class CompareRunsTimeline(QWidget):
 
     def clear_lane(self, side: str) -> None:
         """Clear one side while preserving the other side's prepared model."""
+        self._powerups[side] = None
         class _EmptyVod:
             snapshots = ()
 
@@ -313,6 +315,15 @@ class CompareRunsTimeline(QWidget):
         if emit:
             self.positionChanged.emit(value)
 
+    def set_powerups(self, side, projection) -> None:
+        if self._powerups[side] is projection:
+            return
+        self._powerups[side] = projection
+        self._reproject()
+        self._data_token += 1
+        self._cache_key = None
+        self.update()
+
     def nearest_indices(self, position: float | None = None) -> tuple[int | None, int | None]:
         position = self._position if position is None else max(0.0, min(1.0, float(position)))
         return self._nearest_index(self._lane_a, position), self._nearest_index(self._lane_b, position)
@@ -333,6 +344,8 @@ class CompareRunsTimeline(QWidget):
         common_duration = max(
             self._lane_a.times[-1] if self._lane_a.times else 0.0,
             self._lane_b.times[-1] if self._lane_b.times else 0.0,
+            *(projection.latest_axis for projection in self._powerups.values()
+              if projection is not None and scrubber_model.POWERUPS_SERIES in self._series_keys),
             1.0,
         )
         self._common_duration = common_duration
@@ -473,9 +486,23 @@ class CompareRunsTimeline(QWidget):
             self._paint_stages(painter, lane, rect, stage_color, side)
             self._paint_caps(painter, lane, rect)
             self._paint_series(painter, lane, rect)
+            if scrubber_model.POWERUPS_SERIES in self._series_keys:
+                from ui.powerup_timeline import paint_powerups
+                from projections.timeline_axis import TimelineAxisProjection
+                plot = rect.adjusted(2.0, self._stage_label_height() + 3.0,
+                                     -2.0, -(self._marker_height() + 4.0))
+                projection = TimelineAxisProjection(lane.times, lane.positions,
+                                                    self._common_duration, self._axis_mode)
+                hits.extend(paint_powerups(painter, self._powerups[side.lower()], plot,
+                                          self._common_duration, axis_projection=projection))
             hits.extend(self._paint_markers(painter, lane, rect))
-            if self._axis_mode == AXIS_TIME and lane.positions and lane.positions[-1] < 0.999:
-                start = self._x(rect, lane.positions[-1])
+            powerups = self._powerups[side.lower()]
+            lane_end = max(lane.times[-1] if lane.times else 0.0,
+                           powerups.latest_axis if powerups is not None
+                           and scrubber_model.POWERUPS_SERIES in self._series_keys else 0.0)
+            end_position = min(1.0, lane_end / max(self._common_duration, 1.0))
+            if self._axis_mode == AXIS_TIME and lane.positions and end_position < 0.999:
+                start = self._x(rect, end_position)
                 painter.fillRect(
                     QRectF(start, rect.top(), rect.right() - start, rect.height()),
                     ENDED,

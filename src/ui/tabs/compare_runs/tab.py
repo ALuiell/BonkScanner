@@ -62,7 +62,8 @@ from PySide6.QtWidgets import (
 from app import config
 from app.active_recording_feed import DISCARDED, FINALIZE_FAILED, FINALIZED, RECORDING
 from app.latest_wins_loader import LatestWinsLoader
-from app.prepared_recording import load_and_prepare_recording, prepare_loaded_recording
+from app.prepared_recording import (load_and_prepare_recording, prepare_loaded_recording,
+                                   live_preparation_matches, merge_live_powerup_revision)
 from app.vod_library import (
     RECORDING_SORT_CONFIG_KEY,
     load_vod,
@@ -382,6 +383,7 @@ class CompareRunsTab:
         self._live_pending = {"a": None, "b": None}
         self._live_applied_revision = {"a": None, "b": None}
         self._live_requested_revision = {"a": None, "b": None}
+        self._live_prepare_requests = {"a": None, "b": None}
         self._compare_time_seconds: float | None = None
         # The payload last written to the diff cards, for dirty-checking. Reset
         # by `build()`, because widgets created after a write have not seen it.
@@ -781,6 +783,7 @@ class CompareRunsTab:
             self.load_compare_run(side, path_str)
 
     def load_compare_run(self, side: str, path) -> None:
+        self._live_prepare_requests[side] = None
         if self._disposed:
             return
         path = Path(path)
@@ -977,13 +980,46 @@ class CompareRunsTab:
             self._submit_compare_live_state(side, state)
 
     def _submit_compare_live_state(self, side: str, state) -> None:
+        prepared = self._prepared_sides.get(side)
+        if (state.status == RECORDING and prepared is not None
+                and prepared.vod.snapshots is state.snapshots
+                and Path(prepared.vod.metadata.path).resolve() == state.path.resolve()
+                and prepared.series_signature == self._compare_model_keys()
+                and prepared.cap_signature == self._enabled_cap_keys()):
+            updated = merge_live_powerup_revision(prepared, state)
+            self._prepared_sides[side] = updated
+            self._set_compare_run_vod(side, updated.vod, refresh_timeline=False)
+            self._time_indexes[side] = (updated.vod, updated.time_index)
+            self._live_applied_revision[side] = state.revision
+            self._live_pending[side] = None
+            if self._timeline is not None:
+                self._timeline.set_powerups(side, updated.powerups)
+                if self._live_follow:
+                    axis = updated.powerups.latest_axis
+                    self._timeline.set_position(axis / max(self._timeline.common_duration, 1.0))
+                    other = "b" if side == "a" else "a"
+                    other_vod = self._compare_run_vod(other)
+                    if other_vod is not None and other_vod.snapshots:
+                        next_index = self._timeline.nearest_indices()[1 if other == "b" else 0]
+                        if next_index != self._compare_run_index(other):
+                            self._set_compare_run_index(other, next_index)
+                            self._diff_throttle.request(self.refresh_compare_runs_ui)
+            self._refresh_compare_timeline_readout()
+            self._refresh_compare_live_controls(side)
+            return
         if self._live_requested_revision[side] == state.revision:
             return
-        self._live_requested_revision[side] = state.revision
         old_index = self._compare_run_index(side)
-        finalized = state.status in {FINALIZED, FINALIZE_FAILED}
         model_keys = self._compare_model_keys()
         cap_keys = self._enabled_cap_keys()
+        requests = getattr(self, "_live_prepare_requests", None)
+        if requests is None:
+            requests = self._live_prepare_requests = {"a": None, "b": None}
+        if live_preparation_matches(requests[side], state, model_keys, cap_keys):
+            return
+        request = (state, model_keys, cap_keys)
+        requests[side] = request
+        self._live_requested_revision[side] = state.revision
 
         def load(_state, cancel_event, publish_progress):
             return prepare_loaded_recording(
@@ -996,6 +1032,8 @@ class CompareRunsTab:
             )
 
         def finish(prepared, error) -> None:
+            if self._live_prepare_requests[side] is request:
+                self._live_prepare_requests[side] = None
             if self._live_requested_revision[side] == state.revision:
                 self._live_requested_revision[side] = None
             if self._disposed or error is not None or prepared is None:
@@ -1006,8 +1044,13 @@ class CompareRunsTab:
                     )
                 return
             newest = self._library.state_for(state.path)
+            current_state = state
             if newest is not None and newest.revision != prepared.revision:
-                return
+                if newest.status == DISCARDED or newest.snapshots is not prepared.vod.snapshots:
+                    return
+                prepared = merge_live_powerup_revision(prepared, newest)
+                current_state = newest
+            finalized = current_state.status in {FINALIZED, FINALIZE_FAILED}
             current = self._compare_run_vod(side)
             if current is not None and Path(current.metadata.path).resolve() != state.path.resolve():
                 return
@@ -1018,7 +1061,9 @@ class CompareRunsTab:
                 if self._live_follow and not finalized:
                     index = len(prepared.vod.snapshots) - 1
                 else:
-                    index = min(max(int(old_index or 0), 0), len(prepared.vod.snapshots) - 1)
+                    current_index = self._compare_run_index(side)
+                    index = min(max(int(current_index if current_index is not None else old_index or 0), 0),
+                                len(prepared.vod.snapshots) - 1)
             else:
                 index = None
             self._set_compare_run_index(side, index)
@@ -1038,11 +1083,11 @@ class CompareRunsTab:
                         )
             self.refresh_compare_runs_ui(changed_side=side)
             self._refresh_compare_live_controls(side)
-            if state.status == FINALIZE_FAILED:
+            if current_state.status == FINALIZE_FAILED:
                 _set_text(
                     self._compare_run_widget(side, "status_label"),
                     "Finalization failed · data preserved in memory"
-                    + (f" · {state.detail}" if state.detail else ""),
+                    + (f" · {current_state.detail}" if current_state.detail else ""),
                 )
 
         if callable(self._schedule):
@@ -1215,6 +1260,7 @@ class CompareRunsTab:
         return getattr(self, f"_run_{side}_items_view")
 
     def swap_compare_runs(self):
+        self._live_prepare_requests = {"a": None, "b": None}
         self._vod_a, self._vod_b = self._vod_b, self._vod_a
         self._index_a, self._index_b = (
             self._index_b,
@@ -1262,6 +1308,34 @@ class CompareRunsTab:
     def _refresh_compare_timeline_readout(self) -> None:
         self._refresh_compare_timeline_position_label()
         self._refresh_compare_timeline_legend()
+        self._refresh_powerup_timeline_rows()
+
+    def _refresh_powerup_timeline_rows(self) -> None:
+        from core.powerup_history import POWERUPS_SERIES
+        from projections.powerup_history import PowerupProjection
+        enabled = any(POWERUPS_SERIES in slot for slot in self._series_slots)
+        for side, row in getattr(self, "_powerup_rows", {}).items():
+            vod = self._compare_run_vod(side)
+            row.setVisible(enabled and not self._timeline_compact and vod is not None)
+            if vod is None:
+                if self._timeline is not None:
+                    self._timeline.set_powerups(side, None)
+                continue
+            prepared = self._prepared_sides.get(side)
+            projection = prepared.powerups if prepared is not None else None
+            if projection is None:
+                projection = PowerupProjection(getattr(vod, "powerup_history", None))
+            if self._timeline is not None:
+                self._timeline.set_powerups(side, projection)
+            snapshot = self._compare_run_snapshot(side)
+            if snapshot is None:
+                row.set_state(projection, 0.0)
+                continue
+            capture = snapshot.captured_at
+            axis = formatting._snapshot_compare_time(snapshot) or 0.0
+            if self._live_follow and self._is_live_path(vod.metadata.path) and projection.observations:
+                capture, axis = projection.latest_capture, projection.latest_axis
+            row.set_state(projection, capture, axis_a=axis)
 
     def _refresh_compare_timeline_position_label(self) -> None:
         values = []
@@ -1275,7 +1349,8 @@ class CompareRunsTab:
         legend = self._timeline_legend
         if legend is None:
             return
-        keys = tuple(dict.fromkeys(key for slot in self._series_slots for key in slot))
+        keys = tuple(dict.fromkeys(key for slot in self._series_slots for key in slot
+                                   if key != scrubber_model.POWERUPS_SERIES))
         legend.set_keys(keys)
         snapshot_a = self._compare_run_snapshot("a")
         snapshot_b = self._compare_run_snapshot("b")
@@ -1352,6 +1427,7 @@ class CompareRunsTab:
             self._timeline.set_compact(compact)
         if self._timeline_legend is not None:
             self._timeline_legend.setVisible(not compact)
+        self._refresh_powerup_timeline_rows()
 
     def _set_series_slot(self, slot_index: int, keys) -> None:
         try:
@@ -1371,6 +1447,8 @@ class CompareRunsTab:
             self._reprepare_compare_side(side)
 
     def _reprepare_compare_side(self, side: str) -> None:
+        self._live_prepare_requests[side] = None
+        self._live_requested_revision[side] = None
         vod = self._compare_run_vod(side)
         if vod is None:
             return
@@ -2165,7 +2243,9 @@ class CompareRunsTab:
     def _set_compare_run_vod(
         self, side: str, vod, *, refresh_timeline: bool = True
     ) -> None:
-        if self._compare_run_vod(side) is not vod:
+        current = self._compare_run_vod(side)
+        if current is not vod and not (
+                current is not None and vod is not None and current.snapshots is vod.snapshots):
             self._invalidate_compare_runs_diff_cache()
         if side == "a":
             self._vod_a = vod
@@ -2655,6 +2735,10 @@ class CompareRunsTab:
         self._timeline.set_compact(self._timeline_compact)
         self._timeline.positionChanged.connect(self.on_compare_timeline_position_changed)
         timeline_layout.addWidget(self._timeline)
+        from ui.powerup_timeline import PowerupTimelineRow
+        self._powerup_rows = {side: PowerupTimelineRow(side=side.upper()) for side in ("a", "b")}
+        for row in self._powerup_rows.values():
+            timeline_layout.addWidget(row)
         self._timeline_legend = CompareRunsTimelineLegend()
         # Parent first, then show. `setVisible(True)` on a widget that has no
         # parent yet makes it a top-level window, so building the UI flashed a

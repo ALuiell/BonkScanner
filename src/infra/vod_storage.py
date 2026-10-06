@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 import json
 from math import isfinite
@@ -27,14 +27,16 @@ from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.weapon_tracker import WEAPON_TRACKER_METRIC_ORDER, calculate_weapon_tracker_row
 from core.vod_capture import VodCapturePayload
+from core.powerup_history import PowerupHistory, PowerupObservation
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, ChargeShrineSnapshot, ChargeShrineStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
+# 12 adds independent power-up observations on the effect and timeline clocks.
 # 11 records frozen effective weapon values alongside the weapon-side values.
 # 10 lets the final summary publish the completed automatic name and kill count.
 # 9 added character identity metadata and the generic character-passive frame.
 # Older recordings omit newer fields and keep their original metadata name.
-VOD_FORMAT_VERSION = 11
+VOD_FORMAT_VERSION = 12
 RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
 LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -200,6 +202,7 @@ class VodMetadata:
 class LoadedVod:
     metadata: VodMetadata
     snapshots: tuple[VodSnapshot, ...]
+    powerup_history: PowerupHistory | None = None
 
 
 @dataclass(frozen=True)
@@ -360,6 +363,7 @@ class VodRecorder:
         self._character_id: int | None = None
         self._character_name: str | None = None
         self._final_duration_seconds: int | None = None
+        self.powerup_history = PowerupHistory()
 
     @property
     def interval_seconds(self) -> int:
@@ -400,6 +404,7 @@ class VodRecorder:
         self.last_snapshot_time = None
         self.snapshot_count = 0
         self.is_recording = False
+        self.powerup_history = PowerupHistory()
         try:
             self._file = self.path.open("w", encoding="utf-8")
             self._write_record(
@@ -444,6 +449,7 @@ class VodRecorder:
 
     def stop(self) -> str:
         self.is_recording = False
+        self.powerup_history = replace(self.powerup_history, finalized=True)
         status = "kept"
         if self._file is not None:
             stop_error = None
@@ -496,6 +502,27 @@ class VodRecorder:
             self._file.close()
             self._file = None
         self.is_recording = False
+
+    def observe_powerups(self, observation: PowerupObservation) -> PowerupHistory:
+        if not self.is_recording:
+            return self.powerup_history
+        observations = self.powerup_history.observations
+        if observations and observation.captured_at <= observations[-1].captured_at:
+            return self.powerup_history
+        previous = next((o for o in reversed(observations) if o.valid), None)
+        if previous is not None and observation.valid and (
+                (observation.run_id is not None and previous.run_id is not None
+                 and observation.run_id != previous.run_id)
+                or observation.my_time < previous.my_time
+                or observation.axis_time + .1 < previous.axis_time):
+            # Lifecycle will split the recording. Never attach a new run's
+            # fast sample to the old file while that transition is pending.
+            observation = PowerupObservation(observation.captured_at, None, None,
+                                             previous.run_id, False)
+        self.powerup_history = PowerupHistory(observations + (observation,))
+        # Small append-only observations; never copy full player-stat snapshots.
+        self._write_record(observation.to_record())
+        return self.powerup_history
 
     def elapsed_seconds(self) -> int:
         if self.start_time is None:
@@ -654,6 +681,7 @@ def load_vod(
     metadata_record: dict[str, Any] | None = None
     summary_record: dict[str, Any] | None = None
     snapshots: list[VodSnapshot] = []
+    powerup_observations: list[PowerupObservation] = []
     # One string pool for the whole file, dropped when this returns -- the
     # strings it shares are then held by the snapshots that use them, not by it.
     # See `_record_to_snapshot`, which is where the sharing happens.
@@ -669,12 +697,19 @@ def load_vod(
             summary_record = _normalize_vod_record(record, version)
         elif record_type == "snapshot":
             snapshots.append(_record_to_snapshot(_normalize_vod_record(record, version), pool))
+        elif record_type == "powerup_sample" and version >= 12:
+            observation = PowerupObservation.from_record(record)
+            if powerup_observations and observation.captured_at <= powerup_observations[-1].captured_at:
+                raise VodFormatError("Power-up observations must be chronological")
+            powerup_observations.append(observation)
 
     if metadata_record is None:
         raise ValueError(f"VOD metadata is missing in {path}")
 
     metadata = _metadata_from_records(path, metadata_record, summary_record, snapshots)
-    return LoadedVod(metadata=metadata, snapshots=tuple(snapshots))
+    return LoadedVod(metadata=metadata, snapshots=tuple(snapshots),
+                     powerup_history=(PowerupHistory(tuple(powerup_observations), summary_record is not None)
+                                      if version >= 12 else None))
 
 
 def load_vod_metadata(path: Path) -> VodMetadata:

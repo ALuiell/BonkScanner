@@ -96,6 +96,7 @@ def build_timeline_series_menu(
     for key in (scrubber_model.KILLS_SERIES, scrubber_model.ITEMS_SERIES):
         menu.addAction(scrubber_model.series_label(key)).triggered.connect(select((key,)))
     menu.addAction("PM + PDC").triggered.connect(select(POWERUP_PAIR))
+    menu.addAction("Power-ups").triggered.connect(select((scrubber_model.POWERUPS_SERIES,)))
     menu.addSeparator()
     allowed = set(scrubber_model.available_series_keys())
     for title, labels in TIMELINE_SERIES_GROUPS:

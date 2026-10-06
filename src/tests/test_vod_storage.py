@@ -104,7 +104,7 @@ class VodStorageTests(unittest.TestCase):
     def test_future_and_malformed_vod_versions_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             future = Path(temp_dir) / "future.jsonl"
-            future.write_text('{"type":"metadata","version":12,"name":"Run"}\n', encoding="utf-8")
+            future.write_text('{"type":"metadata","version":13,"name":"Run"}\n', encoding="utf-8")
             with self.assertRaises(UnsupportedVodVersionError):
                 load_vod(future)
 

@@ -33,6 +33,7 @@ from core.item_metadata import ITEM_RARITY_BY_NAME, normalize_item_name_for_rari
 from core.run_summary import item_counts, stage_number_sequence
 from core.stage_rules import XP_GAIN_CAP, difficulty_cap, stage_duration_seconds
 from core.stats.types import PLAYER_STAT_GROUPS
+from core.powerup_history import POWERUPS_SERIES
 
 
 #: Series that are not player stats. Keyed the same way so a slot holds one
@@ -92,10 +93,12 @@ BANISH_MARKER_COLOR = "#F0787E"
 def available_series_keys() -> tuple[str, ...]:
     """Every key a slot may hold, in the order a picker should show them."""
     stat_labels = tuple(spec.label for group in PLAYER_STAT_GROUPS for spec in group)
-    return (KILLS_SERIES, ITEMS_SERIES) + stat_labels
+    return (KILLS_SERIES, ITEMS_SERIES, POWERUPS_SERIES) + stat_labels
 
 
 def series_label(key: str) -> str:
+    if key == POWERUPS_SERIES:
+        return "Power-ups"
     return SYNTHETIC_SERIES_LABELS.get(key, key)
 
 
@@ -441,7 +444,7 @@ def build_model(snapshots, *, series_keys=()) -> ScrubberModel:
     snapshots = tuple(snapshots or ())
     if not snapshots:
         return ScrubberModel(count=0)
-    keys = tuple(dict.fromkeys(series_keys)) or tuple(
+    keys = tuple(key for key in dict.fromkeys(series_keys) if key != POWERUPS_SERIES) or tuple(
         key for slot in DEFAULT_SLOTS for key in slot
     )
     caps = {key: build_cap_steps(snapshots, key) for key in ("Difficulty", "XP Gain")}

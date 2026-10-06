@@ -626,6 +626,8 @@ class RefreshTasks:
             )
             self._memory().record_memory_success()
             accepted = self._tracker().update_powerups(snapshot)
+            if self._is_vod_recording():
+                self._capture().observe_powerups(snapshot, getattr(self._tracker(), "run_id", None))
             # The tracker always updates; only the *repaint* is gated. The
             # Powerups card is painted from the snapshot's stats by
             # `display_player_stats`, and `refresh_powerups_card` repaints it
@@ -638,6 +640,8 @@ class RefreshTasks:
         except Exception as exc:
             self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("powerups", exc)
+            if self._is_vod_recording():
+                self._capture().observe_powerups(None, getattr(self._tracker(), "run_id", None))
             if not self._pinned():
                 self._view().refresh_powerups_card()
             return False
@@ -1310,6 +1314,8 @@ class RefreshTasks:
     def _should_refresh_powerup_tracker(self) -> bool:
         if self._lifecycle().completed_run:
             return False
+        if self._is_vod_recording():
+            return True
         # The ``try``/``except`` is the guard now. It was always doing the real
         # work: an owner without the predicate raises ``AttributeError`` through
         # the injected callable and lands on exactly the branch the deleted
