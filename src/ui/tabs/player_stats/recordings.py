@@ -35,7 +35,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QComboBox,
     QCheckBox,
@@ -244,6 +245,34 @@ def _format_bytes(total: int) -> str:
             return f"{size:.0f} {unit}" if unit in ("B", "KB") else f"{size:.1f} {unit}"
         size /= 1024.0
     return f"{size:.1f} GB"
+
+
+class _RecordingTitleLabel(QLabel):
+    """Keep the full recording name while painting within the current width."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.setTextFormat(Qt.PlainText)
+        self.setToolTip(text)
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self.setToolTip(text)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        try:
+            painter.setFont(self.font())
+            painter.setPen(self.palette().color(self.foregroundRole()))
+            rect = self.contentsRect()
+            text = self.fontMetrics().elidedText(self.text(), Qt.ElideRight, rect.width())
+            painter.drawText(rect, self.alignment() | Qt.TextSingleLine, text)
+        finally:
+            if painter.isActive():
+                painter.end()
 
 
 class _NameEdit(QLineEdit):
@@ -473,6 +502,7 @@ class RecordingsTab:
         self._select_btn = None
         self._status_label = None
         self._title_label = None
+        self._record_plaque = None
         self._name_entry = None
         self._rename_btn = None
         self._cleanup_btn = None
@@ -899,6 +929,17 @@ class RecordingsTab:
             self._compare_start_index = None
             self._stage_range_anchor_index = None
             self._stage_range_anchor_number = None
+            if self._chooser_expanded and self._guided_selection_active:
+                # Settle the drawer before installing the new heading. Hiding
+                # a splitter child alone queues its resize: the old order let
+                # the new name paint once in the narrow detail, then jump.
+                self.set_recordings_chooser_expanded(
+                    False, guided=False, remember=False
+                )
+                if self._body_splitter is not None:
+                    self._body_splitter.refresh()
+                    detail = self._body_splitter.widget(1)
+                    detail.layout().activate()
             _clear_text_input(self._name_entry)
             _set_text_input(self._name_entry, prepared.vod.metadata.name)
             self.refresh_loaded_vod_ui(prepared=prepared)
@@ -911,16 +952,8 @@ class RecordingsTab:
                     + (f" · {state.detail}" if state.detail else ""),
                 )
             self.refresh_vods_list(refresh_index=False)
-            if bool(self._chooser_expanded) and bool(
-                self._guided_selection_active
-            ):
-                # Closing the drawer the app opened for you is the other half
-                # of that gesture, not a preference -- a library you pinned
-                # open yourself never reaches here, because `guided` is only
-                # set by `ensure_recordings_chooser_for_empty_selection`.
-                self.set_recordings_chooser_expanded(
-                    False, guided=False, remember=False
-                )
+            if self._record_plaque is not None:
+                self._record_plaque.layout().activate()
 
         series_keys = self._recording_model_keys()
         cap_keys = checked_timeline_caps(self._cap_checkboxes)
@@ -1938,6 +1971,7 @@ class RecordingsTab:
         """
         frame = QFrame()
         frame.setObjectName("RecordingPlaque")
+        self._record_plaque = frame
         row = QHBoxLayout(frame)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
@@ -1965,9 +1999,12 @@ class RecordingsTab:
             object_name="RecordingDetailLoadingSpinner"
         )
         self._detail_loading_spinner.setFixedSize(32, 32)
+        spinner_policy = self._detail_loading_spinner.sizePolicy()
+        spinner_policy.setRetainSizeWhenHidden(True)
+        self._detail_loading_spinner.setSizePolicy(spinner_policy)
         self._detail_loading_spinner.setVisible(False)
         title_row.addWidget(self._detail_loading_spinner)
-        self._title_label = QLabel("No recording selected")
+        self._title_label = _RecordingTitleLabel("No recording selected")
         self._title_label.setObjectName("RecordingPlaqueTitle")
         title_row.addWidget(self._title_label)
         # Same secondary action as Edit in Templates: a real shared icon and
