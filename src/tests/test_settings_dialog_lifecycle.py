@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QScrollArea, QWidget
 
@@ -204,6 +205,51 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
                 self.assertIs(self.owner._settings_dialog, dialog, cycle)
                 self.assertEqual(dialog.hotkey_entry.text(), str(config.HOTKEY))
                 dialog.reject()
+
+    def test_save_button_persists_edits_and_closes_on_each_page(self) -> None:
+        for index, page in enumerate(("general", "restart", "support", "data")):
+            with self.subTest(page=page):
+                self.owner.open_settings_dialog(page=page)
+                dialog = self.owner._settings_dialog
+                new_hotkey = f"f{index + 10}"
+                dialog.hotkey_entry.setText(new_hotkey)
+                dialog.hotkey_entry.textEdited.emit(new_hotkey)
+                QApplication.processEvents()
+
+                with patch.object(
+                    config,
+                    "save_settings_with_game_reset",
+                    return_value=config.SettingsSaveResult(True),
+                ) as persist:
+                    QTest.mouseClick(dialog.save_btn, Qt.LeftButton)
+
+                persist.assert_called_once()
+                self.assertEqual(persist.call_args.args[0]["HOTKEY"], new_hotkey)
+                self.assertEqual(config.HOTKEY, new_hotkey)
+                self.assertEqual(dialog.result(), QDialog.Accepted)
+                self.assertFalse(dialog.isVisible())
+
+    def test_failed_save_button_keeps_dialog_and_edits_open(self) -> None:
+        self.owner.open_settings_dialog()
+        dialog = self.owner._settings_dialog
+        initial_hotkey = config.HOTKEY
+        dialog.hotkey_entry.setText("f7")
+        dialog.hotkey_entry.textEdited.emit("f7")
+        QApplication.processEvents()
+
+        with patch.object(
+            config,
+            "save_settings_with_game_reset",
+            return_value=config.SettingsSaveResult(False, reason="disk unavailable"),
+        ) as persist, patch.object(type(dialog), "_show_game_reset_notice") as notice:
+            QTest.mouseClick(dialog.save_btn, Qt.LeftButton)
+
+        persist.assert_called_once()
+        notice.assert_called_once()
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.hotkey_entry.text(), "f7")
+        self.assertEqual(config.HOTKEY, initial_hotkey)
+        self.assertNotEqual(dialog.result(), QDialog.Accepted)
 
     def test_snapshot_interval_control_accepts_then_clamps_subminimum_input(self) -> None:
         self.owner.open_settings_dialog()

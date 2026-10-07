@@ -98,7 +98,7 @@ class ResetTimingSyncTests(unittest.TestCase):
         self.assertIs(dialog.settings_tabs.currentWidget(), dialog.restart_settings_page)
         with patch.object(dialog, "save", wraps=dialog.save) as save:
             dialog._on_primary_action()
-        save.assert_called_once_with(close_dialog=False)
+        save.assert_called_once_with()
 
     def test_tab_switches_preserve_reset_draft_and_refresh_game_status(self):
         self.running = True

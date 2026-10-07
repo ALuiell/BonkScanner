@@ -2024,7 +2024,7 @@ class SettingsDialog(QDialog):
         ):
             self.accept()
         else:
-            self.save(close_dialog=False)
+            self.save()
 
     def _restart_for_data_migration(self):
         if self._general_settings_dirty and not self.save(close_dialog=False):
