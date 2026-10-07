@@ -55,6 +55,9 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QSplitter,
+    QStyle,
+    QStyleOptionButton,
+    QStylePainter,
     QVBoxLayout,
     QWidget,
 )
@@ -247,6 +250,40 @@ def _format_bytes(total: int) -> str:
             return f"{size:.0f} {unit}" if unit in ("B", "KB") else f"{size:.1f} {unit}"
         size /= 1024.0
     return f"{size:.1f} GB"
+
+
+class _RecordingLibraryButton(QPushButton):
+    """Show loading inside the toggle without changing the heading layout."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.spinner = StagedLoadingSpinner(
+            object_name="RecordingDetailLoadingSpinner", parent=self
+        )
+        self.spinner.setFixedSize(32, 32)
+        self.spinner.hide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.spinner.move(
+            (self.width() - self.spinner.width()) // 2,
+            (self.height() - self.spinner.height()) // 2,
+        )
+
+    def paintEvent(self, event) -> None:
+        if not self.spinner.isVisible():
+            super().paintEvent(event)
+            return
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        # Keep the real text for the size hint and accessibility; suppress
+        # only its painting while the child spinner occupies the button.
+        option.text = ""
+        painter = QStylePainter(self)
+        try:
+            painter.drawControl(QStyle.CE_PushButton, option)
+        finally:
+            painter.end()
 
 
 class _RecordingTitleLabel(QLabel):
@@ -861,9 +898,15 @@ class RecordingsTab:
         if path_str:
             self.load_selected_vod(path_str)
     def _set_vod_loading_state(self, loading: bool) -> None:
+        splitter_sizes = (
+            self._body_splitter.sizes()
+            if self._body_splitter is not None and self._chooser_expanded
+            else None
+        )
         self._load_in_progress = bool(loading)
         if self._detail_loading_spinner is not None:
             self._detail_loading_spinner.setVisible(bool(loading))
+            self._select_btn.update()
         has_recording = not loading and self._loaded_vod is not None
         has_snapshots = bool(has_recording and self._loaded_vod.snapshots)
         active = bool(
@@ -885,6 +928,12 @@ class RecordingsTab:
         for button in self._slot_buttons:
             button.setEnabled(has_snapshots)
         self._refresh_vod_compare_controls()
+        if splitter_sizes is not None:
+            # Qt remembers the requested library width even when the detail's
+            # minimum currently squeezes it smaller. Clearing the compare hint
+            # on load releases that constraint and otherwise expands the list.
+            # Preserve the actual split across the loading-state transition.
+            self._body_splitter.setSizes(splitter_sizes)
     def load_selected_vod(self, path):
         self._live_prepare_request = None
         path = Path(path)
@@ -2072,22 +2121,14 @@ class RecordingsTab:
         # `»  6` closed, `«  6` open, the same chevron vocabulary as the
         # Templates rail. As a full-width `Recordings (6)` pill on the far
         # right it was both ~80px wider and pointing away from what it moves.
-        self._select_btn = QPushButton(f"{LIBRARY_TOGGLE_CLOSED_CHEVRON}  0")
+        self._select_btn = _RecordingLibraryButton(f"{LIBRARY_TOGGLE_CLOSED_CHEVRON}  0")
         self._select_btn.setObjectName("RecordingPlaqueLibrary")
         self._select_btn.setCheckable(True)
         self._select_btn.setCursor(Qt.PointingHandCursor)
         self._select_btn.setToolTip("Recordings library")
         self._select_btn.clicked.connect(self.toggle_recordings_chooser)
         title_row.addWidget(self._select_btn)
-        self._detail_loading_spinner = StagedLoadingSpinner(
-            object_name="RecordingDetailLoadingSpinner"
-        )
-        self._detail_loading_spinner.setFixedSize(32, 32)
-        spinner_policy = self._detail_loading_spinner.sizePolicy()
-        spinner_policy.setRetainSizeWhenHidden(True)
-        self._detail_loading_spinner.setSizePolicy(spinner_policy)
-        self._detail_loading_spinner.setVisible(False)
-        title_row.addWidget(self._detail_loading_spinner)
+        self._detail_loading_spinner = self._select_btn.spinner
         self._title_label = _RecordingTitleLabel("No recording selected")
         self._title_label.setObjectName("RecordingPlaqueTitle")
         title_row.addWidget(self._title_label)

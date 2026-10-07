@@ -23,6 +23,7 @@ class RecordingSelectionGeometryTests(unittest.TestCase):
             from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget
             from app import config
             from app.vod_library import VodLibrary
+            from app.prepared_recording import prepare_loaded_recording
             from infra.vod_storage import LoadedVod, VodMetadata, VodSnapshot
             from ui.tabs.player_stats.recordings import RecordingsTab
             from ui.styles import build_qt_app_stylesheet
@@ -103,6 +104,45 @@ class RecordingSelectionGeometryTests(unittest.TestCase):
                     assert title.text() == name, view._status_label.text()
                     assert view._chooser_expanded == (not expected_guided)
                     assert window.width() == 650
+
+            # Keep a real selection pending across event-loop turns. The
+            # populated compare hint used to constrain the detail's minimum
+            # width; clearing it on load redistributed space to the library.
+            class PendingLoad:
+                def submit(self, path, **kwargs):
+                    self.complete = kwargs['complete']
+                def dispose(self):
+                    pass
+            pending = PendingLoad()
+            view.refresh_loaded_vod_ui = original_refresh
+            view._load_lane.dispose()
+            view._load_lane = pending
+            view._schedule = lambda callback: callback()
+            for width in (650, 900, 1320, 1600, 1850):
+                window.resize(width, 700)
+                view.set_recordings_chooser_expanded(True, guided=False, remember=False)
+                view._library_width = 368
+                view._apply_library_width()
+                flush()
+                before = view._body_splitter.sizes()
+                assert view._compare_hint_label.text()
+                metadata = VodMetadata(Path('next.jsonl'), 'Next recording', '2026-10-06T12:00:00', 10, 10, 1)
+                vod = LoadedVod(metadata, (VodSnapshot(0, 0, {}),))
+                view.load_selected_vod(metadata.path)
+                flush()
+                assert view._load_in_progress
+                assert view._body_splitter.sizes() == before, (width, before, view._body_splitter.sizes())
+                assert window.width() == width
+                pending.complete(prepare_loaded_recording(vod, series_keys=view._recording_model_keys(), cap_keys=()), None)
+                flush()
+                assert not view._load_in_progress
+                assert view._body_splitter.sizes() == before, (width, before, view._body_splitter.sizes())
+                assert window.width() == width
+
+            # Loading occupies the existing toggle, leaving only the normal
+            # six-pixel layout spacing between that button and the heading.
+            assert title.x() == view._select_btn.geometry().right() + 1 + 6
+            assert view._detail_loading_spinner.parentWidget() is view._select_btn
             # Isolate native widget teardown, like test_recordings_layout.py.
             os._exit(0)
             """
