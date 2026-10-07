@@ -111,6 +111,15 @@ assert compare._powerup_rows['b'].note == 'No data'
 assert all(entry[2] == '—' for entry in compare._powerup_rows['b'].entries)
 compare._set_timeline_compact(True)
 assert compare._powerup_rows['a'].isHidden()
+# Compact retains numeric curves even with all four activity lanes enabled.
+from unittest.mock import patch
+import ui.tabs.compare_runs.timeline as timeline_module
+compare._timeline._cache_key = None
+with patch.object(timeline_module, 'build_series_path', wraps=timeline_module.build_series_path) as draw_paths:
+    compare._timeline.grab()
+assert draw_paths.call_count >= 2
+assert all(call.args[2].height() > 0 for call in draw_paths.call_args_list)
+assert len([text for rect, text in compare._timeline._marker_hits if text.startswith(('Rage', 'Shield', 'Stonks', 'Clock'))]) == 4
 compare._set_timeline_compact(False)
 assert not compare._powerup_rows['a'].isHidden()
 slots.set_slot(2, ('@powerups',))

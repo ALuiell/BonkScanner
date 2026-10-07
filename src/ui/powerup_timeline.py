@@ -13,7 +13,8 @@ from projections.powerup_history import PowerupProjection, duration_label, time_
 from ui.shared import resource_path
 
 
-def paint_powerups(painter, projection, plot, duration, *, axis_projection=None):
+def paint_powerups(painter, projection, plot, duration, *, axis_projection=None,
+                   lane_height=POWERUP_LANE_HEIGHT):
     """Paint four subdued lanes immediately above the existing event strip."""
     if projection is None:
         return ()
@@ -36,7 +37,7 @@ def paint_powerups(painter, projection, plot, duration, *, axis_projection=None)
 
     painter.save()
     painter.setClipRect(plot)
-    strip = QRectF(plot.left(), plot.bottom() - POWERUP_LANE_HEIGHT, plot.width(), POWERUP_LANE_HEIGHT)
+    strip = QRectF(plot.left(), plot.bottom() - lane_height, plot.width(), lane_height)
     painter.fillRect(strip, QColor(11, 20, 28, 80))
     painter.setPen(QPen(QColor(70, 89, 103, 90), .5))
     painter.drawLine(strip.topLeft(), strip.topRight())
@@ -46,13 +47,15 @@ def paint_powerups(painter, projection, plot, duration, *, axis_projection=None)
         x2 = plot.left() + position(span.end_axis) * plot.width()
         x1 = min(x1, plot.right() - 2.0)
         x2 = min(plot.right(), max(x1 + 2.0, x2))
-        y = plot.bottom() - 19.0 + lane * 5.0
+        y = (plot.bottom() - 19.0 + lane * 5.0 if lane_height == POWERUP_LANE_HEIGHT
+             else strip.top() + (lane + .5) * lane_height / 4)
         ink = QColor(color)
         ink.setAlphaF(.65)
-        painter.setPen(QPen(ink, 2.0, Qt.SolidLine, Qt.RoundCap))
+        painter.setPen(QPen(ink, 1.0 if lane_height < POWERUP_LANE_HEIGHT else 2.0, Qt.SolidLine, Qt.RoundCap))
         painter.drawLine(QPointF(x1, y), QPointF(x2, y))
         elapsed = duration_label(span.seconds) if span.seconds >= 1 else f"{span.seconds:.3f} s"
-        hits.append((QRectF(x1 - 2, y - 4, x2 - x1 + 4, 8),
+        hit_height = min(8.0, lane_height / 4)
+        hits.append((QRectF(x1 - 2, y - hit_height / 2, x2 - x1 + 4, hit_height),
                      f"{names[span.effect_id]}  {time_label(span.start_axis)} → "
                      f"{time_label(span.end_axis)} · {elapsed}"))
     painter.restore()

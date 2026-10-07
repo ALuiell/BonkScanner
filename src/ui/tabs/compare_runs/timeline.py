@@ -456,7 +456,7 @@ class CompareRunsTimeline(QWidget):
         painter.end()
 
     def _powerup_lane_height(self):
-        return 23.0 if scrubber_model.POWERUPS_SERIES in self._series_keys else 0.0
+        return (8.0 if self._compact else 23.0) if scrubber_model.POWERUPS_SERIES in self._series_keys else 0.0
 
     def _place_powerup_readouts(self):
         from ui.powerup_timeline import place_powerup_readout
@@ -523,7 +523,8 @@ class CompareRunsTimeline(QWidget):
                 projection = TimelineAxisProjection(lane.times, lane.positions,
                                                     self._common_duration, self._axis_mode)
                 hits.extend(paint_powerups(painter, self._powerups[side.lower()], plot,
-                                          self._common_duration, axis_projection=projection))
+                                          self._common_duration, axis_projection=projection,
+                                          lane_height=self._powerup_lane_height()))
             hits.extend(self._paint_markers(painter, lane, rect))
             powerups = self._powerups[side.lower()]
             lane_end = max(lane.times[-1] if lane.times else 0.0,
