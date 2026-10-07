@@ -932,6 +932,18 @@ QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
 }
 
 /* checkbox / radio */
+QPushButton#RollAnalyticsSource {
+    background: transparent;
+    border: 1px solid transparent;
+    color: #8A94A3;
+    padding: 9px 14px;
+}
+QPushButton#RollAnalyticsSource:hover { background-color: #161C24; color: #EDF1F5; }
+QPushButton#RollAnalyticsSource:checked {
+    background-color: #172B40;
+    border-color: #2C4B6A;
+    color: #EDF1F5;
+}
 QCheckBox, QRadioButton { spacing: 8px; color: #EDF1F5; }
 QCheckBox::indicator, QRadioButton::indicator {
     width: 16px; height: 16px; border: 1px solid #2A3542; background: #0E1217;

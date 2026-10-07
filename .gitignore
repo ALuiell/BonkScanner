@@ -12,6 +12,9 @@ vod_metadata_index.json.*.tmp
 merchant_history.jsonl
 merchant_history.jsonl.lock
 merchant_history.jsonl.broken-*
+roll_history.json
+roll_history.json.lock
+roll_history.json.*.tmp
 .bonkscanner-data.lock
 supporter_access_cache.json
 

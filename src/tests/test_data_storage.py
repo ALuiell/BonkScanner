@@ -51,6 +51,10 @@ class DataStorageTests(unittest.TestCase):
         (self.install / "merchant_history.jsonl").write_text(
             json.dumps(history) + "\n", encoding="utf-8"
         )
+        (self.install / "roll_history.json").write_text(json.dumps({
+            "v": 1, "totals": {"dice": {"30": 4}, "chaos": {"12": 3}},
+            "checkpoints": {"a" * 64: {"dice": {"30": 4}, "chaos": {"12": 3}}},
+        }) + "\n", encoding="utf-8")
         recordings = self.install / "stats_recordings"
         recordings.mkdir()
         (recordings / "run.jsonl").write_text('{"type":"metadata"}\n', encoding="utf-8")

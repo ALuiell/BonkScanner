@@ -284,6 +284,7 @@ class MegabonkApp:
                 and self.__dict__.get("runtime") is not None
                 and self.runtime.coordinator.merchant_analytics.collection_available()
             ),
+            roll_analytics_collection_active=self.roll_analytics_collection_active,
             log=self.log,
             stop_hotkeys=lambda: self._run_control.stop_hotkeys(),
             stop_in_game_overlay=self.shutdown_in_game_overlay,
@@ -426,6 +427,15 @@ class MegabonkApp:
     def has_premium_access(self) -> bool:
         """Single runtime gate shared by all Premium capabilities."""
         return self.supporter_access.has_premium_access()
+
+    def roll_analytics_collection_active(self) -> bool:
+        runtime = self.__dict__.get("runtime")
+        if runtime is None:
+            return False
+        return runtime.coordinator.roll_analytics.set_collection_active(
+            bool(getattr(config, "ROLL_ANALYTICS_ENABLED", False))
+            and self.has_premium_access()
+        )
 
     @staticmethod
     def _require_runtime_port(name: str, value):

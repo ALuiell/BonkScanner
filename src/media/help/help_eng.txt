@@ -34,6 +34,7 @@ Left side:
 Right side:
 - `Logs` - scanner activity, warnings, wait states, and match results.
 - `Session Stats` - session time, reroll count, RPM, best and worst maps, and averages per target.
+- `Session Stats → Roll Analytics` - lifetime confirmed stat rolls from Dice passive and Chaos Tome, in separate tabs. `Collect roll analytics` requires Premium and works without recording a run. Saved history remains viewable without Premium. Collection is off by default; pauses exclude new rolls. Percentages describe your saved rolls, not the chance of the next roll.
 - `Live Stats` - current run stats, items, weapons, tomes, and recording controls.
 - `Recordings` - saved recordings viewer with timeline, rename, delete, and cleanup actions.
 - `Compare Runs` - side-by-side comparison of two saved runs with synced in-game time and a central difference panel.

@@ -49,6 +49,7 @@ def _ports(
     *,
     scanner_result=True,
     merchant_analytics_active=False,
+    roll_analytics_active=False,
 ) -> AppRuntimePorts:
     def with_deadline(name, result=None):
         def callback(deadline):
@@ -80,6 +81,7 @@ def _ports(
         sync_in_game_kps=lambda: None,
         refresh_session_tracked_items=lambda: None,
         merchant_analytics_collection_active=lambda: merchant_analytics_active,
+        roll_analytics_collection_active=lambda: roll_analytics_active,
         log=lambda *_args, **_kwargs: None,
         stop_hotkeys=lambda: calls.append("hotkeys"),
         stop_in_game_overlay=with_deadline("in_game_overlay", ()),
@@ -91,6 +93,15 @@ def _ports(
 
 
 class AppRuntimeTests(unittest.TestCase):
+    def test_roll_collection_demands_context_without_live_tab_or_recording(self):
+        runtime = AppRuntime(_Coordinator([]), _ports([], [], roll_analytics_active=True))
+        with patch("app.runtime.in_game_overlay_requires_player_stats_refresh", return_value=False), patch(
+            "app.runtime.config.AUTO_START_RECORDING", False
+        ):
+            self.assertTrue(runtime._player_stats_refresh_required())
+            runtime.run_lifecycle = SimpleNamespace(completed_run=True)
+            self.assertFalse(runtime._player_stats_refresh_required())
+
     def test_merchant_analytics_requests_player_context_only_while_active(self) -> None:
         inactive = AppRuntime(_Coordinator([]), _ports([], []))
         active = AppRuntime(

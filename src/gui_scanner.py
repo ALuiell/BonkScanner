@@ -91,6 +91,9 @@ class Scanner:
         toggle_merchant_analytics: Callable[[bool], bool] = lambda _enabled: False,
         merchant_analytics_status: Callable[[], Any] = lambda: None,
         has_premium_access: Callable[[], bool] = lambda: False,
+        open_roll_analytics_dialog: Callable[[], None] = lambda: None,
+        toggle_roll_analytics: Callable[[bool], bool] = lambda _enabled: False,
+        roll_analytics_status: Callable[[], Any] = lambda: None,
     ) -> None:
         self._coordinator = coordinator
         self._run_control = run_control
@@ -108,6 +111,9 @@ class Scanner:
         self._toggle_merchant_analytics = toggle_merchant_analytics
         self._merchant_analytics_status = merchant_analytics_status
         self._has_premium_access = has_premium_access
+        self._open_roll_analytics_dialog = open_roll_analytics_dialog
+        self._toggle_roll_analytics = toggle_roll_analytics
+        self._roll_analytics_status = roll_analytics_status
         self._is_recording = is_recording
         self._refresh_timeline = refresh_timeline
         self._is_shutting_down = is_shutting_down
@@ -766,6 +772,15 @@ class Scanner:
                 session_recorded=int(getattr(analytics_status, "session_recorded", 0)),
                 error=getattr(analytics_status, "error", None),
             )
+        set_roll_status = getattr(view, "set_roll_analytics_status", None)
+        if callable(set_roll_status):
+            status = self._roll_analytics_status()
+            set_roll_status(
+                enabled=bool(getattr(config, "ROLL_ANALYTICS_ENABLED", False)),
+                premium=bool(self._has_premium_access()),
+                session_recorded=int(getattr(status, "session_recorded", 0)),
+                error=getattr(status, "error", None),
+            )
         self._refresh_session_tracked_item_stats_ui()
         view.set_map_highlights(
             best_stats=best_stats,
@@ -1217,6 +1232,8 @@ class Scanner:
             on_open_tracked_item_settings=self._open_tracked_item_settings_dialog,
             on_open_merchant_analytics=self._open_merchant_analytics_dialog,
             on_toggle_merchant_analytics=self._toggle_merchant_analytics,
+            on_open_roll_analytics=self._open_roll_analytics_dialog,
+            on_toggle_roll_analytics=self._toggle_roll_analytics,
         )
         self.tab_stats = self._stats_view.build()
         # See the slot's comment: two callers outside this file read it as
@@ -1273,6 +1290,9 @@ def build_scanner(
             app, enabled
         ),
         merchant_analytics_status=coordinator.merchant_analytics.status,
+        open_roll_analytics_dialog=lambda: _open_roll_analytics_for_app(app),
+        toggle_roll_analytics=lambda enabled: _toggle_roll_analytics_for_app(app, enabled),
+        roll_analytics_status=coordinator.roll_analytics.status,
         has_premium_access=lambda: app.has_premium_access(),
         is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording),
         refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(
@@ -1297,3 +1317,13 @@ def _toggle_merchant_analytics_for_app(app: Any, enabled: bool) -> bool:
     from ui.dialogs.merchant_analytics import set_merchant_analytics_collection
 
     return set_merchant_analytics_collection(app, enabled, parent=app.window)
+
+
+def _open_roll_analytics_for_app(app: Any) -> None:
+    from ui.dialogs.roll_analytics import show_roll_analytics
+    show_roll_analytics(app)
+
+
+def _toggle_roll_analytics_for_app(app: Any, enabled: bool) -> bool:
+    from ui.dialogs.roll_analytics import set_roll_analytics_collection
+    return set_roll_analytics_collection(app, enabled, parent=app.window)

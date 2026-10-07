@@ -24,6 +24,7 @@ from app.refresh_coordinator import RefreshCoordinator
 from app.settings import ConfigBuildProgressionSettings, ConfigOverlaySettings, ConfigRecordingSettings
 from app.build_progression import BuildProgressionService, active_definition_from_config
 from app.merchant_analytics import MerchantAnalyticsService
+from app.roll_analytics import RollAnalyticsService
 from app.snapshot_store import LiveSnapshotStore
 from infra.overlay_server import LocalOverlayServer, OverlayStateStore
 from infra.vod_storage import VodRecorder
@@ -117,6 +118,7 @@ class AppCoordinator:
             settings=self.recording_settings,
         )
         self.merchant_analytics = MerchantAnalyticsService()
+        self.roll_analytics = RollAnalyticsService()
 
         # Memory-client instances (step 12b). The coordinator owns their storage;
         # MegabonkApp reaches them through property delegation. Creation and close
@@ -213,6 +215,11 @@ class AppCoordinator:
         """
         self.stop_refresh_loop()
         errors: list[tuple[str, str]] = []
+
+        try:
+            self.roll_analytics.close()
+        except Exception as exc:
+            errors.append(("roll_analytics", f"{type(exc).__name__}: {exc}"))
 
         try:
             self.merchant_analytics.close()

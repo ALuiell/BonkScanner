@@ -54,6 +54,7 @@ class AppRuntimePorts:
     stop_twitch: Callable[..., Any]
     wait_background_threads: Callable[..., Any]
     close_overlay_server: Callable[..., Any]
+    roll_analytics_collection_active: Callable[[], bool] = lambda: False
 
 
 class AppRuntime:
@@ -124,6 +125,8 @@ class AppRuntime:
             refresh_session_tracked_items=ports.refresh_session_tracked_items,
             refresh_required=self._player_stats_refresh_required,
             build_progression_service=lambda: coordinator.build_progression_service,
+            roll_analytics_service=lambda: coordinator.roll_analytics,
+            roll_analytics_collection_active=ports.roll_analytics_collection_active,
         )
         self.refresh_coordinator = build_refresh_coordinator(
             self.refresh_tasks,
@@ -279,6 +282,7 @@ class AppRuntime:
             or self.vod_capture.is_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
             or self.ports.merchant_analytics_collection_active()
+            or self.ports.roll_analytics_collection_active()
             or any(
                 self.ports.overlay_widget_refresh_active(widget_id)
                 for widget_id in (

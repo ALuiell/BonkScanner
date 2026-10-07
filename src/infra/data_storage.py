@@ -35,12 +35,13 @@ DATA_LOCK_NAME = ".bonkscanner-data.lock"
 
 PROFILE_FILES = CONFIG_FILE_NAMES + (
     "merchant_history.jsonl",
+    "roll_history.json",
     "vod_metadata_index.json",
 )
 PROFILE_DIRECTORIES = ("stats_recordings", "vods")
 MIGRATION_FILES = PROFILE_FILES + ("supporter_access_cache.json",)
 MIGRATION_DIRECTORIES = PROFILE_DIRECTORIES + ("logs",)
-LEGACY_CLEANUP_FILES = MIGRATION_FILES + ("merchant_history.jsonl.lock",)
+LEGACY_CLEANUP_FILES = MIGRATION_FILES + ("merchant_history.jsonl.lock", "roll_history.json.lock")
 
 
 class StorageError(RuntimeError):
@@ -768,6 +769,13 @@ def _perform_pending_migration(
         for config_name in CONFIG_FILE_NAMES:
             _validate_config(source / config_name)
         _validate_merchant_history(source / "merchant_history.jsonl")
+        roll_path = source / "roll_history.json"
+        if roll_path.exists():
+            from infra.roll_history_store import validate_roll_history
+            try:
+                validate_roll_history(json.loads(roll_path.read_text(encoding="utf-8")))
+            except (OSError, ValueError, TypeError, UnicodeError) as exc:
+                raise StorageError(f"The roll history could not be validated: {exc}") from exc
         sources = _migration_sources(source)
         before = {relative: _file_signature(path) for path, relative in sources}
 

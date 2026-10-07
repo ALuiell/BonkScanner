@@ -104,10 +104,14 @@ class SessionStatsTab:
         on_open_tracked_item_settings: Callable[[], None],
         on_open_merchant_analytics: Callable[[], None] = lambda: None,
         on_toggle_merchant_analytics: Callable[[bool], bool] = lambda _enabled: False,
+        on_open_roll_analytics: Callable[[], None] = lambda: None,
+        on_toggle_roll_analytics: Callable[[bool], bool] = lambda _enabled: False,
     ) -> None:
         self._on_open_tracked_item_settings = on_open_tracked_item_settings
         self._on_open_merchant_analytics = on_open_merchant_analytics
         self._on_toggle_merchant_analytics = on_toggle_merchant_analytics
+        self._on_open_roll_analytics = on_open_roll_analytics
+        self._on_toggle_roll_analytics = on_toggle_roll_analytics
 
         self._root = None
         self._kpi_values: dict[str, QLabel] = {}
@@ -131,6 +135,8 @@ class SessionStatsTab:
         self._tracked_signature: tuple | None = None
         self._merchant_analytics_collect = None
         self._merchant_analytics_locked = None
+        self._roll_analytics_collect = None
+        self._roll_analytics_locked = None
 
         # What the scanner has handed over so far, so a setter that only knows
         # part of the state can re-render the whole strip.
@@ -273,6 +279,44 @@ class SessionStatsTab:
         )
         analytics.addWidget(open_analytics)
         layout.addLayout(analytics)
+        layout.addSpacing(10)
+        rolls = QHBoxLayout()
+        rolls.setContentsMargins(0, 0, 0, 0)
+        rolls.setSpacing(12)
+        self._roll_analytics_collect = QCheckBox("Collect roll analytics")
+        self._roll_analytics_collect.toggled.connect(self._toggle_roll_analytics)
+        rolls.addWidget(self._roll_analytics_collect, 1)
+        self._roll_analytics_collect.hide()
+        locked = QFrame()
+        locked.setObjectName("PremiumFeatureLocked")
+        self._roll_analytics_locked = locked
+        locked_layout = QVBoxLayout(locked)
+        locked_layout.setContentsMargins(14, 12, 14, 12)
+        locked_layout.setSpacing(4)
+        title = QLabel("Roll Analytics")
+        title.setObjectName("PremiumFeatureLockedTitle")
+        locked_layout.addWidget(title)
+        note = QLabel("Lifetime stat rolls from Dice passive and Chaos Tome.")
+        note.setObjectName("PremiumFeatureNote")
+        note.setWordWrap(True)
+        locked_layout.addWidget(note)
+        status = QHBoxLayout()
+        status.setContentsMargins(0, 8, 0, 0)
+        status.setSpacing(6)
+        icon = QLabel()
+        icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
+        status.addWidget(icon)
+        label = QLabel("Requires Premium")
+        label.setObjectName("PremiumFeatureLockedStatus")
+        status.addWidget(label)
+        status.addStretch(1)
+        locked_layout.addLayout(status)
+        rolls.addWidget(locked, 1)
+        button = QPushButton("Roll Analytics")
+        button.setToolTip("Open analytics. Saved history remains available without Premium.")
+        button.clicked.connect(lambda _checked=False: self._on_open_roll_analytics())
+        rolls.addWidget(button)
+        layout.addLayout(rolls)
         return card
 
     def _build_map_cards(self) -> QHBoxLayout:
@@ -410,6 +454,29 @@ class SessionStatsTab:
     def _toggle_merchant_analytics(self, enabled: bool) -> None:
         actual = bool(self._on_toggle_merchant_analytics(bool(enabled)))
         checkbox = self._merchant_analytics_collect
+        if checkbox is not None and checkbox.isChecked() != actual:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(actual)
+            checkbox.blockSignals(False)
+
+    def set_roll_analytics_status(self, *, enabled, premium, session_recorded=0, error=None):
+        checkbox = self._roll_analytics_collect
+        if checkbox is not None:
+            text = ("Collection paused" if error else
+                    f"Active · {session_recorded:,} rolls recorded this session" if enabled and premium else
+                    "Collection paused · Premium required" if enabled else "Collection off")
+            checkbox.setToolTip(error or text)
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(enabled))
+            checkbox.setEnabled(bool(premium))
+            checkbox.setVisible(bool(premium))
+            checkbox.blockSignals(False)
+        if self._roll_analytics_locked is not None:
+            self._roll_analytics_locked.setVisible(not premium)
+
+    def _toggle_roll_analytics(self, enabled):
+        actual = bool(self._on_toggle_roll_analytics(bool(enabled)))
+        checkbox = self._roll_analytics_collect
         if checkbox is not None and checkbox.isChecked() != actual:
             checkbox.blockSignals(True)
             checkbox.setChecked(actual)
