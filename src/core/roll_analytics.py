@@ -68,9 +68,12 @@ def confirmed_roll_counts(chaos, passive) -> dict[str, dict[int, int]]:
         if sum(counts.values()) == chaos.level:
             result["chaos"] = counts
     spec = CHARACTER_PASSIVE_SPEC_BY_CHARACTER_ID.get(getattr(passive, "character_id", -1))
+    # Gamba's pending queue includes leftover candidates from other sources.
+    # SUPPORTED already requires every Dice roll to be attributed; a nonempty
+    # candidate queue does not make that complete snapshot unconfirmed.
     if (spec is not None and spec.is_gamba
             and passive.status == CharacterPassiveStatus.SUPPORTED
-            and not passive.pending and not passive.ambiguous):
+            and not passive.ambiguous):
         result["dice"] = {
             row.stat_id: row.count for row in passive.effects
             if row.kind == CharacterPassiveEffectKind.PERMANENT_ROLL

@@ -271,7 +271,10 @@ class RollAnalyticsUiTests(unittest.TestCase):
             window = RollAnalyticsWindow(self.app)
             self.addCleanup(window.close)
             self.assertEqual(window._total.text(), "4")
-            self.assertEqual(window._table.rowCount(), 27)
+            labels = [table.item(row, 0).text() for table in window._tables
+                      for row in range(table.rowCount()) if table.item(row, 0).text()]
+            self.assertEqual(len(labels), 27)
+            self.assertEqual(len(set(labels)), 27)
             self.assertIn("Premium required", window._status.text())
             self.assertFalse(window._source_buttons["dice"].icon().isNull())
             self.assertFalse(window._source_buttons["chaos"].icon().isNull())

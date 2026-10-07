@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 
 from app import config
 from ui.shared import resource_path
-from ui.dialogs.shell import DIALOG_REGULAR, DIALOG_TALL, dialog_body, dialog_footer, show_app_notice
+from ui.dialogs.shell import DIALOG_WIDE, DIALOG_TALL, dialog_body, dialog_footer, show_app_notice
 
 
 class RollAnalyticsWindow(QDialog):
@@ -24,11 +24,9 @@ class RollAnalyticsWindow(QDialog):
         self.setModal(False)
         self._status = QLabel()
         self._status.setObjectName("dialogSubtitle")
-        self._status.setWordWrap(True)
         layout = dialog_body(self, title="Roll Analytics",
                              subtitle="Lifetime stat rolls from Dice passive and Chaos Tome.",
-                             width=DIALOG_REGULAR, height=DIALOG_TALL)
-        layout.addWidget(self._status)
+                             title_trailing=self._status, width=DIALOG_WIDE, height=DIALOG_TALL)
         tabs = QFrame()
         tabs.setProperty("segmentedToggle", True)
         tab_layout = QHBoxLayout(tabs)
@@ -62,22 +60,16 @@ class RollAnalyticsWindow(QDialog):
         summary_layout.addWidget(self._total)
         summary_layout.addStretch(1)
         layout.addWidget(summary)
-        self._table = QTableWidget(0, 3)
-        self._table.setHorizontalHeaderLabels(("Stat", "Roll count", "% of confirmed rolls"))
-        self._table.setShowGrid(False)
-        self._table.setStyleSheet("QTableWidget::item { border-bottom: 1px solid #1D2730; padding: 6px 12px; }")
-        self._table.verticalHeader().hide()
-        self._table.verticalHeader().setDefaultSectionSize(38)
-        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        header = self._table.horizontalHeader()
-        header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        for column, width in ((1, 100), (2, 178)):
-            header.setSectionResizeMode(column, QHeaderView.Fixed)
-            self._table.setColumnWidth(column, width)
-        layout.addWidget(self._table, 1)
+        tables_layout = QHBoxLayout()
+        tables_layout.setContentsMargins(0, 0, 0, 0)
+        tables_layout.setSpacing(12)
+        self._tables = tuple(self._build_stat_table() for _ in range(2))
+        for table in self._tables:
+            tables_layout.addWidget(table, 1)
+        for index, table in enumerate(self._tables):
+            table.verticalScrollBar().valueChanged.connect(
+                lambda value, peer=self._tables[1 - index]: self._sync_stat_scroll(peer, value))
+        layout.addLayout(tables_layout, 1)
         self._note = QLabel("Manage collection in Session Stats. Saved history remains available without Premium.")
         self._note.setObjectName("dialogSubtitle")
         self._note.setWordWrap(True)
@@ -96,6 +88,36 @@ class RollAnalyticsWindow(QDialog):
         self._timer.setInterval(500)
         self._timer.timeout.connect(self.refresh)
         self.refresh()
+
+    @staticmethod
+    def _build_stat_table():
+        table = QTableWidget(0, 3)
+        table.setHorizontalHeaderLabels(("Stat", "Roll count", "% of rolls"))
+        table.horizontalHeaderItem(2).setToolTip("Percentage of all confirmed rolls for the selected source")
+        table.setShowGrid(False)
+        table.setStyleSheet("QTableWidget::item { border-bottom: 1px solid #1D2730; padding: 4px 8px; }")
+        table.verticalHeader().hide()
+        table.verticalHeader().setDefaultSectionSize(26)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        header = table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        for column, width in ((1, 94), (2, 96)):
+            header.setSectionResizeMode(column, QHeaderView.Fixed)
+            table.setColumnWidth(column, width)
+        return table
+
+    @staticmethod
+    def _sync_stat_scroll(peer, value):
+        scrollbar = peer.verticalScrollBar()
+        blocked = scrollbar.blockSignals(True)
+        try:
+            scrollbar.setValue(value)
+        finally:
+            scrollbar.blockSignals(blocked)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -126,22 +148,28 @@ class RollAnalyticsWindow(QDialog):
             return
         self._last_key = key
         self._total.setText(f"{snapshot.total:,}")
-        scroll = self._table.verticalScrollBar().value()
-        self._table.setUpdatesEnabled(False)
-        try:
-            self._table.setRowCount(len(snapshot.rows))
-            for index, row in enumerate(snapshot.rows):
-                for column, text in enumerate((row.label, f"{row.count:,}",
-                                               "—" if row.percent is None else f"{row.percent:.1f}%")):
-                    item = self._table.item(index, column)
-                    if item is None:
-                        item = QTableWidgetItem()
-                        self._table.setItem(index, column, item)
-                    item.setText(text)
-                    item.setTextAlignment((Qt.AlignLeft if column == 0 else Qt.AlignRight) | Qt.AlignVCenter)
-            self._table.verticalScrollBar().setValue(scroll)
-        finally:
-            self._table.setUpdatesEnabled(True)
+        half = (len(snapshot.rows) + 1) // 2
+        for table, rows in zip(self._tables, (snapshot.rows[:half], snapshot.rows[half:])):
+            scroll = table.verticalScrollBar().value()
+            table.setUpdatesEnabled(False)
+            try:
+                # Keep both panels aligned, including the last unmatched stat.
+                table.setRowCount(half)
+                for index in range(half):
+                    row = rows[index] if index < len(rows) else None
+                    values = ((row.label, f"{row.count:,}",
+                               "—" if row.percent is None else f"{row.percent:.1f}%")
+                              if row else ("", "", ""))
+                    for column, text in enumerate(values):
+                        item = table.item(index, column)
+                        if item is None:
+                            item = QTableWidgetItem()
+                            table.setItem(index, column, item)
+                        item.setText(text)
+                        item.setTextAlignment((Qt.AlignLeft if column == 0 else Qt.AlignRight) | Qt.AlignVCenter)
+                self._sync_stat_scroll(table, scroll)
+            finally:
+                table.setUpdatesEnabled(True)
 
     def _open_folder(self):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._service.store.path.parent)))
