@@ -106,22 +106,25 @@ def paint_stage_band(
     fill: QColor,
     text: str,
     font: QFont,
+    header_exclusion: QRectF | None = None,
 ) -> None:
     painter.fillRect(area, fill)
     painter.setPen(QPen(TRACK_BORDER, 1.0))
     painter.drawLine(area.right(), area.top(), area.right(), area.bottom())
     painter.setFont(font)
     painter.setPen(STAGE_TEXT if area.width() >= 55.0 else STAGE_MUTED_TEXT)
-    painter.drawText(
-        QRectF(
-            area.left() + 5.0,
-            area.top() + 1.0,
-            max(area.width() - 7.0, 8.0),
-            17.0,
-        ),
-        Qt.AlignLeft | Qt.AlignVCenter,
-        text,
-    )
+    label_rect = QRectF(area.left() + 5.0, area.top() + 1.0,
+                        max(area.width() - 7.0, 8.0), 17.0)
+    if header_exclusion is not None:
+        if label_rect.intersects(header_exclusion):
+            if label_rect.left() < header_exclusion.left():
+                label_rect.setRight(header_exclusion.left() - 8.0)
+            else:
+                label_rect.setLeft(header_exclusion.right() + 6.0)
+        text = painter.fontMetrics().elidedText(text, Qt.ElideRight, max(0, int(label_rect.width())))
+    if label_rect.width() > 0:
+        painter.drawText(label_rect, Qt.AlignLeft | Qt.AlignVCenter, text)
+
 
 
 def paint_playhead(

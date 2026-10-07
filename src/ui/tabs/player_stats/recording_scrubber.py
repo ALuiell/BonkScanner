@@ -16,7 +16,7 @@ the fault ``ui/metric_table.py`` was written to fix elsewhere in this tab.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
@@ -76,6 +76,8 @@ class RecordingScrubber(QWidget):
         super().__init__(parent)
         self._model = model_module.ScrubberModel(count=0)
         self._powerups = None
+        self._powerup_readout = None
+        self._powerup_header_rect = None
         self._powerup_hits = ()
         self._live_position = None
         self._projection = TimelineAxisProjection((), (), 1.0, AXIS_PROGRESS)
@@ -325,6 +327,11 @@ class RecordingScrubber(QWidget):
     def _marker_tooltip_at(self, point) -> str:
         """Every event binned to the glyph under `point`, or ``""``."""
         self._ensure_static_layer()
+        row = self._powerup_readout
+        if row is not None and not row.isHidden():
+            tooltip = row.tooltip_at(QPointF(point) - QPointF(row.pos()))
+            if tooltip:
+                return tooltip
         for glyph in self._cached_markers:
             if glyph.hit_rect.contains(point):
                 return glyph.tooltip
@@ -365,7 +372,8 @@ class RecordingScrubber(QWidget):
             0.0,
             _BAND_LABEL_HEIGHT + _PLOT_PADDING,
             0.0,
-            -(_MARKER_STRIP_HEIGHT + _PLOT_PADDING),
+            -(_MARKER_STRIP_HEIGHT + _PLOT_PADDING +
+              (23.0 if model_module.POWERUPS_SERIES in self.series_keys else 0.0)),
         )
 
     def _x_of(self, index: int) -> float:
@@ -381,6 +389,7 @@ class RecordingScrubber(QWidget):
         painter = QPainter(self)
         try:
             painter.setRenderHint(QPainter.Antialiasing, True)
+            self._place_powerup_readout()
             self._ensure_static_layer()
             if self._static_layer is not None:
                 painter.drawPixmap(0, 0, self._static_layer)
@@ -400,6 +409,15 @@ class RecordingScrubber(QWidget):
         finally:
             if painter.isActive():
                 painter.end()
+
+    def _place_powerup_readout(self):
+        from ui.powerup_timeline import place_powerup_readout
+        track = self._track_rect()
+        bands = self._model.stages
+        caption = f"{bands[0].label} · {_format_span(bands[0].elapsed_seconds)}" if bands else "STAGES NOT RECORDED"
+        width = self._x_of(bands[0].end) - self._x_of(bands[0].start) if bands else track.width()
+        self._powerup_header_rect = place_powerup_readout(
+            self._powerup_readout, track, caption, self._small_font(), caption_width=width)
 
     def _paint_static(self, painter: QPainter) -> None:
         track = self._track_rect()
@@ -425,7 +443,7 @@ class RecordingScrubber(QWidget):
         if model_module.POWERUPS_SERIES in self.series_keys:
             from ui.powerup_timeline import paint_powerups
             self._powerup_hits = paint_powerups(
-                painter, self._powerups, self._plot_rect(), self._projection.duration,
+                painter, self._powerups, self._plot_rect().adjusted(0, 0, 0, 23), self._projection.duration,
                 axis_projection=self._projection)
         self._paint_cap_labels(painter)
         self._paint_no_series_hint(painter)
@@ -434,7 +452,8 @@ class RecordingScrubber(QWidget):
 
     def _ensure_static_layer(self) -> None:
         dpr = max(1.0, float(self.devicePixelRatioF()))
-        key = (self._model_token, self._slots, self.width(), self.height(), round(dpr, 2))
+        key = (self._model_token, self._slots, self.width(), self.height(), round(dpr, 2),
+               self._powerup_header_rect)
         if key == self._static_cache_key and self._static_layer is not None:
             return
         self._static_cache_key = key
@@ -499,6 +518,7 @@ class RecordingScrubber(QWidget):
                 fill=_BAND_TOP if band.stage_index is not None else _BAND_BOTTOM,
                 text=f"{band.label} · {_format_span(band.elapsed_seconds)}",
                 font=self._small_font(),
+                header_exclusion=self._powerup_header_rect,
             )
 
     # -- render cache -----------------------------------------------------

@@ -141,6 +141,8 @@ class CompareRunsTimeline(QWidget):
         self._cap_keys: tuple[str, ...] = ()
         self._shared_scales: dict[str, float] = {}
         self._powerups = {"a": None, "b": None}
+        self._powerup_readouts = {}
+        self._powerup_header_rects = {}
         self._stage_deltas: dict[int, float | None] = {}
         self._position = 0.0
         self._common_duration = 1.0
@@ -427,6 +429,12 @@ class CompareRunsTimeline(QWidget):
 
     def event(self, event) -> bool:
         if event.type() == QEvent.ToolTip:
+            for row in self._powerup_readouts.values():
+                if not row.isHidden():
+                    tooltip = row.tooltip_at(QPointF(event.pos()) - QPointF(row.pos()))
+                    if tooltip:
+                        QToolTip.showText(event.globalPos(), tooltip, self)
+                        return True
             for rect, text in self._marker_hits:
                 if rect.contains(QPointF(event.pos())):
                     QToolTip.showText(event.globalPos(), text, self)
@@ -440,15 +448,36 @@ class CompareRunsTimeline(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
+        self._place_powerup_readouts()
         self._ensure_static_layer()
         if self._static_layer is not None:
             painter.drawPixmap(0, 0, self._static_layer)
         self._paint_playhead(painter)
         painter.end()
 
+    def _powerup_lane_height(self):
+        return 23.0 if scrubber_model.POWERUPS_SERIES in self._series_keys else 0.0
+
+    def _place_powerup_readouts(self):
+        from ui.powerup_timeline import place_powerup_readout
+        rects = self._lane_rects()
+        for side, lane, rect in zip(("a", "b"), (self._lane_a, self._lane_b), rects):
+            bands = lane.model.stages
+            caption = bands[0].label if bands else "STAGES NOT RECORDED"
+            if side == "b" and bands and not self._compact:
+                delta = self._stage_deltas.get(bands[0].stage_index)
+                if delta is not None:
+                    caption += f" · Δ{'+' if delta >= 0 else '−'}{abs(delta):.0f}s"
+            width = ((lane.positions[bands[0].end] - lane.positions[bands[0].start]) * rect.width()
+                     if bands and lane.positions else rect.width())
+            self._powerup_header_rects[side] = place_powerup_readout(
+                self._powerup_readouts.get(side), rect, caption,
+                self._small_font(bold=True), caption_width=width)
+
     def _ensure_static_layer(self) -> None:
         dpr = max(1.0, float(self.devicePixelRatioF()))
-        key = (self._data_token, self.width(), self.height(), round(dpr, 2))
+        key = (self._data_token, self.width(), self.height(), round(dpr, 2),
+               tuple(self._powerup_header_rects.items()))
         if key == self._cache_key and self._static_layer is not None:
             return
         self._cache_key = key
@@ -558,6 +587,7 @@ class CompareRunsTimeline(QWidget):
                 fill=fill,
                 text=text,
                 font=self._small_font(bold=True),
+                header_exclusion=self._powerup_header_rects.get(side.lower()),
             )
         if side == "B":
             stages_a = {
@@ -590,7 +620,7 @@ class CompareRunsTimeline(QWidget):
             2.0,
             self._stage_label_height() + 3.0,
             -2.0,
-            -(self._marker_height() + 4.0),
+            -(self._marker_height() + 4.0 + self._powerup_lane_height()),
         )
         if plot.width() <= 0.0 or plot.height() <= 0.0:
             return
@@ -631,7 +661,7 @@ class CompareRunsTimeline(QWidget):
             2.0,
             self._stage_label_height() + 3.0,
             -2.0,
-            -(self._marker_height() + 4.0),
+            -(self._marker_height() + 4.0 + self._powerup_lane_height()),
         )
         for key in self.drawable_cap_keys(lane):
             series = lane.model.series(key)

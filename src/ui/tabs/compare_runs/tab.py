@@ -2736,9 +2736,8 @@ class CompareRunsTab:
         self._timeline.positionChanged.connect(self.on_compare_timeline_position_changed)
         timeline_layout.addWidget(self._timeline)
         from ui.powerup_timeline import PowerupTimelineRow
-        self._powerup_rows = {side: PowerupTimelineRow(side=side.upper()) for side in ("a", "b")}
-        for row in self._powerup_rows.values():
-            timeline_layout.addWidget(row)
+        self._powerup_rows = {side: PowerupTimelineRow(self._timeline, side=side.upper()) for side in ("a", "b")}
+        self._timeline._powerup_readouts = self._powerup_rows
         self._timeline_legend = CompareRunsTimelineLegend()
         # Parent first, then show. `setVisible(True)` on a widget that has no
         # parent yet makes it a top-level window, so building the UI flashed a

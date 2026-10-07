@@ -66,8 +66,11 @@ recordings.refresh_loaded_vod_ui(prepared=prepared)
 tabs.show()
 app.processEvents()
 assert recordings._powerup_row.isVisible()
-assert 'Rage' in recordings._powerup_row.text.text()
-assert '0m 08s' in recordings._powerup_row.text.text()
+assert recordings._powerup_row.entries[0][3]
+assert recordings._powerup_row.entries[0][2] == '0:08'
+assert len(recordings._powerup_row.entries) == 4
+assert recordings._powerup_row.parentWidget() is recordings._scrubber
+assert recordings._powerup_row.geometry().bottom() < recordings._scrubber._plot_rect().top()
 assert recordings._scrubber.height() == 150
 recordings._scrubber.grab()
 assert len(recordings._scrubber._powerup_hits) == 4
@@ -77,13 +80,13 @@ assert 'Rage' in recordings._scrubber._marker_tooltip_at(rect.center())
 old_plot = recordings._scrubber._plot_rect()
 old_path = recordings._scrubber._cached_paths[0][0]
 recordings.set_vod_compare_start(2)
-assert 'A–B 00:04' in recordings._powerup_row.text.text()
-assert '0m 06s' in recordings._powerup_row.text.text()
+assert 'A–B 00:04' in recordings._powerup_row.entries[0][4]
+assert recordings._powerup_row.entries[0][2] == '0:06'
 recordings.clear_vod_compare_start()
 slots.set_slot(1, ())
 recordings._scrubber.grab()
-assert recordings._scrubber._plot_rect() == old_plot
-assert recordings._scrubber._cached_paths[0][0] == old_path
+assert recordings._scrubber._plot_rect().height() == old_plot.height() + 23
+assert recordings._scrubber._plot_rect().top() == old_plot.top()
 assert not recordings._powerup_row.isVisible()
 slots.set_slot(1, ('@powerups',))
 
@@ -103,8 +106,9 @@ tabs.setCurrentWidget(compare._tab)
 app.processEvents()
 compare._timeline.grab()
 assert not compare._powerup_rows['a'].isHidden()
-assert 'Rage' in compare._powerup_rows['a'].text.text()
-assert 'unavailable' in compare._powerup_rows['b'].text.text()
+assert compare._powerup_rows['a'].entries[0][3]
+assert compare._powerup_rows['b'].note == 'No data'
+assert all(entry[2] == '—' for entry in compare._powerup_rows['b'].entries)
 compare._set_timeline_compact(True)
 assert compare._powerup_rows['a'].isHidden()
 compare._set_timeline_compact(False)
@@ -130,19 +134,28 @@ recordings._scrubber.grab()
 assert any('0.250 s' in text for rect, text in recordings._scrubber._powerup_hits)
 recordings._scrubber.set_powerups(prepared.powerups)
 
+recordings._powerup_row.set_state(prepared.powerups, 18, axis_a=18)
+recordings._powerup_row.grab()
+assert not recordings._powerup_row.entries[0][3]
+assert recordings._powerup_row.entries[0][2] == '0:13'
+icon_rect, icon_tooltip = recordings._powerup_row._hits[0]
+assert 'Rage' in recordings._scrubber._marker_tooltip_at(icon_rect.center().toPoint() + recordings._powerup_row.pos())
+
 # Use the real wrapping row at a narrow width, retaining all four icons.
 row = PowerupTimelineRow()
 row.resize(320, 120)
 row.show()
 row.set_state(prepared.powerups, 10, axis_a=10)
 app.processEvents()
-assert row.text.wordWrap()
-assert all(icon.geometry().right() < row.width() for icon, opacity in row.icons.values())
+assert row.height() == 17
+assert len(row.entries) == 4
+row.grab()
+assert all(hit.right() <= row.width() for hit, tooltip in row._hits)
 unknown_history = PowerupHistory((PowerupObservation(0, 0, 0, 'run', True, ()),
                                  PowerupObservation(1, None, None, 'run', False, ())))
 row.set_state(PowerupProjection(unknown_history), 1, axis_a=1)
-assert 'state unknown' in row.text.text()
-assert 'No active' not in row.text.text()
+assert row.note == 'Unknown · Partial'
+assert not any(entry[3] for entry in row.entries)
 row.set_state(prepared.powerups, 10, axis_a=10)
 
 if os.environ.get('BONK_POWERUP_QA_DIR'):
@@ -156,7 +169,7 @@ if os.environ.get('BONK_POWERUP_QA_DIR'):
     tabs.setCurrentWidget(compare._tab)
     app.processEvents()
     top = compare._series_slot_buttons[0].mapTo(compare._tab, compare._series_slot_buttons[0].rect().topLeft()).y()
-    bottom = compare._powerup_rows['b'].mapTo(compare._tab, compare._powerup_rows['b'].rect().bottomLeft()).y() + 8
+    bottom = compare._timeline.mapTo(compare._tab, compare._timeline.rect().bottomLeft()).y() + 8
     compare._tab.grab(QRect(0, top, compare._tab.width(), bottom - top)).save(str(output / 'compare-powerups.png'))
 
 # A fast observation advances A even when no new heavy stat snapshot exists.
@@ -179,10 +192,10 @@ latest_state = feed.update_powerups(latest_history)
 recordings._submit_live_state(latest_state)
 assert recordings._scrubber._live_position == 1.0
 assert 'LIVE' in recordings._position_label.text()
-assert 'Rage' in recordings._powerup_row.text.text()
+assert recordings._powerup_row.entries[0][3]
 recordings.on_scrub_index_changed(len(snapshots) - 1)
 assert recordings._scrubber._live_position is None
-assert 'Rage' not in recordings._powerup_row.text.text()
+assert not recordings._powerup_row.entries[0][3]
 assert not recordings._live_follow
 
 compare._library = live_library
@@ -193,8 +206,9 @@ compare._prepared_sides['a'] = prepare_loaded_recording(feed.active_state.loaded
 compare._vod_a = compare._prepared_sides['a'].vod
 compare._submit_compare_live_state('a', latest_state)
 assert abs(compare._timeline.position - 1.0) < 1e-9
-assert 'Rage' in compare._powerup_rows['a'].text.text()
-assert 'unavailable' in compare._powerup_rows['b'].text.text()
+assert compare._powerup_rows['a'].entries[0][3]
+assert compare._powerup_rows['b'].note == 'No data'
+assert all(entry[2] == '—' for entry in compare._powerup_rows['b'].entries)
 print('Qt power-up viewers OK')
 '''
 

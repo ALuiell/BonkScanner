@@ -2506,8 +2506,8 @@ class RecordingsTab:
         self._scrubber.pinChanged.connect(self.on_scrub_pin_changed)
         vods_detail_layout.addWidget(self._scrubber)
         from ui.powerup_timeline import PowerupTimelineRow
-        self._powerup_row = PowerupTimelineRow()
-        vods_detail_layout.addWidget(self._powerup_row)
+        self._powerup_row = PowerupTimelineRow(self._scrubber)
+        self._scrubber._powerup_readout = self._powerup_row
         legend_row = QHBoxLayout()
         legend_row.setContentsMargins(0, 0, 0, 0)
         legend_row.setSpacing(8)
