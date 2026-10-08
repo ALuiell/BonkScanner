@@ -142,6 +142,9 @@ from ui.timeline_controls import (
     TIMELINE_SERIES_GROUPS,
     TimelineSeriesSlots,
     build_timeline_cap_checkboxes,
+    build_timeline_powerups_checkbox,
+    sync_timeline_powerups_checkbox,
+    build_recording_timeline_help_button,
     build_timeline_series_menu,
     checked_timeline_caps,
     save_timeline_caps,
@@ -558,6 +561,8 @@ class RecordingsTab:
         self._legend_meta_label = None
         self._slot_buttons = []
         self._slots = self._timeline_series_slots.slots
+        self._powerups_enabled = self._timeline_series_slots.powerups_enabled
+        self._powerups_checkbox = None
         self._timeline_series_slots.subscribe(self._apply_timeline_series_slots)
         self._items_section = None
         self._chests_per_minute_label = None
@@ -1078,7 +1083,7 @@ class RecordingsTab:
             callback()
 
     def _recording_model_keys(self) -> tuple[str, ...]:
-        series = tuple(key for slot in self._slots for key in slot)
+        series = tuple(key for slot in self._timeline_series_slots.render_slots for key in slot)
         caps = checked_timeline_caps(self._cap_checkboxes)
         return tuple(dict.fromkeys(series + caps))
 
@@ -1293,7 +1298,7 @@ class RecordingsTab:
                 self._rebuild_scrubber_model()
                 stage_rows = formatting.build_stage_summary(self._loaded_vod.snapshots)
             else:
-                self._scrubber.set_slots(self._slots)
+                self._scrubber.set_slots(self._timeline_series_slots.render_slots)
                 self._scrubber.set_cap_keys(checked_timeline_caps(self._cap_checkboxes))
                 self._scrubber.set_model(
                     prepared.scrubber_model,
@@ -1496,7 +1501,7 @@ class RecordingsTab:
             series, meta = self._legend_parts(index)
             _set_text(self._legend_label, series)
             _set_text(self._legend_meta_label, meta)
-        self._refresh_compare_hint()
+        self._refresh_compare_hint(index)
         self._refresh_powerup_timeline(index)
 
     def _refresh_powerup_timeline(self, index: int) -> None:
@@ -1505,7 +1510,7 @@ class RecordingsTab:
         row = getattr(self, "_powerup_row", None)
         if row is None:
             return
-        enabled = any(POWERUPS_SERIES in slot for slot in self._slots)
+        enabled = self._powerups_enabled
         row.setVisible(enabled and self._loaded_vod is not None)
         vod = self._loaded_vod
         if vod is None or not vod.snapshots:
@@ -1526,6 +1531,9 @@ class RecordingsTab:
             capture, axis = projection.latest_capture, projection.latest_axis
             _set_text(self._position_label,
                       f"{index + 1} / {len(vod.snapshots)} · LIVE {formatting.format_elapsed_time(axis)}")
+            _set_text(self._compare_hint_label,
+                      '<b style="color:#38BDF8;">A</b> '
+                      f'<span style="color:#8A94A3;">{formatting.format_elapsed_time(axis)}</span>')
         pin = self._compare_start_index
         other = vod.snapshots[pin] if pin is not None and 0 <= pin < len(vod.snapshots) else None
         row.set_state(projection, capture, other.captured_at if other is not None else None,
@@ -2248,15 +2256,17 @@ class RecordingsTab:
         )
         for checkbox in self._cap_checkboxes.values():
             row.addWidget(checkbox)
+        self._powerups_checkbox = build_timeline_powerups_checkbox(
+            self._timeline_series_slots, self.on_recording_powerups_changed)
+        row.addWidget(self._powerups_checkbox)
         row.addStretch(1)
-        # The compare anchor lost its two buttons to the pin, and with them the
-        # only thing that ever announced the feature existed. A hint that turns
-        # into the segment readout once the pin is down is what replaces them:
-        # discoverable while unused, useful once used.
+        # Keep the selected times visible; interaction help has its own trigger.
         self._compare_hint_label = QLabel("")
         self._compare_hint_label.setObjectName("RecordingScrubberCompareHint")
         self._compare_hint_label.setTextFormat(Qt.RichText)
         row.addWidget(self._compare_hint_label)
+        self._timeline_help_button = build_recording_timeline_help_button()
+        row.addWidget(self._timeline_help_button)
         self._position_label = QLabel("--")
         self._position_label.setObjectName("RecordingScrubberPosition")
         self._position_label.setProperty("timelinePosition", True)
@@ -2265,7 +2275,7 @@ class RecordingsTab:
         self._refresh_compare_hint()
         return row
 
-    def _refresh_compare_hint(self) -> None:
+    def _refresh_compare_hint(self, index=None) -> None:
         label = self._compare_hint_label
         if label is None:
             return
@@ -2276,26 +2286,25 @@ class RecordingsTab:
             _set_text(label, "")
             return
         anchor = self._compare_start_index
-        if anchor is None:
-            _set_text(
-                label,
-                '<span style="color:#5C6675;">Shift+LMB moves '
-                '<b style="color:#38BDF8;">A</b> &nbsp;·&nbsp; Shift+RMB sets '
-                '<b style="color:#C084FC;">B</b></span>&nbsp;&nbsp;·&nbsp;&nbsp;',
-            )
-            return
         snapshots = self._loaded_vod.snapshots
+        if index is None:
+            index = self._requested_snapshot_index
+        if index is None:
+            index = self._snapshot_index
+        current = min(max(int(index or 0), 0), len(snapshots) - 1)
+        point_a = (
+            '<b style="color:#38BDF8;">A</b> '
+            f'<span style="color:#8A94A3;">{snapshots[current].time_label}</span>'
+        )
+        if anchor is None:
+            _set_text(label, point_a)
+            return
         anchor = min(max(int(anchor), 0), len(snapshots) - 1)
-        current = min(max(int(self._snapshot_index or 0), 0), len(snapshots) - 1)
         _set_text(
             label,
-            f'<b style="color:#38BDF8;">A</b> '
-            f'<span style="color:#8A94A3;">{snapshots[current].time_label}</span> '
-            f'<span style="color:#5C6675;">&rarr;</span> '
+            point_a + ' <span style="color:#5C6675;">&rarr;</span> '
             f'<b style="color:#C084FC;">B</b> '
-            f'<span style="color:#8A94A3;">{snapshots[anchor].time_label}</span>'
-            f'<span style="color:#5C6675;">&nbsp;&nbsp;·&nbsp;&nbsp;Esc clears B'
-            f'</span>&nbsp;&nbsp;·&nbsp;&nbsp;',
+            f'<span style="color:#8A94A3;">{snapshots[anchor].time_label}</span>',
         )
 
     def _set_slot(self, slot_index: int, keys: tuple[str, ...]) -> None:
@@ -2306,11 +2315,20 @@ class RecordingsTab:
 
     def _apply_timeline_series_slots(self, slots) -> None:
         slots = tuple(tuple(slot) for slot in slots)
-        if slots == self._slots:
+        enabled = self._timeline_series_slots.powerups_enabled
+        if slots == self._slots and enabled == self._powerups_enabled:
             return
         self._slots = slots
+        self._powerups_enabled = enabled
+        sync_timeline_powerups_checkbox(self._powerups_checkbox, enabled)
         self._refresh_slot_buttons()
         self._reprepare_loaded_recording()
+
+    def on_recording_powerups_changed(self, checked) -> None:
+        self._save_recording_preference("timeline powerups", lambda:
+            self._timeline_series_slots.set_powerups_enabled(checked))
+        sync_timeline_powerups_checkbox(self._powerups_checkbox,
+                                       self._timeline_series_slots.powerups_enabled)
 
     def on_recording_caps_changed(self) -> None:
         keys = checked_timeline_caps(self._cap_checkboxes)
@@ -2374,7 +2392,7 @@ class RecordingsTab:
         """
         if self._scrubber is None:
             return
-        self._scrubber.set_slots(self._slots)
+        self._scrubber.set_slots(self._timeline_series_slots.render_slots)
         self._scrubber.set_cap_keys(checked_timeline_caps(self._cap_checkboxes))
         snapshots = self._loaded_vod.snapshots if self._loaded_vod is not None else ()
         self._scrubber.set_model(

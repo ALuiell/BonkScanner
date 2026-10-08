@@ -468,11 +468,11 @@ class CompareRunsTimeline(QWidget):
                 delta = self._stage_deltas.get(bands[0].stage_index)
                 if delta is not None:
                     caption += f" · Δ{'+' if delta >= 0 else '−'}{abs(delta):.0f}s"
-            width = ((lane.positions[bands[0].end] - lane.positions[bands[0].start]) * rect.width()
-                     if bands and lane.positions else rect.width())
             self._powerup_header_rects[side] = place_powerup_readout(
                 self._powerup_readouts.get(side), rect, caption,
-                self._small_font(bold=True), caption_width=width)
+                self._small_font(bold=True),
+                caption_left=self._x(rect, lane.positions[bands[0].start])
+                if bands and lane.positions else rect.left())
 
     def _ensure_static_layer(self) -> None:
         dpr = max(1.0, float(self.devicePixelRatioF()))

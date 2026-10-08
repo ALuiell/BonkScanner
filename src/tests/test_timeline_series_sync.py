@@ -9,6 +9,7 @@ from ui.timeline_controls import (
     LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY,
     LEGACY_RECORDINGS_SERIES_SLOTS_CONFIG_KEY,
     TIMELINE_SERIES_SLOTS_CONFIG_KEY,
+    TIMELINE_POWERUPS_CONFIG_KEY,
     TimelineSeriesSlots,
 )
 
@@ -91,3 +92,51 @@ def test_broken_slot_subscriber_does_not_starve_the_next_tab() -> None:
 
     assert shared.slots[0] == ("Luck",)
     assert observed == [(("Luck",), (), (), ())]
+
+
+def test_powerups_migrate_out_of_slots_and_sync_independently() -> None:
+    user_config = {TIMELINE_SERIES_SLOTS_CONFIG_KEY:
+                   [["Damage"], ["@powerups"], ["Luck"], []]}
+    with patch.object(config, "user_config", user_config), patch.object(config, "save_config"):
+        shared = TimelineSeriesSlots()
+        recordings = build_recordings_tab(timeline_series_slots=shared)
+        compare = build_compare_runs_tab(timeline_series_slots=shared)
+        assert shared.powerups_enabled
+        assert shared.slots == (("Damage",), (), ("Luck",), ())
+        recordings.on_recording_powerups_changed(False)
+        assert not recordings._powerups_enabled
+        assert not compare._powerups_enabled
+        assert user_config[TIMELINE_POWERUPS_CONFIG_KEY] is False
+        compare.on_compare_run_powerups_changed(True)
+        assert recordings._powerups_enabled
+        assert compare._powerups_enabled
+        shared.set_slot(1, ("Difficulty",))
+        assert shared.slots[1] == ("Difficulty",)
+        assert shared.powerups_enabled
+        assert TimelineSeriesSlots().powerups_enabled
+        assert TimelineSeriesSlots().slots == shared.slots
+
+
+def test_explicit_powerups_off_overrides_legacy_slot() -> None:
+    with patch.object(config, "user_config", {
+        TIMELINE_SERIES_SLOTS_CONFIG_KEY: [["@powerups"], [], [], []],
+        TIMELINE_POWERUPS_CONFIG_KEY: False,
+    }):
+        shared = TimelineSeriesSlots()
+        assert not shared.powerups_enabled
+        assert all(not slot for slot in shared.slots)
+
+
+def test_failed_powerups_save_restores_config_and_does_not_notify_tabs() -> None:
+    user_config = {TIMELINE_POWERUPS_CONFIG_KEY: False}
+    with patch.object(config, "user_config", user_config), patch.object(
+        config, "save_config", return_value=config.ConfigSaveResult(False, "disk full")
+    ):
+        shared = TimelineSeriesSlots()
+        observed = []
+        shared.subscribe(observed.append)
+        with pytest.raises(OSError, match="disk full"):
+            shared.set_powerups_enabled(True)
+        assert not shared.powerups_enabled
+        assert user_config == {TIMELINE_POWERUPS_CONFIG_KEY: False}
+        assert observed == []

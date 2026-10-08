@@ -96,7 +96,6 @@ def build_timeline_series_menu(
     for key in (scrubber_model.KILLS_SERIES, scrubber_model.ITEMS_SERIES):
         menu.addAction(scrubber_model.series_label(key)).triggered.connect(select((key,)))
     menu.addAction("PM + PDC").triggered.connect(select(POWERUP_PAIR))
-    menu.addAction("Power-ups").triggered.connect(select((scrubber_model.POWERUPS_SERIES,)))
     menu.addSeparator()
     allowed = set(scrubber_model.available_series_keys())
     for title, labels in TIMELINE_SERIES_GROUPS:
@@ -155,7 +154,10 @@ def configured_timeline_series_slots() -> tuple[tuple[str, ...], ...]:
     return scrubber_model.DEFAULT_SLOTS
 
 
-def save_timeline_series_slots(slots):
+TIMELINE_POWERUPS_CONFIG_KEY = "TIMELINE_POWERUPS"
+
+
+def save_timeline_series_slots(slots, *, powerups_enabled=None):
     """Persist one slot selection for both timelines and older app builds."""
     from app import config
 
@@ -163,13 +165,28 @@ def save_timeline_series_slots(slots):
     if normalized is None:
         normalized = scrubber_model.DEFAULT_SLOTS
     serialized = [list(slot) for slot in normalized]
-    for key in (
+    changes = {key: serialized for key in (
         TIMELINE_SERIES_SLOTS_CONFIG_KEY,
         LEGACY_RECORDINGS_SERIES_SLOTS_CONFIG_KEY,
         LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY,
-    ):
-        config.user_config[key] = serialized
-    return config.save_config(config.user_config)
+    )}
+    if powerups_enabled is not None:
+        changes[TIMELINE_POWERUPS_CONFIG_KEY] = bool(powerups_enabled)
+    missing = object()
+    previous = {key: config.user_config.get(key, missing) for key in changes}
+    config.user_config.update(changes)
+    try:
+        result = config.save_config(config.user_config)
+        if getattr(result, "success", True) is False:
+            raise OSError(str(getattr(result, "reason", "") or "config save failed"))
+        return result
+    except Exception:
+        for key, value in previous.items():
+            if value is missing:
+                config.user_config.pop(key, None)
+            else:
+                config.user_config[key] = value
+        raise
 
 
 class TimelineSeriesSlots:
@@ -181,7 +198,13 @@ class TimelineSeriesSlots:
             if slots is None
             else _validated_timeline_series_slots(slots)
         )
-        self._slots = configured or scrubber_model.DEFAULT_SLOTS
+        configured = configured or scrubber_model.DEFAULT_SLOTS
+        legacy_powerups = any(scrubber_model.POWERUPS_SERIES in slot for slot in configured)
+        from app import config
+        saved = config.user_config.get(TIMELINE_POWERUPS_CONFIG_KEY) if slots is None else None
+        self._powerups_enabled = saved if isinstance(saved, bool) else legacy_powerups
+        self._slots = tuple(tuple(key for key in slot if key != scrubber_model.POWERUPS_SERIES)
+                            for slot in configured)
         self._subscribers: list[
             Callable[[tuple[tuple[str, ...], ...]], None]
         ] = []
@@ -189,6 +212,29 @@ class TimelineSeriesSlots:
     @property
     def slots(self) -> tuple[tuple[str, ...], ...]:
         return self._slots
+
+    @property
+    def powerups_enabled(self) -> bool:
+        return self._powerups_enabled
+
+    @property
+    def render_slots(self) -> tuple[tuple[str, ...], ...]:
+        return self._slots + ((scrubber_model.POWERUPS_SERIES,),) if self._powerups_enabled else self._slots
+
+    def set_powerups_enabled(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self._powerups_enabled:
+            return
+        previous = self._powerups_enabled
+        self._powerups_enabled = enabled
+        try:
+            result = save_timeline_series_slots(self._slots, powerups_enabled=enabled)
+            if getattr(result, "success", True) is False:
+                raise OSError(str(getattr(result, "reason", "") or "config save failed"))
+        except Exception:
+            self._powerups_enabled = previous
+            raise
+        self._notify()
 
     def subscribe(
         self, callback: Callable[[tuple[tuple[str, ...], ...]], None]
@@ -199,14 +245,14 @@ class TimelineSeriesSlots:
         if not 0 <= slot_index < len(self._slots):
             return
         slots = list(self._slots)
-        slots[slot_index] = tuple(keys)
+        slots[slot_index] = tuple(key for key in keys if key != scrubber_model.POWERUPS_SERIES)
         normalized = _validated_timeline_series_slots(slots)
         if normalized is None or normalized == self._slots:
             return
         previous = self._slots
         self._slots = normalized
         try:
-            result = save_timeline_series_slots(self._slots)
+            result = save_timeline_series_slots(self._slots, powerups_enabled=self._powerups_enabled)
             if getattr(result, "success", True) is False:
                 raise OSError(
                     str(getattr(result, "reason", "") or "config save failed")
@@ -217,6 +263,9 @@ class TimelineSeriesSlots:
             # different slot layouts after a disk/config error.
             self._slots = previous
             raise
+        self._notify()
+
+    def _notify(self) -> None:
         for callback in tuple(self._subscribers):
             try:
                 callback(self._slots)
@@ -258,8 +307,8 @@ def refresh_timeline_slot_button(button: QPushButton, slot_index: int, keys) -> 
 TIMELINE_CAP_KEYS: tuple[str, ...] = ("Difficulty", "XP Gain")
 
 TIMELINE_CAP_LABELS = {
-    "Difficulty": "Difficulty cap",
-    "XP Gain": "XP cap",
+    "Difficulty": "Diff Cap",
+    "XP Gain": "XP Cap",
 }
 
 TIMELINE_CAP_TOOLTIPS = {
@@ -325,3 +374,48 @@ def checked_timeline_caps(checkboxes: dict) -> tuple[str, ...]:
         for key in TIMELINE_CAP_KEYS
         if checkboxes.get(key) is not None and checkboxes[key].isChecked()
     )
+
+
+def build_timeline_powerups_checkbox(shared, on_changed):
+    from PySide6.QtWidgets import QCheckBox
+
+    checkbox = QCheckBox("Powerups")
+    checkbox.setObjectName("TimelineCapToggle")
+    checkbox.setToolTip("Show powerup activity lanes and observed uptime")
+    checkbox.setChecked(shared.powerups_enabled)
+    checkbox.toggled.connect(on_changed)
+    return checkbox
+
+
+def sync_timeline_powerups_checkbox(checkbox, enabled):
+    if checkbox is None:
+        return
+    blocked = checkbox.blockSignals(True)
+    checkbox.setChecked(enabled)
+    checkbox.blockSignals(blocked)
+
+
+def build_recording_timeline_help_button():
+    from PySide6.QtCore import QPoint, QSize
+    from PySide6.QtGui import QIcon
+    from PySide6.QtWidgets import QLabel, QWidgetAction
+    from ui.shared import resource_path
+
+    button = QPushButton()
+    button.setObjectName("SmallGhostButton")
+    button.setFixedSize(28, 28)
+    button.setStyleSheet("padding: 0px;")
+    button.setIcon(QIcon(resource_path("media/help_icon.svg")))
+    button.setIconSize(QSize(18, 18))
+    button.setAccessibleName("Timeline controls help")
+    button.setToolTip("Click or drag: move A\nShift+LMB: move A\nShift+RMB: set B\nEsc: clear B")
+    menu = QMenu(button)
+    instruction = QLabel(button.toolTip())
+    instruction.setStyleSheet("padding: 10px;")
+    action = QWidgetAction(menu)
+    action.setDefaultWidget(instruction)
+    menu.addAction(action)
+    button._timeline_help_menu = menu
+    button.clicked.connect(lambda: menu.popup(
+        button.mapToGlobal(QPoint(0, button.height()))))
+    return button

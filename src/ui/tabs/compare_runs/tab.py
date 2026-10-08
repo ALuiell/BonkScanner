@@ -110,6 +110,8 @@ from ui.timeline_controls import (
     TimelineSeriesSlots,
     TIMELINE_CAPS_CONFIG_KEY,
     build_timeline_cap_checkboxes,
+    build_timeline_powerups_checkbox,
+    sync_timeline_powerups_checkbox,
     build_timeline_series_menu,
     checked_timeline_caps,
     refresh_timeline_slot_button,
@@ -414,6 +416,8 @@ class CompareRunsTab:
             config.user_config.get(COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY, False)
         )
         self._series_slots = self._timeline_series_slots.slots
+        self._powerups_enabled = self._timeline_series_slots.powerups_enabled
+        self._powerups_checkbox = None
         self._timeline_series_slots.subscribe(self._apply_timeline_series_slots)
         self._pending_diff_payload = None
         self._active_diff_page = 0
@@ -922,13 +926,13 @@ class CompareRunsTab:
                 finish(None, exc)
 
     def _compare_model_keys(self) -> tuple[str, ...]:
-        series = tuple(key for slot in self._series_slots for key in slot)
+        series = tuple(key for slot in self._timeline_series_slots.render_slots for key in slot)
         return tuple(dict.fromkeys(series + self._enabled_cap_keys()))
 
     def _install_prepared_compare_lane(self, side: str, prepared) -> None:
         if self._timeline is None:
             return
-        series = tuple(key for slot in self._series_slots for key in slot)
+        series = tuple(key for slot in self._timeline_series_slots.render_slots for key in slot)
         self._timeline.set_prepared_lane(
             side,
             prepared.vod,
@@ -1313,7 +1317,7 @@ class CompareRunsTab:
     def _refresh_powerup_timeline_rows(self) -> None:
         from core.powerup_history import POWERUPS_SERIES
         from projections.powerup_history import PowerupProjection
-        enabled = any(POWERUPS_SERIES in slot for slot in self._series_slots)
+        enabled = self._powerups_enabled
         for side, row in getattr(self, "_powerup_rows", {}).items():
             vod = self._compare_run_vod(side)
             row.setVisible(enabled and not self._timeline_compact and vod is not None)
@@ -1374,7 +1378,7 @@ class CompareRunsTab:
     def _refresh_compare_runs_timeline_model(self) -> None:
         if self._timeline is None:
             return
-        keys = tuple(key for slot in self._series_slots for key in slot)
+        keys = tuple(key for slot in self._timeline_series_slots.render_slots for key in slot)
         if self._prepared_sides:
             for side in ("a", "b"):
                 prepared = self._prepared_sides.get(side)
@@ -1439,12 +1443,23 @@ class CompareRunsTab:
         if self._disposed:
             return
         slots = tuple(tuple(slot) for slot in slots)
-        if slots == self._series_slots:
+        enabled = self._timeline_series_slots.powerups_enabled
+        if slots == self._series_slots and enabled == self._powerups_enabled:
             return
         self._series_slots = slots
+        self._powerups_enabled = enabled
+        sync_timeline_powerups_checkbox(self._powerups_checkbox, enabled)
         self._refresh_series_slot_buttons()
         for side in ("a", "b"):
             self._reprepare_compare_side(side)
+
+    def on_compare_run_powerups_changed(self, checked) -> None:
+        try:
+            self._timeline_series_slots.set_powerups_enabled(checked)
+        except Exception as exc:
+            self._log(f"Could not save timeline powerups: {exc}", tag="warning")
+        sync_timeline_powerups_checkbox(self._powerups_checkbox,
+                                       self._timeline_series_slots.powerups_enabled)
 
     def _reprepare_compare_side(self, side: str) -> None:
         self._live_prepare_requests[side] = None
@@ -2699,6 +2714,9 @@ class CompareRunsTab:
         )
         for checkbox in self._cap_checkboxes.values():
             timeline_series_row.addWidget(checkbox)
+        self._powerups_checkbox = build_timeline_powerups_checkbox(
+            self._timeline_series_slots, self.on_compare_run_powerups_changed)
+        timeline_series_row.addWidget(self._powerups_checkbox)
         timeline_series_row.addStretch(1)
 
         # A switch, not a push button, and on the title row rather than at the

@@ -415,9 +415,9 @@ class RecordingScrubber(QWidget):
         track = self._track_rect()
         bands = self._model.stages
         caption = f"{bands[0].label} · {_format_span(bands[0].elapsed_seconds)}" if bands else "STAGES NOT RECORDED"
-        width = self._x_of(bands[0].end) - self._x_of(bands[0].start) if bands else track.width()
         self._powerup_header_rect = place_powerup_readout(
-            self._powerup_readout, track, caption, self._small_font(), caption_width=width)
+            self._powerup_readout, track, caption, self._small_font(),
+            caption_left=self._x_of(bands[0].start) if bands else track.left())
 
     def _paint_static(self, painter: QPainter) -> None:
         track = self._track_rect()
