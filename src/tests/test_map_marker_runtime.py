@@ -1884,7 +1884,94 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         )
         client._read_hud_visible = lambda: True
         client._read_minimap_jammed = lambda: False
+        memory.ptrs[client._module_base + client.MY_TIME_TYPE_INFO_OFFSET] = 0x790000
+        memory.ptrs[0x790000 + client.CLASS_STATIC_FIELDS_OFFSET] = 0x7A0000
         return client, memory, player, camera_native
+
+    def test_pause_probe_hides_camera_and_resumes_within_50_ms(self) -> None:
+        client, memory, player, _ = self._minimap_geometry_fixture()
+        now = [0.0]
+        client._clock = lambda: now[0]
+        pause_address = 0x7A0000 + client.MY_TIME_PAUSED_OFFSET
+        pause_read = Mock(wraps=memory.read_u8)
+        memory.read_u8 = pause_read
+        camera = Mock(wraps=client._transform_points)
+        client._transform_points = camera
+        self.assertIsNotNone(client._read_minimap_projection(player, 2048, 1152, 1))
+
+        memory.u8s[pause_address] = 1
+        now[0] = 0.025
+        self.assertIsNotNone(client._read_minimap_projection(player, 2048, 1152, 1))
+        self.assertEqual(pause_read.call_count, 1)
+        camera.reset_mock()
+        hud = Mock(wraps=client._read_hud_visible)
+        client._read_hud_visible = hud
+        now[0] = 0.05
+        self.assertIsNone(client._read_minimap_projection(player, 2048, 1152, 1))
+        camera.assert_not_called()
+        hud.assert_not_called()
+        self.assertIsNone(client._minimap_viewport_cache)
+
+        memory.u8s[pause_address] = 0
+        now[0] = 0.075
+        self.assertIsNone(client._read_minimap_projection(player, 2048, 1152, 1))
+        self.assertEqual(pause_read.call_count, 2)
+        now[0] = 0.1
+        self.assertIsNotNone(client._read_minimap_projection(player, 2048, 1152, 1))
+        self.assertEqual(pause_read.call_count, 3)
+        self.assertEqual(
+            memory.ptr_reads.count(client._module_base + client.MY_TIME_TYPE_INFO_OFFSET),
+            1,
+        )
+
+    def test_pause_read_failure_hides_minimap_and_retries_without_backoff(self) -> None:
+        client, memory, player, _ = self._minimap_geometry_fixture()
+        client._clock = lambda: 0.0
+        client._full_map_ptr = full_map = 0x810000
+        client._resolve_full_map = lambda: full_map
+        client._resolve_player = lambda: player
+        client._resolve_stage_scope = lambda: (0x820000, 1)
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600
+        options = dict(client_width=2048, client_height=1152, minimap_enabled=True)
+        for failure in (MemoryReadError("pause read failed"), 2):
+            with self.subTest(failure=failure):
+                client._clear_minimap_cache()
+                memory.read_u8 = Mock(side_effect=[failure, 0])
+                frame = client.poll(**options)
+                self.assertIsNone(frame.minimap_projection)
+                self.assertIsNone(client._minimap_pause_cache)
+                self.assertEqual(client._my_time_static_fields, 0)
+                self.assertIsNotNone(client.poll(**options).minimap_projection)
+
+    def test_map_transition_refreshes_pause_without_waiting_for_probe_deadline(self) -> None:
+        client, memory, player, _ = self._minimap_geometry_fixture()
+        client._clock = lambda: 0.0
+        client._full_map_ptr = full_map = 0x810000
+        client._resolve_full_map = lambda: full_map
+        client._resolve_player = lambda: player
+        client._resolve_stage_scope = lambda: (0x820000, 1)
+        client._read_viewport = lambda *_args: MapViewport(0, 0, 600, 600)
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600
+        pause_address = 0x7A0000 + client.MY_TIME_PAUSED_OFFSET
+        memory.u8s[pause_address] = 1
+        options = dict(client_width=2048, client_height=1152, minimap_enabled=True)
+        self.assertIsNone(client.poll(**options).minimap_projection)
+        pause_read = Mock(wraps=memory.read_u8)
+        memory.read_u8 = pause_read
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 1
+        frame = client.poll(**options)
+        self.assertTrue(frame.map_open)
+        self.assertIsNotNone(frame.viewport)
+        pause_read.assert_not_called()
+        memory.u8s[pause_address] = 0
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 0
+        self.assertIsNotNone(client.poll(**options).minimap_projection)
+        pause_read.assert_called_once_with(pause_address)
+
+        # Disabling the minimap also does no pause reads and discards its cache.
+        client.poll(**dict(options, minimap_enabled=False))
+        pause_read.assert_called_once()
+        self.assertIsNone(client._minimap_pause_cache)
 
     def test_minimap_geometry_uses_unity_to_client_to_qt_normalization(self) -> None:
         client, _, player, _ = self._minimap_geometry_fixture()

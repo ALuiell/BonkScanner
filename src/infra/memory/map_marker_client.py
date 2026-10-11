@@ -60,6 +60,10 @@ _ITEM_RARITY_BY_VALUE = ("COMMON", "UNCOMMON", "RARE", "LEGENDARY")
 class MapMarkerMemoryClient:
     MODULE_NAME = "GameAssembly.dll"
     MINIMAP_GEOMETRY_INTERVAL = 0.2
+    MINIMAP_PAUSE_INTERVAL = 0.05
+
+    MY_TIME_TYPE_INFO_OFFSET = 0x2F62398
+    MY_TIME_PAUSED_OFFSET = 0x0
 
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
     OBJECT_KLASS_OFFSET = 0x0
@@ -231,6 +235,8 @@ class MapMarkerMemoryClient:
         self._detector_ptr = 0
         self._map_controller_static_fields = 0
         self._map_generation_static_fields = 0
+        self._my_time_static_fields = 0
+        self._minimap_pause_cache: tuple[bool, float] | None = None
         self._stage_ptr = 0
         self._stage_index = -1
         self._map_was_open = False
@@ -338,6 +344,7 @@ class MapMarkerMemoryClient:
             # Settings can change while Tab/Escape hides the minimap. Refresh
             # its layout immediately when that surface becomes visible again.
             self._minimap_viewport_cache = None
+            self._minimap_pause_cache = None
 
         current_activity = None
         if automatic_discovery and sample_automatic_discovery:
@@ -700,6 +707,38 @@ class MapMarkerMemoryClient:
         self._minimap_renderer_native = 0
         self._minimap_render_native = 0
         self._minimap_viewport_cache = None
+        self._minimap_pause_cache = None
+
+    def _read_game_paused(self) -> bool:
+        """Sample only MyTime.paused, without the one-second lifecycle cache."""
+        now = self._clock()
+        cached = self._minimap_pause_cache
+        if cached is not None and now < cached[1]:
+            return cached[0]
+        self._minimap_pause_cache = None
+        try:
+            if not self._my_time_static_fields:
+                type_info = self.memory.read_ptr(
+                    self._module_base + self.MY_TIME_TYPE_INFO_OFFSET
+                )
+                if not type_info or self._is_uninitialized_type_info(type_info):
+                    raise MemoryReadError("MyTime type info is unavailable.")
+                self._my_time_static_fields = self.memory.read_ptr(
+                    type_info + self.CLASS_STATIC_FIELDS_OFFSET
+                )
+                if not self._my_time_static_fields:
+                    raise MemoryReadError("MyTime static fields are unavailable.")
+            value = self.memory.read_u8(
+                self._my_time_static_fields + self.MY_TIME_PAUSED_OFFSET
+            )
+            if value not in (0, 1):
+                raise MemoryReadError(f"Pause flag is invalid: {value}")
+        except Exception:
+            self._my_time_static_fields = 0
+            raise
+        paused = bool(value)
+        self._minimap_pause_cache = (paused, now + self.MINIMAP_PAUSE_INTERVAL)
+        return paused
 
     def _read_minimap_projection(
         self,
@@ -710,7 +749,11 @@ class MapMarkerMemoryClient:
     ) -> MinimapProjection | None:
         # Visibility is cheaper than camera and UI geometry. Keep these checks
         # live even while hidden so resuming never waits for the layout timer.
-        if not self._read_hud_visible() or self._read_minimap_jammed():
+        if (
+            self._read_game_paused()
+            or not self._read_hud_visible()
+            or self._read_minimap_jammed()
+        ):
             self._minimap_viewport_cache = None
             return None
         camera, script = struct.unpack(

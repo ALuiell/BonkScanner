@@ -140,7 +140,6 @@ class InGameOverlay:
         analytics_collection_enabled: Callable[[], bool] = lambda: False,
         record_merchant_capture: Callable[[Any, Any], None] = lambda *_args: None,
         open_support_settings: Callable[[], None] = lambda: None,
-        is_game_paused: Callable[[], bool] = lambda: False,
     ) -> None:
         self._tracker = tracker
         self._build_progression_snapshot = build_progression_snapshot
@@ -179,8 +178,6 @@ class InGameOverlay:
         self._map_marker_latest_snapshot = MapMarkerSnapshot()
         self._map_marker_premium_access: bool | None = None
         self._map_marker_surface_key_pressed = False
-        self._map_marker_game_paused = False
-        self._is_game_paused = is_game_paused
         self._map_marker_cursor_position = None
         self._map_marker_completion = _MapMarkerCompletion(self._on_map_marker_sample_ready)
         self._map_marker_worker_active = False
@@ -228,6 +225,7 @@ class InGameOverlay:
         self.overlay_fast_timer.timeout.connect(self._overlay_fast_tick)
         self.overlay_fast_timer.setInterval(500)
         self.map_marker_timer = timer_factory()
+        self.map_marker_timer.setTimerType(Qt.PreciseTimer)
         self.map_marker_timer.timeout.connect(self._map_marker_tick)
         self.map_marker_timer.setInterval(25)
 
@@ -643,17 +641,12 @@ class InGameOverlay:
             else None
         )
         surface_key_pressed = bool(callable(key_reader) and key_reader())
-        game_paused = bool(overlay_enabled and self._is_game_paused())
-        minimap_suppressed = surface_key_pressed or game_paused
-        suppression_changed = minimap_suppressed != (
-            self._map_marker_surface_key_pressed or self._map_marker_game_paused
-        )
+        suppression_changed = surface_key_pressed != self._map_marker_surface_key_pressed
         self._map_marker_surface_key_pressed = surface_key_pressed
-        self._map_marker_game_paused = game_paused
         if suppression_changed:
             # Tab/Escape changes which game surface is visible. Reject a poll
-            # sampled on the other side of that transition. The cached runtime
-            # pause flag keeps the minimap hidden after Escape is released.
+            # sampled on the other side of that transition. The worker samples
+            # the pause flag every 50 ms after Escape is released.
             self._invalidate_map_marker_samples()
             if not background_only:
                 self._set_map_marker_snapshot(MapMarkerSnapshot())
@@ -665,7 +658,7 @@ class InGameOverlay:
             overlay_enabled
             and premium_access
             and marker_cfg.get("minimap_enabled", True)
-            and not minimap_suppressed
+            and not surface_key_pressed
         )
         merchant_memory_enabled = bool(
             premium_access
@@ -896,10 +889,7 @@ class InGameOverlay:
             and isinstance(snapshot, MapMarkerSnapshot)
         ):
             if (
-                (
-                    self._map_marker_surface_key_pressed
-                    or self._map_marker_game_paused
-                )
+                self._map_marker_surface_key_pressed
                 and snapshot.minimap_projection is not None
             ):
                 # The key transition is known on the UI thread before the game
@@ -1680,7 +1670,6 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
             )
         ),
         open_support_settings=lambda: app.open_settings_dialog(page="support"),
-        is_game_paused=lambda: app.coordinator.run_lifecycle.is_paused_run(),
         is_scanning=lambda: app._scanner.is_scanning(),
         is_recording=lambda: _recording_indicator_active(app),
         is_game_window_active=lambda process_name: app._run_control.is_game_window_active(process_name),

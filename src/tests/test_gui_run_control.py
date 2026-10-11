@@ -7,6 +7,7 @@ import unittest
 from concurrent.futures import Future
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -297,6 +298,7 @@ class FakeOverlayTimer:
         self.start_calls = 0
         self.stop_calls = 0
         self.interval = None
+        self.timer_type = None
         self.callback = None
         self.timeout = SimpleNamespace(connect=self._connect)
 
@@ -305,6 +307,9 @@ class FakeOverlayTimer:
 
     def setInterval(self, interval: int) -> None:
         self.interval = interval
+
+    def setTimerType(self, timer_type) -> None:
+        self.timer_type = timer_type
 
     def start(self) -> None:
         self.start_calls += 1
@@ -405,7 +410,6 @@ def build_in_game_overlay_test_component(
     is_recording=lambda: False,
     is_game_window_active=lambda _process_name: False,
     find_game_window=None,
-    is_game_paused=lambda: False,
     can_run=lambda: True,
     log=lambda *_args, **_kwargs: None,
     map_marker_executor_factory=InlineMapMarkerExecutor,
@@ -419,7 +423,6 @@ def build_in_game_overlay_test_component(
         is_recording=is_recording,
         is_game_window_active=is_game_window_active,
         find_game_window=find_game_window,
-        is_game_paused=is_game_paused,
         schedule=lambda callback: callback(),
         schedule_idle=lambda _callback: None,
         timer_factory=FakeOverlayTimer,
@@ -7454,7 +7457,7 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertIsNone(hidden.minimap_projection)
                 self.assertEqual(restored.minimap_projection, projection)
 
-    def test_escape_pause_state_keeps_minimap_hidden_after_key_release(self) -> None:
+    def test_worker_pause_projection_hides_and_restores_minimap(self) -> None:
         projection = MinimapProjection(
             True,
             False,
@@ -7475,13 +7478,14 @@ class GuiRunControlTests(unittest.TestCase):
             map_id=9,
             minimap_projection=projection,
         )
-        paused = [False]
-        overlay = build_in_game_overlay_test_component(
-            is_game_paused=lambda: paused[0]
-        )
+        overlay = build_in_game_overlay_test_component()
         overlay._has_premium_access = lambda: True
         overlay._map_marker_tracker = SimpleNamespace(
-            tick=MagicMock(return_value=stale),
+            tick=MagicMock(side_effect=[
+                stale,
+                replace(stale, minimap_projection=None),
+                stale,
+            ]),
             close=MagicMock(),
         )
         overlay._map_marker_input = SimpleNamespace(
@@ -7517,15 +7521,13 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch.object(config, "IN_GAME_OVERLAY", cfg):
             overlay._map_marker_tick()
-            paused[0] = True
             overlay._map_marker_tick()
             hidden_while_paused = layer.set_snapshot.call_args.args[0]
-            paused[0] = False
             overlay._map_marker_tick()
             restored_after_resume = layer.set_snapshot.call_args.args[0]
 
         self.assertIsNone(hidden_while_paused.minimap_projection)
-        self.assertFalse(
+        self.assertTrue(
             overlay._map_marker_tracker.tick.call_args_list[1].kwargs[
                 "minimap_enabled"
             ]
