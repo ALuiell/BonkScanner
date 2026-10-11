@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="50" height="44" viewBox="0 0 50 44">
+ <defs><path id="bat" d="M0 0C6 1 9 4 11 8L14 6L16 9L19 7C24 6 29 8 33 12C27 10 26 13 25 16C21 12 19 14 18 18L15 15C12 14 11 16 10 17C9 11 6 10 3 12C5 7 2 3 0 0Z"/></defs>
+ <use xlink:href="#bat" fill="#745987" transform="translate(2 3) rotate(-5 16 9)"/>
+ <use xlink:href="#bat" fill="#685079" transform="translate(25 28) scale(.66) rotate(-18 16 9)"/>
+</svg>

@@ -112,6 +112,8 @@ SUPPORT_REMINDER_FOOTER_SECOND_SCALE = 1.06
 SUPPORT_REMINDER_FIRST_LIFT = 4.0
 SUPPORT_REMINDER_SECOND_LIFT = 2.0
 SUPPORT_REMINDER_STATE_CONFIG_KEY = "SUPPORT_REMINDER_STATE"
+SUPPORT_THANK_YOU_STARTUP_DELAY_MS = 4 * 1000
+SUPPORT_THANK_YOU_RETRY_MS = 1000
 
 
 def _read_support_reminder_state() -> float:
@@ -1061,6 +1063,70 @@ class _SupportReminder(QFrame):
         return super().eventFilter(watched, event)
 
 
+class _SupportThankYou(_SupportReminder):
+    """A thank-you at launch, using the card's animation without recurring asks."""
+
+    def __init__(self, *, parent, footer_frame, support_link, can_show) -> None:
+        self._has_shown = False
+        super().__init__(
+            parent=parent,
+            footer_frame=footer_frame,
+            support_link=support_link,
+            activate=self.dismiss,
+            can_show=can_show,
+            last_shown_at=0.0,
+            record_show=lambda _shown_at: None,
+        )
+        self.setProperty("messageKind", "thankYou")
+        self.setAccessibleName("Thank you for supporting BonkScanner")
+        self._message.setText(
+            "Thank you for supporting BonkScanner!\n"
+            "You help make every update possible."
+        )
+        self._action.setText("×")
+        self._action.setFixedWidth(32)
+        self._action.setToolTip("Close")
+        self._action.setAccessibleName("Dismiss thank-you message")
+
+    def start(self) -> None:
+        if self._has_shown or self._playing or self._due or self._startup_timer.isActive():
+            return
+        self._last_startup_delay_ms = SUPPORT_THANK_YOU_STARTUP_DELAY_MS
+        self._startup_timer.start(self._last_startup_delay_ms)
+
+    def _schedule_next(self) -> None:
+        # Called on close/animation finish by the shared card; there is no repeat.
+        self._timer.stop()
+        self._startup_timer.stop()
+        self._activation_timer.stop()
+        self._due = False
+        self._due_bypasses_cooldown = False
+
+    def _mark_due(self, *, bypass_cooldown: bool = False) -> None:
+        if not self._has_shown:
+            super()._mark_due(bypass_cooldown=True)
+
+    def _play_if_due(self) -> bool:
+        if self._has_shown or not self._due:
+            return False
+        if not self._window_is_ready():
+            self._timer.start(SUPPORT_THANK_YOU_RETRY_MS)
+            return False
+        return self.play()
+
+    def play(self, *, force: bool = False) -> bool:
+        if self._has_shown:
+            return False
+        played = super().play(force=force)
+        if played:
+            self._has_shown = True
+        return played
+
+    def _application_state_changed(self, state) -> None:
+        if not self._has_shown:
+            super()._application_state_changed(state)
+
+
 def _separator() -> QFrame:
     """The hairline between two footer items.
 
@@ -1757,6 +1823,7 @@ class FooterView:
         self._supporter_directory = SupporterDirectory(())
         self.refresh_supporters_if_stale = None
         self._reminder: _SupportReminder | None = None
+        self._thank_you: _SupportThankYou | None = None
         self._supporter_access_listener = self._on_supporter_access_changed
         supporter_access = getattr(app, "supporter_access", None)
         add_listener = getattr(supporter_access, "add_listener", None)
@@ -1782,12 +1849,36 @@ class FooterView:
             return False
 
     def _on_supporter_access_changed(self, _state=None) -> None:
-        if not self._has_premium_access() or self._reminder is None:
+        if self._reminder is None:
+            return
+        if not self._has_premium_access():
+            if self._thank_you is not None and (
+                self._thank_you._playing
+                or self._thank_you._due
+                or self._thank_you._startup_timer.isActive()
+            ):
+                self._thank_you.dismiss()
             return
         try:
-            self._reminder.dismiss()
+            # Repeated access refreshes must not reset the shared footer heartbeat
+            # while the gratitude animation is playing.
+            if (
+                self._reminder._playing
+                or self._reminder._due
+                or self._reminder._startup_timer.isActive()
+            ):
+                self._reminder.dismiss()
         except RuntimeError:
             self._reminder = None
+            return
+        if self._thank_you is None:
+            self._thank_you = _SupportThankYou(
+                parent=self._reminder.parentWidget(),
+                footer_frame=self.frame,
+                support_link=self._support_btn,
+                can_show=self._thank_you_can_show,
+            )
+        self._thank_you.start()
 
     def _initialize_support_reminder(self) -> None:
         """Build the overlay once the footer has been parented by the root layout."""
@@ -1808,6 +1899,7 @@ class FooterView:
             record_show=self._record_support_reminder_shown,
         )
         self._reminder.start()
+        self._on_supporter_access_changed()
 
     def _save_support_reminder_state(
         self,
@@ -1833,6 +1925,16 @@ class FooterView:
     def _support_reminder_can_show(self) -> bool:
         if self._has_premium_access():
             return False
+        return self._support_popup_is_closed()
+
+    def _thank_you_can_show(self) -> bool:
+        return (
+            self._has_premium_access()
+            and self._support_popup_is_closed()
+            and (self._reminder is None or not self._reminder._playing)
+        )
+
+    def _support_popup_is_closed(self) -> bool:
         popup = self._popup
         if popup is None:
             return True
@@ -1927,6 +2029,8 @@ class FooterView:
         try:
             if self._reminder is not None:
                 self._reminder.dismiss()
+            if self._thank_you is not None and self._thank_you._playing:
+                self._thank_you.dismiss()
             if self._popup is None:
                 self._popup = SupportPopup(
                     self.frame.window(),

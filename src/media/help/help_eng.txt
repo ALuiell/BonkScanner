@@ -224,6 +224,7 @@ Important:
 Settings and Updates
 --------------------
 `Settings`:
+- `General → Appearance → Use standard appearance` - select the original BonkScanner style. Unchecked uses the Halloween theme by default. Save applies the choice immediately and remembers it between launches; Cancel discards the edit. Desktop appearance does not change OBS output or in-game overlay styling. There is no automatic date-based switching.
 - `Scan Hotkey` - starts or pauses the scan loop while the app is running.
 - `Reset Hotkey` - keyboard restart hotkey.
 - `Record Hotkey` - starts or stops live stats recording.

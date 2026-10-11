@@ -6727,6 +6727,8 @@ class GuiRunControlTests(unittest.TestCase):
             app._left_rail = SimpleNamespace(collapse=lambda **_kwargs: None)
 
         with patch.object(gui_app, "build_layout", side_effect=build_minimal_layout), patch.object(
+            MegabonkApp, "apply_visual_theme"
+        ), patch.object(
             gui_app,
             "build_twitch_session",
             return_value=session,

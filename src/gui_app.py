@@ -24,6 +24,7 @@ from ui.shared import UiInvoker, _AppWindow, resource_path
 from ui.dialogs.update_prompt import start_supporters_load, start_update_check
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
+from ui.themes import apply_theme
 from app.shutdown import (
     FORCED_SHUTDOWN_EXIT_CODE,
     ShutdownDeadline,
@@ -389,6 +390,7 @@ class MegabonkApp:
             # Restoring any earlier would come up with a rail of zero tiles.
             if config.LEFT_RAIL_COLLAPSED:
                 self._left_rail.collapse(restoring=True)
+            self.apply_visual_theme()
         except Exception as exc:
             log_runtime_event(
                 "application.construction.failed",
@@ -396,6 +398,9 @@ class MegabonkApp:
             )
             self.on_closing()
             raise
+
+    def apply_visual_theme(self) -> None:
+        apply_theme(self)
 
     def start(self) -> None:
         """Start background owners after construction has completed."""

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="246" height="42" viewBox="0 0 246 42">
+ <defs>
+  <linearGradient id="pill" x2="0" y2="1"><stop stop-color="#241A30"/><stop offset="1" stop-color="#17121F"/></linearGradient>
+  <linearGradient id="skin" x2="1" y2="1"><stop stop-color="#60416F"/><stop offset="1" stop-color="#2B1C37"/></linearGradient>
+  <linearGradient id="fire" x2="0" y2="1"><stop stop-color="#FFD27A"/><stop offset="1" stop-color="#DD802F"/></linearGradient>
+ </defs>
+ <rect x="40" y="5" width="166" height="32" rx="16" fill="url(#pill)" stroke="#805BA0" stroke-width=".85"/>
+ <path d="M65 13Q62 9 67 8L69 9Q65 10 67 14" fill="#8D729D"/>
+ <path d="M65 14C50 7 49 29 58 31Q62 34 66 32Q72 35 77 29C83 18 77 9 68 14Z" fill="url(#skin)" stroke="#8B649E" stroke-width=".65"/>
+ <path d="M63 14Q57 22 62 32M68 14Q74 22 69 32" fill="none" stroke="#8B609D" stroke-width=".6" opacity=".65"/>
+ <path d="M55 18L63 21L58 23ZM76 18L68 21L73 23ZM57 26L61 27L63 25L66 28L69 25L72 26L76 24Q70 34 61 30Z" fill="url(#fire)"/>
+ <text x="86" y="26" fill="#D6BDF2" font-family="Segoe UI,sans-serif" font-size="13" font-weight="700" letter-spacing="1.7">HALLOWEEN</text>
+</svg>
