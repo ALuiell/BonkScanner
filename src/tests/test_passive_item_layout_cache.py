@@ -99,8 +99,9 @@ class PassiveItemLayoutCacheTests(unittest.TestCase):
         warm_reads = memory.reads - cold_reads
 
         self.assertEqual(first, second)
-        # Cold: entries + count + version, then 4 per entry.
-        self.assertEqual(cold_reads, 3 + 4 * 2)
+        # Cold: header + initial version, 4 per entry, then header/version
+        # validation. The three extra reads prevent caching a torn walk.
+        self.assertEqual(cold_reads, 6 + 4 * 2)
         # Warm: entries + count + version, then only the stabilised stack pair.
         self.assertEqual(warm_reads, 3 + 2 * 2)
         self.assertLess(warm_reads, cold_reads)

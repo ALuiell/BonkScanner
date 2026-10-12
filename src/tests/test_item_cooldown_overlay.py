@@ -355,14 +355,17 @@ class TrackerPublishTests(unittest.TestCase):
         tracker.update_item_cooldowns(reading)
         self.assertIs(tracker.item_cooldowns(), reading)
 
-    def test_none_clears_rather_than_storing_a_blank(self) -> None:
-        """A failed pass and an inventory with no timed item are different facts.
-
-        Only the second may render as "nothing to show"; the first has to let
-        the TTL retire the last good value instead of overwriting it.
-        """
+    def test_none_preserves_the_last_good_sample_without_refreshing_it(self) -> None:
+        """A failed read gets bounded grace, not a fresh empty reading."""
         tracker = self._tracker()
-        tracker.update_item_cooldowns(snapshot(lantern(next_trigger=130.0)))
+        now = [1000.0]
+        tracker.clock = lambda: now[0]
+        good = snapshot(lantern(next_trigger=130.0))
+        tracker.update_item_cooldowns(good)
+        now[0] += 1.0
+        tracker.update_item_cooldowns(None)
+        self.assertIs(tracker.item_cooldowns(), good)
+        now[0] += 3.0
         tracker.update_item_cooldowns(None)
         self.assertIsNone(tracker.item_cooldowns())
 

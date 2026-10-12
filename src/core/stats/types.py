@@ -262,14 +262,14 @@ class ItemCooldownSnapshot:
     which is the entire reason the countdown may never be derived from a local
     monotonic clock.
 
-    An empty ``readings`` means "no timed item in the inventory", which is a
-    real answer. A failed read produces no snapshot at all rather than an empty
-    one -- the distinction is what keeps a missed pass from rendering as "no
-    cooldown".
+    Only a ``complete`` empty batch proves no timed item is held. A failed
+    binding or field read produces an incomplete batch; an unreadable clock
+    raises instead. Neither failure refreshes the last good sample's TTL.
     """
 
     my_time_seconds: float
     readings: tuple[ItemCooldownReading, ...] = ()
+    complete: bool = True
 
 
 @dataclass(frozen=True)

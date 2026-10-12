@@ -442,7 +442,7 @@ class ItemCooldownCostTests(unittest.TestCase):
         client = client_for(memory)
 
         read(client)
-        self.assertEqual(memory.reads, 24, "cold pass: resolve, walk, clock, fields")
+        self.assertEqual(memory.reads, 27, "cold pass: resolve, coherent walk, clock, fields")
 
         memory.reads = 0
         memory.float_reads = 0
