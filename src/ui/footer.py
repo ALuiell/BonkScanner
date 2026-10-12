@@ -32,6 +32,8 @@ from PySide6.QtCore import (
     QLineF,
     QParallelAnimationGroup,
     QPoint,
+    QPointF,
+    QRect,
     QRectF,
     QPropertyAnimation,
     QSequentialAnimationGroup,
@@ -68,6 +70,8 @@ from ui.dialogs.update_prompt import start_update_check
 from ui.shared import _clear_layout, resource_path
 
 FOOTER_HEIGHT = 28
+SUPPORT_WEB_SLOT_WIDTH = 40
+SUPPORT_WEB_SCALE = 0.8
 
 PATREON_ICON_PATH = "media/patreon_logo.svg"
 CRYPTO_ICON_PATH = "media/crypto_coins.svg"
@@ -332,6 +336,12 @@ class _SupportFooterLink(_AnimatedFooterLink):
 
     def __init__(self, text: str, parent: QWidget | None = None) -> None:
         self._caption = ""
+        self._halloween = False
+        self._web_time = 2.0
+        self._web_started = 0.0
+        self._halloween_animation = None
+        self._web_phase = -1.0
+        self._web_frames = None
         self._heart_scale = 1.0
         self._hovered = False
         self._heartbeat_suspended = False
@@ -363,6 +373,101 @@ class _SupportFooterLink(_AnimatedFooterLink):
             self._heart_step(HEART_HOVER_SCALE, 1.0, 170, QEasingCurve.InCubic)
         )
 
+        self._web_timer = QTimer(self)
+        self._web_timer.setTimerType(Qt.PreciseTimer)
+        self._web_timer.setInterval(16)
+        self._web_timer.timeout.connect(self._web_tick)
+        self._web_wake = QTimer(self)
+        self._web_wake.setSingleShot(True)
+        self._web_wake.timeout.connect(self.pulse_web)
+        application = QApplication.instance()
+        if application is not None:
+            application.applicationStateChanged.connect(self._web_application_state_changed)
+
+    def set_halloween_animation(self, animation) -> None:
+        if self._halloween_animation is animation:
+            return
+        if self._halloween_animation is not None:
+            self._halloween_animation.phaseChanged.disconnect(self._set_web_phase)
+        self._halloween_animation = animation
+        self._web_timer.stop()
+        self._web_wake.stop()
+        animation.add_surface(self)
+        animation.phaseChanged.connect(self._set_web_phase)
+        self._set_web_phase(animation.phase)
+        animation.refresh()
+
+    def _set_web_phase(self, phase: float) -> None:
+        self._web_phase = phase
+        if self._halloween and self.isVisible():
+            self.update(QRect(0, 0, SUPPORT_WEB_SLOT_WIDTH + 6, self.height()))
+
+    def set_halloween(self, enabled: bool) -> None:
+        if self._halloween == enabled:
+            return
+        self._halloween = enabled
+        self.window().installEventFilter(self)
+        self._ambient_heartbeat.stop()
+        self._hover_heartbeat.stop()
+        self._web_timer.stop()
+        self._web_wake.stop()
+        self._web_time = 2.0
+        self._set_heart_scale(1.0)
+        self.setFixedHeight(44 if enabled else 24)
+        if enabled:
+            self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + SUPPORT_WEB_SLOT_WIDTH + 6)
+        else:
+            self.setMinimumWidth(0)
+            self.setMaximumWidth(16777215)
+        self.updateGeometry()
+        self._restart_ambient_heartbeat()
+
+    def _web_can_animate(self) -> bool:
+        application = QApplication.instance()
+        return (self._halloween and self.isVisible() and not self.window().isMinimized()
+                and application is not None and application.applicationState() == Qt.ApplicationActive)
+
+    def pulse_web(self, *, force: bool = False) -> None:
+        self._web_wake.stop()
+        if not self._web_can_animate() or (self._heartbeat_suspended and not force):
+            return
+        if self._halloween_animation is not None:
+            self._halloween_animation.restart()
+            return
+        self._web_started = time.monotonic()
+        self._web_time = 0.0
+        self._web_timer.start()
+        self.update()
+
+    def _web_tick(self) -> None:
+        self._web_time = time.monotonic() - self._web_started
+        if not self._web_can_animate() or self._web_time >= 1.2:
+            self._web_timer.stop()
+            self._web_time = 2.0
+            if self._web_can_animate() and not self._heartbeat_suspended:
+                self._web_wake.start(5000)
+        self.update()
+
+    def _web_application_state_changed(self, state) -> None:
+        if not self._halloween:
+            return
+        if self._halloween_animation is not None:
+            self._halloween_animation.refresh()
+            return
+        self._web_timer.stop()
+        self._web_wake.stop()
+        self._web_time = 2.0
+        self.update()
+        if state == Qt.ApplicationActive:
+            self._restart_ambient_heartbeat()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if self._halloween and watched is self.window() and event.type() in (
+            QEvent.WindowStateChange, QEvent.Hide, QEvent.Show,
+        ):
+            self._web_application_state_changed(QApplication.instance().applicationState())
+        return super().eventFilter(watched, event)
+
     def _heart_step(
         self,
         start: float,
@@ -390,6 +495,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
         visible_text = str(text)
         self._caption = visible_text.replace("♥", "", 1).strip()
         super().setText(visible_text)
+        if self._halloween:
+            self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + SUPPORT_WEB_SLOT_WIDTH + 6)
         self.updateGeometry()
 
     def caption(self) -> str:
@@ -411,10 +518,34 @@ class _SupportFooterLink(_AnimatedFooterLink):
         return heart_font, heart_width, caption_width, gap
 
     def _content_width(self) -> float:
+        if self._halloween:
+            return QFontMetricsF(self.font()).horizontalAdvance(self._caption) + SUPPORT_WEB_SLOT_WIDTH
         _heart_font, heart_width, caption_width, gap = self._content_metrics()
         return heart_width + gap + caption_width
 
     def _paint_content(self, painter: QPainter, rect: QRectF, color: QColor) -> None:
+        if self._halloween:
+            from ui.themes.support import draw_web_icon
+
+            caption_width = QFontMetricsF(self.font()).horizontalAdvance(self._caption)
+            start = rect.center().x() - (caption_width + SUPPORT_WEB_SLOT_WIDTH) / 2
+            if self._halloween_animation is not None:
+                from ui.themes.animation import WebPulseFrames
+
+                if self._web_frames is None:
+                    self._web_frames = WebPulseFrames()
+                frame = self._web_frames.frame(self.devicePixelRatioF(), SUPPORT_WEB_SCALE, self._web_phase)
+                painter.drawPixmap(QPointF(start - 2, rect.center().y() - 19), frame)
+            else:
+                painter.save()
+                painter.translate(start + 18, rect.center().y() + 1)
+                painter.scale(SUPPORT_WEB_SCALE, SUPPORT_WEB_SCALE)
+                draw_web_icon(painter, 0, 0, self._web_time)
+                painter.restore()
+            self._draw_text(painter, QRectF(start + SUPPORT_WEB_SLOT_WIDTH, rect.y(), caption_width + 2, rect.height()),
+                            self.font(), self._caption, color,
+                            glow_alpha=round(36 * self._hover_progress))
+            return
         heart_font, heart_width, caption_width, gap = self._content_metrics()
         total_width = heart_width + gap + caption_width
         start_x = rect.center().x() - total_width / 2.0
@@ -455,6 +586,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
         painter.restore()
 
     def sizeHint(self) -> QSize:  # noqa: N802 -- Qt's name
+        if self._halloween:
+            return QSize(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + SUPPORT_WEB_SLOT_WIDTH + 6, 44)
         hint = super().sizeHint()
         return QSize(hint.width() + 3, max(24, hint.height()))
 
@@ -464,6 +597,13 @@ class _SupportFooterLink(_AnimatedFooterLink):
     def _restart_ambient_heartbeat(self) -> None:
         self._ambient_heartbeat.stop()
         self._set_heart_scale(1.0)
+        if self._halloween:
+            if self._halloween_animation is not None:
+                self._halloween_animation.refresh()
+                return
+            if self._web_can_animate() and not self._heartbeat_suspended:
+                self._web_wake.start(5000)
+            return
         if (
             self.isVisible()
             and not self._hovered
@@ -478,6 +618,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._heartbeat_suspended = True
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
+        self._web_timer.stop()
+        self._web_wake.stop()
         self._set_heart_scale(1.0)
 
     def resume_heartbeat(self) -> None:
@@ -485,6 +627,9 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._heartbeat_suspended = False
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
+        if self._halloween:
+            self._restart_ambient_heartbeat()
+            return
         if self._hovered and self.isVisible():
             self._hover_heartbeat.start()
         else:
@@ -495,7 +640,9 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
-        if not self._heartbeat_suspended:
+        if self._halloween:
+            self.pulse_web()
+        elif not self._heartbeat_suspended:
             self._hover_heartbeat.start()
         super().enterEvent(event)
 
@@ -509,10 +656,14 @@ class _SupportFooterLink(_AnimatedFooterLink):
 
     def showEvent(self, event) -> None:  # noqa: N802 -- Qt's name
         super().showEvent(event)
+        self.window().installEventFilter(self)
         self._restart_ambient_heartbeat()
 
     def hideEvent(self, event) -> None:  # noqa: N802 -- Qt's name
         self._hovered = False
+        self._web_timer.stop()
+        self._web_wake.stop()
+        self._web_time = 2.0
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
@@ -632,6 +783,7 @@ class _SupportReminder(QFrame):
         self._lift_progress = 0.0
         self._pulse_offset = 0.0
         self._playing = False
+        self._spider = None
         self._due = False
         self._due_bypasses_cooldown = False
         self._last_interval_ms = 0
@@ -956,10 +1108,25 @@ class _SupportReminder(QFrame):
         self._set_pulse_offset(0.0)
         self._heart._set_heart_scale(1.0)
         self._support_link.suspend_heartbeat()
-        self._sync_geometry()
-        self.show()
-        self.raise_()
-        self._animation.start()
+        if self._support_link._halloween:
+            from ui.themes.support import SpiderSupport
+
+            if self._spider is None:
+                self._spider = SpiderSupport(
+                    host=self.parentWidget(), footer=self._footer_frame,
+                    activate=self._activate_clicked, dismiss=self.dismiss,
+                    finished=self._animation_finished,
+                )
+            self._spider.start(thank_you=self.property("messageKind") == "thankYou")
+            # Halloween's web has its own short pulse; keep its passive cycles
+            # during the reading interval without restarting the old heart.
+            self._support_link.resume_heartbeat()
+            self._support_link.pulse_web(force=True)
+        else:
+            self._sync_geometry()
+            self.show()
+            self.raise_()
+            self._animation.start()
         return True
 
     def dismiss(self) -> None:
@@ -979,6 +1146,8 @@ class _SupportReminder(QFrame):
         self._finish_playback(schedule_next=True)
 
     def _finish_playback(self, *, schedule_next: bool) -> None:
+        if self._spider is not None:
+            self._spider.stop()
         self._playing = False
         self.hide()
         self._set_lift_progress(0.0)
@@ -1838,6 +2007,18 @@ class FooterView:
                         callback
                     )
                 )
+
+    def set_halloween_animation(self, animation) -> None:
+        self._support_btn.set_halloween_animation(animation)
+
+    def set_theme(self, theme: str) -> None:
+        enabled = theme == "halloween"
+        if self._support_btn._halloween != enabled:
+            for card in (self._reminder, self._thank_you):
+                if card is not None and card._playing:
+                    card.dismiss()
+        self._support_btn.set_halloween(enabled)
+        self.frame.setFixedHeight(48 if enabled else FOOTER_HEIGHT)
 
     def _has_premium_access(self) -> bool:
         checker = getattr(self._app, "has_premium_access", None)

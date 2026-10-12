@@ -57,8 +57,10 @@ class ThemeDecorations(QObject):
         self.original_premium_icon_size = QSize(self.premium_badge.iconSize())
         self.premium_crown = QIcon(resource_path("media/themes/halloween/assets/premium-crown.svg"))
         self.original_logo = QPixmap(self.logo.pixmap()) if self.logo.pixmap() is not None else QPixmap()
-        self.badge = _SvgDecoration("header", self.header)
-        self.badge.setFixedSize(246, 42)
+        from ui.themes.animation import HalloweenAnimation
+        from ui.themes.header import FireHeader
+
+        self.animation = HalloweenAnimation(owner.window)
         # The artwork extends through the header's outer top margin. Parenting
         # it to headerBar would clip the branches 16 px below the window edge.
         self.tree = _SvgDecoration("forest-left", self.header.parentWidget())
@@ -74,6 +76,7 @@ class ThemeDecorations(QObject):
         self.web.setFixedSize(108, 148)
         self.log_edit = owner.log_box.findChild(QTextEdit)
         self.skeleton = _SvgDecoration("skeleton-reclining", self.log_edit)
+        self.badge = FireHeader(self, self.animation)
         self.decorations = (self.badge, self.tree, self.small_tree, self.bats, self.web, self.skeleton)
         for widget in (owner.window, self.header, self.left_tabs, self.right_tabs, self.log_edit):
             widget.installEventFilter(self)
@@ -102,6 +105,8 @@ class ThemeDecorations(QObject):
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
+        if not enabled:
+            self.animation.set_enabled(False)
         self.premium_badge.setIcon(self.premium_crown if enabled else self.original_premium_icon)
         self.premium_badge.setIconSize(QSize(16, 16) if enabled else self.original_premium_icon_size)
         if not self.original_logo.isNull():
@@ -121,6 +126,7 @@ class ThemeDecorations(QObject):
                 painter.end()
             self.logo.setPixmap(pixmap)
         self._refresh()
+        self.animation.set_enabled(enabled)
 
     def _refresh(self) -> None:
         self._pending = False
@@ -192,3 +198,4 @@ class ThemeDecorations(QObject):
         if skeleton_visible:
             self.skeleton.setGeometry(self.log_edit.width() - width - 16, y, width, height)
             self.skeleton.raise_()
+        self.badge.refresh_scene()

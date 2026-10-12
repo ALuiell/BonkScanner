@@ -158,5 +158,9 @@ def apply_theme(owner) -> str:
         decorations = ThemeDecorations(owner)
         owner._theme_decorations = decorations
     decorations.set_enabled(bool(preset.get("decorations", False)))
+    footer = getattr(owner, "footer", None)
+    if footer is not None:
+        footer.set_halloween_animation(decorations.animation)
+        footer.set_theme(preset["id"])
     owner._visual_theme = preset["id"]
     return preset["id"]
