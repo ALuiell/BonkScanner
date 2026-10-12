@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
+from infra.windows_keyboard import install_windows_keyboard_runtime
+
 
 @dataclass(frozen=True)
 class HotkeyBinding:
@@ -52,9 +54,11 @@ class ModifierAwareHotkeyManager:
         self._hook_remover: Callable[[], None] | None = None
         self._fallback_removers: list[Callable[[], None]] = []
         self._lock = threading.RLock()
+        self._keyboard_runtime = None
 
     def start(self, bindings: Iterable[HotkeyBinding]) -> None:
         self.stop()
+        self._keyboard_runtime = install_windows_keyboard_runtime(self.keyboard)
         parsed_bindings: list[_ParsedBinding] = []
         fallback_bindings: list[HotkeyBinding] = []
 
@@ -81,7 +85,8 @@ class ModifierAwareHotkeyManager:
             for binding in fallback_bindings:
                 remover = self.keyboard.add_hotkey(binding.hotkey, binding.callback)
                 self._fallback_removers.append(remover)
-            if parsed_bindings and self._state_reader is not None:
+            if (parsed_bindings or fallback_bindings) and (
+                    self._state_reader is not None or self._keyboard_runtime is not None):
                 self._reconcile_stop = threading.Event()
                 self._reconcile_thread = threading.Thread(
                     target=self._reconcile_loop, args=(self._reconcile_stop,),
@@ -130,6 +135,8 @@ class ModifierAwareHotkeyManager:
 
     def _reconcile_loop(self, stop: threading.Event) -> None:
         while not stop.wait(0.25):
+            if self._keyboard_runtime is not None:
+                self._keyboard_runtime.recover()
             self.reconcile_pressed_keys()
 
     def reconcile_pressed_keys(self) -> int:

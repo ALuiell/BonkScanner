@@ -30,6 +30,10 @@ def _load_keyboard_dependency():
     except ImportError:
         loaded_keyboard = None
     keyboard = loaded_keyboard
+    if keyboard is not None:
+        from infra.windows_keyboard import install_windows_keyboard_runtime
+
+        install_windows_keyboard_runtime(keyboard)
     return keyboard
 
 
