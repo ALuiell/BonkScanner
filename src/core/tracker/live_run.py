@@ -1038,16 +1038,13 @@ class LiveRunTracker:
 
     @with_lock
     def update_item_cooldowns(self, snapshot: Any | None) -> None:
-        """Publish timed-item cooldowns from the fast loot pass.
+        """Publish only complete cooldown samples, preserving bounded grace.
 
-        ``None`` clears rather than storing an empty reading, for the same
-        reason ``update_fast_luck`` does: a pass that failed and an inventory
-        holding no timed item are different facts, and only the second one may
-        render as "nothing to show". Clearing lets the TTL retire the last good
-        value instead of a failed read overwriting it with a plausible blank.
+        Failures do not replace the last good value or refresh its timestamp.
+        It expires after the existing three-second TTL. A confirmed empty
+        inventory hides immediately; run-boundary resets still clear it.
         """
-        if snapshot is None:
-            self._fast_item_cooldowns = FastItemCooldowns()
+        if snapshot is None or not getattr(snapshot, "complete", True):
             return
         self._fast_item_cooldowns = FastItemCooldowns(
             captured_at=self.clock(), snapshot=snapshot

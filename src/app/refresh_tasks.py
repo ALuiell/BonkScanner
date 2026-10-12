@@ -773,26 +773,11 @@ class RefreshTasks:
             update_fast_size(size)
 
     def _publish_item_cooldowns(self, context: RefreshTickContext) -> None:
-        """Timed-item cooldowns, from the same pass as the inventory.
+        """Publish the cooldown sample without changing inventory health.
 
-        Costs almost nothing on top of that pass: the dictionary walk is
-        already paid for and memoised, so this is two float reads for the item
-        plus one for ``MyTime.time``, whose static-field chain is cached --
-        ~12 us against the ~0.004 ms measured per ``ReadProcessMemory``. That
-        is why there is no demand-gating predicate for it and
-        ``_should_refresh_passive_items`` is left alone: the cost this feature
-        adds is below the threshold at which gating pays for itself.
-
-        **Swallows, and records no health**, matching ``_publish_fast_luck``
-        and ``_publish_fast_map_activity`` above. ``PASSIVE_ITEMS`` keeps a
-        single health owner; without this a torn cooldown float would be
-        reported as an inventory failure and would mark the whole feature
-        degraded. Cost is not what demand-gating protects -- failure surface is
-        -- and this is how that half is paid instead.
-
-        A failure clears the reading rather than leaving the previous one in
-        place, so the TTL retires it on schedule instead of a stale countdown
-        outliving the pass that produced it.
+        The reader diagnoses failures and rebuilds its own local caches. An
+        incomplete sample or exception does not extend the tracker's last-good
+        TTL, so a transient read has bounded grace rather than a plausible blank.
         """
         try:
             client = self._fast_task_client(context)
@@ -1475,7 +1460,7 @@ class RefreshTasks:
         return self._lifecycle().is_active_run() or self._refresh_required()
 
     def _should_refresh_passive_items(self) -> bool:
-        """Everything the full snapshot demands, plus the Luck widget.
+        """Everything the full snapshot demands, plus the fast-only widgets.
 
         The snapshot's own predicate was this task's predicate too, deliberately:
         it feeds the same tracked-item state recordings consume, so a demand
@@ -1487,11 +1472,17 @@ class RefreshTasks:
         `in_game_overlay_requires_player_stats_refresh`. Luck rides this task
         now, so the widget has to be able to demand *this* task; without the arm
         a user running the Luck widget alone outside an active run would get no
-        Luck read at all.
+        Luck read at all. Items Cooldown likewise keeps this lane demanded
+        during a missed activity probe, without forcing the full stat walk.
+        A confirmed completed run still closes that additional demand.
         """
         return (
             self._should_refresh_full_player_snapshot()
             or in_game_overlay_widget_enabled("luck_rarity")
+            or (
+                not self._lifecycle().completed_run
+                and in_game_overlay_widget_enabled("item_cooldowns")
+            )
             or self._build_progression_has_cap_demand()
         )
 

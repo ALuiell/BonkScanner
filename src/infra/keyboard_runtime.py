@@ -5,6 +5,7 @@ import threading
 from contextlib import contextmanager
 
 from core.run_control import RunControlError
+from infra.windows_keyboard import install_windows_keyboard_runtime
 
 _SEND_LOCK = threading.RLock()
 
@@ -24,7 +25,11 @@ def keyboard_operation(keyboard_module, operation: str, hotkey: str) -> None:
     with keyboard_send_scope(keyboard_module):
         listener = getattr(keyboard_module, "_listener", None)
         try:
-            getattr(keyboard_module, operation)(hotkey)
+            runtime = install_windows_keyboard_runtime(keyboard_module)
+            if runtime is not None:
+                runtime.send(operation, hotkey)
+            else:
+                getattr(keyboard_module, operation)(hotkey)
         finally:
             if listener is not None:
                 listener.is_replaying = False
