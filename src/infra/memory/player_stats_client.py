@@ -852,11 +852,17 @@ class PlayerStatsClient:
 
     def _read_passive_item_dictionary(self, passive_item_dict: int) -> tuple[str, ...]:
         entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
+        count = self.memory.read_i32(passive_item_dict + self.DICT_COUNT_OFFSET)
         if not entries:
             self._clear_passive_item_layout()
+            # A missing array with occupied slots is an incomplete read, not
+            # evidence of item loss. Let cooldown consumers retain bounded grace.
+            if count > 0:
+                raise MemoryReadError(
+                    f"Passive item dictionary entries are unavailable for count={count}."
+                )
             return ()
 
-        count = self.memory.read_i32(passive_item_dict + self.DICT_COUNT_OFFSET)
         if count <= 0:
             self._clear_passive_item_layout()
             return ()

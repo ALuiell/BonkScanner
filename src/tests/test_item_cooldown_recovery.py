@@ -77,6 +77,47 @@ class BindingRecoveryTests(unittest.TestCase):
         self.assertIsNone(client._cached_item_layout)
 
 
+    def test_nonempty_dictionary_without_entries_is_rejected(self):
+        for warm in (False, True):
+            with self.subTest(warm=warm):
+                memory = build_memory()
+                client = client_for(memory)
+                if warm:
+                    self.assertEqual(len(read(client).readings), 1)
+                memory.pointers[DICT + C.DICT_ENTRIES_OFFSET] = 0
+                self.assertEqual(memory.ints[DICT + C.DICT_COUNT_OFFSET], 2)
+
+                with self.assertRaisesRegex(MemoryReadError, "entries.*count"):
+                    client._read_passive_item_dictionary(DICT)
+                self.assertIsNone(client._cached_item_layout)
+
+                memory.pointers[DICT + C.DICT_ENTRIES_OFFSET] = ENTRIES
+                self.assertEqual(len(read(client).readings), 1)
+                self.assertEqual(memory.ints[VERSION], 7)
+
+    def test_null_entries_with_unreadable_count_is_not_confirmed_empty(self):
+        memory = build_memory()
+        client = client_for(memory)
+        self.assertEqual(len(read(client).readings), 1)
+        memory.pointers[DICT + C.DICT_ENTRIES_OFFSET] = 0
+        memory.unreadable.add(DICT + C.DICT_COUNT_OFFSET)
+
+        with self.assertRaises(MemoryReadError):
+            read(client)
+        self.assertIsNone(client._cached_item_layout)
+
+    def test_empty_fallback_does_not_mask_missing_entries(self):
+        memory = build_memory()
+        client = client_for(memory)
+        self.assertEqual(len(read(client).readings), 1)
+        memory.pointers[DICT + C.DICT_ENTRIES_OFFSET] = 0
+        memory.pointers[OWNER_STATS + C.PLAYER_INVENTORY_OFFSET] = 0
+
+        with self.assertRaisesRegex(MemoryReadError, "entries.*count"):
+            client.get_passive_items(OWNER_STATS)
+        self.assertIsNone(client._cached_item_layout)
+
+
 class CoherentLayoutTests(unittest.TestCase):
     def test_change_during_cold_walk_is_rejected_not_stored_under_new_version(self):
         memory = build_memory()
@@ -351,6 +392,72 @@ class CooldownEndToEndTests(unittest.TestCase):
         self.assertIn("30s", publish(4))
         self.assertIs(world.stats_client, client)
         self.assertEqual(world.memory._player_stats_memory_error_streak, 0)
+
+    def test_null_entries_preserve_grace_expire_and_recover_without_restart(self):
+        from app.refresh_coordinator import RefreshTickContext
+        from projections.in_game import project_in_game_overlay
+        from projections.in_game_html import build_item_cooldowns_overlay_html
+        from tests.support.refresh_tasks import build_refresh_tasks
+
+        now = [100.0]
+        memory = build_memory(my_time=100.0, next_trigger=130.0)
+        client = client_for(memory)
+        client.resolve_owner_stats = lambda: OWNER_STATS
+        tracker = LiveRunTracker(clock=lambda: now[0])
+        service, world = build_refresh_tasks(stats_client=client, tracker=tracker)
+        pass_id = 0
+
+        def publish():
+            nonlocal pass_id
+            pass_id += 1
+            service._publish_item_cooldowns(
+                RefreshTickContext(pass_id=pass_id, started_at=now[0], clock=lambda: now[0])
+            )
+            return build_item_cooldowns_overlay_html(
+                project_in_game_overlay(tracker.runtime_snapshot())
+            )
+
+        self.assertIn("30s", publish())
+        good = tracker.item_cooldowns()
+        captured_at = tracker._fast_item_cooldowns.captured_at
+        memory.pointers[DICT + C.DICT_ENTRIES_OFFSET] = 0
+        self.assertEqual(memory.ints[DICT + C.DICT_COUNT_OFFSET], 2)
+
+        # Exercise the actual reader -> publisher -> tracker -> HTML path,
+        # not a hand-built incomplete sample. Repeated failures cannot renew TTL.
+        for elapsed in (0.1, 1.0, FAST_ITEM_COOLDOWNS_TTL_SECONDS - 0.01):
+            now[0] = 100.0 + elapsed
+            self.assertIn("30s", publish())
+            self.assertIs(tracker.item_cooldowns(), good)
+            self.assertEqual(tracker._fast_item_cooldowns.captured_at, captured_at)
+            self.assertIsNone(client._cached_item_layout)
+
+        now[0] = 100.0 + FAST_ITEM_COOLDOWNS_TTL_SECONDS + 0.01
+        self.assertEqual(publish(), "")
+        self.assertIsNone(tracker.item_cooldowns())
+        self.assertEqual(tracker._fast_item_cooldowns.captured_at, captured_at)
+
+        # Restore only the pointer and advance the game clock. No new client,
+        # dictionary version bump, or manual cache reset is allowed.
+        memory.pointers[DICT + C.DICT_ENTRIES_OFFSET] = ENTRIES
+        memory.floats[CLOCK] = 104.0
+        now[0] = 104.0
+        self.assertIn("26s", publish())
+        self.assertTrue(tracker.item_cooldowns().complete)
+        self.assertEqual(memory.ints[VERSION], 7)
+        self.assertIs(world.stats_client, client)
+        self.assertEqual(world.memory._player_stats_memory_error_streak, 0)
+
+        # A genuinely empty dictionary must still hide the widget immediately,
+        # even though the recovered value is only 0.1 seconds old.
+        memory.pointers[DICT + C.DICT_ENTRIES_OFFSET] = 0
+        memory.ints[DICT + C.DICT_COUNT_OFFSET] = 0
+        now[0] += 0.1
+        self.assertEqual(publish(), "")
+        empty = tracker.item_cooldowns()
+        self.assertIsNotNone(empty)
+        self.assertTrue(empty.complete)
+        self.assertEqual(empty.readings, ())
 
     def test_genuine_item_loss_stays_hidden_after_subsequent_failed_samples(self):
         tracker = LiveRunTracker()
