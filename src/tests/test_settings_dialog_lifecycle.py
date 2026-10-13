@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QScrollArea, QWidget
 
@@ -396,6 +396,60 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
         save.assert_not_called()
         self.assertFalse(result.success)
         self.assertEqual(result.status, "cancelled")
+
+    def test_settings_construction_never_shows_a_temporary_window(self) -> None:
+        class WindowShowObserver(QObject):
+            def __init__(self):
+                super().__init__()
+                self.shown_windows = []
+
+            def eventFilter(self, watched, event):
+                if (
+                    event.type() == QEvent.Show
+                    and isinstance(watched, QWidget)
+                    and watched.isWindow()
+                ):
+                    self.shown_windows.append(type(watched).__name__)
+                return False
+
+        for problem in ("", "Invalid reset timing"):
+            with self.subTest(problem=problem):
+                observer = WindowShowObserver()
+                watched_widgets = []
+                original_set_status = gui_app.SettingsDialog._set_reset_status
+
+                def observe_status(dialog, *args, **kwargs):
+                    for widget in (dialog.reset_timing_hint, dialog.reset_timing_status_label):
+                        if widget not in watched_widgets:
+                            widget.installEventFilter(observer)
+                            watched_widgets.append(widget)
+                    original_set_status(dialog, *args, **kwargs)
+
+                try:
+                    with patch.object(
+                        gui_app.SettingsDialog,
+                        "_reset_input_problem",
+                        lambda _dialog, **_kwargs: (problem, False),
+                    ), patch.object(
+                        gui_app.SettingsDialog, "_set_reset_status", observe_status,
+                    ):
+                        dialog = gui_app.SettingsDialog(self.owner.window, master=self.owner)
+                        self.owner._settings_dialog = dialog
+                        self.assertEqual(observer.shown_windows, [])
+                        self.assertFalse(dialog.isVisible())
+                        dialog.installEventFilter(observer)
+                        watched_widgets.append(dialog)
+                        dialog.show_page("restart")
+                        dialog.open()
+                        QApplication.processEvents()
+                        self.assertEqual(observer.shown_windows, ["SettingsDialog"])
+                        self.assertEqual(dialog.reset_timing_hint.isVisible(), not bool(problem))
+                        self.assertEqual(dialog.reset_timing_status_label.isVisible(), bool(problem))
+                finally:
+                    for widget in watched_widgets:
+                        widget.removeEventFilter(observer)
+                    if self.owner._settings_dialog is not None:
+                        self.owner._settings_dialog.reject()
 
     def test_settings_keep_support_page_size_and_status_only_on_restart(self):
         self.owner.open_settings_dialog(page="support")

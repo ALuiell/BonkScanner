@@ -1780,7 +1780,7 @@ class SettingsDialog(QDialog):
         for label in (self.reset_game_after_label, self.reset_hold_after_label):
             label.setParent(self)
             label.hide()
-        self.reset_timing_status_label = QLabel()
+        self.reset_timing_status_label = QLabel(restart_content)
         self.reset_timing_status_label.setWordWrap(True)
         self.reset_timing_status_label.setTextFormat(Qt.PlainText)
         self.reset_timing_status_label.setObjectName("ResetTimingStatus")
@@ -1798,6 +1798,7 @@ class SettingsDialog(QDialog):
             "Reset key hold includes the game's reset time plus extra hold time."
             "<br><b>Recommended:</b> 0.01 s in the game + 0.05 s extra = 0.06 s key hold."
         )
+        self.reset_timing_hint.setParent(restart_content)
         self.reset_timing_limits_label.setParent(self)
         self.reset_timing_limits_label.hide()
         restart_layout.addWidget(self.advanced_reset_timing)
@@ -1822,7 +1823,6 @@ class SettingsDialog(QDialog):
         self.reset_hold_safety_margin_entry.valueChanged.connect(
             self._on_reset_margin_changed
         )
-        self._refresh_reset_timing_preview()
         layout.addWidget(_settings_group_label("Recording"))
         recording_form = QFormLayout()
         recording_form.addRow("Snapshot every:", self.record_interval_entry)
