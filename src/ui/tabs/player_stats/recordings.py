@@ -2190,11 +2190,8 @@ class RecordingsTab:
         return frame
 
     def _on_detail_tab_changed(self) -> None:
-        """Draw what just became visible, and show only what applies to it."""
+        """Draw what just became visible using the selected label mode."""
         self._stat_cards.flush_pending()
-        toggle = self._stats_expanded_toggle
-        if toggle is not None and self._detail_tabs is not None:
-            toggle.setVisible(self._detail_tabs.currentIndex() == 0)
 
     def begin_rename(self) -> None:
         """Swap the heading for the field, prefilled with the current name."""
@@ -2752,15 +2749,14 @@ class RecordingsTab:
         # In the tab bar's corner rather than a row of its own inside the Stats
         # page: one checkbox was costing a full-width strip above the grid, on
         # a tab where vertical space is what the stat cards are competing for.
-        # It only means anything on Stats, so it is hidden on the other five --
-        # a control that stays visible while doing nothing reads as broken.
+        # Match Live Stats: one shared mode for Stats and the roll-card panels.
         self._stats_expanded_toggle = LabeledSwitch("Expanded")
         self._stats_expanded_toggle.setObjectName("LiveStatsExpandedToggle")
         self._stats_expanded_toggle.setChecked(
             bool(config.user_config.get(LIVE_STATS_EXPANDED_CONFIG_KEY, False))
         )
         self._stats_expanded_toggle.setToolTip(
-            "Show the full stat names in detailed label/value rows"
+            "Show full stat names in Stats, Chaos, Shrines, and Passives"
         )
         self._detail_tabs.setHeaderControl(self._stats_expanded_toggle)
         vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
@@ -2957,7 +2953,11 @@ class RecordingsTab:
             character_passive_status_label=vods_character_passive_status_label,
             damage_sources_layout=vod_damage_sources_scroll_layout,
             damage_sources_status_label=vods_damage_sources_status_label,
+            expanded_stat_labels=self._stats_expanded_toggle.isChecked(),
             section_visible=section_visibility_over(lambda: self._detail_tabs),
+        )
+        self._stats_expanded_toggle.toggled.connect(
+            self._stat_cards.set_expanded_stat_labels
         )
         yield None
 
