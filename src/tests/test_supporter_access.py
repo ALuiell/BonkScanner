@@ -77,6 +77,30 @@ class SupporterAccessControllerTests(unittest.TestCase):
             delete_key=lambda: self.credentials.__setitem__("key", ""),
         )
 
+    def test_remaining_access_uses_the_same_expiry_and_grace_as_the_gate(self):
+        from dataclasses import replace
+        from app.supporter_access import OFFLINE_GRACE, SupporterAccessState
+
+        controller = self.controller(FakeClient([]))
+        self.assertEqual(controller.premium_access_remaining_seconds(), 0.0)
+        state = SupporterAccessState(status="active_subscription", active=True,
+            online=True, checked_at=self.now, expires_at=self.now + timedelta(seconds=30))
+        controller._state = state
+        self.assertEqual(controller.premium_access_remaining_seconds(), 30.0)
+        self.assertTrue(controller.has_premium_access())
+        self.now += timedelta(seconds=30)
+        self.assertEqual(controller.premium_access_remaining_seconds(), 0.0)
+        self.assertFalse(controller.has_premium_access())
+        controller._state = replace(state, expires_at=None)
+        self.assertIsNone(controller.premium_access_remaining_seconds())
+        self.assertTrue(controller.has_premium_access())
+        controller._state = replace(state, online=False, expires_at=self.now + timedelta(days=3),
+            checked_at=self.now - OFFLINE_GRACE + timedelta(seconds=10))
+        self.assertEqual(controller.premium_access_remaining_seconds(), 10.0)
+        self.now += timedelta(seconds=10)
+        self.assertEqual(controller.premium_access_remaining_seconds(), 0.0)
+        self.assertFalse(controller.has_premium_access())
+
     def test_no_key_never_calls_the_service(self):
         client = FakeClient([])
         controller = self.controller(client)

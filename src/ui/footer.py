@@ -19,6 +19,7 @@ a footer inset from the edges reads as a floating bar, not as the window's base.
 """
 from __future__ import annotations
 
+import logging
 import math
 import random
 import time
@@ -68,6 +69,9 @@ from app.version import CURRENT_VERSION
 from core.supporter_listing import SupporterDirectory
 from ui.dialogs.update_prompt import start_update_check
 from ui.shared import _clear_layout, resource_path
+from ui.themes.contracts import FooterIcon, SupportContext
+
+_appearance_log = logging.getLogger(__name__)
 
 FOOTER_HEIGHT = 28
 
@@ -390,21 +394,18 @@ class _SupportFooterLink(_AnimatedFooterLink):
             self._heart_step(HEART_HOVER_SCALE, 1.0, 170, QEasingCurve.InCubic)
         )
 
-    def set_theme_icon(self, icon) -> None:
+    def set_theme_icon(self, icon: FooterIcon | None) -> None:
         if self._theme_icon is icon:
             return
         if self._theme_icon is not None:
-            clock = self._theme_icon.clock
-            clock.phaseChanged.disconnect(self._theme_phase_changed)
-            clock.remove_surface(self)
+            self._theme_icon.detach()
         self._theme_icon = icon
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
         self.setFixedHeight(icon.height if icon else 24)
         if icon is not None:
-            icon.clock.add_surface(self)
-            icon.clock.phaseChanged.connect(self._theme_phase_changed)
+            icon.attach(self, self._theme_phase_changed)
             self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + icon.slot_width + 6)
         else:
             self.setMinimumWidth(0)
@@ -412,13 +413,13 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self.updateGeometry()
         self._restart_ambient_heartbeat()
 
-    def _theme_phase_changed(self, _phase) -> None:
+    def _theme_phase_changed(self) -> None:
         if self._theme_icon is not None and self.isVisible():
             self.update(QRect(0, 0, self._theme_icon.slot_width + 6, self.height()))
 
     def pulse_theme_icon(self, *, force=False) -> None:
         if self._theme_icon is not None and (force or not self._heartbeat_suspended):
-            self._theme_icon.clock.restart()
+            self._theme_icon.pulse()
 
     def _heart_step(
         self,
@@ -536,7 +537,7 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._ambient_heartbeat.stop()
         self._set_heart_scale(1.0)
         if self._theme_icon is not None:
-            self._theme_icon.clock.refresh()
+            self._theme_icon.refresh()
             return
         if (
             self.isVisible()
@@ -715,6 +716,7 @@ class _SupportReminder(QFrame):
         self._pulse_offset = 0.0
         self._playing = False
         self._presentation = None
+        self._presentation_failed = False
         self._due = False
         self._due_bypasses_cooldown = False
         self._last_interval_ms = 0
@@ -1039,15 +1041,7 @@ class _SupportReminder(QFrame):
         self._set_pulse_offset(0.0)
         self._heart._set_heart_scale(1.0)
         self._support_link.suspend_heartbeat()
-        provider = self._support_link._appearance
-        if provider is not None and self._presentation is None:
-            self._presentation = provider.create_support(
-                host=self.parentWidget(), footer=self._footer_frame,
-                activate=self._activate_clicked, dismiss=self.dismiss,
-                finished=self._animation_finished,
-            )
-        if self._presentation is not None:
-            self._presentation.start(thank_you=self.property("messageKind") == "thankYou")
+        if self._try_start_presentation():
             self._support_link.resume_heartbeat()
             self._support_link.pulse_theme_icon(force=True)
         else:
@@ -1056,6 +1050,34 @@ class _SupportReminder(QFrame):
             self.raise_()
             self._animation.start()
         return True
+
+    def _try_start_presentation(self) -> bool:
+        if self._presentation_failed:
+            return False
+        try:
+            provider = self._support_link._appearance
+            if provider is not None and self._presentation is None:
+                self._presentation = provider.create_support(SupportContext(
+                    host=self.parentWidget(), footer=self._footer_frame,
+                    activate=self._activate_clicked, dismiss=self.dismiss,
+                    finished=self._animation_finished,
+                ))
+            if self._presentation is None:
+                return False
+            self._presentation.start(thank_you=self.property("messageKind") == "thankYou")
+            return True
+        except Exception:
+            _appearance_log.exception("Cannot show appearance message; using the standard card")
+            # Do not retry a broken presentation on every reminder. Reset only
+            # when rebinding the provider; eligibility/cooldown remain unchanged.
+            self._presentation_failed = True
+            presentation, self._presentation = self._presentation, None
+            if presentation is not None:
+                try:
+                    presentation.dispose()
+                except Exception:
+                    _appearance_log.exception("Cannot dispose failed appearance message")
+            return False
 
     def dismiss(self) -> None:
         self._timer.stop()
@@ -1962,6 +1984,7 @@ class FooterView:
                 if card._playing:
                     card.dismiss()
                 card._presentation = None  # The previous provider owns disposal.
+                card._presentation_failed = False
         self._support_btn._appearance = provider
         self._support_btn.set_theme_icon(provider.footer_icon if provider else None)
         self.frame.setFixedHeight(provider.footer_height if provider else FOOTER_HEIGHT)

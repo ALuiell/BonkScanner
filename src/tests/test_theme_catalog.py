@@ -122,6 +122,99 @@ class ThemeCatalogTests(unittest.TestCase):
             combo.reload()
             self.assertTrue(combo.model().item(index).isEnabled())
 
+    def _access_fixture(self, *, online=True, remaining=30):
+        from datetime import datetime, timedelta, timezone
+        from app.supporter_access import OFFLINE_GRACE, SupporterAccessController, SupporterAccessState
+        from ui.themes.runtime import AppearanceRuntime
+
+        clock = {"now": datetime(2026, 10, 13, tzinfo=timezone.utc)}
+        access = SupporterAccessController(client=Mock(), schedule=lambda *_args: None,
+            is_shutting_down=lambda: False, get_key=lambda: "", now=lambda: clock["now"])
+        access._state = SupporterAccessState(status="active_subscription", active=True,
+            online=online, checked_at=clock["now"] if online else clock["now"] - OFFLINE_GRACE + timedelta(seconds=remaining),
+            expires_at=clock["now"] + timedelta(seconds=remaining) if online else clock["now"] + timedelta(days=10))
+        window = QWidget()
+        self.addCleanup(window.deleteLater)
+        owner = SimpleNamespace(window=window, supporter_access=access,
+            has_premium_access=access.has_premium_access, _visual_theme="halloween")
+        from ui.themes.contracts import ThemeHost
+        owner._appearance_runtime = AppearanceRuntime(ThemeHost(owner.window))
+        self.addCleanup(owner._appearance_runtime.dispose)
+        for item in (patch.object(config, "user_config", {THEME_CONFIG_KEY: "halloween"}),
+                     patch("ui.themes.theme_catalog", return_value=PAID)):
+            item.start()
+            self.addCleanup(item.stop)
+        _bind_theme_access(owner)
+        binding = owner._theme_access_binding
+        self.addCleanup(binding.close)
+        return clock, access, owner, binding
+
+    def test_expiry_and_offline_grace_refresh_without_access_publication(self):
+        from datetime import timedelta
+        from PySide6.QtTest import QSignalSpy
+
+        for online in (True, False):
+            with self.subTest(online=online):
+                clock, access, owner, binding = self._access_fixture(online=online)
+                self.assertTrue(binding.expiry_timer.isActive())
+                self.assertEqual(binding.expiry_timer.interval(), 30000)
+                clock["now"] += timedelta(seconds=31)
+                self.assertFalse(access.has_premium_access())
+                with patch("ui.themes.apply_theme", side_effect=lambda app: setattr(app, "_visual_theme", resolved_theme(app))) as apply:
+                    observed = QSignalSpy(binding.expiry_timer.timeout)
+                    binding.expiry_timer.start(1)
+                    self.assertTrue(observed.wait(1000), "Expiry timer did not fire")
+                    apply.assert_called_once_with(owner)
+                self.assertEqual(owner._visual_theme, "original")
+                self.assertEqual(config.user_config[THEME_CONFIG_KEY], "halloween")
+                self.assertFalse(binding.expiry_timer.isActive())
+                binding.close()
+
+    def test_access_extension_rearms_one_timer_and_reactivation_restores_desired_theme(self):
+        from dataclasses import replace
+        from datetime import timedelta
+        from PySide6.QtCore import QTimer
+
+        clock, access, owner, binding = self._access_fixture()
+        timer = binding.expiry_timer
+        clock["now"] += timedelta(seconds=20)
+        access._publish(replace(access.state, expires_at=clock["now"] + timedelta(seconds=1800)))
+        self.assertIs(binding.expiry_timer, timer)
+        self.assertEqual(timer.interval(), 1800000)
+        self.assertEqual(len(binding.findChildren(QTimer)), 1)
+        with patch("ui.themes.apply_theme", side_effect=lambda app: setattr(app, "_visual_theme", resolved_theme(app))) as apply:
+            clock["now"] += timedelta(seconds=1800)
+            binding.refresh()
+            self.assertEqual(owner._visual_theme, "original")
+            self.assertFalse(timer.isActive())
+            access._publish(replace(access.state, expires_at=clock["now"] + timedelta(seconds=60)))
+            self.assertEqual(owner._visual_theme, "halloween")
+            self.assertEqual(apply.call_count, 2)
+        self.assertTrue(timer.isActive())
+        self.assertEqual(timer.interval(), 60000)
+
+    def test_unbounded_or_inactive_access_does_not_poll(self):
+        from dataclasses import replace
+
+        _, access, _, binding = self._access_fixture()
+        access._publish(replace(access.state, expires_at=None, online=True))
+        self.assertFalse(binding.expiry_timer.isActive())
+        with patch("ui.themes.apply_theme"):
+            access._publish(replace(access.state, active=False))
+        self.assertFalse(binding.expiry_timer.isActive())
+
+    def test_runtime_disposal_cancels_expiry_and_unsubscribes(self):
+        _, access, owner, binding = self._access_fixture()
+        self.assertIn(binding.listener, access._listeners)
+        owner._appearance_runtime.dispose()
+        self.assertTrue(binding.closed)
+        self.assertFalse(binding.expiry_timer.isActive())
+        self.assertNotIn(binding.listener, access._listeners)
+        with patch("ui.themes.apply_theme") as apply:
+            binding.refresh()
+            apply.assert_not_called()
+        binding.close()
+
     def test_access_events_refresh_once_and_disconnect_on_destruction(self):
         listeners = []
         access = SimpleNamespace(add_listener=listeners.append, remove_listener=listeners.remove)

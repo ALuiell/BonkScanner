@@ -1,10 +1,11 @@
 """Reusable desktop theme presets; selection is independent of the calendar."""
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject
+from PySide6.QtCore import QEvent, QObject, QTimer, Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -92,26 +93,53 @@ def theme_stylesheet(original: str, theme: str) -> str:
     return sheet
 
 
-class _ThemeAccessBinding:
-    """Only restricted catalogs subscribe; never poll for theme entitlement."""
+class _ThemeAccessBinding(QObject):
+    """Restricted catalogs subscribe and sleep until the next local deadline."""
     def __init__(self, owner, access):
+        super().__init__(owner.window)
         self.owner = owner
         self.access = access
         self.closed = False
         self.listener = self.refresh
+        self.expiry_timer = QTimer(self)
+        self.expiry_timer.setSingleShot(True)
+        self.expiry_timer.setTimerType(Qt.PreciseTimer)
+        self.expiry_timer.timeout.connect(self.refresh)
         owner.window.destroyed.connect(self.close)
+        runtime = getattr(owner, "_appearance_runtime", None)
+        if runtime is not None:
+            runtime.disposing.connect(self.close)
         access.add_listener(self.listener)
+        self._arm_expiry()
+
+    def _arm_expiry(self):
+        self.expiry_timer.stop()
+        remaining = getattr(self.access, "premium_access_remaining_seconds", None)
+        seconds = remaining() if callable(remaining) else None
+        if seconds is not None and math.isfinite(seconds) and seconds > 0:
+            # Qt intervals are signed 32-bit milliseconds. Long subscriptions
+            # wake at that limit and re-arm; ordinary refreshes replace one timer.
+            self.expiry_timer.start(min(2_147_483_647, max(1, math.ceil(seconds * 1000))))
 
     def refresh(self, *_args):
-        if self.closed or getattr(self.owner, "_is_shutting_down", False):
+        if self.closed:
             return
-        if getattr(self.owner, "_visual_theme", None) != resolved_theme(self.owner):
-            apply_theme(self.owner)
+        if getattr(self.owner, "_is_shutting_down", False):
+            self.close()
+            return
+        try:
+            if getattr(self.owner, "_visual_theme", None) != resolved_theme(self.owner):
+                apply_theme(self.owner)
+        finally:
+            if not self.closed:
+                self._arm_expiry()
 
     def close(self, *_args):
         if not self.closed:
             self.closed = True
+            self.expiry_timer.stop()
             self.access.remove_listener(self.listener)
+            self.deleteLater()
 
 
 def _bind_theme_access(owner):
@@ -202,8 +230,12 @@ def apply_theme(owner) -> str:
 
     runtime = getattr(owner, "_appearance_runtime", None)
     if runtime is None:
-        runtime = AppearanceRuntime(owner)
+        from ui.themes.host import build_theme_host
+        footer = getattr(owner, "footer", None)
+        runtime = AppearanceRuntime(build_theme_host(owner),
+                                    bind_footer=footer.set_appearance if footer is not None else None)
         owner._appearance_runtime = runtime
     owner._visual_theme = runtime.switch(load_package(resolved_theme(owner)), apply_style)
+    owner._theme_decorations = runtime.active.decorations  # Legacy diagnostic handle.
     _bind_theme_access(owner)
     return owner._visual_theme

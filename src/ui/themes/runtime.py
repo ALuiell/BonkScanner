@@ -1,48 +1,35 @@
-"""One active provider per window; application policy stays outside the skin."""
+"""One active provider per host. No application fields or theme-specific branches."""
 import logging
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 
+from ui.themes.contracts import AppearanceProvider, ThemeHost  # AppearanceProvider: legacy import
 from ui.themes.package import original_package, read_package
+from ui.themes.providers import provider_definition
 
 log = logging.getLogger(__name__)
 
 
-class AppearanceProvider:
-    """A palette-only theme needs no decorative widgets, clocks or caches."""
-    def __init__(self, owner, package):
-        self.owner = owner
-        self.package = package
-        self.footer_icon = None
-        self.footer_height = 28
-        self.decorations = None
-
-    def activate(self):
-        pass
-
-    def create_support(self, **callbacks):
-        return None
-
-    def dispose(self):
-        pass
-
-
-def create_provider(owner, package):
-    # Explicit import is discoverable by PyInstaller; descriptors cannot execute code.
-    if package.provider == "halloween":
-        from ui.themes.providers.halloween import HalloweenProvider
-        return HalloweenProvider(owner, package)
-    return AppearanceProvider(owner, package)
+def create_provider(host: ThemeHost, package) -> AppearanceProvider:
+    return provider_definition(package.provider).factory(host, package)
 
 
 class AppearanceRuntime(QObject):
-    def __init__(self, owner):
-        super().__init__(owner.window)
-        self.owner = owner
+    disposing = Signal()
+
+    def __init__(self, host: ThemeHost, *, bind_footer=None):
+        if not isinstance(host, ThemeHost):
+            raise TypeError("AppearanceRuntime requires a ThemeHost")
+        super().__init__(host.window)
+        self.host = host
+        self._bind_footer = bind_footer
         self.active = None
         self.switching = False
+        self.disposed = False
 
     def switch(self, package, apply_style):
+        if self.disposed:
+            raise RuntimeError("Appearance runtime has been disposed")
         if self.switching:
             return self.active.package.id if self.active else "original"
         if self.active is not None and self.active.package == package:
@@ -61,24 +48,38 @@ class AppearanceRuntime(QObject):
             self.switching = False
 
     def _activate(self, package, apply_style):
+        # Factories only construct lightweight Python objects. Runtime holds the
+        # instance before prepare allocates any Qt resources or installs hooks.
+        self.active = create_provider(self.host, package)
+        self.active.validate_host()
+        self.active.prepare()
         apply_style(package.preset)
-        self.active = create_provider(self.owner, package)
-        self.owner._theme_decorations = self.active.decorations
-        footer = getattr(self.owner, "footer", None)
-        if footer is not None:
-            footer.set_appearance(self.active)
+        if self._bind_footer is not None:
+            self._bind_footer(self.active)
         self.active.activate()
 
     def _stop(self):
-        footer = getattr(self.owner, "footer", None)
-        if footer is not None:
-            footer.set_appearance(None)
-        if self.active is not None:
-            self.active.dispose()
-            self.active = None
-        self.owner._theme_decorations = None
+        # Detach consumers while their icons/clocks are still alive. A failing
+        # consumer must not prevent cleanup of the provider itself.
+        active, self.active = self.active, None
+        try:
+            if self._bind_footer is not None:
+                self._bind_footer(None)
+        except Exception:
+            log.exception("Cannot detach appearance footer")
+        finally:
+            if active is not None:
+                try:
+                    active.dispose()
+                except Exception:
+                    log.exception("Cannot dispose appearance %s", active.package.id)
+                    active.resources.close()
 
     def dispose(self):
+        if self.disposed:
+            return
+        self.disposed = True
+        self.disposing.emit()
         self._stop()
 
 

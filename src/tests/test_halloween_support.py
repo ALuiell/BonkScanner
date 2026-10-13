@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from ui.footer import FOOTER_HEIGHT, build_footer
 from src.tests.support.themes import FooterAppearance
-from ui.themes.support import CLIMB_SECONDS, READ_SECONDS, TOTAL_SECONDS
+from ui.themes.providers.halloween_effects.support import CLIMB_SECONDS, READ_SECONDS, TOTAL_SECONDS
 
 qt = QApplication.instance() or QApplication([])
 
@@ -184,7 +184,7 @@ class HalloweenSupportTests(unittest.TestCase):
         self.assertFalse(spider.timer.isActive())
         self.assertFalse(self.clock.timer.isActive())
         self.assertFalse(self.clock.wake.isActive())
-        with patch('ui.themes.support.time.monotonic', return_value=10000):
+        with patch('ui.themes.providers.halloween_effects.support.time.monotonic', return_value=10000):
             spider._application_state_changed(Qt.ApplicationActive)
             spider._tick()
         self.assertEqual(spider.elapsed, 2)

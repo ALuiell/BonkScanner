@@ -8,10 +8,11 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
 
 from ui.footer import build_footer
+from ui.themes.contracts import HeaderArea, ThemeHost
 from src.tests.support.themes import FooterAppearance
-from ui.themes.animation import HalloweenAnimation, PAUSE_MS, flare_level
-from ui.themes.decorations import _SvgDecoration
-from ui.themes.header import FireHeader
+from ui.themes.providers.halloween_effects.animation import HalloweenAnimation, PAUSE_MS, flare_level
+from ui.themes.providers.halloween_effects.decorations import _SvgDecoration
+from ui.themes.providers.halloween_effects.header import FireHeader
 
 qt = QApplication.instance() or QApplication([])
 
@@ -43,7 +44,9 @@ class HalloweenAnimationTests(unittest.TestCase):
         self.small_tree.setGeometry(690, 0, 180, 86)
         self.clock = HalloweenAnimation(self.window)
         decor = SimpleNamespace(header=self.header, tree=self.tree, small_tree=self.small_tree,
-                                owner=SimpleNamespace(rec_flag=self.rec))
+                                host=ThemeHost(self.window, header=HeaderArea(
+                                    self.header, lambda: (176, self.rec.x()),
+                                    lambda surface: self.status.mapTo(surface, QPoint(self.status.width(), 0)).x() + 8)))
         self.badge = FireHeader(decor, self.clock)
         self.badge.move(440, 20)
         self.provider = FooterAppearance(self.app, self.window, self.clock)

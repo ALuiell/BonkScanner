@@ -223,6 +223,59 @@ class AppearanceRuntimeTests(unittest.TestCase):
         self.choose("original")
         self.assertEqual(label.styleSheet(), "color:#8A94A3")
 
+    def _assert_failed_construction_restores_baseline(self, target, failure):
+        from ui.themes.providers.halloween_effects.animation import HalloweenAnimation
+
+        self.choose("original")
+        corner = QPushButton("Existing control", self.owner.tabview)
+        self.owner.tabview.setCornerWidget(corner, Qt.TopRightCorner)
+        corner.show()
+        flush(self.window)
+        baseline = len(self.window.findChildren(QObject))
+        self.assertTrue(corner.isVisible())
+        for attempt in range(3):
+            with self.subTest(attempt=attempt), patch(target, side_effect=failure):
+                with self.assertLogs("ui.themes.runtime", level="ERROR"):
+                    self.assertEqual(self.choose("halloween"), "original")
+                self.assertEqual(config.user_config[THEME_CONFIG_KEY], "halloween")
+                self.assertIsNone(self.owner._theme_decorations)
+                self.assertEqual(self.window.findChildren(HalloweenAnimation), [])
+                self.assertEqual(len(self.window.findChildren(QObject)), baseline)
+                self.assertIs(self.owner.tabview.cornerWidget(Qt.TopRightCorner), corner)
+                self.assertTrue(corner.isVisible())
+        self.assertEqual(self.choose("halloween"), "halloween")
+        self.assertEqual(self.choose("original"), "original")
+        self.assertEqual(len(self.window.findChildren(QObject)), baseline)
+        self.assertIs(self.owner.tabview.cornerWidget(Qt.TopRightCorner), corner)
+        self.assertTrue(corner.isVisible())
+
+    def test_provider_constructor_failure_rolls_back_allocated_decorations(self):
+        self._assert_failed_construction_restores_baseline(
+            "ui.themes.providers.halloween.WebFooterIcon", RuntimeError("footer allocation"))
+
+    def test_decoration_constructor_failure_rolls_back_clock_and_corner(self):
+        self._assert_failed_construction_restores_baseline(
+            "ui.themes.providers.halloween_effects.header.FireHeader", RuntimeError("header allocation"))
+
+    def test_header_constructor_failure_rolls_back_its_partial_widget(self):
+        self._assert_failed_construction_restores_baseline(
+            "ui.themes.providers.halloween_effects.header.PumpkinArt", RuntimeError("pumpkin allocation"))
+
+    def test_light_constructor_failure_rolls_back_its_partial_widget(self):
+        self._assert_failed_construction_restores_baseline(
+            "ui.themes.providers.halloween_effects.header._AmbientLight", RuntimeError("ambient allocation"))
+
+    def test_svg_constructor_failure_rolls_back_its_partial_widget(self):
+        from PySide6.QtSvg import QSvgRenderer
+
+        def renderer(path, *args):
+            if "forest-right" in str(path):
+                raise RuntimeError("renderer allocation")
+            return QSvgRenderer(path, *args)
+
+        self._assert_failed_construction_restores_baseline(
+            "ui.themes.providers.halloween_effects.decorations.QSvgRenderer", renderer)
+
     def test_activation_failure_cleans_new_provider_and_restores_baseline(self):
         from ui.themes.providers.halloween import HalloweenProvider
         with patch.object(HalloweenProvider, "activate", side_effect=RuntimeError("test failure")):
