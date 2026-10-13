@@ -6,18 +6,20 @@ from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QFrame, QTextEdit, QWidget
 
-from ui.shared import resource_path
 
 
 class _SvgDecoration(QWidget):
-    def __init__(self, asset: str, parent: QWidget) -> None:
+    def __init__(self, asset: str, parent: QWidget, *, package=None) -> None:
         super().__init__(parent)
         self.setObjectName("seasonalDecoration")
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WA_NoSystemBackground)
         self.setFocusPolicy(Qt.NoFocus)
         self.setStyleSheet("background: transparent; border: none;")
-        self.renderer = QSvgRenderer(resource_path(f"media/themes/halloween/assets/{asset}.svg"), self)
+        if package is None:
+            from ui.themes.package import read_package
+            package = read_package("halloween")  # Standalone artwork previews.
+        self.renderer = QSvgRenderer(package.asset(asset), self)
         self._raster_key = None
         self._raster = QPixmap()
         self.hide()
@@ -44,8 +46,13 @@ class _SvgDecoration(QWidget):
 
 
 class ThemeDecorations(QObject):
-    def __init__(self, owner) -> None:
+    def __init__(self, owner, *, package=None) -> None:
         super().__init__(owner.window)
+        if package is None:
+            from ui.themes.package import read_package
+            package = read_package("halloween")
+        self.package = package
+        self.disposed = False
         self.owner = owner
         self.enabled = False
         self._pending = False
@@ -55,27 +62,28 @@ class ThemeDecorations(QObject):
         self.premium_badge = owner.premium_access_badge
         self.original_premium_icon = QIcon(self.premium_badge.icon())
         self.original_premium_icon_size = QSize(self.premium_badge.iconSize())
-        self.premium_crown = QIcon(resource_path("media/themes/halloween/assets/premium-crown.svg"))
+        self.premium_crown = QIcon(package.asset("premium-crown"))
         self.original_logo = QPixmap(self.logo.pixmap()) if self.logo.pixmap() is not None else QPixmap()
         from ui.themes.animation import HalloweenAnimation
         from ui.themes.header import FireHeader
 
-        self.animation = HalloweenAnimation(owner.window)
+        self.animation = HalloweenAnimation(owner.window, package=package)
         # The artwork extends through the header's outer top margin. Parenting
         # it to headerBar would clip the branches 16 px below the window edge.
-        self.tree = _SvgDecoration("forest-left", self.header.parentWidget())
-        self.tree.resize(240, 86)
-        self.small_tree = _SvgDecoration("forest-right", self.header.parentWidget())
-        self.small_tree.resize(180, 86)
+        self.tree = _SvgDecoration("forest-left", self.header.parentWidget(), package=package)
+        self.tree.resize(round(package.parameter("forest_left_width")), round(package.parameter("forest_height")))
+        self.small_tree = _SvgDecoration("forest-right", self.header.parentWidget(), package=package)
+        self.small_tree.resize(self.small_tree.renderer.defaultSize().width(), round(package.parameter("forest_height")))
         self.right_tabs = owner.tabview
-        self.bats = _SvgDecoration("bats", self.right_tabs)
+        self.original_corner = self.right_tabs.cornerWidget(Qt.TopRightCorner)
+        self.bats = _SvgDecoration("bats", self.right_tabs, package=package)
         self.bats.setFixedSize(50, 44)
         self.right_tabs.setCornerWidget(self.bats, Qt.TopRightCorner)
         self.left_tabs = owner.left_tabview
-        self.web = _SvgDecoration("web", self.left_tabs)
-        self.web.setFixedSize(108, 148)
+        self.web = _SvgDecoration("web", self.left_tabs, package=package)
+        self.web.setFixedSize(round(package.parameter("web_width")), round(package.parameter("web_height")))
         self.log_edit = owner.log_box.findChild(QTextEdit)
-        self.skeleton = _SvgDecoration("skeleton-reclining", self.log_edit)
+        self.skeleton = _SvgDecoration("skeleton-reclining", self.log_edit, package=package)
         self.badge = FireHeader(self, self.animation)
         self.decorations = (self.badge, self.tree, self.small_tree, self.bats, self.web, self.skeleton)
         for widget in (owner.window, self.header, self.left_tabs, self.right_tabs, self.log_edit):
@@ -85,7 +93,7 @@ class ThemeDecorations(QObject):
         self.log_edit.verticalScrollBar().valueChanged.connect(self._schedule)
 
     def _schedule(self, *_args) -> None:
-        if not self._pending:
+        if not self.disposed and not self._pending:
             self._pending = True
             QTimer.singleShot(0, self, self._refresh)
 
@@ -104,6 +112,8 @@ class ThemeDecorations(QObject):
         return False
 
     def set_enabled(self, enabled: bool) -> None:
+        if self.disposed:
+            return
         self.enabled = enabled
         if not enabled:
             self.animation.set_enabled(False)
@@ -121,7 +131,7 @@ class ThemeDecorations(QObject):
                 painter = QPainter(pixmap)
                 painter.setRenderHint(QPainter.SmoothPixmapTransform)
                 painter.drawPixmap(0, 18, self.original_logo)
-                hat = QSvgRenderer(resource_path("media/themes/halloween/assets/hat.svg"))
+                hat = QSvgRenderer(self.package.asset("hat"))
                 hat.render(painter, QRectF(4, 0, 28, 26))
                 painter.end()
             self.logo.setPixmap(pixmap)
@@ -130,6 +140,8 @@ class ThemeDecorations(QObject):
 
     def _refresh(self) -> None:
         self._pending = False
+        if self.disposed:
+            return
         if not self.enabled:
             for decoration in self.decorations:
                 decoration.hide()
@@ -150,24 +162,24 @@ class ThemeDecorations(QObject):
         tree_visible = badge_visible and tree_right - left > 100
         self.tree.setVisible(tree_visible)
         if tree_visible:
-            width = min(240, tree_right - left)
+            width = min(round(self.package.parameter("forest_left_width")), tree_right - left)
             position = self.header.mapTo(self.tree.parentWidget(), QPoint(
                 left + (tree_right - left - width) // 2,
-                self.header.height() - 87,
+                self.header.height() - self.tree.height() - 1,
             ))
-            self.tree.setGeometry(position.x(), position.y(), width, 86)
+            self.tree.setGeometry(position.x(), position.y(), width, round(self.package.parameter("forest_height")))
             self.tree.raise_()
         forest_left = self.badge.x() + 214
         forest_width = max(0, right - 8 - forest_left)
         small_visible = badge_visible and forest_width > 65
         self.small_tree.setVisible(small_visible)
         if small_visible:
-            width = min(180, forest_width)
+            width = min(self.small_tree.renderer.defaultSize().width(), forest_width)
             position = self.header.mapTo(self.small_tree.parentWidget(), QPoint(
                 forest_left + (forest_width - width) // 2,
-                self.header.height() - 87,
+                self.header.height() - self.small_tree.height() - 1,
             ))
-            self.small_tree.setGeometry(position.x(), position.y(), width, 86)
+            self.small_tree.setGeometry(position.x(), position.y(), width, round(self.package.parameter("forest_height")))
             self.small_tree.raise_()
         self.bats.setVisible(self.bats.renderer.isValid() and self.right_tabs.width() >=
                              self.right_tabs.tabBar().sizeHint().width() + self.bats.width())
@@ -186,9 +198,9 @@ class ThemeDecorations(QObject):
         self.web.setVisible(web_visible)
         viewport = self.log_edit.viewport()
         source_size = self.skeleton.renderer.defaultSize()
-        width = min(340, max(250, viewport.width() // 3))
+        width = min(round(self.package.parameter("skeleton_max_width")), max(250, viewport.width() // 3))
         height = round(width * source_size.height() / source_size.width()) if source_size.width() else 0
-        y = self.log_edit.height() - height - 18
+        y = self.log_edit.height() - height - round(self.package.parameter("skeleton_bottom_margin"))
         viewport_y = viewport.mapTo(self.log_edit, QPoint(0, 0)).y()
         skeleton_visible = (not self._skeleton_suppressed
                             and self.skeleton.renderer.isValid() and height > 0
@@ -196,6 +208,25 @@ class ThemeDecorations(QObject):
                             and self.log_edit.document().size().height() + 16 < y - viewport_y)
         self.skeleton.setVisible(skeleton_visible)
         if skeleton_visible:
-            self.skeleton.setGeometry(self.log_edit.width() - width - 16, y, width, height)
+            self.skeleton.setGeometry(self.log_edit.width() - width - round(self.package.parameter("skeleton_right_margin")), y, width, height)
             self.skeleton.raise_()
         self.badge.refresh_scene()
+
+    def dispose(self):
+        if self.disposed:
+            return
+        self.set_enabled(False)
+        self.disposed = True
+        self.animation.dispose()
+        self.badge.dispose()
+        for widget in (self.owner.window, self.header, self.left_tabs, self.right_tabs, self.log_edit):
+            widget.removeEventFilter(self)
+        self.left_tabs.currentChanged.disconnect(self._schedule)
+        self.log_edit.document().contentsChanged.disconnect(self._schedule)
+        self.log_edit.verticalScrollBar().valueChanged.disconnect(self._schedule)
+        self.right_tabs.setCornerWidget(self.original_corner, Qt.TopRightCorner)
+        for decoration in self.decorations:
+            decoration.hide()
+            decoration._raster = QPixmap()
+            decoration.deleteLater()
+        self.deleteLater()

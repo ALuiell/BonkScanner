@@ -15,7 +15,7 @@ from app import config
 from app.config_repository import ConfigRepository
 from ui.styles import build_qt_app_stylesheet
 from ui.themes import (
-    THEME_CONFIG_KEY, _ThemeController, load_preset, remap_colors,
+    THEME_CONFIG_KEY, LEGACY_THEME_CONFIG_KEY, _ThemeController, load_preset, remap_colors,
     selected_theme, theme_stylesheet,
 )
 
@@ -30,15 +30,15 @@ class DesktopThemeTests(unittest.TestCase):
             self.assertEqual(selected_theme(), "halloween")
             with tempfile.TemporaryDirectory() as folder:
                 repository = ConfigRepository(Path(folder) / "config.json")
-                self.assertTrue(repository.commit({THEME_CONFIG_KEY: True}).success)
+                self.assertTrue(repository.commit({THEME_CONFIG_KEY: "original"}).success)
                 config.user_config.update(repository.load().snapshot)
                 self.assertEqual(selected_theme(), "original")
-                config.user_config[THEME_CONFIG_KEY] = False
+                config.user_config[THEME_CONFIG_KEY] = "halloween"
                 self.assertEqual(selected_theme(), "halloween")
 
-    def test_only_boolean_original_selection_is_accepted(self):
+    def test_only_boolean_legacy_original_selection_is_accepted(self):
         for value in (None, "false", "true", 1, [], {}):
-            with self.subTest(value=value), patch.object(config, "user_config", {THEME_CONFIG_KEY: value}):
+            with self.subTest(value=value), patch.object(config, "user_config", {LEGACY_THEME_CONFIG_KEY: value}):
                 self.assertEqual(selected_theme(), "halloween")
 
     def test_original_sheet_is_unchanged_and_halloween_preserves_behavior_colors(self):
@@ -106,7 +106,7 @@ class DesktopThemeTests(unittest.TestCase):
     def test_missing_and_malformed_optional_preset_fall_back_to_original(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "preset.json"
-            with patch("ui.themes.resource_path", return_value=str(path)):
+            with patch("ui.themes.package.resource_path", return_value=str(path.parent)):
                 self.assertEqual(theme_stylesheet("unchanged", "halloween"), "unchanged")
                 path.write_text("[]", encoding="utf-8")
                 self.assertEqual(load_preset("halloween")["id"], "original")

@@ -38,7 +38,7 @@ class HalloweenAnimation(QObject):
     """Tick only during bursts; all consumers receive the same elapsed phase."""
     phaseChanged = Signal(float)
 
-    def __init__(self, window):
+    def __init__(self, window, *, package=None):
         super().__init__(window)
         self.window = window
         self.enabled = False
@@ -47,9 +47,11 @@ class HalloweenAnimation(QObject):
         self.surfaces = []
         self._refreshing = False
         self._closing = False
+        self.disposed = False
+        self.pause_ms = package.parameter("pulse_pause_ms") if package else PAUSE_MS
         self.timer = QTimer(self)
         self.timer.setTimerType(Qt.PreciseTimer)
-        self.timer.setInterval(FRAME_MS)
+        self.timer.setInterval(package.parameter("pulse_frame_ms") if package else FRAME_MS)
         self.timer.timeout.connect(self.tick)
         self.wake = QTimer(self)
         self.wake.setSingleShot(True)
@@ -62,8 +64,26 @@ class HalloweenAnimation(QObject):
             self.surfaces.append(widget)
             widget.installEventFilter(self)
 
+    def remove_surface(self, widget):
+        if widget in self.surfaces:
+            self.surfaces.remove(widget)
+            widget.removeEventFilter(self)
+
+    def dispose(self):
+        if self.disposed:
+            return
+        self.enabled = False
+        self.disposed = True
+        self.timer.stop()
+        self.wake.stop()
+        self.window.removeEventFilter(self)
+        for surface in tuple(self.surfaces):
+            self.remove_surface(surface)
+        QApplication.instance().applicationStateChanged.disconnect(self.refresh)
+        self.deleteLater()
+
     def ready(self):
-        return (self.enabled and not self._closing and self.window.isVisible() and not self.window.isMinimized()
+        return (self.enabled and not self.disposed and not self._closing and self.window.isVisible() and not self.window.isMinimized()
                 and QApplication.instance().applicationState() == Qt.ApplicationActive
                 and any(surface.isVisible() for surface in self.surfaces))
 
@@ -93,12 +113,12 @@ class HalloweenAnimation(QObject):
         if phase >= BURST_SECONDS:
             self.timer.stop()
             self.show_phase(-1.0)
-            self.wake.start(PAUSE_MS)
+            self.wake.start(self.pause_ms)
         else:
             self.show_phase(phase)
 
     def refresh(self, *_args):
-        if self._refreshing or QApplication.closingDown():
+        if self.disposed or self._refreshing or QApplication.closingDown():
             return
         self._refreshing = True
         try:
@@ -128,7 +148,8 @@ class HalloweenAnimation(QObject):
 
 class WebPulseFrames:
     """Replace the current DPI cache; never accumulate sizes or animation cycles."""
-    def __init__(self):
+    def __init__(self, *, color=None):
+        self.color = color
         self.key = None
         self.frames = []
         self.builds = 0
@@ -150,10 +171,10 @@ class WebPulseFrames:
                 painter.translate(20, 20)
                 painter.scale(scale, scale)
                 t, strength = web_phase(sample)
-                draw_web_icon(painter, 0, 0, 2.0)
+                draw_web_icon(painter, 0, 0, 2.0, color=self.color)
                 if strength:
                     painter.setOpacity(strength)
-                    draw_web_icon(painter, 0, 0, t)
+                    draw_web_icon(painter, 0, 0, t, color=self.color)
                 painter.end()
                 self.frames.append(raster)
         return self.frames[frame_index(phase)]

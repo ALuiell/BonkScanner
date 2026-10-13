@@ -2,18 +2,18 @@
 import math
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QRegion
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QRegion, QTransform
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QWidget
 
-from ui.shared import resource_path
 from ui.themes.animation import FRAME_PHASES, flare_level, frame_index
 from ui.themes.decorations import _SvgDecoration
 
 ICON_RECT = QRect(43, 0, 42, 42)
 
 class PumpkinArt:
-    def __init__(self, svg, *, violet):
+    def __init__(self, svg, *, violet, color=None):
+        self.color = color or QColor
         self.violet = violet
         self.renderer = QSvgRenderer(svg)
         self.raster = QPixmap()
@@ -41,11 +41,11 @@ def _draw_eyes(p, x, y, t, art):
     p.save()
     p.translate(x, y)
     glow = QRadialGradient(0, 1, 22)
-    glow.setColorAt(0, QColor(128, 88, 186, round(10 + 45 * beat)) if art.violet
-                       else QColor(255, 145, 16, round(12 + 68 * beat)))
-    glow.setColorAt(.65, QColor(128, 88, 186, round(4 + 16 * beat)) if art.violet
-                         else QColor(255, 105, 0, round(5 + 22 * beat)))
-    glow.setColorAt(1, QColor(128, 88, 186, 0) if art.violet else QColor(255, 105, 0, 0))
+    glow.setColorAt(0, art.color(128, 88, 186, round(10 + 45 * beat)) if art.violet
+                       else art.color(255, 145, 16, round(12 + 68 * beat)))
+    glow.setColorAt(.65, art.color(128, 88, 186, round(4 + 16 * beat)) if art.violet
+                         else art.color(255, 105, 0, round(5 + 22 * beat)))
+    glow.setColorAt(1, art.color(128, 88, 186, 0) if art.violet else art.color(255, 105, 0, 0))
     p.setPen(Qt.NoPen)
     p.setBrush(glow)
     p.drawEllipse(QRectF(-22, -21, 44, 44))
@@ -71,13 +71,13 @@ def _draw_eyes(p, x, y, t, art):
     mouth.closeSubpath()
     heat = QLinearGradient(0, 80, 0, 155)
     if art.violet:
-        heat.setColorAt(0, QColor(255, round(186 + 62 * beat), round(95 + 100 * beat)))
-        heat.setColorAt(1, QColor(round(221 + 34 * beat), round(128 + 100 * beat), round(47 + 60 * beat)))
+        heat.setColorAt(0, art.color(255, round(186 + 62 * beat), round(95 + 100 * beat)))
+        heat.setColorAt(1, art.color(round(221 + 34 * beat), round(128 + 100 * beat), round(47 + 60 * beat)))
     else:
-        heat.setColorAt(0, QColor(255, round(153 + 94 * beat), round(20 + 144 * beat)))
-        heat.setColorAt(1, QColor(255, round(111 + 112 * beat), round(6 + 61 * beat)))
+        heat.setColorAt(0, art.color(255, round(153 + 94 * beat), round(20 + 144 * beat)))
+        heat.setColorAt(1, art.color(255, round(111 + 112 * beat), round(6 + 61 * beat)))
     p.setBrush(heat)
-    p.setPen(QPen(QColor('#170F21' if art.violet else '#251009'), 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setPen(QPen(art.color('#170F21' if art.violet else '#251009'), 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
     p.drawPath(left)
     p.drawPath(right)
     p.setPen(Qt.NoPen)
@@ -90,16 +90,16 @@ def _draw_eyes(p, x, y, t, art):
         fire.cubicTo(cx + 15, top + 15, cx + 1, 92, cx + 9, 95)
         fire.cubicTo(cx + 13, 106, cx + 2, 111, cx - 7, 105)
         gradient = QLinearGradient(cx, top, cx, 109)
-        gradient.setColorAt(0, QColor('#D68036' if art.violet else '#ff5c0a'))
-        gradient.setColorAt(.45, QColor('#FFD27A' if art.violet else '#ffb51d'))
-        gradient.setColorAt(1, QColor('#fff5b2'))
+        gradient.setColorAt(0, art.color('#D68036' if art.violet else '#ff5c0a'))
+        gradient.setColorAt(.45, art.color('#FFD27A' if art.violet else '#ffb51d'))
+        gradient.setColorAt(1, art.color('#fff5b2'))
         p.setBrush(gradient)
         p.drawPath(fire)
         p.save()
         p.translate(cx, 107)
         p.scale(.48, .68)
         p.translate(-cx, -107)
-        p.setBrush(QColor('#fff8ce'))
+        p.setBrush(art.color('#fff8ce'))
         p.drawPath(fire)
         p.restore()
     p.restore()
@@ -121,9 +121,9 @@ def _draw_fire(p, phase, art):
         flame.cubicTo(cx + 20, top + 14, cx + 7, 128, cx + 11, 135)
         flame.cubicTo(cx + 11, 146, cx + 2, 150, cx - 5, 145)
         gradient = QLinearGradient(cx, top, cx, 147)
-        gradient.setColorAt(0, QColor('#DF8739'))
-        gradient.setColorAt(.5, QColor('#FFD37A'))
-        gradient.setColorAt(1, QColor('#FFF5C0'))
+        gradient.setColorAt(0, art.color('#DF8739'))
+        gradient.setColorAt(.5, art.color('#FFD37A'))
+        gradient.setColorAt(1, art.color('#FFF5C0'))
         p.setOpacity(strength)
         p.setBrush(gradient)
         p.drawPath(flame)
@@ -131,7 +131,7 @@ def _draw_fire(p, phase, art):
         p.translate(cx, 145)
         p.scale(.45, .7)
         p.translate(-cx, -145)
-        p.setBrush(QColor('#FFF8D6'))
+        p.setBrush(art.color('#FFF8D6'))
         p.drawPath(flame)
         p.restore()
     p.restore()
@@ -164,11 +164,26 @@ class _AmbientLight(QWidget):
         painter.end()
 
 
+def _fill_light(painter, rect, source, reaches, stops, vertical_radius):
+    """Stretch each cached half toward its forest, keeping the pumpkin as origin."""
+    gradient = QRadialGradient(0, 0, 1)
+    for position, color in stops:
+        gradient.setColorAt(position, color)
+    sx, sy = source.x(), source.y()
+    halves = (QRectF(0, 0, sx, rect.height()),
+              QRectF(sx, 0, rect.width() - sx, rect.height()))
+    for reach, bounds in zip(reaches, halves):
+        brush = QBrush(gradient)
+        brush.setTransform(QTransform(reach, 0, 0, vertical_radius, sx, sy))
+        painter.fillRect(bounds, brush)
+
+
 class ReflectedLight(QWidget):
     """One cached local surface: ambient pool, tree tint, and header edge."""
     def __init__(self, decorations):
         super().__init__(decorations.header.parentWidget())
         self.decorations = decorations
+        self.color = getattr(getattr(decorations, "package", None), "color", QColor)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WA_NoSystemBackground)
         self.setStyleSheet('background:transparent;border:none;')
@@ -192,11 +207,19 @@ class ReflectedLight(QWidget):
         status = header.findChild(QWidget, 'headerStatusCluster')
         left_limit = status.mapTo(parent, QPoint(status.width(), 0)).x() + 8
         right_limit = header.mapTo(parent, QPoint(header.width(), 0)).x()
-        left = max(left_limit, source.x() - 320)
-        right = min(right_limit, source.x() + 320)
+        tree_rects = [(tree, tree.geometry(), tree.isVisible(), renderer) for tree, renderer in self.renderers]
+        # Both forests receive the same falloff at their centres even when the
+        # header stretches or the pumpkin sits off-centre inside its badge.
+        reaches = [275.0, 275.0]
+        for _, bounds, visible, _ in tree_rects:
+            if visible:
+                distance = bounds.center().x() - source.x()
+                side = 0 if distance < 0 else 1
+                reaches[side] = max(reaches[side], abs(distance) / .65)
+        left = max(left_limit, math.floor(source.x() - reaches[0]))
+        right = min(right_limit, math.ceil(source.x() + reaches[1]))
         bottom = header.mapTo(parent, QPoint(0, header.height())).y()
         rect = QRect(left, 0, max(1, right - left), bottom)
-        tree_rects = [(tree, tree.geometry(), tree.isVisible(), renderer) for tree, renderer in self.renderers]
         density = self.devicePixelRatioF()
         key = (rect.x(), rect.width(), rect.height(), source.x(), source.y(), density,
                tuple((r.x(), r.y(), r.width(), r.height(), visible) for _, r, visible, _ in tree_rects))
@@ -211,15 +234,16 @@ class ReflectedLight(QWidget):
         self.raster.fill(Qt.transparent)
         sx, sy = source.x() - left, source.y()
         p = QPainter(self.raster)
-        glow = QRadialGradient(sx, sy, 265)
-        glow.setColorAt(0, QColor(255, 197, 103, 27))
-        glow.setColorAt(.45, QColor(221, 138, 71, 15))
-        glow.setColorAt(1, QColor(221, 138, 71, 0))
+        local_source = QPointF(sx, sy)
+        glow_stops = ((0, self.color(255, 197, 103, 27)),
+                      (.45, self.color(221, 138, 71, 15)),
+                      (1, self.color(221, 138, 71, 0)))
         self.ambient.raster = QPixmap(self.raster.size())
         self.ambient.raster.setDevicePixelRatio(density)
         self.ambient.raster.fill(Qt.transparent)
         ambient_painter = QPainter(self.ambient.raster)
-        ambient_painter.fillRect(QRectF(0, 0, rect.width(), rect.height()), glow)
+        _fill_light(ambient_painter, self.rect(), local_source,
+                    [reach * 265 / 275 for reach in reaches], glow_stops, 265)
         ambient_painter.end()
         # Only the outer header margin belongs to the root overlay. Inside
         # headerBar the glow is a child background, covered by all controls.
@@ -236,20 +260,19 @@ class ReflectedLight(QWidget):
             if visible:
                 renderer.render(tp, QRectF(bounds.translated(-left, 0)))
         tp.setCompositionMode(QPainter.CompositionMode_SourceIn)
-        tp.fillRect(QRectF(0, 0, rect.width(), rect.height()), QColor('#DFA86A'))
+        tp.fillRect(QRectF(0, 0, rect.width(), rect.height()), self.color('#DFA86A'))
         tp.setCompositionMode(QPainter.CompositionMode_DestinationIn)
-        mask = QRadialGradient(sx, sy, 275)
-        mask.setColorAt(0, QColor(255, 255, 255, 180))
-        mask.setColorAt(.45, QColor(255, 255, 255, 100))
-        mask.setColorAt(.85, QColor(255, 255, 255, 28))
-        mask.setColorAt(1, QColor(255, 255, 255, 0))
-        tp.fillRect(QRectF(0, 0, rect.width(), rect.height()), mask)
+        _fill_light(tp, self.rect(), local_source, reaches,
+                    ((0, self.color(255, 255, 255, 180)),
+                     (.45, self.color(255, 255, 255, 100)),
+                     (.85, self.color(255, 255, 255, 28)),
+                     (1, self.color(255, 255, 255, 0))), 275)
         tp.end()
         p.drawPixmap(0, 0, trees)
         edge = QLinearGradient(0, 0, rect.width(), 0)
-        edge.setColorAt(0, QColor(255, 217, 156, 0))
-        edge.setColorAt(.5, QColor(255, 217, 156, 60))
-        edge.setColorAt(1, QColor(255, 217, 156, 0))
+        edge.setColorAt(0, self.color(255, 217, 156, 0))
+        edge.setColorAt(sx / rect.width(), self.color(255, 217, 156, 60))
+        edge.setColorAt(1, self.color(255, 217, 156, 0))
         p.setPen(QPen(edge, 1))
         p.drawLine(0, rect.height() - 1, rect.width(), rect.height() - 1)
         p.end()
@@ -278,15 +301,29 @@ class ReflectedLight(QWidget):
             self._raising = False
         return False
 
+    def dispose(self):
+        self.set_level(0)
+        for tree, _renderer in self.renderers:
+            tree.removeEventFilter(self)
+        self.decorations.header.removeEventFilter(self)
+        self.raster = QPixmap()
+        self.ambient.raster = QPixmap()
+        self.ambient.deleteLater()
+        self.deleteLater()
+
 class FireHeader(_SvgDecoration):
     """The shared clock owns scheduling; this widget only selects cached frames."""
     def __init__(self, decorations, animation):
         self.animation = animation
         self.light = None
-        super().__init__('header-fire-base', decorations.header)
+        package = getattr(decorations, 'package', None)
+        if package is None:
+            from ui.themes.package import read_package
+            package = read_package('halloween')
+        super().__init__('header-fire-base', decorations.header, package=package)
         self.setFixedSize(246, 42)
         self.animation = animation
-        self.art = PumpkinArt(resource_path('media/themes/halloween/assets/header-pumpkin.svg'), violet=True)
+        self.art = PumpkinArt(package.asset('header-pumpkin'), violet=True, color=package.color)
         self.light = ReflectedLight(decorations)
         self.phase = -1.0
         self.frames = []
@@ -314,6 +351,13 @@ class FireHeader(_SvgDecoration):
                 painter.end()
                 self.frames.append(pixmap)
         self.light.prepare(self)
+
+    def dispose(self):
+        self.animation.phaseChanged.disconnect(self.show_phase)
+        self.animation.remove_surface(self)
+        self.frames.clear()
+        self.art.raster = QPixmap()
+        self.light.dispose()
 
     def show_phase(self, phase):
         self.phase = phase

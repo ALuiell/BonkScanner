@@ -9,6 +9,7 @@ from PySide6.QtCore import QAbstractAnimation, Qt
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from ui.footer import FOOTER_HEIGHT, build_footer
+from src.tests.support.themes import FooterAppearance
 from ui.themes.support import CLIMB_SECONDS, READ_SECONDS, TOTAL_SECONDS
 
 qt = QApplication.instance() or QApplication([])
@@ -23,6 +24,8 @@ class HalloweenSupportTests(unittest.TestCase):
         for p in (
             patch('ui.footer._read_support_reminder_state', return_value=0.0),
             patch('ui.footer._update_support_reminder_state', side_effect=self.save),
+            patch('ui.footer._read_support_thank_you_state', return_value=0.0),
+            patch('ui.footer._update_support_thank_you_state', return_value=SimpleNamespace(success=True, reason='')),
             patch.object(QApplication, 'applicationState', return_value=Qt.ApplicationActive),
         ):
             p.start()
@@ -42,7 +45,10 @@ class HalloweenSupportTests(unittest.TestCase):
         self.window.show()
         qt.processEvents()
         self.view = self.app.footer
-        self.view.set_theme('halloween')
+        self.provider = FooterAppearance(self.app, self.window)
+        self.clock = self.provider.clock
+        self.view.set_appearance(self.provider)
+        self.clock.set_enabled(True)
         qt.processEvents()
         self.card = self.view._reminder
         self.link = self.view._support_btn
@@ -56,13 +62,15 @@ class HalloweenSupportTests(unittest.TestCase):
         for card in (self.view._reminder, self.view._thank_you):
             if card is not None:
                 card.dismiss()
+        self.view.set_appearance(None)
+        self.provider.dispose()
         self.window.close()
         self.window.deleteLater()
         qt.processEvents()
 
     def show_card(self):
         self.assertTrue(self.card.play(force=True))
-        return self.card._spider
+        return self.card._presentation
 
     def settle_at(self, spider, elapsed):
         spider.elapsed = elapsed
@@ -71,6 +79,7 @@ class HalloweenSupportTests(unittest.TestCase):
 
     def test_shoot_then_climb_and_full_reading_time_before_automatic_close(self):
         spider = self.show_card()
+        self.assertEqual(spider.art.asset_name, 'support-spider.svg')
         self.assertFalse(self.card.isVisible())  # The old card is not painted underneath.
         positions = []
         for elapsed in (0, .55, .65, 1, 2, 3, 4, CLIMB_SECONDS):
@@ -100,10 +109,11 @@ class HalloweenSupportTests(unittest.TestCase):
         saved_before = list(self.saved)
         with patch.object(thanks, '_window_is_ready', return_value=True):
             thanks._mark_startup_due()
-        spider = thanks._spider
+        spider = thanks._presentation
         self.settle_at(spider, CLIMB_SECONDS)
         self.assertTrue(spider.plaque.isVisible())
         self.assertTrue(spider.thank_you)
+        self.assertEqual(spider.art.asset_name, 'support-spider-thank-you.svg')
         self.assertFalse(spider.plaque.action.isVisible())
         self.assertEqual(self.saved, saved_before)
         self.view._on_supporter_access_changed()
@@ -113,6 +123,33 @@ class HalloweenSupportTests(unittest.TestCase):
         self.view._on_supporter_access_changed()
         self.assertFalse(thanks._startup_timer.isActive())
         self.assertFalse(thanks.play(force=True))
+
+    def test_expression_switches_visual_face_and_keeps_a_single_reusable_cache(self):
+        spider = self.show_card()
+        self.settle_at(spider, CLIMB_SECONDS)
+        spider.art.grab()
+        angry = spider.art.raster.toImage()
+        renderer = spider.art.renderer
+        spider.stop()
+        spider.start(thank_you=True)
+        self.settle_at(spider, CLIMB_SECONDS)
+        spider.art.grab()
+        self.assertNotEqual(spider.art.raster.toImage(), angry)
+        grateful_key = spider.art.raster.cacheKey()
+        for _ in range(3):
+            spider.art.grab()
+            self.assertEqual(spider.art.raster.cacheKey(), grateful_key)
+        spider.stop()
+        spider.start(thank_you=True)
+        self.settle_at(spider, CLIMB_SECONDS)
+        spider.art.grab()
+        self.assertEqual(spider.art.raster.cacheKey(), grateful_key)
+        spider.stop()
+        spider.start(thank_you=False)
+        self.settle_at(spider, CLIMB_SECONDS)
+        spider.art.grab()
+        self.assertEqual(spider.art.raster.toImage(), angry)
+        self.assertIs(spider.art.renderer, renderer)
 
     def test_support_button_opens_the_real_popup_without_hiding_corner(self):
         spider = self.show_card()
@@ -127,11 +164,12 @@ class HalloweenSupportTests(unittest.TestCase):
     def test_original_theme_cancels_spider_and_restores_legacy_card_and_footer(self):
         spider = self.show_card()
         self.settle_at(spider, 2)
-        self.view.set_theme('original')
+        self.view.set_appearance(None)
+        self.provider.dispose()
         self.assertFalse(spider.running)
         self.assertFalse(spider.art.isVisible())
-        self.assertFalse(self.link._web_timer.isActive())
-        self.assertFalse(self.link._web_wake.isActive())
+        self.assertFalse(self.clock.timer.isActive())
+        self.assertFalse(self.clock.wake.isActive())
         self.assertEqual(self.frame.height(), FOOTER_HEIGHT)
         self.assertEqual(self.suppressed, [])
         self.assertTrue(self.card.play(force=True))
@@ -142,10 +180,10 @@ class HalloweenSupportTests(unittest.TestCase):
         spider = self.show_card()
         self.settle_at(spider, 2)
         spider._application_state_changed(Qt.ApplicationInactive)
-        self.link._web_application_state_changed(Qt.ApplicationInactive)
+        self.clock.set_enabled(False)
         self.assertFalse(spider.timer.isActive())
-        self.assertFalse(self.link._web_timer.isActive())
-        self.assertFalse(self.link._web_wake.isActive())
+        self.assertFalse(self.clock.timer.isActive())
+        self.assertFalse(self.clock.wake.isActive())
         with patch('ui.themes.support.time.monotonic', return_value=10000):
             spider._application_state_changed(Qt.ApplicationActive)
             spider._tick()
@@ -154,8 +192,8 @@ class HalloweenSupportTests(unittest.TestCase):
         self.window.hide()
         qt.processEvents()
         self.assertFalse(spider.timer.isActive())
-        self.assertFalse(self.link._web_timer.isActive())
-        self.assertFalse(self.link._web_wake.isActive())
+        self.assertFalse(self.clock.timer.isActive())
+        self.assertFalse(self.clock.wake.isActive())
 
     def test_resize_keeps_plaque_inside_footer_and_reuses_svg_raster(self):
         spider = self.show_card()
@@ -174,23 +212,23 @@ class HalloweenSupportTests(unittest.TestCase):
         self.assertEqual(self.suppressed, [])
 
     def test_web_pulse_has_no_continuous_idle_timer_or_parallel_heartbeat(self):
-        self.link.pulse_web()
-        self.assertTrue(self.link._web_timer.isActive())
+        self.link.pulse_theme_icon()
+        self.assertTrue(self.clock.timer.isActive())
         self.assertEqual(self.link._ambient_heartbeat.state(), QAbstractAnimation.Stopped)
         self.assertEqual(self.link._hover_heartbeat.state(), QAbstractAnimation.Stopped)
-        self.link._web_started -= 2
-        self.link._web_tick()
-        self.assertFalse(self.link._web_timer.isActive())
-        self.assertTrue(self.link._web_wake.isActive())
-        self.assertEqual(self.link._web_wake.interval(), 5000)
+        self.clock.started -= 2
+        self.clock.tick()
+        self.assertFalse(self.clock.timer.isActive())
+        self.assertTrue(self.clock.wake.isActive())
+        self.assertEqual(self.clock.wake.interval(), 4500)
         self.view.set_supporters([SimpleNamespace(name='Test supporter')])
         self.assertIn('1 supporters', self.link.caption())
         self.assertGreaterEqual(self.link.width(), self.link.fontMetrics().horizontalAdvance(self.link.caption()) + 40)
 
     def test_web_keeps_its_passive_cycles_while_the_spider_message_is_visible(self):
         self.show_card()
-        self.link._web_started -= 2
-        self.link._web_tick()
-        self.assertFalse(self.link._web_timer.isActive())
-        self.assertTrue(self.link._web_wake.isActive())
+        self.clock.started -= 2
+        self.clock.tick()
+        self.assertFalse(self.clock.timer.isActive())
+        self.assertTrue(self.clock.wake.isActive())
         self.assertEqual(self.link._ambient_heartbeat.state(), QAbstractAnimation.Stopped)

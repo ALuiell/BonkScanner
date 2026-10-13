@@ -1,7 +1,6 @@
 """Reusable desktop theme presets; selection is independent of the calendar."""
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -11,37 +10,50 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
 from ui.shared import resource_path
+from ui.themes.registry import theme_catalog, valid_theme_id
 
-THEME_CONFIG_KEY = "USE_ORIGINAL_THEME"
+THEME_CONFIG_KEY = "DESKTOP_THEME_ID"
+LEGACY_THEME_CONFIG_KEY = "USE_ORIGINAL_THEME"
+_PALETTE_ROLES = {name: getattr(QPalette, name) for name in (
+    "Window", "Base", "AlternateBase", "Button", "WindowText", "Text",
+    "ButtonText", "Highlight", "HighlightedText",
+)}
 
 
 def selected_theme() -> str:
-    """Older profiles receive Halloween; an explicit Original choice survives updates."""
+    """Retain the desired ID even if a later release removes or restricts it."""
     with config.config_lock:
-        original = config.user_config.get(THEME_CONFIG_KEY, False)
-    return "original" if original is True else "halloween"
+        requested = config.user_config.get(THEME_CONFIG_KEY)
+        if valid_theme_id(requested):
+            return requested
+        if THEME_CONFIG_KEY not in config.user_config:
+            original = config.user_config.get(LEGACY_THEME_CONFIG_KEY)
+            if original is True:
+                return "original"
+            if original is False:
+                return "halloween"
+    return theme_catalog().default_theme
+
+
+def premium_access_for_themes(owner) -> bool:
+    if not any(entry.access == "premium" for entry in theme_catalog().themes):
+        return False
+    checker = getattr(owner, "has_premium_access", None)
+    try:
+        return bool(checker()) if callable(checker) else False
+    except Exception:
+        return False
+
+
+def resolved_theme(owner) -> str:
+    return theme_catalog().resolve(selected_theme(), premium=premium_access_for_themes(owner))
 
 
 def load_preset(theme: str) -> dict:
-    if theme not in ("original", "halloween"):
+    if theme_catalog().get(theme) is None:
         raise ValueError(f"Unknown desktop theme: {theme}")
-    path = Path(resource_path(f"media/themes/{theme}/preset.json"))
-    try:
-        preset = json.loads(path.read_text(encoding="utf-8"))
-        if preset.get("id") != theme or not isinstance(preset.get("color_map"), dict):
-            raise ValueError("Invalid theme preset")
-        for mapping in (preset["color_map"], preset.get("neutral_color_map", {})):
-            if not isinstance(mapping, dict) or any(
-                not isinstance(value, str) or not isinstance(key, str)
-                or re.fullmatch(r"#[0-9a-fA-F]{6}", key) is None
-                or re.fullmatch(r"#[0-9a-fA-F]{6}", value) is None
-                for key, value in mapping.items()
-            ):
-                raise ValueError("Invalid theme colors")
-        return preset
-    except (OSError, ValueError, TypeError, AttributeError):
-        # A partially upgraded installation still has its original appearance.
-        return {"id": "original", "color_map": {}, "decorations": False}
+    from ui.themes.runtime import load_package
+    return load_package(theme).preset
 
 
 _COLORS = re.compile(r"#[0-9a-fA-F]{6}(?![0-9a-fA-F])|rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(?:\s*,\s*[\d.]+)?\s*\)")
@@ -80,6 +92,40 @@ def theme_stylesheet(original: str, theme: str) -> str:
     return sheet
 
 
+class _ThemeAccessBinding:
+    """Only restricted catalogs subscribe; never poll for theme entitlement."""
+    def __init__(self, owner, access):
+        self.owner = owner
+        self.access = access
+        self.closed = False
+        self.listener = self.refresh
+        owner.window.destroyed.connect(self.close)
+        access.add_listener(self.listener)
+
+    def refresh(self, *_args):
+        if self.closed or getattr(self.owner, "_is_shutting_down", False):
+            return
+        if getattr(self.owner, "_visual_theme", None) != resolved_theme(self.owner):
+            apply_theme(self.owner)
+
+    def close(self, *_args):
+        if not self.closed:
+            self.closed = True
+            self.access.remove_listener(self.listener)
+
+
+def _bind_theme_access(owner):
+    restricted = any(entry.access == "premium" for entry in theme_catalog().themes)
+    binding = getattr(owner, "_theme_access_binding", None)
+    if not restricted:
+        if binding is not None:
+            binding.close()
+        return
+    access = getattr(owner, "supporter_access", None)
+    if (binding is None or binding.closed) and callable(getattr(access, "add_listener", None)) and callable(getattr(access, "remove_listener", None)):
+        owner._theme_access_binding = _ThemeAccessBinding(owner, access)
+
+
 class _ThemeController(QObject):
     """Adapt neutral local styles, including dialogs created after a switch."""
 
@@ -108,7 +154,7 @@ class _ThemeController(QObject):
             widget.setStyleSheet(desired)
 
     def eventFilter(self, watched, event):  # noqa: N802
-        if not self._updating and isinstance(watched, QWidget) and event.type() in (
+        if self.preset.get("neutral_color_map") and not self._updating and isinstance(watched, QWidget) and event.type() in (
             QEvent.Polish, QEvent.Show, QEvent.StyleChange,
         ):
             self._updating = True
@@ -120,47 +166,44 @@ class _ThemeController(QObject):
 
 
 def apply_theme(owner) -> str:
-    """Apply a saved desktop selection and refresh its existing decoration layer."""
+    """Resolve policy, then switch the complete local appearance package."""
     from ui.styles import build_qt_app_stylesheet
-    from ui.themes.decorations import ThemeDecorations
+    from ui.themes.runtime import AppearanceRuntime, load_package
 
     application = QApplication.instance()
     if application is None:
         raise RuntimeError("A QApplication is required to apply a theme")
-    theme = selected_theme()
-    preset = load_preset(theme)
     controller = getattr(application, "_desktop_theme_controller", None)
     if controller is None:
         controller = _ThemeController(application)
         application._desktop_theme_controller = controller
-    controller.preset = preset
-    checkmark = resource_path("media/checkmark.svg").replace("\\", "/")
-    application.setStyleSheet(build_qt_app_stylesheet(checkmark, theme=theme))
-    palette = QPalette(controller.original_palette)
-    if preset["id"] != "original":
-        for role, color in (
-            (QPalette.Window, "#15111C"), (QPalette.Base, "#120F19"),
-            (QPalette.AlternateBase, "#211A2D"), (QPalette.Button, "#211A2D"),
-            (QPalette.WindowText, "#F0EBF7"), (QPalette.Text, "#F0EBF7"),
-            (QPalette.ButtonText, "#F0EBF7"), (QPalette.Highlight, "#8058BA"),
-            (QPalette.HighlightedText, "#F0EBF7"),
-        ):
-            palette.setColor(role, QColor(color))
-    application.setPalette(palette)
-    controller._updating = True
-    try:
-        for widget in application.allWidgets():
-            controller._adapt_widget(widget)
-    finally:
-        controller._updating = False
-    decorations = getattr(owner, "_theme_decorations", None)
-    if decorations is None:
-        decorations = ThemeDecorations(owner)
-        owner._theme_decorations = decorations
-    decorations.set_enabled(bool(preset.get("decorations", False)))
-    footer = getattr(owner, "footer", None)
-    if footer is not None:
-        footer.set_halloween_animation(decorations.animation)
-        footer.set_theme(preset["id"])
-    owner._visual_theme = preset["id"]
-    return preset["id"]
+
+    def apply_style(preset):
+        controller.preset = preset
+        checkmark = resource_path("media/checkmark.svg").replace("\\", "/")
+        # Apply the already validated descriptor, including fallback packages.
+        sheet = remap_colors(build_qt_app_stylesheet(checkmark, theme="original"), preset["color_map"])
+        override = Path(resource_path(f"media/themes/{preset['id']}/overrides.qss"))
+        if preset["id"] != "original" and override.is_file():
+            sheet += "\n" + override.read_text(encoding="utf-8")
+        palette = QPalette(controller.original_palette)
+        for role, color in preset.get("qt_palette", {}).items():
+            palette.setColor(_PALETTE_ROLES[role], QColor(color))
+        controller._updating = True
+        try:
+            # Global repolish must finish before adapting local widget sheets.
+            # Mutating them inside StyleChange can re-enter Qt's style traversal.
+            application.setStyleSheet(sheet)
+            application.setPalette(palette)
+            for widget in application.allWidgets():
+                controller._adapt_widget(widget)
+        finally:
+            controller._updating = False
+
+    runtime = getattr(owner, "_appearance_runtime", None)
+    if runtime is None:
+        runtime = AppearanceRuntime(owner)
+        owner._appearance_runtime = runtime
+    owner._visual_theme = runtime.switch(load_package(resolved_theme(owner)), apply_style)
+    _bind_theme_access(owner)
+    return owner._visual_theme

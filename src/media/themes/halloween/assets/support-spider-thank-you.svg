@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="280" viewBox="0 0 320 280">
+<defs>
+ <radialGradient id="body" cx=".35" cy=".3" r=".78"><stop stop-color="#514348"/><stop offset=".58" stop-color="#2e2639"/><stop offset="1" stop-color="#170e28"/></radialGradient>
+ <linearGradient id="legs" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#73504b"/><stop offset=".35" stop-color="#332939"/><stop offset="1" stop-color="#180a28"/></linearGradient>
+ <radialGradient id="eye" cx=".35" cy=".3" r=".85"><stop stop-color="#ff7228"/><stop offset=".55" stop-color="#ed2b24"/><stop offset="1" stop-color="#970c24"/></radialGradient>
+</defs>
+<!-- Eight thick angular legs; the lowest pair grips the hanging sign. -->
+<g fill="url(#legs)" stroke="#080609" stroke-width="6" stroke-linejoin="round">
+ <path d="M90 118 L55 76 Q49 69 43 77 Q13 108 9 132 L47 96 L77 139 Z"/>
+ <path d="M81 143 L44 116 Q36 111 31 119 L1 179 L38 139 L76 165 Z"/>
+ <path d="M78 173 L35 162 Q29 161 25 169 L10 224 L37 183 L86 190 Z"/>
+ <path d="M90 201 L46 208 Q37 211 42 220 L79 267 L58 224 L106 219 Z"/>
+ <path d="M230 118 L265 76 Q271 69 277 77 Q307 108 311 132 L273 96 L243 139 Z"/>
+ <path d="M239 143 L276 116 Q284 111 289 119 L319 179 L282 139 L244 165 Z"/>
+ <path d="M242 173 L285 162 Q291 161 295 169 L310 224 L283 183 L234 190 Z"/>
+ <path d="M230 201 L274 208 Q283 211 278 220 L241 267 L262 224 L214 219 Z"/>
+</g>
+<g fill="none" stroke="#e8843c" stroke-width="3" stroke-linecap="round" opacity=".85">
+ <path d="M82 122 L49 83 L22 116 M76 148 L37 121 L13 161 M77 177 L33 167 L20 205 M91 206 L45 213 L66 245 M238 122 L271 83 L298 116 M244 148 L283 121 L307 161 M243 177 L287 167 L300 205 M229 206 L275 213 L254 245"/>
+</g>
+<path d="M160 79 C111 78 77 108 76 157 C73 213 110 247 161 250 C210 249 246 216 244 159 C243 111 211 79 160 79 Z" fill="url(#body)" stroke="#090609" stroke-width="7"/>
+<path d="M91 132 C97 101 119 87 149 86" fill="none" stroke="#fa8c37" stroke-width="5" stroke-linecap="round"/>
+<path d="M103 222 C132 247 200 246 224 218" fill="none" stroke="#723476" stroke-width="3"/>
+<!-- Two red eyes under dramatic black brows. -->
+<path d="M94 141 C98 114 119 119 146 142 C145 171 126 191 108 180 C97 173 92 159 94 141 M226 141 C222 114 201 119 174 142 C175 171 194 191 212 180 C223 173 228 159 226 141" fill="#170d24" stroke="#080609" stroke-width="4"/>
+<path d="M100 140 C104 129 118 132 139 146 C139 166 127 179 115 174 C101 171 96 153 100 140 M220 140 C216 129 202 132 181 146 C181 166 193 179 205 174 C219 171 224 153 220 140" fill="url(#eye)" stroke="#ff9e42" stroke-width="2"/>
+<ellipse cx="125" cy="146" rx="8" ry="13" fill="#090609"/><ellipse cx="195" cy="146" rx="8" ry="13" fill="#090609"/>
+<g fill="#fff8c0"><circle cx="105" cy="138" r="4"/><circle cx="216" cy="138" r="4"/><circle cx="122" cy="145" r="2.4"/><circle cx="198" cy="145" r="2.4"/></g>
+<path d="M102 120 C122 122 130 143 146 142 C145 133 138 124 136 119 C152 126 157 145 147 153 C129 154 116 140 102 120 M218 120 C198 122 190 143 174 142 C175 133 182 124 184 119 C168 126 163 145 173 153 C191 154 204 140 218 120" fill="#080609"/>
+<!-- The same angry gaze, with a restrained, asymmetric toothy smirk. -->
+<path d="M107 198 C125 208 146 210 161 209 C183 207 203 200 214 192 C213 213 189 228 159 226 C134 226 115 216 107 198 Z" fill="#080609" stroke="#10090d" stroke-width="4" stroke-linejoin="round"/>
+<g fill="#fff0c9" stroke="#080609" stroke-width="2" stroke-linejoin="round">
+ <path d="M113 201 L126 207 L120 216 Z M128 207 L141 210 L135 221 Z M144 210 L157 210 L151 223 Z M162 209 L176 206 L170 222 Z M180 205 L193 200 L188 217 Z M196 199 L209 194 L201 211 Z"/>
+</g>
+<path d="M147 233 Q162 237 177 231 M103 194 Q107 196 109 202 M212 188 Q216 187 218 191" fill="none" stroke="#090609" stroke-width="3" stroke-linecap="round"/>
+<g fill="#f87935"><ellipse cx="97" cy="184" rx="8" ry="5" transform="rotate(17 97 184)"/><ellipse cx="223" cy="184" rx="8" ry="5" transform="rotate(-17 223 184)"/><ellipse cx="116" cy="99" rx="8" ry="4"/><circle cx="128" cy="96" r="3"/></g>
+<!-- Bent witch hat with copper band and buckle. -->
+<path d="M164 61 L186 25 Q191 18 198 14 Q212 20 220 35 L203 33 L206 73 Z" fill="#271335" stroke="#090609" stroke-width="6" stroke-linejoin="round"/>
+<path d="M181 57 L190 33 L198 26 L213 31" fill="none" stroke="#ed864b" stroke-width="3"/>
+<path d="M151 59 C150 74 177 97 202 98 C214 99 225 94 222 87 C212 73 174 51 151 59 Z" fill="#31173c" stroke="#090609" stroke-width="6"/>
+<path d="M170 58 L205 74 L205 82 L165 66 Z" fill="#dd4c24" stroke="#080609" stroke-width="3"/>
+<path d="M181 62 L194 68 L191 80 L178 74 Z" fill="#ed9d42" stroke="#080609" stroke-width="3"/>
+<path d="M183 67 L189 69 L187 75 L182 73 Z" fill="#120d17"/>
+</svg>

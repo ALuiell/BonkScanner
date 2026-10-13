@@ -162,49 +162,49 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
     def test_appearance_cancel_reloads_saved_selection(self) -> None:
         from ui.themes import THEME_CONFIG_KEY
 
-        config.user_config[THEME_CONFIG_KEY] = False
+        config.user_config[THEME_CONFIG_KEY] = "halloween"
         self.owner.open_settings_dialog()
         dialog = self.owner._settings_dialog
-        self.assertFalse(dialog.use_original_theme_var.isChecked())
-        dialog.use_original_theme_var.click()
+        self.assertEqual(dialog.theme_selector.currentData(), "halloween")
+        dialog.theme_selector.setCurrentIndex(dialog.theme_selector.findData("original"))
         self.assertTrue(dialog._general_settings_dirty)
         dialog.reject()
-        self.assertFalse(config.user_config[THEME_CONFIG_KEY])
+        self.assertEqual(config.user_config[THEME_CONFIG_KEY], "halloween")
         dialog.reload_from_config()
-        self.assertFalse(dialog.use_original_theme_var.isChecked())
+        self.assertEqual(dialog.theme_selector.currentData(), "halloween")
 
     def test_appearance_save_commits_before_live_application(self) -> None:
         from ui.themes import THEME_CONFIG_KEY
 
-        config.user_config[THEME_CONFIG_KEY] = False
+        config.user_config[THEME_CONFIG_KEY] = "halloween"
         self.owner.apply_visual_theme = MagicMock(
-            side_effect=lambda: self.assertTrue(config.user_config[THEME_CONFIG_KEY])
+            side_effect=lambda: self.assertEqual(config.user_config[THEME_CONFIG_KEY], "original")
         )
         self.owner.open_settings_dialog()
         dialog = self.owner._settings_dialog
-        dialog.use_original_theme_var.setChecked(True)
+        dialog.theme_selector.setCurrentIndex(dialog.theme_selector.findData("original"))
         with patch.object(config, "save_settings_with_game_reset",
                           return_value=config.SettingsSaveResult(True)) as save:
             self.assertTrue(dialog.save(close_dialog=False))
-        self.assertTrue(save.call_args.args[0][THEME_CONFIG_KEY])
+        self.assertEqual(save.call_args.args[0][THEME_CONFIG_KEY], "original")
         self.owner.apply_visual_theme.assert_called_once_with()
         dialog.reload_from_config()
-        self.assertTrue(dialog.use_original_theme_var.isChecked())
+        self.assertEqual(dialog.theme_selector.currentData(), "original")
 
     def test_failed_appearance_save_keeps_edits_and_current_theme(self) -> None:
         from ui.themes import THEME_CONFIG_KEY
 
-        config.user_config[THEME_CONFIG_KEY] = False
+        config.user_config[THEME_CONFIG_KEY] = "halloween"
         self.owner.apply_visual_theme = MagicMock()
         self.owner.open_settings_dialog()
         dialog = self.owner._settings_dialog
-        dialog.use_original_theme_var.setChecked(True)
+        dialog.theme_selector.setCurrentIndex(dialog.theme_selector.findData("original"))
         with patch.object(config, "save_settings_with_game_reset",
                           return_value=config.SettingsSaveResult(False, reason="disk full")), \
                 patch.object(type(dialog), "_show_game_reset_notice"):
             self.assertFalse(dialog.save(close_dialog=False))
-        self.assertFalse(config.user_config[THEME_CONFIG_KEY])
-        self.assertTrue(dialog.use_original_theme_var.isChecked())
+        self.assertEqual(config.user_config[THEME_CONFIG_KEY], "halloween")
+        self.assertEqual(dialog.theme_selector.currentData(), "original")
         self.owner.apply_visual_theme.assert_not_called()
 
     def test_help_dialog_is_deleted_after_its_modal_session(self) -> None:

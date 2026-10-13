@@ -4,10 +4,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
 
 from ui.footer import build_footer
+from src.tests.support.themes import FooterAppearance
 from ui.themes.animation import HalloweenAnimation, PAUSE_MS, flare_level
 from ui.themes.decorations import _SvgDecoration
 from ui.themes.header import FireHeader
@@ -45,9 +46,10 @@ class HalloweenAnimationTests(unittest.TestCase):
                                 owner=SimpleNamespace(rec_flag=self.rec))
         self.badge = FireHeader(decor, self.clock)
         self.badge.move(440, 20)
-        self.app.footer.set_halloween_animation(self.clock)
-        self.app.footer.set_theme('halloween')
+        self.provider = FooterAppearance(self.app, self.window, self.clock)
+        self.app.footer.set_appearance(self.provider)
         self.link = self.app.footer._support_btn
+        self.assertIs(self.link._theme_icon.clock, self.clock)
         self.window.resize(1060, 650)
         self.window.show()
         self.tree.show()
@@ -62,6 +64,8 @@ class HalloweenAnimationTests(unittest.TestCase):
         for card in (self.app.footer._reminder, self.app.footer._thank_you):
             if card is not None:
                 card.dismiss()
+        self.app.footer.set_appearance(None)
+        self.provider.dispose()
         self.window.close()
         self.window.deleteLater()
         qt.processEvents()
@@ -73,13 +77,10 @@ class HalloweenAnimationTests(unittest.TestCase):
             self.badge.grab()
             self.link.grab()
             self.assertEqual(self.clock.phase, self.badge.phase)
-            self.assertEqual(self.clock.phase, self.link._web_phase)
             self.assertAlmostEqual(self.badge.light.level, flare_level(phase))
         self.assertEqual(self.badge.bank_builds, 1)
-        self.assertEqual(self.link._web_frames.builds, 1)
+        self.assertEqual(self.provider.footer_icon.frames.builds, 1)
         self.assertEqual(self.badge.light.builds, 1)
-        self.assertFalse(self.link._web_timer.isActive())
-        self.assertFalse(self.link._web_wake.isActive())
 
     def test_timer_sleeps_between_bursts_and_hover_restarts_every_consumer(self):
         self.clock.started -= 2
@@ -87,11 +88,11 @@ class HalloweenAnimationTests(unittest.TestCase):
         self.assertFalse(self.clock.timer.isActive())
         self.assertTrue(self.clock.wake.isActive())
         self.assertEqual(self.clock.wake.interval(), PAUSE_MS)
-        self.assertEqual(self.link._web_phase, -1.0)
-        self.link.pulse_web()
+        self.assertEqual(self.clock.phase, -1.0)
+        self.link.pulse_theme_icon()
         self.assertTrue(self.clock.timer.isActive())
         self.assertFalse(self.clock.wake.isActive())
-        self.assertEqual(self.badge.phase, self.link._web_phase)
+        self.assertEqual(self.badge.phase, self.clock.phase)
         self.assertEqual(self.clock.phase, 0.0)
         started = self.clock.started
         self.link.resume_heartbeat()
@@ -103,7 +104,7 @@ class HalloweenAnimationTests(unittest.TestCase):
         self.badge.hide()
         self.clock.show_phase(.9)
         self.assertTrue(self.clock.timer.isActive())
-        self.assertEqual(self.link._web_phase, .9)
+        self.assertEqual(self.clock.phase, .9)
         self.assertFalse(self.badge.light.isVisible())
         self.badge.show()
         self.badge.refresh_scene()
@@ -116,7 +117,7 @@ class HalloweenAnimationTests(unittest.TestCase):
             self.assertFalse(self.clock.timer.isActive())
             self.assertFalse(self.clock.wake.isActive())
             self.assertFalse(self.badge.light.isVisible())
-            self.assertEqual(self.link._web_phase, -1.0)
+            self.assertEqual(self.clock.phase, -1.0)
         self.clock.refresh()
         self.assertTrue(self.clock.timer.isActive())
         self.window.hide()
@@ -126,28 +127,27 @@ class HalloweenAnimationTests(unittest.TestCase):
         qt.processEvents()
         self.assertTrue(self.clock.timer.isActive())
         self.clock.set_enabled(False)
-        self.app.footer.set_theme('original')
+        self.app.footer.set_appearance(None)
         self.assertFalse(self.clock.timer.isActive())
         self.assertFalse(self.clock.wake.isActive())
         self.assertFalse(self.badge.light.isVisible())
-        self.assertFalse(self.link._web_timer.isActive())
 
     def test_support_restarts_shared_phase_and_retains_it_after_dismiss(self):
         self.clock.show_phase(.9)
         card = self.app.footer._reminder
         self.assertTrue(card.play(force=True))
         self.assertEqual(self.clock.phase, 0.0)
-        self.assertEqual(self.badge.phase, self.link._web_phase)
+        self.assertEqual(self.badge.phase, self.clock.phase)
         self.clock.show_phase(.25)
         card.dismiss()
         self.assertEqual(self.badge.phase, .25)
-        self.assertEqual(self.link._web_phase, .25)
+        self.assertEqual(self.clock.phase, .25)
         self.assertTrue(self.clock.timer.isActive())
 
     def test_dpi_cache_is_replaced_and_light_stays_inside_header(self):
         self.clock.show_phase(.25)
         self.link.grab()
-        cache = self.link._web_frames
+        cache = self.provider.footer_icon.frames
         cache.frame(2.0, .8, .25)
         self.assertEqual(len(cache.frames), 37)
         self.assertEqual(cache.builds, 2)
@@ -177,3 +177,27 @@ class HalloweenAnimationTests(unittest.TestCase):
         self.assertFalse(self.badge.light.ambient.visibleRegion().isEmpty())
         self.clock.set_enabled(False)
         self.assertFalse(self.badge.light.ambient.isVisible())
+
+    def test_uneven_forest_distances_receive_balanced_cached_light(self):
+        self.window.resize(1600, 650)
+        self.badge.move(650, 20)
+        qt.processEvents()
+        source = self.badge.mapTo(self.window, QPoint(64, 23))
+        self.tree.move(source.x() - 360 - self.tree.width() // 2, 0)
+        self.small_tree.move(source.x() + 520 - self.small_tree.width() // 2, 0)
+        light = self.badge.light
+        for density in (1.0, 2.0):
+            with patch.object(light, 'devicePixelRatioF', return_value=density):
+                self.badge.prepare()
+                image = light.ambient.raster.toImage()
+                alphas = []
+                for tree in (self.tree, self.small_tree):
+                    x = tree.geometry().center().x() - light.x()
+                    alphas.append(image.pixelColor(round(x * density),
+                                                   round(source.y() * density)).alpha())
+                self.assertGreater(min(alphas), 0)
+                self.assertLessEqual(abs(alphas[0] - alphas[1]), 1)
+                builds = light.builds
+                for phase in (.25, .6, .9):
+                    self.clock.show_phase(phase)
+                self.assertEqual(light.builds, builds)

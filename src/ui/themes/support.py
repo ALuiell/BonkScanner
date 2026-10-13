@@ -9,7 +9,6 @@ from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
-from ui.shared import resource_path
 
 CLIMB_SECONDS = 5.05
 READ_SECONDS = 8.0
@@ -24,7 +23,8 @@ def polygon(points):
     result.closeSubpath()
     return result
 
-def draw_web_icon(p, x, y, t):
+def draw_web_icon(p, x, y, t, *, color=None):
+    color = color or QColor
     p.save()
     p.translate(x, y)
     u = max(0.0, min(1.0, t / 1.15))
@@ -33,22 +33,22 @@ def draw_web_icon(p, x, y, t):
     fade = math.sin(math.pi * u) ** .6 if active else 0
     p.setPen(Qt.NoPen)
     halo = QRadialGradient(0, 0, 21)
-    halo.setColorAt(0, QColor(151, 92, 232, round(24 * fade)))
-    halo.setColorAt(.75, QColor(151, 92, 232, round(8 * fade)))
-    halo.setColorAt(1, QColor(151, 92, 232, 0))
+    halo.setColorAt(0, color(151, 92, 232, round(24 * fade)))
+    halo.setColorAt(.75, color(151, 92, 232, round(8 * fade)))
+    halo.setColorAt(1, color(151, 92, 232, 0))
     p.setBrush(halo)
     p.drawEllipse(QRectF(-21,-21,42,42))
     radius = 15
     for i in range(8):
         angle = i * math.pi / 4
         gradient = QLinearGradient(0, 0, radius * math.cos(angle), radius * math.sin(angle))
-        gradient.setColorAt(0, QColor('#8768b1'))
-        gradient.setColorAt(1, QColor('#8768b1'))
+        gradient.setColorAt(0, color('#8768b1'))
+        gradient.setColorAt(1, color('#8768b1'))
         if active:
             band = min(.98, wave / radius)
-            gradient.setColorAt(max(.001, band-.20), QColor('#8768b1'))
-            gradient.setColorAt(band, QColor(218, 182, 255, round(180 + 75*fade)))
-            gradient.setColorAt(min(.999, band+.20), QColor('#8768b1'))
+            gradient.setColorAt(max(.001, band-.20), color('#8768b1'))
+            gradient.setColorAt(band, color(218, 182, 255, round(180 + 75*fade)))
+            gradient.setColorAt(min(.999, band+.20), color('#8768b1'))
         p.setPen(QPen(gradient, 1.15, Qt.SolidLine, Qt.RoundCap))
         p.drawLine(QPointF(0,0), QPointF(radius*math.cos(angle),radius*math.sin(angle)))
     for r in (4.5, 9.5, 15):
@@ -57,12 +57,12 @@ def draw_web_icon(p, x, y, t):
         ring = polygon(points)
         p.setBrush(Qt.NoBrush)
         if light > .01:
-            p.setPen(QPen(QColor(168,107,255,round(55*light)), 3.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setPen(QPen(color(168,107,255,round(55*light)), 3.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             p.drawPath(ring)
-        p.setPen(QPen(QColor(round(135+103*light),round(104+95*light),round(177+78*light)),
+        p.setPen(QPen(color(round(135+103*light),round(104+95*light),round(177+78*light)),
                       1.05 + .25*light, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         p.drawPath(ring)
-    p.setBrush(QColor(221,181,255,round(140+100*fade)))
+    p.setBrush(color(221,181,255,round(140+100*fade)))
     p.setPen(Qt.NoPen)
     p.drawEllipse(QPointF(0,0), 1.6, 1.6)
     p.restore()
@@ -76,25 +76,38 @@ class _SpiderArt(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WA_NoSystemBackground)
         self.setStyleSheet("background:transparent;border:none;")
-        self.renderer = QSvgRenderer(resource_path("media/themes/halloween/assets/support-spider.svg"), self)
+        self.renderer = QSvgRenderer(controller.package.asset("support-spider"), self)
+        self.asset_name = "support-spider.svg"
         self.raster = QPixmap()
         self.raster_density = None
         self.hide()
+
+    def set_thank_you(self, thank_you):
+        asset = "support-spider-thank-you.svg" if thank_you else "support-spider.svg"
+        if asset == self.asset_name:
+            return
+        if not self.renderer.load(self.controller.package.asset(asset.removesuffix(".svg"))):
+            asset = "support-spider.svg"
+            self.renderer.load(self.controller.package.asset(asset.removesuffix(".svg")))
+        self.asset_name = asset
+        # Replace the single cached face only on an expression/DPI change.
+        self.raster_density = None
+        self.raster = QPixmap()
 
     def paintEvent(self, _event):  # noqa: N802
         c = self.controller
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         x, y = c.x - self.x(), c.y
-        p.setPen(QPen(QColor("#b7a2c9"), 1.2))
-        if c.elapsed < .65:
+        p.setPen(QPen(c.package.color("#b7a2c9"), 1.2))
+        if c.elapsed < c.thread_seconds:
             bottom = self.height() + 10
-            progress = min(1.0, c.elapsed / .55)
+            progress = min(1.0, c.elapsed / (c.thread_seconds * .55 / .65))
             end = bottom - (bottom - 3) * (1 - (1 - progress) ** 3)
             p.drawLine(QPointF(x, bottom), QPointF(x, end))
         else:
             p.drawLine(QPointF(x, 0), QPointF(x, y))
-            p.setPen(QPen(QColor("#63536e"), 1))
+            p.setPen(QPen(c.package.color("#63536e"), 1))
             p.drawLine(QPointF(x - 6, 0), QPointF(x + 5, 9))
             p.drawLine(QPointF(x + 7, 0), QPointF(x - 5, 9))
             density = self.devicePixelRatioF() * 2
@@ -112,7 +125,7 @@ class _SpiderArt(QWidget):
             p.setRenderHint(QPainter.SmoothPixmapTransform)
             p.drawPixmap(QRectF(-90, -85, 180, 157.5), self.raster, QRectF(self.raster.rect()))
             p.restore()
-            p.setPen(QPen(QColor("#b99bcc"), 1.1))
+            p.setPen(QPen(c.package.color("#b99bcc"), 1.1))
             p.drawLine(QPointF(x - 49, y + 65), QPointF(x - 111, y + 70))
             p.drawLine(QPointF(x + 49, y + 65), QPointF(x + 111, y + 70))
         p.end()
@@ -131,21 +144,23 @@ class _SpiderPlaque(QWidget):
         self.action.setFocusPolicy(Qt.NoFocus)
         self.action.setGeometry(178, 66, 100, 42)
         self.action.clicked.connect(controller.activate)
-        self.action.setStyleSheet(
+        from ui.themes import remap_colors
+        colors = controller.package.preset.get("effect_color_map", {})
+        self.action.setStyleSheet(remap_colors(
             "QPushButton {background:#8252b0;color:#fff0d9;border:1px solid #b58ace;"
             "border-radius:8px;font-weight:600;padding:0;min-height:0;min-width:0}"
-            "QPushButton:hover {background:#ab78c6}"
-        )
+            "QPushButton:hover {background:#ab78c6}", colors
+        ))
         self.close_button = QPushButton("×", self)
         self.close_button.setGeometry(263, 8, 26, 26)
         self.close_button.setAccessibleName("Dismiss Support message")
         self.close_button.setToolTip("Close")
         self.close_button.setFocusPolicy(Qt.NoFocus)
         self.close_button.clicked.connect(controller.dismiss)
-        self.close_button.setStyleSheet(
+        self.close_button.setStyleSheet(remap_colors(
             "QPushButton {background:transparent;border:0;color:#aa94b9;padding:0;"
-            "min-height:0;min-width:0;font-size:18px} QPushButton:hover {color:white}"
-        )
+            "min-height:0;min-width:0;font-size:18px} QPushButton:hover {color:white}", colors
+        ))
         self.hide()
 
     def paintEvent(self, _event):  # noqa: N802
@@ -153,10 +168,10 @@ class _SpiderPlaque(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         p.translate(0, self.controller.plaque_offset)
         gradient = QLinearGradient(0, 0, 0, 124)
-        gradient.setColorAt(0, QColor("#302035"))
-        gradient.setColorAt(1, QColor("#1b1425"))
+        gradient.setColorAt(0, self.controller.package.color("#302035"))
+        gradient.setColorAt(1, self.controller.package.color("#1b1425"))
         p.setBrush(gradient)
-        p.setPen(QPen(QColor("#8861ac"), 1.2))
+        p.setPen(QPen(self.controller.package.color("#8861ac"), 1.2))
         p.drawRoundedRect(QRectF(1, 1, self.width() - 2, 122), 15, 15)
         thanks = self.controller.thank_you
         for text, rect, size, weight, color in (
@@ -168,7 +183,7 @@ class _SpiderPlaque(QWidget):
              QRectF(15, 77, self.width() - 30 if thanks else 156, 22), 8, QFont.Normal, "#aa83cf"),
         ):
             p.setFont(QFont("Segoe UI", size, weight))
-            p.setPen(QColor(color))
+            p.setPen(self.controller.package.color(color))
             p.drawText(rect, Qt.AlignVCenter, text)
         p.end()
 
@@ -176,8 +191,19 @@ class _SpiderPlaque(QWidget):
 class SpiderSupport(QObject):
     """Presentation only: the footer still owns eligibility and cooldowns."""
 
-    def __init__(self, *, host, footer, activate, dismiss, finished):
+    def __init__(self, *, host, footer, activate, dismiss, finished, package=None):
         super().__init__(host)
+        if package is None:
+            from ui.themes.package import read_package
+            package = read_package("halloween")
+        self.package = package
+        self.disposed = False
+        self.thread_seconds = package.parameter("support_thread_seconds")
+        self.climb_seconds = package.parameter("support_climb_seconds")
+        self.read_seconds = package.parameter("support_read_seconds")
+        self.exit_seconds = package.parameter("support_exit_seconds")
+        self.settle_seconds = self.thread_seconds + self.climb_seconds
+        self.total_seconds = self.settle_seconds + self.read_seconds + self.exit_seconds
         self.host = host
         self.footer = footer
         self.activate = activate
@@ -204,7 +230,10 @@ class SpiderSupport(QObject):
             app.applicationStateChanged.connect(self._application_state_changed)
 
     def start(self, *, thank_you=False):
+        if self.disposed:
+            return
         self.thank_you = thank_you
+        self.art.set_thank_you(thank_you)
         self.plaque.action.setVisible(not thank_you)
         self.plaque.setAccessibleName("Thank you for your support" if thank_you else "Support BonkScanner")
         self.running = True
@@ -226,11 +255,25 @@ class SpiderSupport(QObject):
         self.art.hide()
         self.plaque.hide()
 
+    def dispose(self):
+        if self.disposed:
+            return
+        self.stop()
+        self.disposed = True
+        self.host.removeEventFilter(self)
+        if self.window is not self.host:
+            self.window.removeEventFilter(self)
+        QApplication.instance().applicationStateChanged.disconnect(self._application_state_changed)
+        self.art.raster = QPixmap()
+        self.art.deleteLater()
+        self.plaque.deleteLater()
+        self.deleteLater()
+
     def _tick(self):
         now = time.monotonic()
         self.elapsed += max(0.0, now - self._last)
         self._last = now
-        if self.elapsed >= TOTAL_SECONDS:
+        if self.elapsed >= self.total_seconds:
             self.stop()
             self.finished()
             return
@@ -248,17 +291,17 @@ class SpiderSupport(QObject):
         self.x = plaque_x + width / 2
         footer_top = self.footer.mapTo(self.host, QPoint(0, 0)).y()
         target = footer_top - 124 - 18 - 70
-        u = max(0.0, min(1.0, (self.elapsed - .65) / 4.4))
+        u = max(0.0, min(1.0, (self.elapsed - self.thread_seconds) / self.climb_seconds))
         u = u ** 3 * (u * (u * 6 - 15) + 10)
         self.y = h + 70 - (h + 70 - target) * u
-        if self.elapsed > CLIMB_SECONDS + READ_SECONDS:
-            exit_u = min(1.0, (self.elapsed - CLIMB_SECONDS - READ_SECONDS) / EXIT_SECONDS)
+        if self.elapsed > self.settle_seconds + self.read_seconds:
+            exit_u = min(1.0, (self.elapsed - self.settle_seconds - self.read_seconds) / self.exit_seconds)
             self.y += (h + 70 - target) * exit_u ** 3
         plaque_y = self.y + 70
         self.plaque_offset = plaque_y - math.floor(plaque_y)
         self.plaque.move(round(plaque_x), math.floor(plaque_y))
-        self.plaque.setVisible(self.running and self.elapsed > .65)
-        if self.elapsed < .7 or old_x != self.x:
+        self.plaque.setVisible(self.running and self.elapsed > self.thread_seconds)
+        if self.elapsed < self.thread_seconds + .05 or old_x != self.x:
             self.art.update()
         else:
             # The anchored thread is unchanged; update only the moving sprite.
@@ -269,6 +312,8 @@ class SpiderSupport(QObject):
             self.plaque.update()
 
     def _application_state_changed(self, state):
+        if self.disposed:
+            return
         self.set_paused(state != Qt.ApplicationActive or self.window.isMinimized() or not self.window.isVisible())
 
     def set_paused(self, paused):

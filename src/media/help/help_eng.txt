@@ -224,8 +224,8 @@ Important:
 Settings and Updates
 --------------------
 `Settings`:
-- `General → Appearance → Use standard appearance` - select the original BonkScanner style. Unchecked uses the Halloween theme by default. Save applies the choice immediately and remembers it between launches; Cancel discards the edit. Desktop appearance does not change OBS output or in-game overlay styling. There is no automatic date-based switching.
-- In Halloween, the footer heart becomes a purple pulsing web. Support reminders rise with a spider; Premium users receive a thank-you once per launch instead of a donation prompt. Both messages allow eight seconds for reading after the climb. Animation pauses while the application is inactive or minimized. Standard appearance keeps the regular cards and heart.
+- `General → Appearance → Design` - select Default (the original BonkScanner style) or Halloween. Both are free; new profiles use Halloween. Earlier standard-style choices are preserved. Save applies the choice immediately and remembers it between launches; Cancel discards the edit. Desktop appearance does not change OBS output or in-game overlay styling. There is no automatic date-based switching.
+- In Halloween, the footer heart becomes a purple pulsing web. Support reminders rise with a spider; Premium users receive a thank-you on launch at most once every 24 hours instead of a donation prompt; the cooldown is saved across restarts and appearance changes. Both messages allow eight seconds for reading after the climb. Animation pauses while the application is inactive or minimized. Standard appearance keeps the regular cards and heart.
 - The header pumpkin's fire, tree lighting and footer web flash together twice about every 5.7 seconds, with a 4.5-second pause between sequences. Hovering over the web or showing a Support message restarts the effects together.
 - `Scan Hotkey` - starts or pauses the scan loop while the app is running.
 - `Reset Hotkey` - keyboard restart hotkey.

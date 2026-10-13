@@ -3,5 +3,7 @@
   "name": "Original",
   "description": "The existing BonkScanner desktop appearance.",
   "color_map": {},
-  "decorations": false
+  "schema_version": 1,
+  "version": "1",
+  "runtime_provider": "none"
 }

@@ -1051,6 +1051,9 @@ class MegabonkApp:
                 self.__dict__.get("_shutdown_errors", ())
             )
         self._is_shutting_down = True
+        appearance = getattr(self, "_appearance_runtime", None)
+        if appearance is not None:
+            appearance.dispose()
         deadline = ShutdownDeadline.after()
         log_runtime_event("application.shutdown.begin")
         report = self.runtime.shutdown(deadline)

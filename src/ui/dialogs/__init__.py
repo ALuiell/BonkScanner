@@ -96,7 +96,8 @@ from core.template_colors import (
 )
 
 from app import config
-from ui.themes import THEME_CONFIG_KEY, selected_theme
+from ui.themes import THEME_CONFIG_KEY, LEGACY_THEME_CONFIG_KEY
+from ui.themes.selector import ThemeSelector
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
 CRYPTO_SUPPORT_URL = config.CRYPTO_SUPPORT_URL
@@ -1650,13 +1651,11 @@ class SettingsDialog(QDialog):
             entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
 
         layout.addWidget(_settings_group_label("Appearance"))
-        self.use_original_theme_var = QCheckBox("Use standard appearance")
-        self.use_original_theme_var.setChecked(selected_theme() == "original")
-        self.use_original_theme_var.setToolTip(
-            "Use the original BonkScanner appearance instead of Halloween. "
-            "The selection is applied when you save Settings."
-        )
-        layout.addWidget(self.use_original_theme_var)
+        self.theme_selector = ThemeSelector(self.master)
+        self.theme_selector.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
+        appearance_form = QFormLayout()
+        appearance_form.addRow("Design:", self.theme_selector)
+        layout.addLayout(appearance_form)
 
         layout.addWidget(_settings_group_label("Hotkeys"))
         layout.addLayout(
@@ -1877,8 +1876,8 @@ class SettingsDialog(QDialog):
             self.record_interval_entry,
         ):
             spinbox.valueChanged.connect(self._mark_general_settings_dirty)
+        self.theme_selector.currentIndexChanged.connect(self._mark_general_settings_dirty)
         for checkbox in (
-            self.use_original_theme_var,
             self.stop_scanning_on_player_movement_var,
             self.auto_start_recording_var,
             self.show_obs_reminder_on_start_scanner_var,
@@ -2105,7 +2104,7 @@ class SettingsDialog(QDialog):
     def reload_from_config(self) -> None:
         """Discard unsaved edits before reopening the reusable dialog."""
         self._reloading_general_settings = True
-        self.use_original_theme_var.setChecked(selected_theme() == "original")
+        self.theme_selector.reload()
         self._timing_save_message = self._timing_save_error = ""
         self.hotkey_entry.setText(str(config.HOTKEY))
         self.reset_hotkey_entry.setText(str(config.RESET_HOTKEY))
@@ -2627,9 +2626,11 @@ class SettingsDialog(QDialog):
             "STOP_SCANNING_ON_PLAYER_MOVEMENT": stop_scanning_on_player_movement,
             "PLAYER_STATS_RECORD_INTERVAL_SECONDS": new_interval,
         }
-        theme_checkbox = getattr(self, "use_original_theme_var", None)
-        if theme_checkbox is not None:
-            settings_updates[THEME_CONFIG_KEY] = _read_bool(theme_checkbox)
+        theme_selector = getattr(self, "theme_selector", None)
+        if theme_selector is not None:
+            settings_updates[THEME_CONFIG_KEY] = theme_selector.currentData()
+            # Keep the two-theme choice readable by earlier application versions.
+            settings_updates[LEGACY_THEME_CONFIG_KEY] = theme_selector.currentData() == "original"
         if timing_changed:
             settings_updates.update(
                 {

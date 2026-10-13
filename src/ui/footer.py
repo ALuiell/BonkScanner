@@ -70,8 +70,6 @@ from ui.dialogs.update_prompt import start_update_check
 from ui.shared import _clear_layout, resource_path
 
 FOOTER_HEIGHT = 28
-SUPPORT_WEB_SLOT_WIDTH = 40
-SUPPORT_WEB_SCALE = 0.8
 
 PATREON_ICON_PATH = "media/patreon_logo.svg"
 CRYPTO_ICON_PATH = "media/crypto_coins.svg"
@@ -118,11 +116,13 @@ SUPPORT_REMINDER_SECOND_LIFT = 2.0
 SUPPORT_REMINDER_STATE_CONFIG_KEY = "SUPPORT_REMINDER_STATE"
 SUPPORT_THANK_YOU_STARTUP_DELAY_MS = 4 * 1000
 SUPPORT_THANK_YOU_RETRY_MS = 1000
+SUPPORT_THANK_YOU_COOLDOWN_SECONDS = 24 * 60 * 60
+SUPPORT_THANK_YOU_STATE_CONFIG_KEY = "SUPPORT_THANK_YOU_STATE"
 
 
-def _read_support_reminder_state() -> float:
+def _read_support_message_timestamp(config_key: str, *, ignore_future: bool = False) -> float:
     with config.config_lock:
-        raw = config.user_config.get(SUPPORT_REMINDER_STATE_CONFIG_KEY)
+        raw = config.user_config.get(config_key)
         state = dict(raw) if isinstance(raw, dict) else {}
 
     try:
@@ -135,8 +135,29 @@ def _read_support_reminder_state() -> float:
     if math.isfinite(now) and now >= 0.0 and last_shown_at > now:
         # A corrected system clock must not turn one reminder into an
         # indefinite sequence of fresh 30-minute waits.
-        last_shown_at = now
+        last_shown_at = 0.0 if ignore_future else now
     return last_shown_at
+
+
+def _read_support_reminder_state() -> float:
+    return _read_support_message_timestamp(SUPPORT_REMINDER_STATE_CONFIG_KEY)
+
+
+def _read_support_thank_you_state() -> float:
+    # A gratitude timestamp from a corrected clock must not suppress future
+    # launches indefinitely. The next actual show records the corrected time.
+    return _read_support_message_timestamp(SUPPORT_THANK_YOU_STATE_CONFIG_KEY, ignore_future=True)
+
+
+def _update_support_thank_you_state(*, last_shown_at: float):
+    def mutate(candidate: dict) -> None:
+        raw = candidate.get(SUPPORT_THANK_YOU_STATE_CONFIG_KEY)
+        state = dict(raw) if isinstance(raw, dict) else {}
+        shown_at = float(last_shown_at)
+        state["last_shown_at"] = max(0.0, shown_at) if math.isfinite(shown_at) else 0.0
+        candidate[SUPPORT_THANK_YOU_STATE_CONFIG_KEY] = state
+
+    return config.update_config(mutate)
 
 
 def _update_support_reminder_state(
@@ -336,12 +357,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
 
     def __init__(self, text: str, parent: QWidget | None = None) -> None:
         self._caption = ""
-        self._halloween = False
-        self._web_time = 2.0
-        self._web_started = 0.0
-        self._halloween_animation = None
-        self._web_phase = -1.0
-        self._web_frames = None
+        self._theme_icon = None
+        self._appearance = None
         self._heart_scale = 1.0
         self._hovered = False
         self._heartbeat_suspended = False
@@ -373,100 +390,35 @@ class _SupportFooterLink(_AnimatedFooterLink):
             self._heart_step(HEART_HOVER_SCALE, 1.0, 170, QEasingCurve.InCubic)
         )
 
-        self._web_timer = QTimer(self)
-        self._web_timer.setTimerType(Qt.PreciseTimer)
-        self._web_timer.setInterval(16)
-        self._web_timer.timeout.connect(self._web_tick)
-        self._web_wake = QTimer(self)
-        self._web_wake.setSingleShot(True)
-        self._web_wake.timeout.connect(self.pulse_web)
-        application = QApplication.instance()
-        if application is not None:
-            application.applicationStateChanged.connect(self._web_application_state_changed)
-
-    def set_halloween_animation(self, animation) -> None:
-        if self._halloween_animation is animation:
+    def set_theme_icon(self, icon) -> None:
+        if self._theme_icon is icon:
             return
-        if self._halloween_animation is not None:
-            self._halloween_animation.phaseChanged.disconnect(self._set_web_phase)
-        self._halloween_animation = animation
-        self._web_timer.stop()
-        self._web_wake.stop()
-        animation.add_surface(self)
-        animation.phaseChanged.connect(self._set_web_phase)
-        self._set_web_phase(animation.phase)
-        animation.refresh()
-
-    def _set_web_phase(self, phase: float) -> None:
-        self._web_phase = phase
-        if self._halloween and self.isVisible():
-            self.update(QRect(0, 0, SUPPORT_WEB_SLOT_WIDTH + 6, self.height()))
-
-    def set_halloween(self, enabled: bool) -> None:
-        if self._halloween == enabled:
-            return
-        self._halloween = enabled
-        self.window().installEventFilter(self)
+        if self._theme_icon is not None:
+            clock = self._theme_icon.clock
+            clock.phaseChanged.disconnect(self._theme_phase_changed)
+            clock.remove_surface(self)
+        self._theme_icon = icon
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
-        self._web_timer.stop()
-        self._web_wake.stop()
-        self._web_time = 2.0
         self._set_heart_scale(1.0)
-        self.setFixedHeight(44 if enabled else 24)
-        if enabled:
-            self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + SUPPORT_WEB_SLOT_WIDTH + 6)
+        self.setFixedHeight(icon.height if icon else 24)
+        if icon is not None:
+            icon.clock.add_surface(self)
+            icon.clock.phaseChanged.connect(self._theme_phase_changed)
+            self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + icon.slot_width + 6)
         else:
             self.setMinimumWidth(0)
             self.setMaximumWidth(16777215)
         self.updateGeometry()
         self._restart_ambient_heartbeat()
 
-    def _web_can_animate(self) -> bool:
-        application = QApplication.instance()
-        return (self._halloween and self.isVisible() and not self.window().isMinimized()
-                and application is not None and application.applicationState() == Qt.ApplicationActive)
+    def _theme_phase_changed(self, _phase) -> None:
+        if self._theme_icon is not None and self.isVisible():
+            self.update(QRect(0, 0, self._theme_icon.slot_width + 6, self.height()))
 
-    def pulse_web(self, *, force: bool = False) -> None:
-        self._web_wake.stop()
-        if not self._web_can_animate() or (self._heartbeat_suspended and not force):
-            return
-        if self._halloween_animation is not None:
-            self._halloween_animation.restart()
-            return
-        self._web_started = time.monotonic()
-        self._web_time = 0.0
-        self._web_timer.start()
-        self.update()
-
-    def _web_tick(self) -> None:
-        self._web_time = time.monotonic() - self._web_started
-        if not self._web_can_animate() or self._web_time >= 1.2:
-            self._web_timer.stop()
-            self._web_time = 2.0
-            if self._web_can_animate() and not self._heartbeat_suspended:
-                self._web_wake.start(5000)
-        self.update()
-
-    def _web_application_state_changed(self, state) -> None:
-        if not self._halloween:
-            return
-        if self._halloween_animation is not None:
-            self._halloween_animation.refresh()
-            return
-        self._web_timer.stop()
-        self._web_wake.stop()
-        self._web_time = 2.0
-        self.update()
-        if state == Qt.ApplicationActive:
-            self._restart_ambient_heartbeat()
-
-    def eventFilter(self, watched, event) -> bool:  # noqa: N802
-        if self._halloween and watched is self.window() and event.type() in (
-            QEvent.WindowStateChange, QEvent.Hide, QEvent.Show,
-        ):
-            self._web_application_state_changed(QApplication.instance().applicationState())
-        return super().eventFilter(watched, event)
+    def pulse_theme_icon(self, *, force=False) -> None:
+        if self._theme_icon is not None and (force or not self._heartbeat_suspended):
+            self._theme_icon.clock.restart()
 
     def _heart_step(
         self,
@@ -495,8 +447,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
         visible_text = str(text)
         self._caption = visible_text.replace("♥", "", 1).strip()
         super().setText(visible_text)
-        if self._halloween:
-            self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + SUPPORT_WEB_SLOT_WIDTH + 6)
+        if self._theme_icon is not None:
+            self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + self._theme_icon.slot_width + 6)
         self.updateGeometry()
 
     def caption(self) -> str:
@@ -518,31 +470,17 @@ class _SupportFooterLink(_AnimatedFooterLink):
         return heart_font, heart_width, caption_width, gap
 
     def _content_width(self) -> float:
-        if self._halloween:
-            return QFontMetricsF(self.font()).horizontalAdvance(self._caption) + SUPPORT_WEB_SLOT_WIDTH
+        if self._theme_icon is not None:
+            return QFontMetricsF(self.font()).horizontalAdvance(self._caption) + self._theme_icon.slot_width
         _heart_font, heart_width, caption_width, gap = self._content_metrics()
         return heart_width + gap + caption_width
 
     def _paint_content(self, painter: QPainter, rect: QRectF, color: QColor) -> None:
-        if self._halloween:
-            from ui.themes.support import draw_web_icon
-
+        if self._theme_icon is not None:
             caption_width = QFontMetricsF(self.font()).horizontalAdvance(self._caption)
-            start = rect.center().x() - (caption_width + SUPPORT_WEB_SLOT_WIDTH) / 2
-            if self._halloween_animation is not None:
-                from ui.themes.animation import WebPulseFrames
-
-                if self._web_frames is None:
-                    self._web_frames = WebPulseFrames()
-                frame = self._web_frames.frame(self.devicePixelRatioF(), SUPPORT_WEB_SCALE, self._web_phase)
-                painter.drawPixmap(QPointF(start - 2, rect.center().y() - 19), frame)
-            else:
-                painter.save()
-                painter.translate(start + 18, rect.center().y() + 1)
-                painter.scale(SUPPORT_WEB_SCALE, SUPPORT_WEB_SCALE)
-                draw_web_icon(painter, 0, 0, self._web_time)
-                painter.restore()
-            self._draw_text(painter, QRectF(start + SUPPORT_WEB_SLOT_WIDTH, rect.y(), caption_width + 2, rect.height()),
+            start = rect.center().x() - (caption_width + self._theme_icon.slot_width) / 2
+            self._theme_icon.paint(painter, start, rect.center().y(), self.devicePixelRatioF())
+            self._draw_text(painter, QRectF(start + self._theme_icon.slot_width, rect.y(), caption_width + 2, rect.height()),
                             self.font(), self._caption, color,
                             glow_alpha=round(36 * self._hover_progress))
             return
@@ -586,8 +524,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
         painter.restore()
 
     def sizeHint(self) -> QSize:  # noqa: N802 -- Qt's name
-        if self._halloween:
-            return QSize(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + SUPPORT_WEB_SLOT_WIDTH + 6, 44)
+        if self._theme_icon is not None:
+            return QSize(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + self._theme_icon.slot_width + 6, self._theme_icon.height)
         hint = super().sizeHint()
         return QSize(hint.width() + 3, max(24, hint.height()))
 
@@ -597,12 +535,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
     def _restart_ambient_heartbeat(self) -> None:
         self._ambient_heartbeat.stop()
         self._set_heart_scale(1.0)
-        if self._halloween:
-            if self._halloween_animation is not None:
-                self._halloween_animation.refresh()
-                return
-            if self._web_can_animate() and not self._heartbeat_suspended:
-                self._web_wake.start(5000)
+        if self._theme_icon is not None:
+            self._theme_icon.clock.refresh()
             return
         if (
             self.isVisible()
@@ -618,8 +552,6 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._heartbeat_suspended = True
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
-        self._web_timer.stop()
-        self._web_wake.stop()
         self._set_heart_scale(1.0)
 
     def resume_heartbeat(self) -> None:
@@ -627,7 +559,7 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._heartbeat_suspended = False
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
-        if self._halloween:
+        if self._theme_icon is not None:
             self._restart_ambient_heartbeat()
             return
         if self._hovered and self.isVisible():
@@ -640,8 +572,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
-        if self._halloween:
-            self.pulse_web()
+        if self._theme_icon is not None:
+            self.pulse_theme_icon()
         elif not self._heartbeat_suspended:
             self._hover_heartbeat.start()
         super().enterEvent(event)
@@ -661,9 +593,6 @@ class _SupportFooterLink(_AnimatedFooterLink):
 
     def hideEvent(self, event) -> None:  # noqa: N802 -- Qt's name
         self._hovered = False
-        self._web_timer.stop()
-        self._web_wake.stop()
-        self._web_time = 2.0
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
@@ -760,6 +689,7 @@ class _SupportReminder(QFrame):
         can_show,
         last_shown_at: float,
         record_show,
+        cooldown_seconds: float = SUPPORT_REMINDER_COOLDOWN_SECONDS,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("supportReminder")
@@ -779,11 +709,12 @@ class _SupportReminder(QFrame):
                     wall_elapsed,
                 )
         self._record_show = record_show
+        self._cooldown_seconds = cooldown_seconds
         self._host_window = parent.window()
         self._lift_progress = 0.0
         self._pulse_offset = 0.0
         self._playing = False
-        self._spider = None
+        self._presentation = None
         self._due = False
         self._due_bypasses_cooldown = False
         self._last_interval_ms = 0
@@ -1065,7 +996,7 @@ class _SupportReminder(QFrame):
                 elapsed = 0.0
         if not math.isfinite(elapsed):
             elapsed = 0.0
-        remaining = SUPPORT_REMINDER_COOLDOWN_SECONDS - max(0.0, elapsed)
+        remaining = self._cooldown_seconds - max(0.0, elapsed)
         return max(0, math.ceil(remaining * 1000.0))
 
     def _play_if_due(self) -> bool:
@@ -1108,20 +1039,17 @@ class _SupportReminder(QFrame):
         self._set_pulse_offset(0.0)
         self._heart._set_heart_scale(1.0)
         self._support_link.suspend_heartbeat()
-        if self._support_link._halloween:
-            from ui.themes.support import SpiderSupport
-
-            if self._spider is None:
-                self._spider = SpiderSupport(
-                    host=self.parentWidget(), footer=self._footer_frame,
-                    activate=self._activate_clicked, dismiss=self.dismiss,
-                    finished=self._animation_finished,
-                )
-            self._spider.start(thank_you=self.property("messageKind") == "thankYou")
-            # Halloween's web has its own short pulse; keep its passive cycles
-            # during the reading interval without restarting the old heart.
+        provider = self._support_link._appearance
+        if provider is not None and self._presentation is None:
+            self._presentation = provider.create_support(
+                host=self.parentWidget(), footer=self._footer_frame,
+                activate=self._activate_clicked, dismiss=self.dismiss,
+                finished=self._animation_finished,
+            )
+        if self._presentation is not None:
+            self._presentation.start(thank_you=self.property("messageKind") == "thankYou")
             self._support_link.resume_heartbeat()
-            self._support_link.pulse_web(force=True)
+            self._support_link.pulse_theme_icon(force=True)
         else:
             self._sync_geometry()
             self.show()
@@ -1146,8 +1074,8 @@ class _SupportReminder(QFrame):
         self._finish_playback(schedule_next=True)
 
     def _finish_playback(self, *, schedule_next: bool) -> None:
-        if self._spider is not None:
-            self._spider.stop()
+        if self._presentation is not None:
+            self._presentation.stop()
         self._playing = False
         self.hide()
         self._set_lift_progress(0.0)
@@ -1233,18 +1161,20 @@ class _SupportReminder(QFrame):
 
 
 class _SupportThankYou(_SupportReminder):
-    """A thank-you at launch, using the card's animation without recurring asks."""
+    """A launch-only thank-you with a persisted daily cooldown and no repeats."""
 
-    def __init__(self, *, parent, footer_frame, support_link, can_show) -> None:
+    def __init__(self, *, parent, footer_frame, support_link, can_show, record_show) -> None:
         self._has_shown = False
+        self._cooldown_suppressed = False
         super().__init__(
             parent=parent,
             footer_frame=footer_frame,
             support_link=support_link,
             activate=self.dismiss,
             can_show=can_show,
-            last_shown_at=0.0,
-            record_show=lambda _shown_at: None,
+            last_shown_at=_read_support_thank_you_state(),
+            record_show=record_show,
+            cooldown_seconds=SUPPORT_THANK_YOU_COOLDOWN_SECONDS,
         )
         self.setProperty("messageKind", "thankYou")
         self.setAccessibleName("Thank you for supporting BonkScanner")
@@ -1260,8 +1190,21 @@ class _SupportThankYou(_SupportReminder):
     def start(self) -> None:
         if self._has_shown or self._playing or self._due or self._startup_timer.isActive():
             return
+        if self._skip_for_cooldown():
+            return
         self._last_startup_delay_ms = SUPPORT_THANK_YOU_STARTUP_DELAY_MS
         self._startup_timer.start(self._last_startup_delay_ms)
+
+    def _skip_for_cooldown(self) -> bool:
+        if self._cooldown_suppressed:
+            return True
+        if self._cooldown_remaining_ms() > 0:
+            # Skip this launch, rather than scheduling a 24-hour wake-up or
+            # polling after each Premium status refresh.
+            self._cooldown_suppressed = True
+            self._schedule_next()
+            return True
+        return False
 
     def _schedule_next(self) -> None:
         # Called on close/animation finish by the shared card; there is no repeat.
@@ -1272,11 +1215,11 @@ class _SupportThankYou(_SupportReminder):
         self._due_bypasses_cooldown = False
 
     def _mark_due(self, *, bypass_cooldown: bool = False) -> None:
-        if not self._has_shown:
+        if not self._has_shown and not self._skip_for_cooldown():
             super()._mark_due(bypass_cooldown=True)
 
     def _play_if_due(self) -> bool:
-        if self._has_shown or not self._due:
+        if self._has_shown or self._cooldown_suppressed or not self._due:
             return False
         if not self._window_is_ready():
             self._timer.start(SUPPORT_THANK_YOU_RETRY_MS)
@@ -1286,13 +1229,15 @@ class _SupportThankYou(_SupportReminder):
     def play(self, *, force: bool = False) -> bool:
         if self._has_shown:
             return False
+        if not force and self._skip_for_cooldown():
+            return False
         played = super().play(force=force)
         if played:
             self._has_shown = True
         return played
 
     def _application_state_changed(self, state) -> None:
-        if not self._has_shown:
+        if not self._has_shown and not self._cooldown_suppressed:
             super()._application_state_changed(state)
 
 
@@ -2008,17 +1953,18 @@ class FooterView:
                     )
                 )
 
-    def set_halloween_animation(self, animation) -> None:
-        self._support_btn.set_halloween_animation(animation)
-
-    def set_theme(self, theme: str) -> None:
-        enabled = theme == "halloween"
-        if self._support_btn._halloween != enabled:
-            for card in (self._reminder, self._thank_you):
-                if card is not None and card._playing:
+    def set_appearance(self, provider) -> None:
+        """Bind visuals only; retain eligibility, persisted cooldown and count."""
+        if self._support_btn._appearance is provider:
+            return
+        for card in (self._reminder, self._thank_you):
+            if card is not None:
+                if card._playing:
                     card.dismiss()
-        self._support_btn.set_halloween(enabled)
-        self.frame.setFixedHeight(48 if enabled else FOOTER_HEIGHT)
+                card._presentation = None  # The previous provider owns disposal.
+        self._support_btn._appearance = provider
+        self._support_btn.set_theme_icon(provider.footer_icon if provider else None)
+        self.frame.setFixedHeight(provider.footer_height if provider else FOOTER_HEIGHT)
 
     def _has_premium_access(self) -> bool:
         checker = getattr(self._app, "has_premium_access", None)
@@ -2058,6 +2004,7 @@ class FooterView:
                 footer_frame=self.frame,
                 support_link=self._support_btn,
                 can_show=self._thank_you_can_show,
+                record_show=self._record_support_thank_you_shown,
             )
         self._thank_you.start()
 
@@ -2102,6 +2049,19 @@ class FooterView:
 
     def _record_support_reminder_shown(self, shown_at: float) -> None:
         self._save_support_reminder_state(shown_at)
+
+    def _record_support_thank_you_shown(self, shown_at: float) -> None:
+        try:
+            result = _update_support_thank_you_state(last_shown_at=shown_at)
+        except Exception as exc:
+            self._log_warning(
+                "Support thank-you state could not be saved: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return
+        if not result.success:
+            reason = result.reason or "the configuration file was not writable"
+            self._log_warning(f"Support thank-you state could not be saved: {reason}")
 
     def _support_reminder_can_show(self) -> bool:
         if self._has_premium_access():
