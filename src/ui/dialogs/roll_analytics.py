@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, QUrl, QSize
-from PySide6.QtGui import QIcon, QDesktopServices
+from PySide6.QtGui import QIcon, QDesktopServices, QFontMetrics
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHeaderView,
-    QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
+    QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem,
 )
 
 from app import config
 from app.roll_analytics_view import save_view_preferences, view_preferences
-from core.roll_analysis_view import REFERENCE_MODEL_NOTE, expected_rolls, summarize_selected
+from core.roll_analysis_view import REFERENCE_MODEL_NOTE, expected_rolls
 from core.roll_analytics import aggregate_roll_counts
 from ui.shared import resource_path
 from ui.dialogs.roll_recording_picker import RollRecordingPicker
@@ -46,6 +46,7 @@ class RollAnalyticsWindow(QDialog):
             self, title="Roll Analytics", subtitle="Dice passive and Chaos Tome · lifetime or a saved recording",
             title_trailing=self._status, width=DIALOG_WIDE, height=DIALOG_TALL,
         )
+        layout.setSpacing(8)
         tabs = QFrame(self)
         tabs.setProperty("segmentedToggle", True)
         tab_layout = QHBoxLayout(tabs)
@@ -68,17 +69,29 @@ class RollAnalyticsWindow(QDialog):
         layout.addWidget(tabs)
 
         data_row = QHBoxLayout()
+        data_row.setSpacing(8)
         self._data_mode = QComboBox(self)
         self._data_mode.addItem("Lifetime history", "lifetime")
         self._data_mode.addItem("From recording", "recording")
         self._data_mode.setToolTip("Viewing a recording never adds its rolls to lifetime history.")
-        data_row.addWidget(self._data_mode)
+        data_row.addWidget(self._data_mode, 1)
         self._recording_picker = RollRecordingPicker(getattr(app, "vod_library", None), self)
         self._recording_picker.hide()
         data_row.addWidget(self._recording_picker, 1)
+        sort_label = QLabel("Sort by", self)
+        sort_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        data_row.addWidget(sort_label)
+        self._sort_by = QComboBox(self)
+        for caption, order in (("Game order", "game"), ("Most rolls", "most"),
+                               ("Fewest rolls", "fewest"), ("Highest Δ", "high_delta"),
+                               ("Lowest Δ", "low_delta")):
+            self._sort_by.addItem(caption, order)
+        self._sort_by.setToolTip("Sort all stats down the left column, then down the right column.")
+        self._sort_by.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        data_row.addWidget(self._sort_by)
         self._expected_switch = QCheckBox("Expected (27-stat model)", self)
         self._expected_switch.setChecked(expected)
-        self._expected_switch.setToolTip(REFERENCE_MODEL_NOTE + " At narrow widths, Share is available in row tooltips.")
+        self._expected_switch.setToolTip(REFERENCE_MODEL_NOTE)
         data_row.addWidget(self._expected_switch)
         layout.addLayout(data_row)
         self._recording_context = QLabel(self)
@@ -91,7 +104,7 @@ class RollAnalyticsWindow(QDialog):
         summary = QFrame(self)
         summary.setObjectName("card")
         summary_layout = QHBoxLayout(summary)
-        summary_layout.setContentsMargins(14, 12, 14, 12)
+        summary_layout.setContentsMargins(14, 8, 14, 8)
         caption = QLabel("CONFIRMED ROLLS", summary)
         caption.setObjectName("kpiLabel")
         summary_layout.addWidget(caption)
@@ -99,26 +112,12 @@ class RollAnalyticsWindow(QDialog):
         self._total.setObjectName("kpiValue")
         summary_layout.addWidget(self._total)
         summary_layout.addStretch(1)
-        self._selected_summary = QLabel(summary)
-        self._selected_summary.setObjectName("dialogSubtitle")
-        self._selected_summary.setWordWrap(True)
-        self._selected_summary.setTextFormat(Qt.PlainText)
-        summary_layout.addWidget(self._selected_summary, 1)
-        self._clear_selected = QPushButton("Clear selection", summary)
-        self._clear_selected.clicked.connect(lambda: self._save_preferences((), self._show_expected))
-        summary_layout.addWidget(self._clear_selected)
+        self._stat_count = QLabel("27 stats · all shown", summary)
+        self._stat_count.setObjectName("dialogSubtitle")
+        summary_layout.addWidget(self._stat_count)
         layout.addWidget(summary)
-        tables_layout = QHBoxLayout()
-        tables_layout.setContentsMargins(0, 0, 0, 0)
-        tables_layout.setSpacing(12)
-        self._tables = tuple(self._build_stat_table() for _ in range(2))
-        for table in self._tables:
-            tables_layout.addWidget(table, 1)
-            table.itemChanged.connect(self._stat_checked)
-        for index, table in enumerate(self._tables):
-            table.verticalScrollBar().valueChanged.connect(
-                lambda value, peer=self._tables[1 - index]: self._sync_stat_scroll(peer, value))
-        layout.addLayout(tables_layout, 1)
+        self._table = self._build_stat_table()
+        layout.addWidget(self._table, 1)
         self._note = QLabel(self)
         self._note.setObjectName("dialogSubtitle")
         self._note.setTextFormat(Qt.PlainText)
@@ -138,47 +137,42 @@ class RollAnalyticsWindow(QDialog):
         self._timer.setInterval(500)
         self._timer.timeout.connect(self.refresh)
         self._data_mode.currentIndexChanged.connect(self._mode_changed)
+        self._sort_by.currentIndexChanged.connect(self._sort_changed)
         self._expected_switch.toggled.connect(self._expected_changed)
         self._recording_picker.changed.connect(self.refresh)
         self.refresh()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        for table in getattr(self, "_tables", ()):
-            table.setColumnHidden(2, self._show_expected and self.width() < 1050)
-
     def _build_stat_table(self):
-        table = QTableWidget(0, 5, self)
-        table.setHorizontalHeaderLabels(("Stat", "Rolls", "Share", "Expected", "Δ"))
-        table.horizontalHeaderItem(0).setToolTip("Check a stat to pin it and include it in the selected-stats summary.")
-        table.horizontalHeaderItem(2).setToolTip("Share of all confirmed rolls for this source; selection never changes the denominator.")
-        for column in (3, 4):
+        table = QTableWidget(0, 11, self)
+        table.setHorizontalHeaderLabels(("Stat", "Rolls", "Share", "Exp.", "Δ", "",
+                                         "Stat", "Rolls", "Share", "Exp.", "Δ"))
+        for column in (0, 6):
+            table.horizontalHeaderItem(column).setToolTip(
+                "Stats follow game order down the left column, then down the right column.")
+        for column in (2, 8):
+            table.horizontalHeaderItem(column).setToolTip("Share of all confirmed rolls for this source.")
+        for column in (3, 4, 9, 10):
             table.horizontalHeaderItem(column).setToolTip(REFERENCE_MODEL_NOTE + " Δ = actual minus expected.")
         table.setShowGrid(False)
         table.setStyleSheet("QTableWidget::item { border-bottom: 1px solid #1D2730; padding: 4px 6px; }")
         table.verticalHeader().hide()
-        table.verticalHeader().setDefaultSectionSize(28)
+        table.verticalHeader().setMinimumSectionSize(22)
+        table.verticalHeader().setDefaultSectionSize(23)
         table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setSelectionMode(QTableWidget.NoSelection)
+        table.setWordWrap(False)
         table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setTextElideMode(Qt.ElideRight)
         header = table.horizontalHeader()
         header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        for column, width in ((1, 65), (2, 72), (3, 78), (4, 65)):
+        for column in (0, 6):
+            header.setSectionResizeMode(column, QHeaderView.Stretch)
+        for column, width in ((1, 58), (2, 58), (3, 72), (4, 55), (5, 16),
+                              (7, 58), (8, 58), (9, 72), (10, 55)):
             header.setSectionResizeMode(column, QHeaderView.Fixed)
             table.setColumnWidth(column, width)
         return table
-
-    @staticmethod
-    def _sync_stat_scroll(peer, value):
-        scrollbar = peer.verticalScrollBar()
-        blocked = scrollbar.blockSignals(True)
-        try:
-            scrollbar.setValue(value)
-        finally:
-            scrollbar.blockSignals(blocked)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -211,6 +205,11 @@ class RollAnalyticsWindow(QDialog):
     def _expected_changed(self, enabled):
         self._save_preferences(self._selected, enabled)
 
+    def _sort_changed(self, *_args):
+        self._table.verticalScrollBar().setValue(0)
+        self._last_key = None
+        self.refresh()
+
     def _save_preferences(self, selected, expected):
         result = save_view_preferences(selected, expected)
         if result.success:
@@ -224,18 +223,6 @@ class RollAnalyticsWindow(QDialog):
         self._last_key = None
         self.refresh()
 
-    def _stat_checked(self, item):
-        if item.column() != 0 or item.data(Qt.UserRole) is None:
-            return
-        selected = set(self._selected)
-        stat_id = item.data(Qt.UserRole)
-        if item.checkState() == Qt.Checked:
-            selected.add(stat_id)
-        else:
-            selected.discard(stat_id)
-        if selected != set(self._selected):
-            self._save_preferences(selected, self._show_expected)
-
     def refresh(self):
         status = self._service.status()
         enabled = bool(getattr(config, "ROLL_ANALYTICS_ENABLED", False))
@@ -246,7 +233,7 @@ class RollAnalyticsWindow(QDialog):
         if recording:
             picker.refresh_library()
         key = (self._source, recording, status.revision if not recording else id(picker.recorded),
-               picker.loading, picker.error, self._selected, self._show_expected, self.width() < 1050)
+               picker.loading, picker.error, self._show_expected, self._sort_by.currentData())
         self._export_action.setEnabled(not recording)
         self._clear_action.setEnabled(not recording)
         if recording:
@@ -261,7 +248,7 @@ class RollAnalyticsWindow(QDialog):
         self._last_key = key
         available = True
         if recording:
-            self._note.setText("Recording data is never added to lifetime history. Check stats to pin them.")
+            self._note.setText("Recording data is never added to lifetime history.")
             snapshot = aggregate_roll_counts(self._source, {})
             result = picker.recorded.for_source(self._source) if picker.recorded is not None else None
             available = bool(result is not None and result.analytics is not None)
@@ -282,68 +269,57 @@ class RollAnalyticsWindow(QDialog):
         else:
             snapshot = self._service.snapshot(self._source)
         self._total.setText(f"{snapshot.total:,}" if available else "—")
-        self._clear_selected.setEnabled(bool(self._selected))
-        if not self._selected:
-            self._selected_summary.setText("Check the stats you want to follow.")
-        elif not available:
-            self._selected_summary.setText(f"Selected stats: {len(self._selected)} · data unavailable")
-        else:
-            selected = summarize_selected(snapshot, self._selected)
-            share = f"{selected.percent:.1f}%" if selected.percent is not None else "—"
-            message = f"Selected stats ({selected.selected_stats}): {selected.count:,}/{selected.total:,} · {share}"
-            if self._show_expected and selected.expected is not None:
-                message += f"\nExpected {selected.expected:,.1f} · Δ {_signed(selected.difference)}"
-            self._selected_summary.setText(message)
-        self._selected_summary.setToolTip(REFERENCE_MODEL_NOTE if self._show_expected else
-            "The denominator is all confirmed rolls for the selected source and dataset.")
-        rows = sorted(snapshot.rows, key=lambda row: row.stat_id not in self._selected)
+        rows = list(snapshot.rows)
+        self._stat_count.setText(f"{len(rows)} stats · all shown")
+        order = self._sort_by.currentData()
+        if order in ("most", "fewest"):
+            rows.sort(key=lambda row: row.count, reverse=order == "most")
+        elif order in ("high_delta", "low_delta"):
+            def difference(row):
+                expected = expected_rolls(snapshot.source, snapshot.total, (row.stat_id,))
+                return row.count - expected if expected is not None else 0
+            rows.sort(key=difference, reverse=order == "high_delta")
         half = (len(rows) + 1) // 2
-        for table, panel in zip(self._tables, (rows[:half], rows[half:])):
-            scroll = table.verticalScrollBar().value()
-            table.blockSignals(True)
-            table.setUpdatesEnabled(False)
-            try:
-                table.setColumnHidden(2, self._show_expected and self.width() < 1050)
-                table.setColumnHidden(3, not self._show_expected)
-                table.setColumnHidden(4, not self._show_expected)
-                table.setRowCount(half)
-                for index in range(half):
-                    row = panel[index] if index < len(panel) else None
+        table = self._table
+        table.setUpdatesEnabled(False)
+        try:
+            for column in (2, 8):
+                table.horizontalHeaderItem(column).setText("%" if self._show_expected else "Share")
+            for column in (3, 4, 9, 10):
+                table.setColumnHidden(column, not self._show_expected)
+            table.setRowCount(half)
+            for index in range(half):
+                for offset, row in ((0, rows[index]),
+                                    (6, rows[index + half] if index + half < len(rows) else None)):
                     expected = expected_rolls(snapshot.source, snapshot.total, (row.stat_id,)) if row and available else None
                     values = (row.label, f"{row.count:,}" if available else "—",
                               f"{row.percent:.1f}%" if available and row.percent is not None else "—",
                               f"{expected:,.1f}" if expected is not None else "—",
                               _signed(row.count - expected) if expected is not None else "—") if row else ("",) * 5
-                    for column, text in enumerate(values):
+                    for local_column, value in enumerate(values):
+                        column = offset + local_column
                         item = table.item(index, column)
                         if item is None:
                             item = QTableWidgetItem()
                             table.setItem(index, column, item)
-                        item.setText(text)
+                        item.setText(value)
                         item.setData(Qt.UserRole, row.stat_id if row else None)
-                        item.setFlags((Qt.ItemIsEnabled | Qt.ItemIsSelectable |
-                                       (Qt.ItemIsUserCheckable if column == 0 else Qt.NoItemFlags)) if row else Qt.NoItemFlags)
-                        if column == 0:
-                            item.setData(Qt.CheckStateRole, (Qt.Checked if row.stat_id in self._selected else Qt.Unchecked) if row else None)
-                        font = table.font()
-                        font.setBold(bool(row and row.stat_id in self._selected))
-                        item.setFont(font)
-                        tooltip = (row.label + " · check to pin and include in selected stats" if column == 0 else
-                                   REFERENCE_MODEL_NOTE if column in (3, 4) else
-                                   f"{row.label}: {row.count:,} of {snapshot.total:,} confirmed rolls" + (f" ({row.percent:.1f}%)" if row.percent is not None else "") if available else
+                        item.setFlags(Qt.ItemIsEnabled if row else Qt.NoItemFlags)
+                        tooltip = (REFERENCE_MODEL_NOTE if local_column in (3, 4) else
+                                   f"{row.label}: {row.count:,} of {snapshot.total:,} confirmed rolls" +
+                                   (f" ({row.percent:.1f}%)" if row.percent is not None else "") if available else
                                    "No confirmed recorded counters.") if row else ""
                         item.setToolTip(tooltip)
-                        item.setTextAlignment((Qt.AlignLeft if column == 0 else Qt.AlignRight) | Qt.AlignVCenter)
-                self._sync_stat_scroll(table, scroll)
-                # Lifetime totals can grow beyond the compact default widths.
-                # Measure the actual items, including the bold pinned rows.
-                for column, minimum in ((1, 65), (2, 72), (3, 78), (4, 65)):
-                    header = table.horizontalHeader()
-                    heading = header.fontMetrics().horizontalAdvance(table.horizontalHeaderItem(column).text()) + 16
-                    table.setColumnWidth(column, max(minimum, heading, table.sizeHintForColumn(column) + 12))
-            finally:
-                table.blockSignals(False)
-                table.setUpdatesEnabled(True)
+                        item.setTextAlignment((Qt.AlignLeft if local_column == 0 else Qt.AlignRight) | Qt.AlignVCenter)
+            for column, minimum in ((1, 58), (2, 58), (3, 72), (4, 55),
+                                    (7, 58), (8, 58), (9, 72), (10, 55)):
+                header = table.horizontalHeader()
+                heading = header.fontMetrics().horizontalAdvance(table.horizontalHeaderItem(column).text()) + 16
+                content = max((QFontMetrics(table.item(index, column).font()).horizontalAdvance(
+                    table.item(index, column).text()) for index in range(half)), default=0)
+                table.setColumnWidth(column, max(minimum, heading, content + 18))
+        finally:
+            table.setUpdatesEnabled(True)
 
     def _open_folder(self):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._service.store.path.parent)))

@@ -271,8 +271,9 @@ class RollAnalyticsUiTests(unittest.TestCase):
             window = RollAnalyticsWindow(self.app)
             self.addCleanup(window.close)
             self.assertEqual(window._total.text(), "4")
-            labels = [table.item(row, 0).text() for table in window._tables
-                      for row in range(table.rowCount()) if table.item(row, 0).text()]
+            table = window._table
+            labels = [table.item(row, column).text() for column in (0, 6)
+                      for row in range(table.rowCount()) if table.item(row, column).text()]
             self.assertEqual(len(labels), 27)
             self.assertEqual(len(set(labels)), 27)
             self.assertIn("Premium required", window._status.text())

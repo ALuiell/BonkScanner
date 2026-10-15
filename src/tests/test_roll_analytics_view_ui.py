@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication
 from app import config
 from app.roll_analytics import RollAnalyticsService
 from app.roll_analytics_view import RollRecordingCache, save_view_preferences, view_preferences
+from core.roll_analytics import ROLL_STATS, aggregate_roll_counts
 from infra.roll_history_store import RollHistoryStore
 from infra.roll_recording import read_recorded_rolls
 from src.tests.test_roll_analysis_view import frame, write_recording
@@ -49,31 +50,44 @@ class RollAnalyticsViewUiTests(unittest.TestCase):
         self.assertTrue(predicate(), "Qt worker did not settle")
 
     def item_for(self, stat_id):
-        return next(table.item(i, 0) for table in self.window._tables
-                    for i in range(table.rowCount()) if table.item(i, 0).data(Qt.UserRole) == stat_id)
+        table = self.window._table
+        return next(table.item(i, column) for column in (0, 6)
+                    for i in range(table.rowCount())
+                    if table.item(i, column).data(Qt.UserRole) == stat_id)
 
-    def test_check_pins_stat_preserves_labels_and_saves_once(self):
-        with patch("ui.dialogs.roll_analytics.save_view_preferences", return_value=NS(success=True)) as save:
-            self.item_for(30).setCheckState(Qt.Checked)
-        save.assert_called_once()
-        self.assertEqual(self.window._selected, frozenset({30}))
-        self.assertEqual(self.window._tables[0].item(0, 0).data(Qt.UserRole), 30)
-        labels = [table.item(i, 0).text() for table in self.window._tables for i in range(table.rowCount())
-                  if table.item(i, 0).text()]
-        self.assertEqual(len(set(labels)), 27)
-        blank = self.window._tables[1].item(self.window._tables[1].rowCount() - 1, 0)
-        self.assertIsNone(blank.data(Qt.CheckStateRole))
+    def test_game_order_fills_left_then_right_without_selection_controls(self):
+        table = self.window._table
+        self.assertEqual(table.rowCount(), 14)
+        labels = [table.item(i, column).text() for column in (0, 6)
+                  for i in range(table.rowCount()) if table.item(i, column).text()]
+        self.assertEqual(labels, [label for _stat_id, label in ROLL_STATS])
+        self.assertEqual(table.item(13, 6).text(), "")
+        self.assertTrue(all(table.item(i, column).data(Qt.CheckStateRole) is None
+                            for column in (0, 6) for i in range(table.rowCount())))
+        self.assertFalse(hasattr(self.window, "_selected_summary"))
 
-    def test_failed_preference_write_rolls_back_checkbox_and_expected(self):
+    def test_sort_by_reorders_all_stats_before_splitting_columns(self):
+        counts = {ROLL_STATS[0][0]: 3, ROLL_STATS[16][0]: 9, ROLL_STATS[-1][0]: 12}
+        with patch.object(self.service, "snapshot", return_value=aggregate_roll_counts("dice", counts)):
+            self.window._sort_by.setCurrentIndex(1)  # Most rolls
+            table = self.window._table
+            self.assertEqual(table.item(0, 0).text(), ROLL_STATS[-1][1])
+            self.assertEqual(table.item(1, 0).text(), ROLL_STATS[16][1])
+            ranked = sorted(aggregate_roll_counts("dice", counts).rows,
+                            key=lambda row: row.count, reverse=True)
+            self.assertEqual(table.item(0, 6).text(), ranked[14].label)
+            self.window._sort_by.setCurrentIndex(2)  # Fewest rolls
+            self.assertEqual(table.item(0, 0).text(), ROLL_STATS[1][1])
+            self.window._sort_by.setCurrentIndex(0)
+            self.assertEqual(table.item(0, 0).text(), ROLL_STATS[0][1])
+
+    def test_failed_preference_write_rolls_back_expected(self):
         with patch("ui.dialogs.roll_analytics.save_view_preferences", return_value=NS(success=False, reason="read only")), \
              patch("ui.dialogs.roll_analytics.show_app_notice") as notice:
-            self.item_for(30).setCheckState(Qt.Checked)
-            self.assertFalse(self.window._selected)
-            self.assertEqual(self.item_for(30).checkState(), Qt.Unchecked)
             self.window._expected_switch.setChecked(True)
             self.assertFalse(self.window._show_expected)
             self.assertFalse(self.window._expected_switch.isChecked())
-            self.assertEqual(notice.call_count, 2)
+            notice.assert_called_once()
 
     def test_recording_mode_uses_cached_two_source_result_without_history_write(self):
         path = write_recording(self.root / "run.jsonl", [frame({12: 27}, {30: 54})])
@@ -88,11 +102,10 @@ class RollAnalyticsViewUiTests(unittest.TestCase):
         self.assertEqual(self.window._total.text(), "54")
         with patch("ui.dialogs.roll_analytics.save_view_preferences", return_value=NS(success=True)):
             self.window._expected_switch.setChecked(True)
-            self.item_for(30).setCheckState(Qt.Checked)
-        self.assertIn("54/54", self.window._selected_summary.text())
-        self.assertIn("Expected 2.0", self.window._selected_summary.text())
-        self.assertFalse(self.window._tables[0].isColumnHidden(3))
-        self.assertEqual(self.window._tables[0].item(0, 3).text(), "2.0")
+        table = self.window._table
+        stat = self.item_for(30)
+        self.assertFalse(table.isColumnHidden(3))
+        self.assertEqual(table.item(stat.row(), stat.column() + 3).text(), "2.0")
         self.assertEqual(read.call_count, 1)
         self.assertFalse(self.window._clear_action.isEnabled())
         self.assertEqual(self.service.snapshot("dice").total, 0)
@@ -181,19 +194,23 @@ class RollAnalyticsViewUiTests(unittest.TestCase):
         self.assertIsNone(picker.recorded)
         self.assertIsNone(picker._lane)
 
-    def test_compact_layout_keeps_controls_and_tables_nonoverlapping(self):
-        self.window.resize(1100, 800)
+    def test_compact_layout_shows_all_rows_in_one_table(self):
+        self.window.resize(900, 720)
         self.window.show()
         self.qt.processEvents()
-        for table in self.window._tables:
-            self.assertGreater(table.viewport().width(), 300)
-            self.assertGreater(table.viewport().height(), 180)
-        self.assertFalse(self.window._tables[0].geometry().intersects(self.window._tables[1].geometry()))
+        table = self.window._table
+        self.assertEqual(table.rowCount(), 14)
+        self.assertGreater(table.viewport().width(), 700)
+        self.assertEqual(table.verticalScrollBar().maximum(), 0)
         with patch("ui.dialogs.roll_analytics.save_view_preferences", return_value=NS(success=True)):
             self.window._expected_switch.setChecked(True)
         self.qt.processEvents()
-        self.assertEqual(self.window._tables[0].horizontalHeaderItem(4).text(), "Δ")
-        self.assertGreater(self.window._tables[0].columnWidth(0), 100)
+        self.assertEqual(table.horizontalHeaderItem(10).text(), "Δ")
+        self.assertGreater(table.columnWidth(0), 100)
+        self.assertEqual(table.verticalScrollBar().maximum(), 0)
+        self.window._data_mode.setCurrentIndex(1)
+        self.qt.processEvents()
+        self.assertEqual(table.verticalScrollBar().maximum(), 0)
 
     def test_preferences_use_existing_transaction_and_round_trip(self):
         def commit(mutate):
@@ -205,7 +222,7 @@ class RollAnalyticsViewUiTests(unittest.TestCase):
             save_view_preferences([30, 12, 12, True], True)
         self.assertEqual(view_preferences(), ((12, 30), True))
 
-    def test_real_styles_adapt_expected_columns_at_narrow_and_wide_sizes(self):
+    def test_real_styles_keep_share_and_expected_visible(self):
         from ui.styles import build_qt_app_stylesheet
         from ui.shared import resource_path
         old_style = self.qt.styleSheet()
@@ -214,18 +231,20 @@ class RollAnalyticsViewUiTests(unittest.TestCase):
             self.window.show()
             with patch("ui.dialogs.roll_analytics.save_view_preferences", return_value=NS(success=True)):
                 self.window._expected_switch.setChecked(True)
-            for width, hide_share in ((900, True), (1100, False)):
-                self.window.resize(width, 800)
+            for width in (900, 1100):
+                self.window.resize(width, 720)
                 self.qt.processEvents()
-                for table in self.window._tables:
-                    self.assertEqual(table.isColumnHidden(2), hide_share)
-                    self.assertFalse(table.isColumnHidden(3))
-                    self.assertGreater(table.columnWidth(0), 100)
-                    self.assertGreater(table.viewport().height(), 150)
+                table = self.window._table
+                self.assertFalse(table.isColumnHidden(2))
+                self.assertFalse(table.isColumnHidden(3))
+                self.assertFalse(table.isColumnHidden(8))
+                self.assertFalse(table.isColumnHidden(9))
+                self.assertGreater(table.columnWidth(0), 100)
+                self.assertEqual(table.verticalScrollBar().maximum(), 0)
         finally:
             self.qt.setStyleSheet(old_style)
 
-    def test_large_numeric_values_fit_with_selected_bold_font(self):
+    def test_large_numeric_values_fit_in_both_halves(self):
         from ui.styles import build_qt_app_stylesheet
         from ui.shared import resource_path
         old_style = self.qt.styleSheet()
@@ -240,18 +259,15 @@ class RollAnalyticsViewUiTests(unittest.TestCase):
             self.window._source_buttons["chaos"].click()
             with patch("ui.dialogs.roll_analytics.save_view_preferences", return_value=NS(success=True)):
                 self.window._expected_switch.setChecked(True)
-                self.item_for(12).setCheckState(Qt.Checked)
             for width in (900, 1100):
                 self.window.resize(width, 720)
                 self.qt.processEvents()
-                for table in self.window._tables:
-                    for row in range(table.rowCount()):
-                        for column in range(1, table.columnCount()):
-                            if table.isColumnHidden(column):
-                                continue
-                            item = table.item(row, column)
-                            if item.text():
-                                required = QFontMetrics(item.font()).horizontalAdvance(item.text()) + 12
-                                self.assertGreaterEqual(table.columnWidth(column), required, item.text())
+                table = self.window._table
+                for row in range(table.rowCount()):
+                    for column in (1, 2, 3, 4, 7, 8, 9, 10):
+                        item = table.item(row, column)
+                        if item is not None and item.text():
+                            required = QFontMetrics(item.font()).horizontalAdvance(item.text()) + 12
+                            self.assertGreaterEqual(table.columnWidth(column), required, item.text())
         finally:
             self.qt.setStyleSheet(old_style)
