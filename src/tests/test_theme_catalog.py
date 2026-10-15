@@ -1,7 +1,10 @@
 """Selection persistence and future access policy for built-in appearance packages."""
 import src  # noqa: F401
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -150,6 +153,23 @@ class ThemeCatalogTests(unittest.TestCase):
         return clock, access, owner, binding
 
     def test_expiry_and_offline_grace_refresh_without_access_publication(self):
+        if os.environ.get("BONKSCANNER_THEME_EXPIRY_CHILD") != "1":
+            # QSignalSpy.wait() runs a nested Qt event loop. Other UI tests retain
+            # widgets until process shutdown, so their queued events must not be
+            # delivered while this timer's access policy is patched.
+            env = dict(os.environ, QT_QPA_PLATFORM="offscreen",
+                       BONKSCANNER_IGNORE_SHARED_STORAGE="1",
+                       BONKSCANNER_THEME_EXPIRY_CHILD="1")
+            result = subprocess.run(
+                [sys.executable, "-m", "unittest",
+                 "src.tests.test_theme_catalog.ThemeCatalogTests."
+                 "test_expiry_and_offline_grace_refresh_without_access_publication"],
+                cwd=Path(__file__).resolve().parents[2], env=env,
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return
+
         from datetime import timedelta
         from PySide6.QtTest import QSignalSpy
 
