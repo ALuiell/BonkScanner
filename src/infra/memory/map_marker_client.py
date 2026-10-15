@@ -28,6 +28,21 @@ class FullMapNotReadyError(RuntimeError):
     """The game has not initialized its FullMap runtime object yet."""
 
 
+class MapScopeNotReadyError(FullMapNotReadyError):
+    """A stage sample is incomplete; it is not evidence of a new map."""
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityRead:
+    """One lifecycle sample. Identity loss is distinct from completion."""
+
+    object_ptr: int
+    active: bool
+    identity_valid: bool
+    native_ptr: int = 0
+    uses_remaining: int | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class DetectedMapActivity:
     object_ptr: int
@@ -37,6 +52,7 @@ class DetectedMapActivity:
     world_x: float
     world_z: float
     uses_remaining: int | None = None
+    native_ptr: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,9 +268,11 @@ class MapMarkerMemoryClient:
         ] | None = None
         self._tracked_classes: dict[int, tuple[int, str]] = {}
         self._last_microwave_uses: tuple[int, int] | None = None
+        self._last_activity_read: ActivityRead | None = None
         self._pending_stock_sample = None
 
     def close(self) -> None:
+        self._last_activity_read = None
         self._last_microwave_uses = None
         self._pending_stock_sample = None
         if self._owns_memory and hasattr(self.memory, "close"):
@@ -411,19 +429,15 @@ class MapMarkerMemoryClient:
         expected_class_ptr: int | None = None,
         expected_class_name: str | None = None,
     ) -> bool:
-        # Publish only the current successful sample, never a stale/recycled object.
+        # Keep the boolean API for older adapters; the tracker can also consume
+        # the identity evidence from this exact sample without extra reads.
         self._last_microwave_uses = None
+        self._last_activity_read = None
         object_ptr = int(object_ptr)
         tracked = self._tracked_classes.get(object_ptr)
         if not tracked:
-            # A replacement client has an empty discovery cache even though the
-            # tracker still owns valid run-scoped markers.  Rehydrate only from
-            # an identity that was previously proven through currentInteractable;
-            # callers without that proof keep the original fail-closed result.
-            if (
-                not expected_class_ptr
-                or expected_class_name not in self.ALLOWED_CLASSES
-            ):
+            if not expected_class_ptr or expected_class_name not in self.ALLOWED_CLASSES:
+                self._last_activity_read = ActivityRead(object_ptr, False, False)
                 return False
             tracked = (int(expected_class_ptr), str(expected_class_name))
             self._tracked_classes[object_ptr] = tracked
@@ -432,31 +446,40 @@ class MapMarkerMemoryClient:
             "<Q8xQ", self.memory.read_bytes(object_ptr + self.OBJECT_KLASS_OFFSET, 24)
         )
         if actual_class != expected_class_ptr or not native:
+            self._last_activity_read = ActivityRead(object_ptr, False, False, native)
             return False
 
+        uses_left = None
         if class_name == "InteractableMicrowave":
-            uses_left = self.memory.read_i32(
-                object_ptr + self.MICROWAVE_USES_LEFT_OFFSET
+            # One bounded block reduces the window between the cooking/item
+            # flags. It is still not an atomic game snapshot: completion must
+            # be confirmed on a later tracker sample.
+            first = self.MICROWAVE_USES_LEFT_OFFSET
+            data = self.memory.read_bytes(
+                object_ptr + first, self.MICROWAVE_HAS_ITEM_OFFSET - first + 1
             )
-            if uses_left < 0:
-                raise MemoryReadError(f"Invalid microwave uses remaining: {uses_left}")
-            is_cooking = self._read_activity_flag(
-                object_ptr, self.MICROWAVE_IS_COOKING_OFFSET
-            )
-            has_item = self._read_activity_flag(
-                object_ptr, self.MICROWAVE_HAS_ITEM_OFFSET
-            )
+            uses_left = struct.unpack_from("<i", data)[0]
+            cooking = data[self.MICROWAVE_IS_COOKING_OFFSET - first]
+            has_item = data[self.MICROWAVE_HAS_ITEM_OFFSET - first]
+            if uses_left < 0 or cooking not in (0, 1) or has_item not in (0, 1):
+                raise MemoryReadError(
+                    f"Invalid microwave sample: uses={uses_left}, cooking={cooking}, item={has_item}"
+                )
             self._last_microwave_uses = (object_ptr, uses_left)
-            return uses_left > 0 or is_cooking or has_item
-        if class_name == "InteractableShadyGuy":
-            return not self._read_activity_flag(object_ptr, self.SHADY_DONE_OFFSET)
-        if class_name == "InteractableEgg":
-            return not self._read_activity_flag(object_ptr, self.EGG_DONE_OFFSET)
-        if class_name == "InteractableCharacterFight":
-            return not self._read_activity_flag(
-                object_ptr, self.CHARACTER_FIGHT_DONE_OFFSET
-            )
-        return not self._read_activity_flag(object_ptr, self.SHRINE_DONE_OFFSET)
+            active = uses_left > 0 or cooking == 1 or has_item == 1
+        else:
+            offset = {
+                "InteractableShadyGuy": self.SHADY_DONE_OFFSET,
+                "InteractableEgg": self.EGG_DONE_OFFSET,
+                "InteractableCharacterFight": self.CHARACTER_FIGHT_DONE_OFFSET,
+            }.get(class_name, self.SHRINE_DONE_OFFSET)
+            active = not self._read_activity_flag(object_ptr, offset)
+        self._last_activity_read = ActivityRead(object_ptr, active, True, native, uses_left)
+        return active
+
+    def last_activity_read(self, object_ptr: int) -> ActivityRead | None:
+        sample = self._last_activity_read
+        return sample if sample is not None and sample.object_ptr == object_ptr else None
 
     def _read_activity_flag(self, object_ptr: int, offset: int) -> bool:
         value = self.memory.read_u8(object_ptr + offset)
@@ -599,18 +622,31 @@ class MapMarkerMemoryClient:
             type_info = self.memory.read_ptr(
                 self._module_base + self.MAP_CONTROLLER_TYPE_INFO_OFFSET
             )
+            if not type_info or self._is_uninitialized_type_info(type_info):
+                raise MapScopeNotReadyError("MapController type info is not initialized.")
             static_fields = self.memory.read_ptr(
                 type_info + self.CLASS_STATIC_FIELDS_OFFSET
             )
             if not static_fields:
-                raise MemoryReadError("MapController static fields are unavailable.")
+                raise MapScopeNotReadyError("MapController static fields are unavailable.")
             self._map_controller_static_fields = static_fields
-        stage = self.memory.read_ptr(
-            static_fields + self.MAP_CONTROLLER_CURRENT_STAGE_OFFSET
-        )
-        stage_index = self.memory.read_i32(
-            static_fields + self.MAP_CONTROLLER_INDEX_OFFSET
-        )
+        try:
+            stage = self.memory.read_ptr(
+                static_fields + self.MAP_CONTROLLER_CURRENT_STAGE_OFFSET
+            )
+            stage_index = self.memory.read_i32(
+                static_fields + self.MAP_CONTROLLER_INDEX_OFFSET
+            )
+        except MemoryReadError:
+            self._map_controller_static_fields = 0
+            raise
+        # Index zero is the FIRST stage, not missing data. A null object
+        # pointer (or a negative index) is an incomplete sample, not a reset.
+        if not stage or stage_index < 0:
+            self._map_controller_static_fields = 0
+            raise MapScopeNotReadyError(
+                f"Stage is unavailable: pointer=0x{stage:X}, index={stage_index}"
+            )
         return stage, stage_index
 
     def _resolve_map_seed_safe(self) -> int | None:
@@ -667,6 +703,7 @@ class MapMarkerMemoryClient:
         self._tracked_classes[object_ptr] = (class_ptr, class_name)
         if not self.activity_is_active(object_ptr):
             return None
+        lifecycle = self.last_activity_read(object_ptr)
         transform = self._component_transform(object_ptr)
         world_x, _world_y, world_z = self._transform_point(
             transform, (0.0, 0.0, 0.0)
@@ -679,6 +716,7 @@ class MapMarkerMemoryClient:
             world_x=world_x,
             world_z=world_z,
             uses_remaining=self.last_microwave_uses(object_ptr),
+            native_ptr=lifecycle.native_ptr if lifecycle is not None else 0,
         )
 
     def _component_transform(self, component_ptr: int) -> int:

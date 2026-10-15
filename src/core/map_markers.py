@@ -147,6 +147,9 @@ class MapMarkerSnapshot:
     markers: tuple[WorldMapMarker, ...] = ()
     minimap_projection: MinimapProjection | None = None
     merchant_stocks: tuple[MerchantStockCapture, ...] = ()
+    # Evidence from this map poll, not from retained markers or visibility.
+    # Closed maps can be healthy; a fallback snapshot is never a successful read.
+    map_read_succeeded: bool = False
 
     @property
     def full_map_open(self) -> bool:

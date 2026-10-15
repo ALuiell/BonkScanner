@@ -7129,7 +7129,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(call["merchant_memory_enabled"])
         self.assertFalse(call["map_surface_enabled"])
 
-    def test_map_marker_tick_stops_after_a_recoverable_callback_error(self) -> None:
+    def test_map_marker_tick_preserves_tracker_after_a_recoverable_callback_error(self) -> None:
         logs = []
         overlay = build_in_game_overlay_test_component(
             log=lambda message, **kwargs: logs.append((message, kwargs.get("tag")))
@@ -7159,8 +7159,10 @@ class GuiRunControlTests(unittest.TestCase):
         ) as runtime_log:
             self.assertFalse(overlay._map_marker_tick())
 
-        self.assertEqual(overlay.map_marker_timer.stop_calls, 1)
-        close.assert_called_once_with()
+        self.assertEqual(overlay.map_marker_timer.stop_calls, 0)
+        self.assertEqual(overlay._map_marker_failures, 1)
+        self.assertGreater(overlay._map_marker_retry_at, overlay._map_marker_clock())
+        close.assert_not_called()
         self.assertEqual(
             window.map_marker_layer.set_snapshot.call_args.args[0],
             gui_in_game_overlay.MapMarkerSnapshot(),
@@ -7550,7 +7552,9 @@ class GuiRunControlTests(unittest.TestCase):
             overlay._request_map_marker_sample(client_height=720, minimap_enabled=True)
             executor.run_next()
             QApplication.processEvents()
-            self.assertEqual(overlay.map_marker_timer.stop_calls, 1)
+            self.assertEqual(overlay.map_marker_timer.stop_calls, 0)
+            self.assertTrue(overlay._map_marker_reconnect_pending)
+            overlay._map_marker_tracker.close.assert_not_called()
             overlay._publish_map_marker_snapshot.assert_not_called()
             log.assert_called_once()
 

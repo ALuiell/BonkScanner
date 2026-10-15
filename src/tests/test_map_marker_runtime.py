@@ -364,6 +364,7 @@ class MapMarkerProjectionTests(unittest.TestCase):
 
 class MapMarkerTrackerTests(unittest.TestCase):
     def test_microwave_counts_follow_each_object(self):
+        now = [10.0]
         first = DetectedMapActivity(1, 123, "InteractableMicrowave", "microwave_white", 0, 0, 3)
         second = replace(first, object_ptr=2, world_x=10, uses_remaining=1)
         client = FakeMarkerClient([
@@ -371,7 +372,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
         ])
         counts = {1: 2, 2: 1}
         client.last_microwave_uses = counts.get
-        tracker = MapMarkerTracker("game", client_factory=lambda _: client, automatic_scan_interval=0)
+        tracker = MapMarkerTracker("game", client_factory=lambda _: client, clock=lambda: now[0], automatic_scan_interval=0)
         options = dict(client_height=600, automatic_discovery=True)
         self.assertEqual(tracker.tick(**options).markers[0].uses_remaining, 3)
         snapshot = tracker.tick(**options)
@@ -379,6 +380,8 @@ class MapMarkerTrackerTests(unittest.TestCase):
         counts[1] = 0
         self.assertEqual([m.uses_remaining for m in tracker.tick(**options).markers], [0, 1])
         client.active[1] = False
+        self.assertEqual(len(tracker.tick(**options).markers), 2)
+        now[0] += 0.4
         self.assertEqual([m.object_ptr for m in tracker.tick(**options).markers], [2])
         self.assertEqual(tracker.tick(**options).markers[0].uses_remaining, 1)
         client.activity_is_active = Mock(side_effect=MemoryReadError("unavailable"))
@@ -449,6 +452,9 @@ class MapMarkerTrackerTests(unittest.TestCase):
         client.active[6] = False
         snapshot = tracker.tick(**options)
         self.assertEqual(len(client.active_checks), 100)
+        self.assertIn(6, tracker._completion_pending)
+        now[0] = .7
+        snapshot = tracker.tick(**options)
         self.assertNotIn(6, tracker._lifecycle_schedule)
         self.assertNotIn("6", {m.marker_id for m in snapshot.markers})
 
@@ -619,6 +625,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
         self.assertFalse(client.minimap_values[-1])
 
     def test_automatic_marker_is_added_removed_and_reset_with_map(self) -> None:
+        now = [10.0]
         activity = DetectedMapActivity(
             object_ptr=0xABC,
             class_ptr=0x100,
@@ -634,6 +641,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
             "game",
             client_factory=lambda _name: client,
             automatic_scan_interval=0.0,
+            clock=lambda: now[0],
         )
 
         first = tracker.tick(client_height=600, automatic_discovery=True)
@@ -642,12 +650,16 @@ class MapMarkerTrackerTests(unittest.TestCase):
 
         client.active[activity.object_ptr] = False
         second = tracker.tick(client_height=600, automatic_discovery=True)
-        self.assertEqual(second.markers, ())
+        self.assertEqual(len(second.markers), 1)
+        client.frames = [self.frame()]
+        now[0] += 0.4
+        self.assertEqual(tracker.tick(client_height=600, automatic_discovery=True).markers, ())
 
         tracker.place_manual_marker(
             "boss_curse", screen_x=300, screen_y=300
         )
         self.assertEqual(len(tracker.snapshot.markers), 1)
+        client.frames = [self.frame(map_id=2)]
         third = tracker.tick(client_height=600, automatic_discovery=True)
         self.assertEqual(third.map_id, 2)
         self.assertEqual(third.markers, ())
@@ -791,7 +803,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
 
         now[0] = 10.1
         removed = tracker.tick(client_height=600, automatic_discovery=True)
-        self.assertEqual(removed.markers, ())
+        self.assertEqual(len(removed.markers), 1)  # First inactive sample is provisional.
         self.assertEqual(client.active_checks, [activity.object_ptr])
         self.assertEqual(
             client.automatic_sample_values,
@@ -799,6 +811,8 @@ class MapMarkerTrackerTests(unittest.TestCase):
         )
         self.assertEqual(client.automatic_discovery_values, [True] * 5)
         self.assertAlmostEqual(tracker._next_automatic_scan_at, 10.2)
+        now[0] = 10.5
+        self.assertEqual(tracker.tick(client_height=600, automatic_discovery=True).markers, ())
 
     def test_reconnect_rehydrates_activity_identity_without_losing_marker(self) -> None:
         now = [10.0]
@@ -2405,6 +2419,9 @@ class MapMarkerResilienceTests(unittest.TestCase):
         self.assertEqual(self.tracker.tick(**self.options).markers, before.markers)
         self.memory.u8s[address] = 1
         after = self.tracker.tick(**self.options)
+        self.assertEqual(len(after.markers), 3)
+        self.now[0] += 0.4
+        after = self.tracker.tick(**self.options)
         self.assertEqual(len(after.markers), 2)
         self.assertNotIn(self.object_ptr, {m.object_ptr for m in after.markers})
 
@@ -2446,6 +2463,8 @@ class MapMarkerResilienceTests(unittest.TestCase):
         after = self.tracker.tick(**self.options)
         self.assertEqual(next(m for m in after.markers if m.marker_id == marker_id).uses_remaining, 0)
         self.memory.u8s[item] = 0
+        self.assertEqual(len(self.tracker.tick(**self.options).markers), 3)
+        self.now[0] += 0.4
         self.assertEqual(len(self.tracker.tick(**self.options).markers), 2)
 
     def test_projection_fault_hides_surface_without_erasing_ledger(self):

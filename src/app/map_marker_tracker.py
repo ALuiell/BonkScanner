@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Callable
 
 from core.map_markers import (
@@ -15,12 +15,45 @@ from core.map_markers import (
     map_marker_screen_geometry,
     unproject_map_to_world,
 )
-from infra.memory.map_marker_client import FullMapNotReadyError, MapMarkerMemoryClient
+from infra.crash_journal import log_runtime_event
+from infra.memory.map_marker_client import (
+    ActivityRead,
+    FullMapNotReadyError,
+    MapMarkerMemoryClient,
+)
+from infra.memory.reader import MemoryReadError
+
+
+@dataclass(slots=True)
+class _RetiredMarker:
+    marker: WorldMapMarker
+    identity: tuple[int, str]
+    native_ptr: int
+    stock: MerchantStockCapture | None
+    merchant_created: bool
+    expires_at: float
+    next_check_at: float
+
+
+@dataclass(slots=True)
+class _UnreadableMarker:
+    first_at: float
+    last_at: float
+    failures: int
 
 
 class MapMarkerTracker:
     FAR_LIFECYCLE_INTERVAL = 0.5
     LIFECYCLE_PHASES = 5
+    COMPLETION_CONFIRM_SECONDS = 0.35
+    RECOVERY_WINDOW_SECONDS = 3.0
+    UNREADABLE_HIDE_SECONDS = 2.0
+    UNREADABLE_MAX_GAP_SECONDS = 1.0
+    UNREADABLE_MIN_FAILURES = 3
+    UNREADABLE_RECOVERY_SECONDS = 30.0
+    RECOVERY_CHECK_INTERVAL = 0.5
+    RECOVERY_CHECK_BUDGET = 8
+    MAX_RETIRED_MARKERS = 128
 
     def __init__(
         self,
@@ -51,6 +84,13 @@ class MapMarkerTracker:
         # replacement client can safely resume lifecycle checks instead of
         # treating every cache miss as an inactive object.
         self._automatic_identity_by_object: dict[int, tuple[int, str]] = {}
+        self._native_by_object: dict[int, int] = {}
+        self._completion_pending: dict[int, float] = {}
+        self._unreadable_since: dict[int, _UnreadableMarker] = {}
+        self._retired_markers: dict[int, _RetiredMarker] = {}
+        self._lifecycle_failed: set[int] = set()
+        self._poll_problem: str | None = None
+        self._next_problem_log_at = 0.0
         self._lifecycle_schedule: dict[int, tuple[int, float]] = {}
         self._lifecycle_serial = 0
         self._merchant_stocks: dict[int, MerchantStockCapture] = {}
@@ -81,11 +121,25 @@ class MapMarkerTracker:
         self._markers.clear()
         self._automatic_by_object.clear()
         self._automatic_identity_by_object.clear()
+        self._clear_lifecycle_recovery()
         self._lifecycle_schedule.clear()
         self._lifecycle_serial = 0
         self._merchant_stocks.clear()
         self._merchant_created_objects.clear()
         self._snapshot = MapMarkerSnapshot()
+        self._poll_problem = None
+        self._next_problem_log_at = 0.0
+
+    def recover(self) -> None:
+        """Reconnect on the owning worker without destroying the map ledger."""
+        self._disconnect_for_retry()
+        self._next_connect_at = 0.0
+        self._completion_pending.clear()
+        self._unreadable_since.clear()
+        self._snapshot = replace(
+            self._snapshot, map_open=False, viewport=None, minimap_projection=None,
+            map_read_succeeded=False,
+        )
 
     def tick(
         self,
@@ -100,6 +154,10 @@ class MapMarkerTracker:
     ) -> MapMarkerSnapshot:
         automatic_enabled = bool(automatic_discovery)
         merchant_enabled = bool(merchant_memory_enabled)
+        self._retired_markers = {
+            ptr: entry for ptr, entry in self._retired_markers.items()
+            if automatic_enabled or (merchant_enabled and entry.merchant_created)
+        }
         heavy_reads_enabled = automatic_enabled or merchant_enabled
         automatic_now = self._clock() if heavy_reads_enabled else 0.0
         sample_heavy = bool(
@@ -107,6 +165,11 @@ class MapMarkerTracker:
         )
 
         if not merchant_enabled:
+            # Automatic icons may remain enabled, but revoked merchant memory
+            # must not come back from the short recovery window later.
+            for entry in self._retired_markers.values():
+                entry.stock = None
+                entry.merchant_created = False
             self._merchant_stocks.clear()
             if not automatic_enabled:
                 for object_ptr in tuple(self._merchant_created_objects):
@@ -118,6 +181,7 @@ class MapMarkerTracker:
 
         client = self._connect_if_due()
         if client is None:
+            self._unreadable_since.clear()
             self._snapshot = MapMarkerSnapshot(
                 map_id=self._map_id,
                 markers=tuple(self._markers.values()),
@@ -153,11 +217,13 @@ class MapMarkerTracker:
             if not map_surface_enabled:
                 poll_kwargs["full_map_viewport_enabled"] = False
             frame = client.poll(**poll_kwargs)
-        except FullMapNotReadyError:
-            # FullMap type info is initialized lazily by the game. Keep this
-            # process handle and retry on the next 25 ms marker tick so the
-            # first map open cannot look like a broken widget for a full
-            # reconnect interval.
+        except FullMapNotReadyError as exc:
+            self._note_poll_problem(exc)
+            self._completion_pending.clear()
+            self._unreadable_since.clear()
+            # Lazy FullMap initialization and incomplete stage identity are
+            # waiting states. Keep the ledger/handle, hide stale geometry, and
+            # retry on the next UI tick without advancing lifecycle checks.
             self._snapshot = MapMarkerSnapshot(
                 map_id=self._map_id,
                 markers=tuple(self._markers.values()),
@@ -168,7 +234,10 @@ class MapMarkerTracker:
                 ),
             )
             return self._snapshot
-        except Exception:
+        except Exception as exc:
+            self._note_poll_problem(exc)
+            self._completion_pending.clear()
+            self._unreadable_since.clear()
             self._disconnect_for_retry()
             self._snapshot = MapMarkerSnapshot(
                 map_id=self._map_id,
@@ -180,6 +249,10 @@ class MapMarkerTracker:
                 ),
             )
             return self._snapshot
+
+        if self._poll_problem is not None:
+            self._event("poll.recovered", previous=self._poll_problem, markers=len(self._markers))
+            self._poll_problem = None
 
         # Keep instance identity separate from the optional seed sample. The
         # tracker (unlike a replaced memory client) survives a reconnect.
@@ -204,9 +277,16 @@ class MapMarkerTracker:
                 frame, map_id=self._map_id, merchant_stock_capture=capture
             )
         if scope_changed or seed_changed:
+            if self._map_scope is not None:
+                self._event(
+                    "scope.reset", old_scope=self._map_scope, new_scope=scope,
+                    old_seed=self._last_valid_seed, new_seed=frame.map_seed,
+                    markers=len(self._markers), retired=len(self._retired_markers),
+                )
             self._markers.clear()
             self._automatic_by_object.clear()
             self._automatic_identity_by_object.clear()
+            self._clear_lifecycle_recovery()
             self._lifecycle_schedule.clear()
             self._lifecycle_serial = 0
             self._merchant_stocks.clear()
@@ -218,6 +298,9 @@ class MapMarkerTracker:
                 ptr: replace(stock, map_id=frame.map_id)
                 for ptr, stock in self._merchant_stocks.items()
             }
+            for entry in self._retired_markers.values():
+                if entry.stock is not None:
+                    entry.stock = replace(entry.stock, map_id=frame.map_id)
         if scope_changed:
             self._last_valid_seed = None
         if frame.map_seed is not None:
@@ -226,6 +309,10 @@ class MapMarkerTracker:
         self._map_id = frame.map_id
 
         if not heavy_reads_enabled:
+            self._completion_pending.clear()
+            self._unreadable_since.clear()
+            self._native_by_object.clear()
+            self._lifecycle_failed.clear()
             self._next_automatic_scan_at = 0.0
             self._lifecycle_schedule.clear()
             self._lifecycle_serial = 0
@@ -261,44 +348,74 @@ class MapMarkerTracker:
                 ptr: schedule for ptr, schedule in self._lifecycle_schedule.items()
                 if ptr in self._automatic_by_object
             }
+            for cache in (self._completion_pending, self._unreadable_since, self._native_by_object):
+                for ptr in tuple(cache):
+                    if ptr not in self._automatic_by_object:
+                        cache.pop(ptr, None)
+            self._lifecycle_failed.intersection_update(self._automatic_by_object)
             for object_ptr, marker_id in tuple(self._automatic_by_object.items()):
                 if not self._lifecycle_check_due(object_ptr, marker_id, frame, automatic_now):
                     continue
-                expected_identity = self._automatic_identity_by_object.get(object_ptr)
+                identity = self._automatic_identity_by_object.get(object_ptr)
                 try:
-                    active = client.activity_is_active(
-                        object_ptr,
-                        expected_class_ptr=(
-                            expected_identity[0] if expected_identity is not None else None
-                        ),
-                        expected_class_name=(
-                            expected_identity[1] if expected_identity is not None else None
-                        ),
-                    )
-                except Exception:
-                    # A failed ReadProcessMemory call is unknown state, not
-                    # proof that the player consumed the activity.  Preserve
-                    # the marker and retry on the next automatic sample.
+                    sample = self._read_lifecycle(client, object_ptr, identity)
+                except Exception as exc:
+                    # Unknown interrupts confirmation; a failed read never
+                    # counts as another observation of completion.
+                    self._completion_pending.pop(object_ptr, None)
+                    if object_ptr not in self._lifecycle_failed:
+                        self._event("activity.unknown", object_ptr=object_ptr, error=str(exc))
+                    self._lifecycle_failed.add(object_ptr)
                     marker = self._markers.get(marker_id)
                     if marker is not None and marker.uses_remaining is not None:
                         self._markers[marker_id] = replace(marker, uses_remaining=None)
+                    if isinstance(exc, MemoryReadError):
+                        unreadable = self._unreadable_since.get(object_ptr)
+                        if (unreadable is None or automatic_now - unreadable.last_at
+                                > self.UNREADABLE_MAX_GAP_SECONDS):
+                            unreadable = _UnreadableMarker(automatic_now, automatic_now, 1)
+                            self._unreadable_since[object_ptr] = unreadable
+                        else:
+                            unreadable.last_at = automatic_now
+                            unreadable.failures += 1
+                        if (unreadable.failures >= self.UNREADABLE_MIN_FAILURES
+                                and automatic_now - unreadable.first_at + 1e-9
+                                >= self.UNREADABLE_HIDE_SECONDS):
+                            # The map itself was read successfully. Hide only this
+                            # persistently unreadable object, while retaining a
+                            # bounded chance to recover its proven identity.
+                            self._retire_automatic(
+                                object_ptr, automatic_now, reason="unreadable",
+                                recovery_seconds=self.UNREADABLE_RECOVERY_SECONDS,
+                            )
+                    else:
+                        self._unreadable_since.pop(object_ptr, None)
                     continue
-                if (
-                    active and expected_identity is not None
-                    and expected_identity[1] == "InteractableMicrowave"
+                self._lifecycle_failed.discard(object_ptr)
+                self._unreadable_since.pop(object_ptr, None)
+                native = self._native_by_object.get(object_ptr, 0)
+                if not sample.identity_valid or (
+                    native and sample.native_ptr and sample.native_ptr != native
                 ):
-                    marker = self._markers.get(marker_id)
-                    uses_reader = getattr(client, "last_microwave_uses", None)
-                    uses = uses_reader(object_ptr) if callable(uses_reader) else None
-                    if marker is not None and marker.uses_remaining != uses:
-                        self._markers[marker_id] = replace(marker, uses_remaining=uses)
-                if not active:
-                    self._lifecycle_schedule.pop(object_ptr, None)
-                    self._automatic_by_object.pop(object_ptr, None)
-                    self._automatic_identity_by_object.pop(object_ptr, None)
-                    self._markers.pop(marker_id, None)
-                    self._merchant_stocks.pop(object_ptr, None)
-                    self._merchant_created_objects.discard(object_ptr)
+                    self._remove_automatic(object_ptr, reason="identity_lost")
+                    continue
+                marker = self._markers.get(marker_id)
+                if marker is not None and marker.uses_remaining != sample.uses_remaining:
+                    self._markers[marker_id] = replace(marker, uses_remaining=sample.uses_remaining)
+                if sample.active:
+                    if object_ptr in self._completion_pending:
+                        self._event("activity.confirmation_cancelled", object_ptr=object_ptr)
+                    self._completion_pending.pop(object_ptr, None)
+                    if sample.native_ptr:
+                        self._native_by_object[object_ptr] = sample.native_ptr
+                    continue
+                first = self._completion_pending.get(object_ptr)
+                if first is None:
+                    self._completion_pending[object_ptr] = automatic_now
+                    self._event("activity.completion_pending", object_ptr=object_ptr)
+                elif automatic_now - first + 1e-9 >= self.COMPLETION_CONFIRM_SECONDS:
+                    self._retire_automatic(object_ptr, automatic_now)
+            self._recover_retired(client, automatic_now)
 
         if automatic_enabled and sample_heavy:
             detected = frame.current_activity
@@ -319,6 +436,9 @@ class MapMarkerTracker:
                     object_ptr=detected.object_ptr,
                     uses_remaining=detected.uses_remaining,
                 )
+                self._retired_markers.pop(detected.object_ptr, None)
+                if detected.native_ptr:
+                    self._native_by_object[detected.object_ptr] = detected.native_ptr
                 self._automatic_by_object[detected.object_ptr] = marker_id
                 self._automatic_identity_by_object[detected.object_ptr] = (
                     detected.class_ptr,
@@ -349,6 +469,7 @@ class MapMarkerTracker:
                         source="automatic",
                         object_ptr=object_ptr,
                     )
+                    self._retired_markers.pop(object_ptr, None)
                     self._automatic_by_object[object_ptr] = marker_id
                     self._automatic_identity_by_object[object_ptr] = (
                         capture.class_ptr,
@@ -366,6 +487,7 @@ class MapMarkerTracker:
 
         self._snapshot = MapMarkerSnapshot(
             map_id=frame.map_id,
+            map_read_succeeded=True,
             map_open=frame.map_open,
             world_size=frame.world_size,
             viewport=frame.viewport,
@@ -379,6 +501,119 @@ class MapMarkerTracker:
         )
         return self._snapshot
 
+    @staticmethod
+    def _event(event: str, **fields) -> None:
+        # Diagnostics must not become another reason to lose the whole widget.
+        try:
+            log_runtime_event(f"map_marker.{event}", **fields)
+        except Exception:
+            pass
+
+    def _note_poll_problem(self, exc: Exception) -> None:
+        detail = f"{type(exc).__name__}: {exc}"
+        now = self._clock()
+        if self._poll_problem is None or now >= self._next_problem_log_at:
+            self._event("poll.waiting", error=detail, markers=len(self._markers))
+            self._next_problem_log_at = now + 30.0
+        self._poll_problem = detail
+
+    def _clear_lifecycle_recovery(self) -> None:
+        self._completion_pending.clear()
+        self._unreadable_since.clear()
+        self._retired_markers.clear()
+        self._native_by_object.clear()
+        self._lifecycle_failed.clear()
+
+    @staticmethod
+    def _read_lifecycle(
+        client, object_ptr: int, identity: tuple[int, str] | None,
+    ) -> ActivityRead:
+        active = client.activity_is_active(
+            object_ptr,
+            expected_class_ptr=identity[0] if identity is not None else None,
+            expected_class_name=identity[1] if identity is not None else None,
+        )
+        reader = getattr(client, "last_activity_read", None)
+        sample = reader(object_ptr) if callable(reader) else None
+        if isinstance(sample, ActivityRead) and sample.object_ptr == object_ptr:
+            return sample
+        # Older adapters cannot prove native identity, so they cannot safely
+        # resurrect a completed marker. Preserve their boolean/count API.
+        uses_reader = getattr(client, "last_microwave_uses", None)
+        uses = (
+            uses_reader(object_ptr)
+            if identity is not None and identity[1] == "InteractableMicrowave"
+            and callable(uses_reader) else None
+        )
+        return ActivityRead(object_ptr, bool(active), True, uses_remaining=uses)
+
+    def _remove_automatic(self, object_ptr: int, *, reason: str) -> None:
+        marker_id = self._automatic_by_object.pop(object_ptr, None)
+        self._automatic_identity_by_object.pop(object_ptr, None)
+        self._native_by_object.pop(object_ptr, None)
+        self._completion_pending.pop(object_ptr, None)
+        self._unreadable_since.pop(object_ptr, None)
+        self._lifecycle_failed.discard(object_ptr)
+        self._lifecycle_schedule.pop(object_ptr, None)
+        self._markers.pop(marker_id, None)
+        self._merchant_stocks.pop(object_ptr, None)
+        self._merchant_created_objects.discard(object_ptr)
+        self._event("activity.removed", object_ptr=object_ptr, reason=reason,
+                    markers=len(self._markers))
+
+    def _retire_automatic(
+        self, object_ptr: int, now: float, *, reason: str = "completed",
+        recovery_seconds: float = RECOVERY_WINDOW_SECONDS,
+    ) -> None:
+        marker = self._markers.get(self._automatic_by_object.get(object_ptr))
+        identity = self._automatic_identity_by_object.get(object_ptr)
+        native = self._native_by_object.get(object_ptr, 0)
+        if marker is not None and identity is not None and native:
+            if len(self._retired_markers) >= self.MAX_RETIRED_MARKERS:
+                self._retired_markers.pop(next(iter(self._retired_markers)))
+            self._retired_markers[object_ptr] = _RetiredMarker(
+                marker, identity, native, self._merchant_stocks.get(object_ptr),
+                object_ptr in self._merchant_created_objects,
+                now + recovery_seconds, now + self.RECOVERY_CHECK_INTERVAL,
+            )
+        self._remove_automatic(object_ptr, reason=reason)
+
+    def _recover_retired(self, client, now: float) -> None:
+        # Bounded oldest-deadline-first checks avoid bursts and starvation.
+        budget = self.RECOVERY_CHECK_BUDGET
+        for object_ptr, entry in sorted(
+            tuple(self._retired_markers.items()), key=lambda pair: pair[1].next_check_at
+        ):
+            if now >= entry.expires_at:
+                self._retired_markers.pop(object_ptr, None)
+                continue
+            if budget <= 0 or now + 1e-9 < entry.next_check_at:
+                continue
+            budget -= 1
+            entry.next_check_at = now + self.RECOVERY_CHECK_INTERVAL
+            try:
+                sample = self._read_lifecycle(client, object_ptr, entry.identity)
+            except Exception:
+                continue  # Do not extend the expiry on repeated read failures.
+            if not sample.identity_valid or sample.native_ptr != entry.native_ptr:
+                self._retired_markers.pop(object_ptr, None)
+                self._event("activity.recovery_rejected", object_ptr=object_ptr)
+                continue
+            if not sample.active:
+                continue
+            marker = replace(entry.marker, uses_remaining=sample.uses_remaining)
+            self._replace_nearby_manual_marker(marker.action_id, marker.world_x, marker.world_z)
+            self._markers[marker.marker_id] = marker
+            self._automatic_by_object[object_ptr] = marker.marker_id
+            self._automatic_identity_by_object[object_ptr] = entry.identity
+            self._native_by_object[object_ptr] = entry.native_ptr
+            if entry.stock is not None:
+                self._merchant_stocks[object_ptr] = entry.stock
+            if entry.merchant_created:
+                self._merchant_created_objects.add(object_ptr)
+            self._retired_markers.pop(object_ptr, None)
+            self._event("activity.restored", object_ptr=object_ptr, markers=len(self._markers))
+
     def _lifecycle_check_due(self, object_ptr, marker_id, frame, now: float) -> bool:
         projection = frame.minimap_projection
         marker = self._markers.get(marker_id)
@@ -389,6 +624,7 @@ class MapMarkerTracker:
         fast = (
             frame.map_open or projection is None or not projection.visible
             or projection.jammed or marker is None
+            or object_ptr in self._completion_pending
             or (current is not None and current.object_ptr == object_ptr)
             or (capture is not None and capture.merchant_object_ptr == object_ptr)
         )
