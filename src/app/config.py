@@ -16,6 +16,7 @@ from core.json_safety import dumps_strict_json, load_legacy_json
 from core.map_markers import normalize_map_marker_settings
 from core.settings import MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS
 from infra import paths
+from infra.edition import CONFIG_FILE_NAME
 from app.config_repository import ConfigLoadResult, ConfigRepository
 
 colorama.init(autoreset=True)
@@ -137,6 +138,10 @@ DEFAULT_IN_GAME_OVERLAY = {
         "automatic_discovery": False,
         "style": "modern",
         "scale": 1.0,
+        "minimap_enabled": True,
+        "minimap_scale": 1.0,
+        "merchant_memory_enabled": True,
+        "merchant_stock_display": "smart",
         "hotkeys": [],
     },
     "widgets": {
@@ -424,6 +429,7 @@ class ConfigSaveResult:
 class SettingsSaveResult:
     success: bool
     reason: str = ""
+    game_value: float | None = None
 
 
 def get_game_config_path() -> str | None:
@@ -618,7 +624,7 @@ def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
 # ==========================================
 # LOAD JSON CONFIG
 # ==========================================
-config_path = os.path.join(application_path, "config.json")
+config_path = os.path.join(application_path, CONFIG_FILE_NAME)
 CONFIG_FILE_EXISTED_AT_STARTUP = False
 
 def load_config():
@@ -723,6 +729,7 @@ def save_settings_with_game_reset(
     game_value: float | None,
     *,
     sync_game: bool,
+    verify_game_floor: bool = False,
 ) -> SettingsSaveResult:
     """Persist Settings as one verified operation, rolling back on failure.
 
@@ -735,6 +742,26 @@ def save_settings_with_game_reset(
         previous_scanner_config = deepcopy(user_config)
         candidate_config = deepcopy(user_config)
         candidate_config.update(deepcopy(settings_updates))
+        verified_game_value = None
+        if verify_game_floor:
+            game_read = read_game_quick_reset_time()
+            if not game_read.success or game_read.value is None:
+                return SettingsSaveResult(
+                    False,
+                    game_read.reason or "Megabonk quick_reset_time could not be read.",
+                )
+            margin = normalize_reset_hold_safety_margin(
+                candidate_config.get("RESET_HOLD_SAFETY_MARGIN", RESET_HOLD_SAFETY_MARGIN)
+            )
+            hold = round(float(candidate_config.get("RESET_HOLD_DURATION", RESET_HOLD_DURATION)), 2)
+            required_hold = round(game_read.value + margin, 2)
+            verified_game_value = game_read.value
+            if hold < required_hold:
+                return SettingsSaveResult(
+                    False,
+                    f"Reset hold must be at least {required_hold:.2f} s "
+                    f"(Megabonk {game_read.value:.2f} s + safety margin {margin:.2f} s).",
+                )
         resolved_game_value = game_value
         if sync_game and resolved_game_value is None:
             # Timing fields are intentionally absent when the dialog did not
@@ -783,7 +810,9 @@ def save_settings_with_game_reset(
         # Update only Settings-owned keys; background writers own the rest of
         # this shared mapping and may have committed while the dialog was open.
         user_config.update(deepcopy(settings_updates))
-        return SettingsSaveResult(True)
+        return SettingsSaveResult(
+            True, game_value=resolved_game_value if sync_game else verified_game_value
+        )
 
 
 def get_local_appdata_dir() -> str | None:
@@ -816,11 +845,13 @@ def _collect_legacy_native_hook_directories(saved_dll_path: str | None = None) -
     if not root_dir:
         return []
 
-    candidates: list[str] = [os.path.join(root_dir, "native-hook")]
-    if saved_dll_path:
-        dll_dir = os.path.dirname(saved_dll_path)
-        if dll_dir and _is_path_within(root_dir, dll_dir):
-            candidates.append(dll_dir)
+    # These are the only two historical cache directories BonkScanner owned.
+    # Never derive a directory to delete from config: LocalAppData\BonkScanner
+    # is now also the user's primary data folder.
+    candidates: list[str] = [
+        os.path.join(root_dir, "native-hook"),
+        os.path.join(root_dir, "native-hook-extracted"),
+    ]
 
     normalized: list[str] = []
     seen: set[str] = set()
@@ -907,10 +938,12 @@ def resolve_auto_reroll_setup_guide_acknowledged(
     *,
     config_existed: bool,
     saved_version=None,
-    current_version: int = 2,
+    current_version: int | None = None,
 ) -> bool:
     """Require every install to acknowledge the current guide revision once."""
     del config_existed
+    if current_version is None:
+        current_version = AUTO_REROLL_SETUP_GUIDE_VERSION
     return (
         saved_value is True
         and coerce_nonnegative_int(saved_version, 0) >= int(current_version)
@@ -922,10 +955,9 @@ def resolve_stop_scanning_on_player_movement(saved_value) -> bool:
     return saved_value if isinstance(saved_value, bool) else False
 
 
-# Version 2 documents the editable margin, the derived Megabonk value and the
-# requirement to close the game before saving. Every existing installation has
-# version 0/1 and therefore sees it once, even if the old guide was acknowledged.
-AUTO_REROLL_SETUP_GUIDE_VERSION = 2
+# Version 3 explains scanner-only saving and margin changes that extend the hold.
+# Existing installations see the updated instructions once.
+AUTO_REROLL_SETUP_GUIDE_VERSION = 3
 AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = (
     resolve_auto_reroll_setup_guide_acknowledged(
         user_config.get("AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"),
@@ -1488,7 +1520,48 @@ user_config.pop("MIN_DELAY", None)
 user_config.pop("MAP_LOAD_DELAY", None)
 
 #: Used only when neither user config nor the game config can supply a value.
-DEFAULT_RESET_HOLD_DURATION = 0.4
+DEFAULT_RESET_HOLD_DURATION = 0.06
+
+
+def apply_recommended_reset_timing(detect_game_running) -> SettingsSaveResult:
+    """Apply only reset timing, retaining unrelated Settings drafts and config keys."""
+    global RESET_HOLD_DURATION, RESET_HOLD_SAFETY_MARGIN
+    global GAME_RESET_HOLD_FLOOR, RESET_HOLD_DURATION_RAISED_FROM
+    global RESET_HOLD_SYNC_WARNING
+    with config_lock:
+        try:
+            game = read_game_quick_reset_time()
+        except Exception as exc:
+            return SettingsSaveResult(False, f"Could not read game config: {exc}")
+        if not game.success or game.value is None:
+            return SettingsSaveResult(False, game.reason or "Game config unavailable.")
+        sync_game = game.value != MIN_GAME_QUICK_RESET_TIME
+        if sync_game:
+            try:
+                running, error = detect_game_running()
+            except Exception as exc:
+                return SettingsSaveResult(False, f"Could not check Megabonk: {exc}")
+            if running or error:
+                return SettingsSaveResult(False, error or "Close Megabonk to apply recommended values.")
+        updates = {
+            "RESET_HOLD_DURATION": 0.06,
+            "RESET_HOLD_SAFETY_MARGIN": 0.05,
+            "RESET_TIMING_SETUP_PENDING": False,
+        }
+        try:
+            result = save_settings_with_game_reset(
+                updates, MIN_GAME_QUICK_RESET_TIME if sync_game else None,
+                sync_game=sync_game, verify_game_floor=not sync_game,
+            )
+        except Exception as exc:
+            return SettingsSaveResult(False, f"Could not apply recommended values: {exc}")
+        if result.success:
+            RESET_HOLD_DURATION = 0.06
+            RESET_HOLD_SAFETY_MARGIN = 0.05
+            GAME_RESET_HOLD_FLOOR = 0.06
+            RESET_HOLD_DURATION_RAISED_FROM = None
+            RESET_HOLD_SYNC_WARNING = ""
+        return result
 
 
 def resolve_reset_hold_duration(
@@ -1531,6 +1604,7 @@ def resolve_reset_hold_duration(
 # Load RESET_HOLD_DURATION from user_config first, fallback to game config,
 # fallback to the default -- then hold it to the game's floor either way.
 GAME_RESET_HOLD_FLOOR = None
+RESET_HOLD_SYNC_WARNING = ""
 RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM = resolve_reset_hold_duration(
     user_config.get("RESET_HOLD_DURATION"),
     GAME_RESET_HOLD_FLOOR,
@@ -1552,9 +1626,20 @@ def refresh_reset_hold_duration() -> float | None:
     than once per scan.
     """
     global GAME_RESET_HOLD_FLOOR, RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM
+    global RESET_HOLD_SYNC_WARNING
+    global RESET_HOLD_SAFETY_MARGIN
 
     with config_lock:
-        GAME_RESET_HOLD_FLOOR = get_game_reset_time()
+        game_read = read_game_quick_reset_time()
+        GAME_RESET_HOLD_FLOOR = (
+            round(game_read.value + RESET_HOLD_SAFETY_MARGIN, 2)
+            if game_read.success and game_read.value is not None else None
+        )
+        RESET_HOLD_SYNC_WARNING = (
+            "" if GAME_RESET_HOLD_FLOOR is not None else
+            "The game-file reset threshold could not be checked. "
+            + (game_read.reason or "Check the game config in Settings.")
+        )
         # Resolve against the live value, not the stored one: they agree (both
         # the dialog and import write both), and the live one is what the next
         # reroll will actually hold for.
@@ -1563,8 +1648,25 @@ def refresh_reset_hold_duration() -> float | None:
             GAME_RESET_HOLD_FLOOR,
         )
         if RESET_HOLD_DURATION_RAISED_FROM is not None:
+            corrected_hold = RESET_HOLD_DURATION
+            raised_from = RESET_HOLD_DURATION_RAISED_FROM
+            corrected_margin = RESET_HOLD_SAFETY_MARGIN
+            checked_floor = GAME_RESET_HOLD_FLOOR
             user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
-            save_config(user_config)
+            save_result = save_config(user_config)
+            if getattr(save_result, "success", True) is False:
+                # save_config can restore an older runtime snapshot on failure.
+                # Keep the safe live hold even when it could not be persisted.
+                RESET_HOLD_DURATION = corrected_hold
+                RESET_HOLD_DURATION_RAISED_FROM = raised_from
+                RESET_HOLD_SAFETY_MARGIN = corrected_margin
+                GAME_RESET_HOLD_FLOOR = checked_floor
+                user_config["RESET_HOLD_DURATION"] = round(corrected_hold, 2)
+                user_config["RESET_HOLD_SAFETY_MARGIN"] = corrected_margin
+                RESET_HOLD_SYNC_WARNING = (
+                    "The longer key hold is active for this session, but could not be saved. "
+                    + save_result.reason
+                )
         return RESET_HOLD_DURATION_RAISED_FROM
 
 
@@ -1573,8 +1675,11 @@ def reset_hold_duration_notice(raised_from: float | None) -> str | None:
     if raised_from is None:
         return None
     return (
-        f"[*] Reset Hold Duration was {raised_from:.2f}s, below the game's quick reset "
-        f"threshold. Raised to {RESET_HOLD_DURATION:.2f}s so restarts register."
+        f"[*] Reset key hold increased from {raised_from:.2f}s to {RESET_HOLD_DURATION:.2f}s "
+        "to cover the game-file threshold and extra hold time. "
+        + ("" if GAME_RESET_HOLD_FLOOR is None else
+           f"Game threshold: {GAME_RESET_HOLD_FLOOR - RESET_HOLD_SAFETY_MARGIN:.2f}s; ")
+        + f"extra hold time: {RESET_HOLD_SAFETY_MARGIN:.2f}s."
     )
 
 
@@ -1629,6 +1734,9 @@ MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
 PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
 TOTAL_REROLLS = coerce_nonnegative_int(user_config.get("TOTAL_REROLLS", 0))
+MERCHANT_ANALYTICS_ENABLED = bool(user_config.get("MERCHANT_ANALYTICS_ENABLED", False))
+ROLL_ANALYTICS_ENABLED = bool(user_config.get("ROLL_ANALYTICS_ENABLED", False))
+SHOW_TARGET_GAPS = bool(user_config.get("SHOW_TARGET_GAPS", True))
 
 # Load ignored updates
 SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
@@ -1713,7 +1821,9 @@ def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) 
 
     Penalties deliberately do not lower automatic targets: otherwise making a
     shrine more undesirable would also make every tier easier to reach and
-    partially cancel the configured penalty.
+    partially cancel the configured penalty. The stronger non-negative
+    Microwave multiplier defines the reference so setting either bucket to zero
+    does not collapse every automatic threshold to zero.
     """
     w_moai = max(float(current_weights.get("moais", 3.0)), 0.0)
     w_shady = max(float(current_weights.get("shady", 2.0)), 0.0)
@@ -1721,7 +1831,10 @@ def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) 
     w_magnet = max(float(current_weights.get("magnet", 0.5)), 0.0)
     w_challenges = max(float(current_weights.get("challenges", 0.0)), 0.0)
     
-    m_2 = max(float(current_multipliers.get("microwave", {}).get("2", 1.25)), 0.0)
+    microwave_multipliers = current_multipliers.get("microwave", {})
+    m_1 = max(float(microwave_multipliers.get("1", 1.0)), 0.0)
+    m_2 = max(float(microwave_multipliers.get("2", 1.25)), 0.0)
+    reference_multiplier = max(m_1, m_2)
     
     # Reference map: moai=3, shady=3, boss=2, magnet=2, challenges=2,
     # microwave=2. Challenges default to zero, preserving existing thresholds.
@@ -1731,7 +1844,7 @@ def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) 
         + 2 * w_boss
         + 2 * w_magnet
         + 2 * w_challenges
-    ) * m_2
+    ) * reference_multiplier
     
     # Base score of the reference map in the old model = 22.5
     base_score_ref = 22.5
@@ -1762,6 +1875,9 @@ user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME
 user_config["TOTAL_REROLLS"] = TOTAL_REROLLS
+user_config["MERCHANT_ANALYTICS_ENABLED"] = MERCHANT_ANALYTICS_ENABLED
+user_config["ROLL_ANALYTICS_ENABLED"] = ROLL_ANALYTICS_ENABLED
+user_config["SHOW_TARGET_GAPS"] = SHOW_TARGET_GAPS
 user_config["TEMPLATES"] = TEMPLATES
 user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
 user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
@@ -1796,12 +1912,15 @@ def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
     global AUTO_START_RECORDING, SHOW_OBS_REMINDER_ON_START_SCANNER
     global STOP_SCANNING_ON_PLAYER_MOVEMENT, LEFT_RAIL_COLLAPSED
     global MENU_HOTKEY, RESET_HOTKEY, PROCESS_NAME, TOTAL_REROLLS
+    global MERCHANT_ANALYTICS_ENABLED, ROLL_ANALYTICS_ENABLED, SHOW_TARGET_GAPS
     global SKIPPED_UPDATE_VERSION, TEMPLATES, ACTIVE_TEMPLATES
     global EVALUATION_MODE, SCORES_SYSTEM, OVERLAY, IN_GAME_OVERLAY
     global SESSION_TRACKED_ITEMS, TWITCH_BOT, BUILD_PROGRESSION
 
     user_config.clear()
     user_config.update(deepcopy(loaded if isinstance(loaded, dict) else {}))
+    if not config_existed:
+        user_config["RESET_TIMING_SETUP_PENDING"] = True
     saved_native_hook_path = user_config.get("NATIVE_HOOK_DLL_PATH")
 
     RESET_HOLD_SAFETY_MARGIN = normalize_reset_hold_safety_margin(
@@ -1853,6 +1972,11 @@ def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
     RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
     PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
     TOTAL_REROLLS = coerce_nonnegative_int(user_config.get("TOTAL_REROLLS", 0))
+    MERCHANT_ANALYTICS_ENABLED = bool(
+        user_config.get("MERCHANT_ANALYTICS_ENABLED", False)
+    )
+    ROLL_ANALYTICS_ENABLED = bool(user_config.get("ROLL_ANALYTICS_ENABLED", False))
+    SHOW_TARGET_GAPS = bool(user_config.get("SHOW_TARGET_GAPS", True))
     SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
 
     TEMPLATES = normalize_templates_config(user_config.get("TEMPLATES"))
@@ -1891,6 +2015,9 @@ def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
             "RESET_HOTKEY": RESET_HOTKEY,
             "PROCESS_NAME": PROCESS_NAME,
             "TOTAL_REROLLS": TOTAL_REROLLS,
+            "MERCHANT_ANALYTICS_ENABLED": MERCHANT_ANALYTICS_ENABLED,
+            "ROLL_ANALYTICS_ENABLED": ROLL_ANALYTICS_ENABLED,
+            "SHOW_TARGET_GAPS": SHOW_TARGET_GAPS,
             "TEMPLATES": TEMPLATES,
             "ACTIVE_TEMPLATES": ACTIVE_TEMPLATES,
             "SKIPPED_UPDATE_VERSION": SKIPPED_UPDATE_VERSION,

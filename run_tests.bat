@@ -1,6 +1,9 @@
 @echo off
 setlocal
 
+rem Tests must never follow this checkout into the user shared profile.
+set "BONKSCANNER_IGNORE_SHARED_STORAGE=1"
+
 for %%I in ("%~dp0.") do set "REPO_ROOT=%%~fI"
 set "PYTHON=%REPO_ROOT%\.venv\Scripts\python.exe"
 set "PYTHONPATH=%REPO_ROOT%;%REPO_ROOT%\src"

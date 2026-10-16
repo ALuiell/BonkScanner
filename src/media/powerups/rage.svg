@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>Rage</title>
+  <path fill="#361D5B" d="M6 3h16l6 16h-9l3 11L4 12h10z"/>
+  <path fill="#482578" d="M8 5h13l5 12h-9l3 10L6 14h10z"/>
+  <path fill="#8440D7" d="M10 6h10l4 10h-8l2 7L8 15h10z"/>
+  <path fill="#A558E7" d="M12 7h7l4 8h-9l3 5-6-5h8z"/>
+  <path fill="#773AC2" d="m8 15 10 8-2-6 8-1H14l-3-1z"/>
+  <path fill="#D082F2" d="m17 7 4 8h2l-4-8z"/>
+  <path fill="#DB8DF5" d="m17 7 1 2h2l-1-2z"/>
+</svg>

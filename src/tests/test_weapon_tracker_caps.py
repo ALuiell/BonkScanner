@@ -115,6 +115,40 @@ class WeaponCapsTests(unittest.TestCase):
         self.assertFalse(weapon_tracker_payload(None)["available"])
         self.assertEqual(weapon_tracker_payload(SimpleNamespace(weapons=(), weapons_available=True))["rows"], [])
 
+    def test_large_damage_is_compact_in_both_widgets_but_raw_in_payload(self):
+        snapshot = SimpleNamespace(
+            weapons=(_weapon(upgrade_stat_ids=(12,), values={12: 1234000.0}),),
+            stats=_globals(Damage=1.0),
+            weapons_available=True,
+        )
+        metric = calculate_weapon_tracker_row(snapshot.weapons[0], snapshot.stats, ("damage",)).metrics[0]
+        payload_metric = weapon_tracker_payload(snapshot)["rows"][0]["metrics"][0]
+
+        self.assertEqual(metric.display_value, "1234000")
+        self.assertEqual(metric.overlay_value(), "1.23M")
+        self.assertEqual(payload_metric["value"], 1234000.0)
+        self.assertEqual(payload_metric["display_value"], "1.23M")
+        self.assertEqual(payload_metric["display_value_with_cap"], "1.23M")
+        for layout in ("compact", "detailed"):
+            with self.subTest(layout=layout):
+                html = build_weapon_tracker_overlay_html((
+                    calculate_weapon_tracker_row(snapshot.weapons[0], snapshot.stats, ("damage",)),
+                ), layout=layout)
+                self.assertIn("1.23M", html)
+                self.assertNotIn("1234000", html)
+
+    def test_large_cap_uses_same_compact_units_as_its_value(self):
+        snapshot = SimpleNamespace(
+            weapons=(_weapon(upgrade_stat_ids=(10,), values={10: 1234.0}, max_duration=1234),),
+            stats=_globals(Duration=1.0),
+            weapons_available=True,
+        )
+        metric = calculate_weapon_tracker_row(snapshot.weapons[0], snapshot.stats, ("duration",)).metrics[0]
+        payload_metric = weapon_tracker_payload(snapshot)["rows"][0]["metrics"][0]
+
+        self.assertEqual(metric.overlay_value(True), "1.23Ks / 1.23Ks (HC)")
+        self.assertEqual(payload_metric["display_value_with_cap"], metric.overlay_value(True))
+
     def test_native_cap_display_uses_value_slash_cap_for_soft_and_hard_caps(self):
         soft = calculate_weapon_tracker_row(
             _weapon(weapon_id=23, upgrade_stat_ids=(16,), values={16: 4}),

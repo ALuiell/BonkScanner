@@ -7,12 +7,15 @@ import unittest
 from concurrent.futures import Future
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import threading
 import time
+
+from PySide6.QtWidgets import QApplication
 
 import gui_app
 from ui import dialogs as gui_dialogs
@@ -65,6 +68,7 @@ from tests.support.player_stats import (
 from ui.tabs.player_stats.stat_cards import StatCardsView, chaos_stats_in_game_order
 from ui.tabs.compare_runs import tab as compare_runs_tab
 from app import config, player_stats_refresh
+from core.map_markers import MapViewport, MinimapProjection
 from gui_app import MegabonkApp
 from ui.dialogs import (
     SettingsDialog,
@@ -294,6 +298,7 @@ class FakeOverlayTimer:
         self.start_calls = 0
         self.stop_calls = 0
         self.interval = None
+        self.timer_type = None
         self.callback = None
         self.timeout = SimpleNamespace(connect=self._connect)
 
@@ -302,6 +307,9 @@ class FakeOverlayTimer:
 
     def setInterval(self, interval: int) -> None:
         self.interval = interval
+
+    def setTimerType(self, timer_type) -> None:
+        self.timer_type = timer_type
 
     def start(self) -> None:
         self.start_calls += 1
@@ -405,6 +413,9 @@ def build_in_game_overlay_test_component(
     can_run=lambda: True,
     log=lambda *_args, **_kwargs: None,
     map_marker_executor_factory=InlineMapMarkerExecutor,
+    has_premium_access=lambda: False,
+    analytics_collection_enabled=lambda: False,
+    record_merchant_capture=lambda *_args: None,
 ):
     return gui_in_game_overlay.InGameOverlay(
         tracker=lambda: tracker,
@@ -418,6 +429,9 @@ def build_in_game_overlay_test_component(
         can_run=can_run,
         log=log,
         map_marker_executor_factory=map_marker_executor_factory,
+        has_premium_access=has_premium_access,
+        analytics_collection_enabled=analytics_collection_enabled,
+        record_merchant_capture=record_merchant_capture,
     )
 
 
@@ -788,6 +802,20 @@ class FakeForegroundProcess:
 
 
 class GuiRunControlTests(unittest.TestCase):
+    def test_run_lifecycle_exposes_cached_pause_without_another_read(self) -> None:
+        lifecycle = build_run_lifecycle(
+            game_states=lambda: self.fail("cached pause check must not read memory"),
+            cached_state=RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
+            checked_at=10.0,
+        )
+
+        self.assertTrue(lifecycle.is_paused_run())
+        lifecycle.seed_cache(
+            RuntimeGameState(mode=RuntimeGameMode.IN_GAME),
+            checked_at=11.0,
+        )
+        self.assertFalse(lifecycle.is_paused_run())
+
     def test_completed_run_blocks_all_refresh_demands(self) -> None:
         app = SimpleNamespace(
             _is_live_stats_tab_active=lambda: True,
@@ -1178,8 +1206,9 @@ class GuiRunControlTests(unittest.TestCase):
             saved_candidate["PLAYER_STATS_RECORD_INTERVAL_SECONDS"],
             config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
         )
-        self.assertEqual(saved_game_value, 0.23)
-        self.assertTrue(save_settings.call_args.kwargs["sync_game"])
+        self.assertIsNone(saved_game_value)
+        self.assertFalse(save_settings.call_args.kwargs["sync_game"])
+        self.assertTrue(save_settings.call_args.kwargs["verify_game_floor"])
         self.assertEqual(config.RESET_HOLD_SAFETY_MARGIN, 0.02)
         self.assertEqual(
             config.PLAYER_STATS_RECORD_INTERVAL_SECONDS,
@@ -1190,8 +1219,8 @@ class GuiRunControlTests(unittest.TestCase):
             config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
         )
         self.assertEqual(accepted, [True])
-        notice.exec.assert_called_once_with()
-        notice.deleteLater.assert_called_once_with()
+        notice.show.assert_called_once_with()
+        notice.exec.assert_not_called()
 
     def test_settings_save_contains_live_refresh_failure_after_persistence(self) -> None:
         master = FakeSettingsMaster()
@@ -1267,7 +1296,7 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(
             config,
             "read_game_quick_reset_time",
-            return_value=config.GameConfigReadResult(True, value=0.23),
+            return_value=config.GameConfigReadResult(True, value=0.24),
         ):
             with patch.object(
                 config,
@@ -1286,6 +1315,47 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("currently running", notice_cls.call_args.kwargs["reason"])
         notice.exec.assert_called_once_with()
         notice.deleteLater.assert_called_once_with()
+
+    def test_settings_save_scanner_only_while_game_is_running(self) -> None:
+        master = FakeSettingsMaster()
+        master.is_game_running = lambda: True
+        accepted: list[bool] = []
+        dialog = types.SimpleNamespace(
+            hotkey_entry=FakeEntry("f7"),
+            reset_hotkey_entry=FakeEntry("r"),
+            record_hotkey_entry=FakeEntry("f8"),
+            auto_start_recording_var=FakeCheckbox(False),
+            show_obs_reminder_on_start_scanner_var=FakeCheckbox(False),
+            reset_hold_duration_entry=FakeEntry("0.03"),
+            _initial_reset_hold_duration=0.37,
+            reset_hold_safety_margin_entry=FakeEntry("0.02"),
+            _initial_reset_hold_safety_margin=0.02,
+            record_interval_entry=FakeEntry("60"),
+            master=master,
+            parent=lambda: None,
+            accept=lambda: accepted.append(True),
+        )
+
+        with patch.object(
+            config,
+            "read_game_quick_reset_time",
+            return_value=config.GameConfigReadResult(True, value=0.01),
+        ), patch.object(
+            config,
+            "save_settings_with_game_reset",
+            return_value=config.SettingsSaveResult(True),
+        ) as save_settings, patch.object(
+            gui_dialogs, "GameResetTimeNoticeDialog", return_value=MagicMock()
+        ) as notice_cls:
+            result = SettingsDialog.save(dialog)
+
+        self.assertTrue(result)
+        self.assertEqual(accepted, [True])
+        self.assertEqual(save_settings.call_args.args[0]["RESET_HOLD_DURATION"], 0.03)
+        self.assertFalse(save_settings.call_args.kwargs["sync_game"])
+        self.assertTrue(save_settings.call_args.kwargs["verify_game_floor"])
+        self.assertEqual(notice_cls.call_args.kwargs["game_value"], 0.01)
+        self.assertFalse(notice_cls.call_args.kwargs["game_updated"])
 
     def test_settings_save_reports_exact_verified_reset_values(self) -> None:
         master = FakeSettingsMaster()
@@ -1311,7 +1381,7 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(
             config,
             "read_game_quick_reset_time",
-            return_value=config.GameConfigReadResult(True, value=0.05),
+            return_value=config.GameConfigReadResult(True, value=0.30),
         ):
             with patch.object(
                 config,
@@ -1453,7 +1523,7 @@ class GuiRunControlTests(unittest.TestCase):
         notice.exec.assert_called_once_with()
         notice.deleteLater.assert_called_once_with()
 
-    def test_unchanged_reset_values_are_still_verified_and_game_drift_is_repaired(self) -> None:
+    def test_unchanged_reset_values_do_not_rewrite_game_drift(self) -> None:
         duration = round(float(config.RESET_HOLD_DURATION), 2)
         margin = round(float(config.RESET_HOLD_SAFETY_MARGIN), 2)
         dialog = types.SimpleNamespace(
@@ -1493,9 +1563,8 @@ class GuiRunControlTests(unittest.TestCase):
                     SettingsDialog.save(dialog)
 
         self.assertIsNone(save_settings.call_args.args[1])
-        self.assertTrue(save_settings.call_args.kwargs["sync_game"])
-        notice.exec.assert_called_once_with()
-        notice.deleteLater.assert_called_once_with()
+        self.assertFalse(save_settings.call_args.kwargs["sync_game"])
+        notice.exec.assert_not_called()
 
     def test_aligned_unchanged_reset_values_save_without_a_notice(self) -> None:
         duration = round(float(config.RESET_HOLD_DURATION), 2)
@@ -1534,7 +1603,7 @@ class GuiRunControlTests(unittest.TestCase):
                 with patch.object(gui_dialogs, "GameResetTimeNoticeDialog") as notice_cls:
                     SettingsDialog.save(dialog)
 
-        self.assertTrue(save_settings.call_args.kwargs["sync_game"])
+        self.assertFalse(save_settings.call_args.kwargs["sync_game"])
         notice_cls.assert_not_called()
 
     def test_stale_open_dialog_preserves_scanner_refreshed_reset_timing(self) -> None:
@@ -1595,7 +1664,7 @@ class GuiRunControlTests(unittest.TestCase):
             self.assertNotIn("RESET_HOLD_DURATION", settings_updates)
             self.assertNotIn("RESET_HOLD_SAFETY_MARGIN", settings_updates)
             self.assertIsNone(save_settings.call_args.args[1])
-            self.assertTrue(save_settings.call_args.kwargs["sync_game"])
+            self.assertFalse(save_settings.call_args.kwargs["sync_game"])
             self.assertEqual(config.RESET_HOLD_DURATION, refreshed_duration)
             self.assertEqual(
                 config.user_config["RESET_HOLD_DURATION"],
@@ -1835,8 +1904,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._loaded_vod = None
         app._snapshot_index = None
         app._name_entry = None
-        app.refresh_loaded_vod_ui = lambda: None
-        app.refresh_vods_list = lambda: None
+        app.refresh_loaded_vod_ui = lambda **_kwargs: None
+        app.refresh_vods_list = lambda **_kwargs: None
 
         with patch_everywhere("load_vod", return_value=loaded_vod) as load_vod:
             app.load_selected_vod("C:/tmp/run.jsonl")
@@ -1850,7 +1919,7 @@ class GuiRunControlTests(unittest.TestCase):
             snapshots=(object(),),
         )
         loaded_vod = types.SimpleNamespace(
-            metadata=types.SimpleNamespace(path=Path("new.jsonl"), name="New"),
+            metadata=types.SimpleNamespace(path=Path("C:/tmp/new.jsonl"), name="New"),
             snapshots=(object(),),
         )
         # `schedule=` is what puts the load on a worker thread: the mixin read
@@ -1868,12 +1937,12 @@ class GuiRunControlTests(unittest.TestCase):
         app._delete_btn = FakeControl()
         app._scrubber = FakeControl()
         app._status_label = FakeLabel()
-        app.refresh_loaded_vod_ui = lambda: None
-        app.refresh_vods_list = lambda: None
+        app.refresh_loaded_vod_ui = lambda **_kwargs: None
+        app.refresh_vods_list = lambda **_kwargs: None
         pending = []
         app._load_lane.dispose()
         app._load_lane = SimpleNamespace(
-            submit=lambda path, *, load, complete: pending.append((path, load, complete))
+            submit=lambda path, *, load, complete, **_kwargs: pending.append((path, load, complete))
         )
 
         with patch_everywhere("load_vod", return_value=loaded_vod):
@@ -1893,8 +1962,8 @@ class GuiRunControlTests(unittest.TestCase):
                 app.rename_selected_vod()
             rename_vod.assert_not_called()
 
-            path, load, complete = pending[0]
-            complete(load(path), None)
+            _path, _load, complete = pending[0]
+            complete(SimpleNamespace(vod=loaded_vod, revision=None), None)
 
         self.assertIs(app._loaded_vod, loaded_vod)
         self.assertTrue(app._name_entry.enabled)
@@ -5546,7 +5615,6 @@ class GuiRunControlTests(unittest.TestCase):
         app._run_a_slider = MagicMock()
         app._run_a_items_view = RecordingItemsSectionView()
         app._set_compare_runs_diff_cards = MagicMock()
-        app._refresh_compare_runs_item_details_button = MagicMock()
         app._refresh_compare_runs_selected_labels = MagicMock()
 
         app._set_compare_run_error("a", "Could not load recording")
@@ -5574,10 +5642,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._chaos_enabled = False
         app._shrines_enabled = False
         app._passives_enabled = False
-        app._item_details_expanded = False
         app._compare_run_selected_stat_labels = MagicMock(return_value=("Damage",))
         app._set_compare_runs_diff_cards = MagicMock()
-        app._refresh_compare_runs_item_details_button = MagicMock()
 
         # Patched on `projections.formatting`, not stubbed on the tab: step 21d
         # deleted the nine `format_compare_runs_*` passthroughs, so the tab calls
@@ -6661,6 +6727,8 @@ class GuiRunControlTests(unittest.TestCase):
             app._left_rail = SimpleNamespace(collapse=lambda **_kwargs: None)
 
         with patch.object(gui_app, "build_layout", side_effect=build_minimal_layout), patch.object(
+            MegabonkApp, "apply_visual_theme"
+        ), patch.object(
             gui_app,
             "build_twitch_session",
             return_value=session,
@@ -7018,7 +7086,50 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(nested_results, [False])
 
-    def test_map_marker_tick_stops_after_a_recoverable_callback_error(self) -> None:
+    def test_merchant_analytics_collects_with_overlay_disabled_and_modal_open(self) -> None:
+        capture = SimpleNamespace(merchant_object_ptr=0x5150)
+        snapshot = gui_in_game_overlay.MapMarkerSnapshot(
+            map_id=77,
+            merchant_stocks=(capture,),
+        )
+        runtime_snapshot = SimpleNamespace(current_stage_index=2)
+        live_tracker = SimpleNamespace(runtime_snapshot=lambda: runtime_snapshot)
+        recorded = []
+        map_tracker = SimpleNamespace(
+            tick=MagicMock(return_value=snapshot),
+            close=MagicMock(),
+            snapshot=gui_in_game_overlay.MapMarkerSnapshot(),
+            place_manual_marker=MagicMock(return_value=False),
+        )
+        overlay = build_in_game_overlay_test_component(
+            tracker=live_tracker,
+            has_premium_access=lambda: True,
+            analytics_collection_enabled=lambda: True,
+            record_merchant_capture=lambda stock, runtime: recorded.append(
+                (stock, runtime)
+            ),
+        )
+        overlay._map_marker_tracker = map_tracker
+        overlay_cfg = {
+            "enabled": False,
+            "map_markers": {"enabled": False},
+        }
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), patch.object(
+            gui_in_game_overlay.QApplication, "activeModalWidget", return_value=object()
+        ):
+            overlay._sync_map_marker_runtime()
+            self.assertTrue(overlay._map_marker_tick())
+
+        self.assertEqual(overlay.map_marker_timer.start_calls, 1)
+        self.assertEqual(recorded, [(capture, runtime_snapshot)])
+        call = map_tracker.tick.call_args.kwargs
+        self.assertFalse(call["automatic_discovery"])
+        self.assertFalse(call["minimap_enabled"])
+        self.assertTrue(call["merchant_memory_enabled"])
+        self.assertFalse(call["map_surface_enabled"])
+
+    def test_map_marker_tick_preserves_tracker_after_a_recoverable_callback_error(self) -> None:
         logs = []
         overlay = build_in_game_overlay_test_component(
             log=lambda message, **kwargs: logs.append((message, kwargs.get("tag")))
@@ -7027,6 +7138,10 @@ class GuiRunControlTests(unittest.TestCase):
         window.devicePixelRatioF = lambda: 1.0
         window.height = lambda: 720
         window.width = lambda: 1280
+        window.map_marker_layer = SimpleNamespace(
+            set_snapshot=MagicMock(),
+            set_palette=MagicMock(),
+        )
         overlay.in_game_overlay_window = window
         close = MagicMock()
         overlay._map_marker_tracker = SimpleNamespace(
@@ -7044,22 +7159,49 @@ class GuiRunControlTests(unittest.TestCase):
         ) as runtime_log:
             self.assertFalse(overlay._map_marker_tick())
 
-        self.assertEqual(overlay.map_marker_timer.stop_calls, 1)
-        close.assert_called_once_with()
+        self.assertEqual(overlay.map_marker_timer.stop_calls, 0)
+        self.assertEqual(overlay._map_marker_failures, 1)
+        self.assertGreater(overlay._map_marker_retry_at, overlay._map_marker_clock())
+        close.assert_not_called()
+        self.assertEqual(
+            window.map_marker_layer.set_snapshot.call_args.args[0],
+            gui_in_game_overlay.MapMarkerSnapshot(),
+        )
+        window.map_marker_layer.set_palette.assert_called_once_with(None)
         runtime_log.assert_called_once()
         self.assertEqual(logs[0][1], "warning")
         self.assertIn("stale Qt wrapper", logs[0][0])
 
-    def test_map_marker_tick_skips_nested_modal_event_loops(self) -> None:
+    def test_map_marker_tick_collects_automatically_behind_modal_without_updating_ui(self) -> None:
         overlay = build_in_game_overlay_test_component()
-        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
-        tracker = MagicMock()
+        window = FakeInGameOverlayWindow(visible=True)
+        window.devicePixelRatioF = lambda: 1.0
+        window.height = lambda: 720
+        window.width = lambda: 1280
+        overlay.in_game_overlay_window = window
+        snapshot = gui_in_game_overlay.MapMarkerSnapshot(map_id=7)
+        tracker = SimpleNamespace(tick=MagicMock(return_value=snapshot))
         overlay._map_marker_tracker = tracker
+        overlay._map_marker_input = SimpleNamespace(
+            is_map_surface_key_pressed=lambda: False,
+            cursor_position=MagicMock(),
+        )
+        overlay._map_marker_hotkeys = SimpleNamespace(poll=MagicMock())
+        overlay._set_map_marker_snapshot = MagicMock()
+        overlay._publish_map_marker_snapshot = MagicMock()
+        cfg = {"enabled": True, "map_markers": {"enabled": True, "automatic_discovery": True}}
 
-        with patch.object(gui_in_game_overlay.QApplication, "activeModalWidget", return_value=object()):
-            self.assertFalse(overlay._map_marker_tick())
+        with patch.object(config, "IN_GAME_OVERLAY", cfg), patch.object(
+            gui_in_game_overlay.QApplication, "activeModalWidget", return_value=object()
+        ):
+            self.assertTrue(overlay._map_marker_tick())
 
-        tracker.tick.assert_not_called()
+        self.assertTrue(tracker.tick.call_args.kwargs["automatic_discovery"])
+        self.assertEqual(overlay._map_marker_latest_snapshot, snapshot)
+        overlay._map_marker_input.cursor_position.assert_not_called()
+        overlay._map_marker_hotkeys.poll.assert_not_called()
+        overlay._set_map_marker_snapshot.assert_not_called()
+        overlay._publish_map_marker_snapshot.assert_not_called()
 
     def test_map_marker_memory_poll_runs_off_the_gui_thread(self) -> None:
         gui_thread = threading.get_ident()
@@ -7097,6 +7239,324 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertNotEqual(worker_threads, [gui_thread])
         self.assertEqual(close_threads, worker_threads)
+
+    def test_minimap_completion_publishes_on_gui_thread_without_another_poll(self) -> None:
+        type(self)._completion_app = QApplication.instance() or QApplication([])
+        executor = ManualMapMarkerExecutor()
+        overlay = build_in_game_overlay_test_component(
+            map_marker_executor_factory=lambda: executor
+        )
+        expected = gui_in_game_overlay.MapMarkerSnapshot(map_id=9)
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(return_value=expected), close=MagicMock()
+        )
+        overlay._has_premium_access = lambda: True
+        delivered = []
+        overlay._publish_map_marker_snapshot = lambda snapshot: delivered.append(
+            (snapshot, threading.get_ident())
+        )
+        cfg = {"enabled": True, "map_markers": {"enabled": True, "minimap_enabled": True}}
+        with patch.object(config, "IN_GAME_OVERLAY", cfg):
+            overlay._request_map_marker_sample(client_height=720, minimap_enabled=True)
+            worker = threading.Thread(target=executor.run_next)
+            worker.start()
+            worker.join(timeout=2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(delivered, [])
+            QApplication.processEvents()
+            self.assertEqual(delivered, [(expected, threading.get_ident())])
+            QApplication.processEvents()
+            self.assertEqual(len(delivered), 1)
+            self.assertEqual(executor.tasks, [])
+            overlay._map_marker_tracker.tick.assert_called_once()
+            self.assertIsNone(overlay._map_marker_future)
+
+    def test_minimap_completion_rejects_stopped_disabled_and_modal_results(self) -> None:
+        type(self)._completion_app = QApplication.instance() or QApplication([])
+        for condition in ("stop", "disabled", "premium_lost", "modal", "already_collected"):
+            with self.subTest(condition=condition):
+                executor = ManualMapMarkerExecutor()
+                overlay = build_in_game_overlay_test_component(
+                    map_marker_executor_factory=lambda: executor
+                )
+                overlay._map_marker_tracker = SimpleNamespace(
+                    tick=lambda **kwargs: gui_in_game_overlay.MapMarkerSnapshot(map_id=9),
+                    close=MagicMock(),
+                )
+                overlay._has_premium_access = lambda: condition != "premium_lost"
+                overlay._publish_map_marker_snapshot = MagicMock()
+                cfg = {"enabled": True, "map_markers": {"enabled": condition != "disabled", "minimap_enabled": True}}
+                with patch.object(config, "IN_GAME_OVERLAY", cfg), patch.object(
+                    QApplication, "activeModalWidget", return_value=object() if condition == "modal" else None
+                ):
+                    overlay._request_map_marker_sample(client_height=720, minimap_enabled=True)
+                    executor.run_next()
+                    if condition == "stop":
+                        overlay._stop_map_marker_worker(wait=False)
+                    elif condition == "already_collected":
+                        overlay._collect_map_marker_future()
+                    QApplication.processEvents()
+                    overlay._publish_map_marker_snapshot.assert_not_called()
+
+    def test_supporter_access_loss_rejects_cached_and_inflight_premium_samples(self) -> None:
+        executor = ManualMapMarkerExecutor()
+        premium_access = [True]
+        stale = gui_in_game_overlay.MapMarkerSnapshot(map_id=9, map_open=True)
+        overlay = build_in_game_overlay_test_component(
+            map_marker_executor_factory=lambda: executor
+        )
+        overlay._has_premium_access = lambda: premium_access[0]
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(return_value=stale),
+            close=MagicMock(),
+        )
+        layer = SimpleNamespace(set_snapshot=MagicMock(), set_palette=MagicMock())
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.map_marker_layer = layer
+        cfg = {
+            "enabled": True,
+            "map_markers": {
+                "enabled": True,
+                "minimap_enabled": True,
+                "scale": 1.0,
+            },
+        }
+
+        with patch.object(config, "IN_GAME_OVERLAY", cfg):
+            overlay._map_marker_premium_access = True
+            overlay._request_map_marker_sample(
+                client_height=720,
+                minimap_enabled=True,
+            )
+            premium_access[0] = False
+            overlay.on_supporter_access_changed()
+            executor.run_next()
+            returned = overlay._request_map_marker_sample(
+                client_height=720,
+                minimap_enabled=False,
+            )
+
+        self.assertEqual(returned, gui_in_game_overlay.MapMarkerSnapshot())
+        self.assertEqual(
+            overlay._map_marker_latest_snapshot,
+            gui_in_game_overlay.MapMarkerSnapshot(),
+        )
+        self.assertEqual(
+            layer.set_snapshot.call_args.args[0],
+            gui_in_game_overlay.MapMarkerSnapshot(),
+        )
+
+    def test_map_marker_tick_invalidates_premium_sample_when_access_expires(self) -> None:
+        premium_access = [True]
+        overlay = build_in_game_overlay_test_component()
+        overlay._has_premium_access = lambda: premium_access[0]
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.devicePixelRatioF = lambda: 1.0
+        overlay.in_game_overlay_window.height = lambda: 720
+        overlay.in_game_overlay_window.width = lambda: 1280
+        overlay.in_game_overlay_window.map_marker_layer = SimpleNamespace(
+            set_snapshot=MagicMock(),
+            set_palette=MagicMock(),
+        )
+        stale = gui_in_game_overlay.MapMarkerSnapshot(map_id=9, map_open=True)
+        overlay._map_marker_latest_snapshot = stale
+        overlay._map_marker_premium_access = True
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(return_value=gui_in_game_overlay.MapMarkerSnapshot()),
+            close=MagicMock(),
+        )
+        overlay._map_marker_input = SimpleNamespace(cursor_position=lambda: (0, 0))
+        overlay._map_marker_hotkeys = SimpleNamespace(
+            poll=lambda *_args, **_kwargs: SimpleNamespace(placement=None, palette=None),
+            reset=MagicMock(),
+        )
+        cfg = {
+            "enabled": True,
+            "map_markers": {
+                "enabled": True,
+                "minimap_enabled": True,
+                "scale": 1.0,
+            },
+        }
+
+        premium_access[0] = False
+        with patch.object(config, "IN_GAME_OVERLAY", cfg):
+            overlay._map_marker_tick()
+
+        self.assertNotEqual(overlay._map_marker_latest_snapshot, stale)
+        self.assertFalse(
+            overlay._map_marker_tracker.tick.call_args.kwargs["minimap_enabled"]
+        )
+
+    def test_tab_and_escape_transitions_suppress_stale_minimap_samples(self) -> None:
+        projection = MinimapProjection(
+            True,
+            False,
+            MapViewport(10, 10, 200, 200),
+            110,
+            110,
+            100,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            100,
+            1,
+        )
+        stale = gui_in_game_overlay.MapMarkerSnapshot(
+            map_id=9,
+            minimap_projection=projection,
+        )
+        cfg = {
+            "enabled": True,
+            "map_markers": {
+                "enabled": True,
+                "minimap_enabled": True,
+                "scale": 1.0,
+                "hotkeys": [],
+            },
+        }
+
+        for hide_key in ("tab", "escape"):
+            with self.subTest(hide_key=hide_key):
+                pressed = {hide_key}
+                overlay = build_in_game_overlay_test_component()
+                overlay._has_premium_access = lambda: True
+                overlay._map_marker_tracker = SimpleNamespace(
+                    tick=MagicMock(return_value=stale),
+                    close=MagicMock(),
+                )
+                overlay._map_marker_input = SimpleNamespace(
+                    cursor_position=lambda: (0, 0),
+                    is_map_surface_key_pressed=lambda: bool(pressed),
+                )
+                overlay._map_marker_hotkeys = SimpleNamespace(
+                    poll=lambda *_args, **_kwargs: SimpleNamespace(
+                        placement=None,
+                        palette=None,
+                    ),
+                    reset=MagicMock(),
+                )
+                layer = SimpleNamespace(
+                    set_snapshot=MagicMock(),
+                    set_palette=MagicMock(),
+                )
+                window = FakeInGameOverlayWindow(visible=True)
+                window.devicePixelRatioF = lambda: 1.0
+                window.height = lambda: 720
+                window.width = lambda: 1280
+                window.map_marker_layer = layer
+                overlay.in_game_overlay_window = window
+                overlay._map_marker_latest_snapshot = stale
+
+                with patch.object(config, "IN_GAME_OVERLAY", cfg):
+                    overlay._map_marker_tick()
+                    hidden = layer.set_snapshot.call_args.args[0]
+                    pressed.clear()
+                    overlay._map_marker_tick()
+                    restored = layer.set_snapshot.call_args.args[0]
+
+                self.assertIsNone(hidden.minimap_projection)
+                self.assertEqual(restored.minimap_projection, projection)
+
+    def test_worker_pause_projection_hides_and_restores_minimap(self) -> None:
+        projection = MinimapProjection(
+            True,
+            False,
+            MapViewport(10, 10, 200, 200),
+            110,
+            110,
+            100,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            100,
+            1,
+        )
+        stale = gui_in_game_overlay.MapMarkerSnapshot(
+            map_id=9,
+            minimap_projection=projection,
+        )
+        overlay = build_in_game_overlay_test_component()
+        overlay._has_premium_access = lambda: True
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(side_effect=[
+                stale,
+                replace(stale, minimap_projection=None),
+                stale,
+            ]),
+            close=MagicMock(),
+        )
+        overlay._map_marker_input = SimpleNamespace(
+            cursor_position=lambda: (0, 0),
+            is_map_surface_key_pressed=lambda: False,
+        )
+        overlay._map_marker_hotkeys = SimpleNamespace(
+            poll=lambda *_args, **_kwargs: SimpleNamespace(
+                placement=None,
+                palette=None,
+            ),
+            reset=MagicMock(),
+        )
+        layer = SimpleNamespace(
+            set_snapshot=MagicMock(),
+            set_palette=MagicMock(),
+        )
+        window = FakeInGameOverlayWindow(visible=True)
+        window.devicePixelRatioF = lambda: 1.0
+        window.height = lambda: 720
+        window.width = lambda: 1280
+        window.map_marker_layer = layer
+        overlay.in_game_overlay_window = window
+        cfg = {
+            "enabled": True,
+            "map_markers": {
+                "enabled": True,
+                "minimap_enabled": True,
+                "scale": 1.0,
+                "hotkeys": [],
+            },
+        }
+
+        with patch.object(config, "IN_GAME_OVERLAY", cfg):
+            overlay._map_marker_tick()
+            overlay._map_marker_tick()
+            hidden_while_paused = layer.set_snapshot.call_args.args[0]
+            overlay._map_marker_tick()
+            restored_after_resume = layer.set_snapshot.call_args.args[0]
+
+        self.assertIsNone(hidden_while_paused.minimap_projection)
+        self.assertTrue(
+            overlay._map_marker_tracker.tick.call_args_list[1].kwargs[
+                "minimap_enabled"
+            ]
+        )
+        self.assertEqual(restored_after_resume.minimap_projection, projection)
+
+    def test_minimap_completion_contains_worker_failure(self) -> None:
+        type(self)._completion_app = QApplication.instance() or QApplication([])
+        executor = ManualMapMarkerExecutor()
+        overlay = build_in_game_overlay_test_component(map_marker_executor_factory=lambda: executor)
+        overlay._has_premium_access = lambda: True
+        overlay._map_marker_tracker = SimpleNamespace(
+            tick=MagicMock(side_effect=RuntimeError("read failed")), close=MagicMock()
+        )
+        overlay._publish_map_marker_snapshot = MagicMock()
+        cfg = {"enabled": True, "map_markers": {"enabled": True, "minimap_enabled": True}}
+        with patch.object(config, "IN_GAME_OVERLAY", cfg), patch.object(gui_in_game_overlay, "log_runtime_event") as log:
+            overlay._request_map_marker_sample(client_height=720, minimap_enabled=True)
+            executor.run_next()
+            QApplication.processEvents()
+            self.assertEqual(overlay.map_marker_timer.stop_calls, 0)
+            self.assertTrue(overlay._map_marker_reconnect_pending)
+            overlay._map_marker_tracker.close.assert_not_called()
+            overlay._publish_map_marker_snapshot.assert_not_called()
+            log.assert_called_once()
 
     def test_interactive_map_marker_stop_does_not_wait_for_memory_poll(self) -> None:
         started = threading.Event()
@@ -7685,6 +8145,26 @@ class GuiRunControlTests(unittest.TestCase):
 
         kps_widget.set_text.assert_called_once()
         self.assertIn("42", kps_widget.set_text.call_args.args[0])
+
+    def test_recording_indicator_uses_armed_state_while_writer_is_idle(self) -> None:
+        app = SimpleNamespace(
+            player_stats_vod_recorder=SimpleNamespace(is_recording=False),
+            coordinator=SimpleNamespace(
+                vod_capture=SimpleNamespace(is_recording_armed=lambda: True)
+            ),
+        )
+
+        self.assertTrue(gui_in_game_overlay._recording_indicator_active(app))
+
+    def test_recording_indicator_is_off_when_recording_is_not_active_or_armed(self) -> None:
+        app = SimpleNamespace(
+            player_stats_vod_recorder=SimpleNamespace(is_recording=False),
+            coordinator=SimpleNamespace(
+                vod_capture=SimpleNamespace(is_recording_armed=lambda: False)
+            ),
+        )
+
+        self.assertFalse(gui_in_game_overlay._recording_indicator_active(app))
 
     def test_overlay_fast_tick_paints_the_status_plaques_every_tick(self) -> None:
         """They read app state, not game memory: the scan flag flips the moment

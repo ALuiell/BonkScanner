@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "default_theme": "halloween",
+  "themes": [
+    {"id": "original", "name": "Default", "access": "public"},
+    {"id": "halloween", "name": "Halloween", "access": "public"}
+  ]
+}

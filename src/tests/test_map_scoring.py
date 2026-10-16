@@ -22,6 +22,7 @@ from app.map_scoring import (
     active_templates_require_bald_heads,
     calculate_map_score,
     evaluate_candidate,
+    format_candidate_gaps,
     format_stats,
 )
 
@@ -140,6 +141,69 @@ class CalculateMapScoreTests(unittest.TestCase):
 
         self.assertGreater(base, 0.0)
         self.assertAlmostEqual(scaled, base * 2.0)
+
+
+class CandidateGapFormattingTests(unittest.TestCase):
+    def test_scores_mode_lists_only_active_tier_failures(self) -> None:
+        stats = {
+            "Shady Guy": 3,
+            "Moais": 4,
+            "Microwaves": 1,
+            "Boss Curses": 2,
+            "Magnet Shrines": 0,
+        }
+        scores = {
+            "active_tiers": ["Perfect", "Perfect+"],
+            "weights": {
+                "moais": 3.0,
+                "shady": 2.0,
+                "boss": 1.0,
+                "magnet": 0.5,
+                "challenges": 0.0,
+            },
+            "thresholds": {"Perfect": 25.0, "Perfect+": 30.0},
+            "multipliers": {"microwave": {"1": 1.0, "2": 1.25}},
+        }
+
+        with patch.object(config, "EVALUATION_MODE", "scores"), patch.object(
+            config, "SCORES_SYSTEM", scores
+        ):
+            text = format_candidate_gaps(stats, ["ignored"])
+
+        self.assertEqual(
+            text,
+            "Target gaps: Perfect: Score 20.0/25.0 (−5.0), S+M 7/8 | "
+            "Perfect+: Score 20.0/30.0 (−10.0), Microwaves 1/2",
+        )
+
+    def test_templates_mode_lists_failed_minimums_and_maximums(self) -> None:
+        stats = {
+            "Shady Guy": 2,
+            "Moais": 3,
+            "Microwaves": 2,
+            "Boss Curses": 1,
+            "Magnet Shrines": 2,
+        }
+        templates = [
+            {
+                "id": 4,
+                "name": "PERFECT",
+                "sm_total": 8,
+                "boss": 2,
+                "magnet_max": 0,
+            },
+            {"id": 1, "name": "INACTIVE", "boss": 9},
+        ]
+
+        with patch.object(config, "EVALUATION_MODE", "templates"), patch.object(
+            config, "TEMPLATES", templates
+        ):
+            text = format_candidate_gaps(stats, ["PERFECT"])
+
+        self.assertEqual(
+            text,
+            "Target gaps: PERFECT: S+M 5/8, B 1/2, Mag 2 (needs ≤0)",
+        )
 
 
 if __name__ == "__main__":

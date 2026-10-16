@@ -1,4 +1,4 @@
-"""Where the application is installed.
+"""Stable resource, installation and writable-data paths.
 
 This is not a setting -- nothing chooses it and nothing persists it. It is a fact
 about the running process, which is why it belongs here rather than in
@@ -30,7 +30,14 @@ def source_path() -> str:
 
 
 def application_path() -> str:
-    """The directory holding `config.json` and `stats_recordings/`."""
+    """The active directory holding settings, recordings and other user data."""
+    from infra.data_storage import active_data_directory
+
+    return str(active_data_directory())
+
+
+def installation_path() -> str:
+    """The repository root, or the directory containing the frozen exe."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(_SRC_DIR)

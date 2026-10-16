@@ -59,6 +59,13 @@ from tests.test_gui_run_control import (
 PROCESS_NAME = "Megabonk.exe"
 
 
+def _record_loaded_rerolls(scanner, *, seconds_per_cycle=0.5, cycles=10):
+    scanner._reroll_peak.map_ready(0.0)
+    for index in range(1, cycles + 1):
+        scanner._reroll_peak.restarted()
+        scanner._reroll_peak.map_ready(index * seconds_per_cycle)
+
+
 class RunControlTests(unittest.TestCase):
     def test_apply_run_control_mode_enables_keyboard_provider(self) -> None:
         run_control = build_run_control(provider=object())
@@ -67,16 +74,12 @@ class RunControlTests(unittest.TestCase):
 
         self.assertIsInstance(run_control.run_control_provider, KeyboardRunControlProvider)
 
-    def test_check_admin_rights_logs_keyboard_warnings_without_admin(self) -> None:
+    def test_non_elevated_scanner_alone_does_not_warn(self) -> None:
         run_control = build_run_control()
-
-        with patch.object(gui_run_control.os, "name", "nt"), \
-                patch.object(gui_run_control.process, "is_running_as_admin", lambda: False):
+        with patch.object(gui_run_control, "inspect_privileges") as inspect:
             run_control.check_admin_rights()
-
-        messages = [message for message, _tag in run_control.calls["log"]]
-        self.assertTrue(any("WARNING: Script is not running as Administrator" in m for m in messages))
-        self.assertTrue(any("Hotkeys may not work while the game window is active" in m for m in messages))
+        inspect.assert_not_called()
+        self.assertEqual(run_control.calls["log"], [])
 
     def test_game_window_focus_requires_foreground_pid_match(self) -> None:
         run_control = build_run_control()
@@ -416,7 +419,7 @@ class ScanLifecycleTests(unittest.TestCase):
         refresh.assert_called_once()
         messages = [str(message) for message, _tag in scanner.calls["log"]]
         self.assertFalse(
-            any("Reset Hold Duration was" in m for m in messages),
+            any("Reset key hold increased" in m for m in messages),
             f"a scan start must not log a correction that did not happen: {messages}",
         )
 
@@ -601,6 +604,22 @@ class ScanLifecycleTests(unittest.TestCase):
         self.assertIsNone(scanner.scanner_thread)
         messages = [message for message, _tag in scanner.calls["log"]]
         self.assertTrue(any("must select at least one template" in str(m) for m in messages))
+
+    def test_toggle_main_loop_refuses_to_start_without_a_score_tier(self) -> None:
+        scanner = build_scanner()
+        updated_scores = dict(config.SCORES_SYSTEM)
+        updated_scores["active_tiers"] = []
+
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}):
+            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
+                with patch.object(config, "EVALUATION_MODE", "scores"):
+                    with patch.object(config, "SCORES_SYSTEM", updated_scores):
+                        with patch.object(threading, "Thread", FakeThread):
+                            scanner.toggle_main_loop()
+
+        self.assertIsNone(scanner.scanner_thread)
+        messages = [message for message, _tag in scanner.calls["log"]]
+        self.assertTrue(any("No active tiers" in str(message) for message in messages))
 
     def test_enabled_guard_fails_closed_when_keyboard_hook_is_unavailable(self) -> None:
         scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
@@ -812,11 +831,15 @@ class ScanLifecycleTests(unittest.TestCase):
         scanner.scan_event.set()
         scanner.is_ready_to_start = True
         scanner.is_running = True
+        _record_loaded_rerolls(scanner, cycles=9)
 
         scanner.toggle_scan_event()
 
         self.assertFalse(scanner.is_running)
         self.assertFalse(scanner.scan_event.is_set())
+        scanner._reroll_peak.restarted()
+        scanner._reroll_peak.map_ready(5.0)
+        self.assertIsNone(scanner._reroll_peak.maximum)
         self.assertIn(
             ("[*] Scan paused. Press the scan hotkey again to resume.", None),
             scanner.calls["log"],
@@ -828,12 +851,16 @@ class ScanLifecycleTests(unittest.TestCase):
         scanner.scan_event.set()
         scanner.is_ready_to_start = True
         scanner.is_running = True
+        _record_loaded_rerolls(scanner, cycles=9)
 
         with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
             scanner.handle_player_movement()
 
         self.assertFalse(scanner.is_running)
         self.assertFalse(scanner.scan_event.is_set())
+        scanner._reroll_peak.restarted()
+        scanner._reroll_peak.map_ready(5.0)
+        self.assertIsNone(scanner._reroll_peak.maximum)
         self.assertEqual(scanner.pause_reason, "player_movement")
         self.assertIn(
             (
@@ -1023,6 +1050,113 @@ class FocusWaitTests(unittest.TestCase):
 
 
 class BackgroundLoopTests(unittest.TestCase):
+    def _run_peak_search(self, *, target_map=11, interruption=None):
+        clock = [100.0]  # Time spent armed must not affect cycle RPM.
+        focus = [True]
+        requests = []
+        ready_checks = []
+
+        def restart():
+            requests.append(clock[0])
+            clock[0] += 0.1
+
+        scanner, run_control = build_pair(
+            provider=SimpleNamespace(restart_run=restart),
+        )
+
+        class Client:
+            map_index = 0
+
+            def wait_for_map_ready(self, **kwargs):
+                self.map_index += 1
+                ready_checks.append(kwargs["require_change"])
+                if self.map_index == 6 and interruption in ("timeout", "interrupted"):
+                    clock[0] += 100.0
+                    if interruption == "timeout":
+                        raise TimeoutError("map readiness delayed")
+                    raise InterruptedError("focus lost during loading")
+                clock[0] += 0.35
+                return {"Moais": self.map_index}
+
+            def get_map_generation_state(self):
+                return object()
+
+            def close(self):
+                pass
+
+        scanner.client = Client()
+        scanner.scan_event.set()
+        scanner.is_running = True
+        scanner.is_ready_to_start = True
+        scanner.active_templates = ["Perfect"]
+        scanner.template_stats = {"Perfect": {"rerolls_since_last": 0, "history": []}}
+        run_control.is_game_window_active = lambda _process_name: focus[0]
+
+        def wait_for_focus(_process_name):
+            if not focus[0]:
+                clock[0] += 100.0
+                focus[0] = True
+            return True
+
+        run_control.wait_for_game_window_focus = wait_for_focus
+        run_control.handle_confirmed_target_window = (
+            lambda _process_name: scanner.stop_event.set() or True
+        )
+
+        def evaluate(stats, _active, context=None):
+            clock[0] += 0.05
+            if stats["Moais"] == 5 and interruption == "focus":
+                focus[0] = False
+            if stats["Moais"] == target_map:
+                return {"name": "Perfect", "color": "GREEN"}
+            return None
+
+        with patch.object(time, "monotonic", lambda: clock[0]), \
+                patch.object(config, "SHOW_TARGET_GAPS", False), \
+                patch.object(config, "save_config"), \
+                patch.object(config, "TOTAL_REROLLS", 0), \
+                patch.object(gui_scanner, "adapt_map_stats", lambda raw: raw), \
+                patch.object(gui_scanner, "evaluate_candidate", evaluate):
+            scanner.background_loop()
+        return scanner, requests, ready_checks
+
+    def test_short_search_peak_includes_analysis_reset_and_loading(self) -> None:
+        scanner, requests, ready_checks = self._run_peak_search()
+        self.assertEqual(len(requests), 10)
+        self.assertEqual(scanner.session_rerolls, 10)
+        self.assertEqual(ready_checks, [False] + [True] * 10)
+        self.assertAlmostEqual(scanner._reroll_peak.maximum, 120.0)
+        self.assertEqual(scanner.template_stats["Perfect"]["history"], [10])
+        self.assertFalse(scanner.scan_event.is_set())
+
+    def test_search_before_ten_loaded_cycles_has_no_peak(self) -> None:
+        scanner, requests, _ready_checks = self._run_peak_search(target_map=10)
+        self.assertEqual(len(requests), 9)
+        self.assertIsNone(scanner._reroll_peak.maximum)
+
+    def test_loading_interruptions_require_ten_new_cycles(self) -> None:
+        for interruption in ("timeout", "interrupted"):
+            for target_map, expected in ((16, None), (17, 120.0)):
+                with self.subTest(interruption=interruption, target_map=target_map):
+                    scanner, _requests, _ready_checks = self._run_peak_search(
+                        target_map=target_map, interruption=interruption,
+                    )
+                    if expected is None:
+                        self.assertIsNone(scanner._reroll_peak.maximum)
+                    else:
+                        self.assertAlmostEqual(scanner._reroll_peak.maximum, expected)
+
+    def test_focus_wait_after_analysis_breaks_the_measurement_sequence(self) -> None:
+        for target_map, expected in ((15, None), (16, 120.0)):
+            with self.subTest(target_map=target_map):
+                scanner, _requests, _ready_checks = self._run_peak_search(
+                    target_map=target_map, interruption="focus",
+                )
+                if expected is None:
+                    self.assertIsNone(scanner._reroll_peak.maximum)
+                else:
+                    self.assertAlmostEqual(scanner._reroll_peak.maximum, expected)
+
     def test_background_loop_cleanup_clears_scan_event_after_stop_wake(self) -> None:
         scanner = build_scanner()
         scanner.stop_event.set()
@@ -1050,6 +1184,7 @@ class BackgroundLoopTests(unittest.TestCase):
 
     def test_session_stats_failure_does_not_abort_scanner_start(self) -> None:
         scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        _record_loaded_rerolls(scanner)
         scanner._stats_view = SimpleNamespace(
             set_counters=MagicMock(side_effect=RuntimeError("deleted stats label"))
         )
@@ -1062,6 +1197,7 @@ class BackgroundLoopTests(unittest.TestCase):
             scanner.toggle_main_loop()
 
         self.assertTrue(scanner.scanner_thread.started)
+        self.assertIsNone(scanner._reroll_peak.maximum)
         self.assertTrue(
             any(
                 "Session Stats refresh skipped" in str(message)
@@ -1136,6 +1272,53 @@ class BackgroundLoopTests(unittest.TestCase):
         # `client` to None. The pre-step version of this test stubbed that
         # method out on the app double.
         self.assertEqual(client.get_map_stats_calls, 0)
+
+    def test_background_loop_logs_target_gaps_only_when_enabled(self) -> None:
+        class FakeClient:
+            def wait_for_map_ready(self, **_kwargs):
+                return {"Moais": 1, "Microwaves": 1}
+
+            def get_map_generation_state(self):
+                return object()
+
+            def close(self):
+                pass
+
+        def run_once(enabled: bool) -> list[str]:
+            holder = {}
+            scanner, run_control = build_pair(
+                provider=SimpleNamespace(
+                    restart_run=lambda: holder["scanner"].stop_event.set(),
+                )
+            )
+            holder["scanner"] = scanner
+            scanner.client = FakeClient()
+            scanner.scan_event.set()
+            scanner.is_running = True
+            scanner.is_ready_to_start = True
+            run_control.is_game_window_active = lambda _process_name: True
+            run_control.wait_for_game_window_focus = lambda _process_name: True
+
+            with patch.object(config, "SHOW_TARGET_GAPS", enabled), patch.object(
+                gui_scanner, "adapt_map_stats", lambda raw: raw
+            ), patch.object(
+                gui_scanner,
+                "evaluate_candidate",
+                lambda _stats, _active, context=None: None,
+            ), patch.object(
+                gui_scanner,
+                "format_candidate_gaps",
+                lambda _stats, _active, context=None: "Target gaps: LIGHT: Score 3.0/14.0 (−11.0)",
+            ):
+                scanner.background_loop()
+
+            return [str(message) for message, _tag in scanner.calls["log"]]
+
+        enabled_messages = run_once(True)
+        disabled_messages = run_once(False)
+
+        self.assertTrue(any(message.startswith("Target gaps:") for message in enabled_messages))
+        self.assertFalse(any(message.startswith("Target gaps:") for message in disabled_messages))
 
     def test_readiness_timeout_retries_current_map_before_any_restart(self) -> None:
         restart_calls: list[str] = []
@@ -1488,6 +1671,7 @@ class SessionStatsTests(unittest.TestCase):
                 scanner.log_reroll_stats()
 
                 self.assertEqual(scanner.session_rerolls, 4)
+                self.assertIsNone(scanner._reroll_peak.maximum)
                 self.assertEqual(scanner.template_stats["Perfect"]["rerolls_since_last"], 3)
                 self.assertEqual(config.TOTAL_REROLLS, 11)
                 self.assertEqual(config.user_config["TOTAL_REROLLS"], 11)
@@ -1520,6 +1704,9 @@ class SessionStatsTests(unittest.TestCase):
             def set_map_highlights(self, **values):
                 delivered["active_templates"] = values["active_templates"]
 
+            def set_peak_rpm(self, value):
+                delivered["peak_rpm"] = value
+
             def set_average_rows(self, rows):
                 delivered["averages"] = rows
 
@@ -1532,6 +1719,7 @@ class SessionStatsTests(unittest.TestCase):
             scanner.refresh_stats_ui()
 
         self.assertEqual(delivered["counters"]["seeds_found"], 2)
+        self.assertIsNone(delivered["peak_rpm"])
         self.assertEqual(delivered["active_templates"], ["Alpha"])
         self.assertEqual(delivered["averages"][0][0], "Alpha")
         self.assertEqual(delivered["averages"][0][2:], (3.0, 2))
@@ -1628,6 +1816,20 @@ class SessionStatsTests(unittest.TestCase):
         )
         shutting_down.update_timer()
         self.assertEqual(scheduled, [1000])
+
+    def test_peak_is_rendered_after_the_scanner_worker_stops(self) -> None:
+        shown = []
+        scanner = build_scanner(schedule=lambda _delay_ms, _callback: None)
+        _record_loaded_rerolls(scanner)
+        scanner.request_stop()
+        scanner._stats_view = SimpleNamespace(
+            set_peak_rpm=shown.append,
+            set_session_clock=lambda **_values: self.fail("stopped clock was updated"),
+        )
+
+        scanner.update_timer()
+
+        self.assertEqual(shown, [120.0])
 
     def test_shutdown_releases_the_worker_and_forces_the_reroll_flush(self) -> None:
         scanner = build_scanner()

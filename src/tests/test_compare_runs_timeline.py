@@ -171,6 +171,32 @@ def test_shared_scale_includes_a_visible_cap() -> None:
     assert scales["Difficulty"] == 5.71
 
 
+def test_prepared_lane_update_preserves_the_other_lane_model() -> None:
+    app = QApplication.instance() or QApplication([])
+    timeline = CompareRunsTimeline()
+    original_a = _vod((0.0, 10.0))
+    original_b = _vod((0.0, 20.0, 40.0))
+    timeline.set_runs(original_a, original_b, series_keys=("Damage",))
+    untouched_b_model = timeline._lane_b.model
+
+    grown_a = _vod((0.0, 10.0, 20.0))
+    prepared_a = scrubber.build_model(grown_a.snapshots, series_keys=("Damage",))
+    timeline.set_prepared_lane(
+        "a",
+        grown_a,
+        prepared_a,
+        series_keys=("Damage",),
+    )
+
+    assert timeline._lane_a.model is prepared_a
+    assert timeline._lane_b.model is untouched_b_model
+    timeline.clear_lane("a")
+    assert timeline._lane_a.model.count == 0
+    assert timeline._lane_b.model is untouched_b_model
+    timeline.deleteLater()
+    app.processEvents()
+
+
 def test_stage_delta_matches_equal_stage_numbers() -> None:
     a = _vod((0.0, 10.0, 20.0), stages=(0, 1, 1))
     b = _vod((0.0, 13.0, 25.0), stages=(0, 1, 1))

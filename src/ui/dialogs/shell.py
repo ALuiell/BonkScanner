@@ -30,6 +30,8 @@ content scrolls and therefore has no natural height to be.
 
 from __future__ import annotations
 
+from html import escape
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -63,6 +65,7 @@ def dialog_body(
     title: str,
     subtitle: str = "",
     title_trailing: QWidget | None = None,
+    header_widget: QWidget | None = None,
     width: int = DIALOG_REGULAR,
     height: int | None = None,
 ) -> QVBoxLayout:
@@ -79,7 +82,9 @@ def dialog_body(
     confirmation 223px wide and the one after it 348.
 
     ``title_trailing`` is an optional compact status or badge aligned with the
-    title. The default path keeps the original one-label header unchanged.
+    title. ``header_widget`` replaces the title and subtitle entirely for a
+    dialog whose primary navigation is itself the heading. The default path
+    keeps the original one-label header unchanged.
     """
     dialog.setMinimumWidth(int(width))
     if height is not None:
@@ -89,35 +94,39 @@ def dialog_body(
     outer.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
     outer.setSpacing(SPACING)
 
-    head = QWidget()
-    head.setObjectName("dialogHead")
-    head_layout = QVBoxLayout(head)
-    head_layout.setContentsMargins(0, 0, 0, 0)
-    head_layout.setSpacing(2)
-
-    title_label = QLabel(str(title), head)
-    title_label.setObjectName("dialogTitle")
-    if title_trailing is None:
-        head_layout.addWidget(title_label)
+    if header_widget is not None:
+        header_widget.setParent(dialog)
+        outer.addWidget(header_widget)
     else:
-        title_row = QWidget(head)
-        title_row.setObjectName("dialogTitleRow")
-        title_row_layout = QHBoxLayout(title_row)
-        title_row_layout.setContentsMargins(0, 0, 0, 0)
-        title_row_layout.setSpacing(8)
-        title_row_layout.addWidget(title_label)
-        title_row_layout.addStretch(1)
-        title_trailing.setParent(title_row)
-        title_row_layout.addWidget(title_trailing, 0, Qt.AlignRight | Qt.AlignVCenter)
-        head_layout.addWidget(title_row)
+        head = QWidget()
+        head.setObjectName("dialogHead")
+        head_layout = QVBoxLayout(head)
+        head_layout.setContentsMargins(0, 0, 0, 0)
+        head_layout.setSpacing(2)
 
-    if subtitle:
-        subtitle_label = QLabel(str(subtitle), head)
-        subtitle_label.setObjectName("dialogSubtitle")
-        subtitle_label.setWordWrap(True)
-        head_layout.addWidget(subtitle_label)
+        title_label = QLabel(str(title), head)
+        title_label.setObjectName("dialogTitle")
+        if title_trailing is None:
+            head_layout.addWidget(title_label)
+        else:
+            title_row = QWidget(head)
+            title_row.setObjectName("dialogTitleRow")
+            title_row_layout = QHBoxLayout(title_row)
+            title_row_layout.setContentsMargins(0, 0, 0, 0)
+            title_row_layout.setSpacing(8)
+            title_row_layout.addWidget(title_label)
+            title_row_layout.addStretch(1)
+            title_trailing.setParent(title_row)
+            title_row_layout.addWidget(title_trailing, 0, Qt.AlignRight | Qt.AlignVCenter)
+            head_layout.addWidget(title_row)
 
-    outer.addWidget(head)
+        if subtitle:
+            subtitle_label = QLabel(str(subtitle), head)
+            subtitle_label.setObjectName("dialogSubtitle")
+            subtitle_label.setWordWrap(True)
+            head_layout.addWidget(subtitle_label)
+
+        outer.addWidget(head)
 
     rule = QFrame()
     rule.setObjectName("dialogHeadRule")
@@ -241,3 +250,138 @@ def dialog_note(text: str, *, parent: QWidget | None = None) -> QLabel:
     note.setWordWrap(True)
     note.setTextFormat(Qt.RichText)
     return note
+
+
+class AppNoticeDialog(QDialog):
+    """A small app-styled outcome dialog for actions outside a full editor."""
+
+    def __init__(
+        self,
+        parent,
+        *,
+        title: str,
+        message: str,
+        subtitle: str = "",
+        danger: bool = False,
+        button_text: str = "Close",
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(str(title))
+        self.setModal(True)
+        body = dialog_body(
+            self,
+            title=str(title),
+            subtitle=str(subtitle),
+            width=DIALOG_REGULAR,
+        )
+        rendered = escape(str(message)).replace("\n", "<br>")
+        body.addWidget(
+            dialog_danger_card(rendered) if danger else dialog_info_card(rendered)
+        )
+        close_button = QPushButton(str(button_text))
+        close_button.clicked.connect(self.accept)
+        dialog_footer(self, primary=close_button)
+
+
+class AppConfirmDialog(QDialog):
+    """An app-styled confirmation with an explicit, testable result."""
+
+    def __init__(
+        self,
+        parent,
+        *,
+        title: str,
+        message: str,
+        confirm_text: str,
+        subtitle: str = "",
+        note: str = "",
+        destructive: bool = False,
+    ) -> None:
+        super().__init__(parent)
+        self.confirmed = False
+        self.setWindowTitle(str(title))
+        self.setModal(True)
+        body = dialog_body(
+            self,
+            title=str(title),
+            subtitle=str(subtitle),
+            width=DIALOG_REGULAR,
+        )
+        rendered = escape(str(message)).replace("\n", "<br>")
+        body.addWidget(
+            dialog_danger_card(rendered) if destructive else dialog_info_card(rendered)
+        )
+        if note:
+            body.addWidget(dialog_note(escape(str(note)).replace("\n", "<br>")))
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        confirm_button = QPushButton(str(confirm_text))
+        confirm_button.clicked.connect(self._confirm)
+        if destructive:
+            dialog_footer(
+                self,
+                secondary=cancel_button,
+                destructive=confirm_button,
+            )
+        else:
+            dialog_footer(self, secondary=cancel_button, primary=confirm_button)
+
+    def _confirm(self) -> None:
+        self.confirmed = True
+        self.accept()
+
+
+def _release_transient_dialog(dialog: QDialog) -> None:
+    try:
+        dialog.deleteLater()
+    except RuntimeError:
+        pass
+
+
+def show_app_notice(
+    parent,
+    *,
+    title: str,
+    message: str,
+    subtitle: str = "",
+    danger: bool = False,
+    button_text: str = "Close",
+) -> None:
+    dialog = AppNoticeDialog(
+        parent,
+        title=title,
+        message=message,
+        subtitle=subtitle,
+        danger=danger,
+        button_text=button_text,
+    )
+    try:
+        dialog.exec()
+    finally:
+        _release_transient_dialog(dialog)
+
+
+def ask_app_confirmation(
+    parent,
+    *,
+    title: str,
+    message: str,
+    confirm_text: str,
+    subtitle: str = "",
+    note: str = "",
+    destructive: bool = False,
+) -> bool:
+    dialog = AppConfirmDialog(
+        parent,
+        title=title,
+        message=message,
+        confirm_text=confirm_text,
+        subtitle=subtitle,
+        note=note,
+        destructive=destructive,
+    )
+    try:
+        dialog.exec()
+        return dialog.confirmed
+    finally:
+        _release_transient_dialog(dialog)

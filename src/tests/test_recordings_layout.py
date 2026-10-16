@@ -471,6 +471,78 @@ class RecordingsLayoutTests(unittest.TestCase):
             stats_page = view._detail_tabs.widget(0)
             assert view._stats_expanded_toggle.parent() is not stats_page
 
+            # The header control stays available on every page, as in Live
+            # Stats. Pending cards must inherit its mode when first displayed.
+            from PySide6.QtTest import QTest
+            toggle = view._stats_expanded_toggle
+            projectile_speed = SimpleNamespace(
+                stat_id=16, label="Projectile Speed", value=20.0,
+                display_delta="+20%", rolls=2, rarity_counts=(("Common", 2),),
+            )
+            view._stat_cards.display_chaos_tome(SimpleNamespace(
+                level=2, ambiguous_rolls=0, stats=(projectile_speed,),
+            ))
+            view._stat_cards.display_charge_shrines(SimpleNamespace(
+                charged=2, selected=2, pending=0, ambiguous_matches=0,
+                stats=(projectile_speed,),
+            ))
+            view._stat_cards.display_character_passive(SimpleNamespace(
+                character_id=1, passive_id=2, character_name="Dice",
+                passive_name="Gamba", level=10,
+                status=SimpleNamespace(value="supported"), coverage="full",
+                ambiguous=0, pending=0,
+                effects=(SimpleNamespace(
+                    key="stat:16", stat_id=16, label="Projectile Speed",
+                    display_delta="+20%", count=2,
+                    kind=SimpleNamespace(value="stat"),
+                ),),
+            ))
+            saved_configs = []
+            config.save_config = lambda payload: saved_configs.append(dict(payload))
+            for index in range(view._detail_tabs.count()):
+                view._detail_tabs.setCurrentIndex(index)
+                app.processEvents()
+                assert toggle.isVisible(), view._detail_tabs.tabText(index)
+
+            cards = (
+                view._stat_cards._chaos_grid._cards[0],
+                view._stat_cards._shrine_grid._cards[0],
+                view._stat_cards._character_passive_grid._cards[0],
+            )
+            for checked, name in ((False, "ProjSpeed"), (True, "Projectile Speed"),
+                                  (False, "ProjSpeed")):
+                if toggle.isChecked() != checked:
+                    QTest.mouseClick(toggle, Qt.LeftButton, pos=toggle.rect().center())
+                assert toggle.isChecked() is checked
+                for index in (4, 5, 6, 0):
+                    view._detail_tabs.setCurrentIndex(index)
+                    app.processEvents()
+                    assert toggle.isVisible()
+                for card in cards:
+                    assert card.findChildren(QLabel)[0].text() == name
+                assert compact.isVisible() is (not checked)
+                assert expanded.isVisible() is checked
+            assert saved_configs[-2]["LIVE_STATS_EXPANDED"] is True
+            assert saved_configs[-1]["LIVE_STATS_EXPANDED"] is False
+
+            # A newly built tab restores the saved mode for future cards too.
+            config.user_config["LIVE_STATS_EXPANDED"] = True
+            restored = RecordingsTab(
+                tabview=QTabWidget(), vod_library=Library(), window=lambda: None,
+                vod_recorder=lambda: None, is_active=lambda: True,
+                log=lambda *_args, **_kwargs: None,
+            )
+            restored.build()
+            restored.build_now()
+            assert restored._stats_expanded_toggle.isChecked()
+            restored._stat_cards.display_chaos_tome(SimpleNamespace(
+                level=2, ambiguous_rolls=0, stats=(projectile_speed,),
+            ))
+            restored._detail_tabs.setCurrentIndex(4)
+            restored_card = restored._stat_cards._chaos_grid._cards[0]
+            assert restored_card.findChildren(QLabel)[0].text() == "Projectile Speed"
+            restored._tabview.deleteLater()
+
             # Both trailing timers own Recordings widgets/config callbacks and
             # must be cancelled with the page. Exercise real QTimers in this
             # isolated process so DeferredDelete cannot affect other Qt tests.

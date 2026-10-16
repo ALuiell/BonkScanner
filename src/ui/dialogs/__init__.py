@@ -30,6 +30,7 @@ from ui.dialogs.shell import (
     DIALOG_REGULAR,
     DIALOG_TALL,
     DIALOG_WIDE,
+    ask_app_confirmation,
     dialog_body,
     dialog_card,
     dialog_danger_card,
@@ -37,6 +38,9 @@ from ui.dialogs.shell import (
     dialog_info_card,
     dialog_note,
 )
+from ui.dialogs.reset_timing import ResetTimingInput
+from ui.dialogs.supporter_access import SupporterAccessPage
+from ui.dialogs.data_storage import DataStoragePage
 from ui.shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
@@ -56,10 +60,9 @@ from ui.styles import (
     _tier_color,
 )
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QIntValidator, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractSpinBox,
     QCheckBox,
     QColorDialog,
     QDialog,
@@ -74,6 +77,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
+    QTabBar,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -91,6 +96,8 @@ from core.template_colors import (
 )
 
 from app import config
+from ui.themes import THEME_CONFIG_KEY, LEGACY_THEME_CONFIG_KEY
+from ui.themes.selector import ThemeSelector
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
 CRYPTO_SUPPORT_URL = config.CRYPTO_SUPPORT_URL
@@ -587,7 +594,7 @@ class ScoresHelpDialog(QDialog):
                 "(Moais &times; Moai points)<br>"
                 "+ (Shady Guys &times; Shady points)<br>"
                 "+ (Boss Curses &times; Boss points)<br>"
-                "+ (counted Magnets &times; Magnet points)<br>"
+                "+ (Magnet Shrines &times; Magnet points)<br>"
                 "+ (Challenges &times; Challenge points)<br><br>"
                 "Negative results are simply subtracted. A penalty is <b>soft</b>: "
                 "it lowers the number, but it never rejects a map by itself. Enough "
@@ -596,13 +603,10 @@ class ScoresHelpDialog(QDialog):
         )
         scroll_layout.addWidget(
             dialog_card(
-                "<b>4. The special Magnet rule</b><br><br>"
-                "Magnet rewards and Magnet penalties are counted differently:<br><br>"
-                "&bull; If Magnet points are positive, only the first two Magnet "
-                "Shrines add points. A third or fourth Magnet adds nothing.<br>"
-                "&bull; If Magnet points are zero, Magnets do not affect Score.<br>"
-                "&bull; If Magnet points are negative, <b>every</b> Magnet Shrine "
-                "removes points. Five unwanted Magnets receive five penalties."
+                "<b>4. How are Magnet Shrines counted?</b><br><br>"
+                "Every Magnet Shrine uses the configured Magnet points value. "
+                "Positive values reward every Magnet, zero ignores them, and "
+                "negative values penalize every Magnet. There is no two-Magnet cap."
             )
         )
         scroll_layout.addWidget(
@@ -659,11 +663,13 @@ class ScoresHelpDialog(QDialog):
             dialog_card(
                 "<b>9. Automatic vs Manual Thresholds</b><br><br>"
                 "<b>Automatic Thresholds</b> scale the tier targets when you change "
-                "positive Shrine Points. Negative values are excluded from this "
+                "positive Shrine Points and use the stronger positive Microwave "
+                "multiplier as the reference. Negative values are excluded from this "
                 "scaling, so making a penalty stronger never makes the target easier.<br><br>"
                 "If every Shrine Points value is zero or negative, automatic targets "
-                "cannot be calculated usefully. Add at least one positive value or "
-                "enable <b>Manual Thresholds</b> and enter the tier targets yourself."
+                "cannot be calculated usefully. The same is true if both Microwave "
+                "multipliers are zero. Add a positive value or enable "
+                "<b>Manual Thresholds</b> and enter the tier targets yourself."
             )
         )
         scroll_layout.addWidget(
@@ -750,8 +756,14 @@ class ScoresSettingsDialog(QDialog):
         multiplier_layout = QFormLayout(multiplier_group)
         for key in ("1", "2"):
             entry = QLineEdit(str(config.SCORES_SYSTEM.get("multipliers", {}).get("microwave", {}).get(key, 1.0)))
+            entry.setToolTip("Zero is allowed; negative multipliers are not.")
             self.multiplier_entries[key] = entry
             multiplier_layout.addRow(f"{key} Microwave(s):", entry)
+        multiplier_note = QLabel(
+            "Zero is allowed and makes maps in that Microwave bucket produce a final Score of 0."
+        )
+        multiplier_note.setWordWrap(True)
+        multiplier_layout.addRow(multiplier_note)
         scroll_layout.addWidget(multiplier_group)
         scroll_layout.addStretch(1)
 
@@ -797,16 +809,12 @@ class ScoresSettingsDialog(QDialog):
 
     def save(self):
         active_tiers = [tier for tier, cb in self.active_tier_checks.items() if cb.isChecked()]
-        if not active_tiers:
-            QMessageBox.warning(self, "Invalid Settings", "At least one score tier must stay active.")
-            return
-
         weights = {key: _safe_float(entry.text(), 0.0) for key, entry in self.weight_entries.items()}
         multipliers = {key: _safe_float(entry.text(), 1.0) for key, entry in self.multiplier_entries.items()}
         manual_thresholds = self.manual_thresholds_var.isChecked()
 
-        if any(value <= 0 for value in multipliers.values()):
-            QMessageBox.warning(self, "Invalid Settings", "Microwave multipliers must be greater than zero.")
+        if any(value < 0 for value in multipliers.values()):
+            QMessageBox.warning(self, "Invalid Settings", "Microwave multipliers cannot be negative.")
             return
         if not manual_thresholds and not any(value > 0 for value in weights.values()):
             QMessageBox.warning(
@@ -814,6 +822,14 @@ class ScoresSettingsDialog(QDialog):
                 "Invalid Settings",
                 "Automatic thresholds need at least one positive Shrine Points value. "
                 "Add a positive value or enable Manual Thresholds.",
+            )
+            return
+        if not manual_thresholds and not any(value > 0 for value in multipliers.values()):
+            QMessageBox.warning(
+                self,
+                "Invalid Settings",
+                "Automatic thresholds need at least one positive Microwave multiplier. "
+                "Add a positive multiplier or enable Manual Thresholds.",
             )
             return
 
@@ -1173,9 +1189,15 @@ class AutoRerollSetupGuideDialog(QDialog):
                 "these small changes in Megabonk's game settings."
             ),
             width=DIALOG_WIDE,
+            height=DIALOG_TALL,
         )
+        scroll, _content, guide_layout = _make_scroll_section()
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        layout.addWidget(scroll, 1)
+        layout = guide_layout
         layout.addWidget(
             dialog_card(
+                "<b>1. Enable quick resets</b><br><br>"
                 "Open <b>Settings &rarr; Game</b> in Megabonk and make sure these "
                 "settings are <b>ON</b>:"
                 "<br><br><b>Quick Reset</b>"
@@ -1185,43 +1207,42 @@ class AutoRerollSetupGuideDialog(QDialog):
         )
         layout.addWidget(
             dialog_card(
-                "<b>Reset speed</b><br><br>"
-                "The old <b>0.10 s minimum has been removed</b>. Reset Hold Duration "
-                "can now be set below 0.10 s to make restarts faster.<br><br>"
-                "Reset Hold Duration controls how long BonkScanner holds the reset key. "
-                "Safety Margin is the extra hold time between Megabonk's reset threshold "
-                "and the moment BonkScanner releases the key. Lowering the margin lets "
-                "you use a shorter scanner hold; BonkScanner calculates and synchronizes "
-                "the corresponding Megabonk value automatically.<br><br>"
-                f"With the current <b>{margin:.2f}-second safety margin</b>, the lowest "
-                f"available scanner hold is <b>{minimum_hold:.2f} s</b>."
-                f"<br><br><b>BonkScanner:</b> {minimum_hold:.2f} s &nbsp;&rarr;&nbsp; "
-                f"<b>Megabonk:</b> {minimum_game_value:.2f} s"
-                "<br><br>Close Megabonk before saving Reset Speed. BonkScanner verifies "
-                "both config files before applying the new value."
+                "<b>2. Set the reset key hold</b><br><br>"
+                "In BonkScanner <b>Settings &rarr; Restart</b>, <b>Reset key hold</b> is how long the reset "
+                "key stays pressed. A shorter hold can make resets faster; map loading "
+                "also affects the time between runs.<br><br>"
+                "<b>Use recommended values</b> applies game 0.01 s + extra 0.05 s = hold 0.06 s. "
+                "On a new installation, this setup is applied when the game is closed. "
+                "If it could not be applied, close the game and use this button in Settings. "
+                "The hold must cover the game's reset threshold plus <b>Extra hold time "
+                "(Safety Margin)</b>. For example: game 0.20 s + extra 0.05 s = hold 0.25 s."
+                f"<br><br>With your {margin:.2f}-second safety margin, the lowest selectable "
+                f"hold is <b>{minimum_hold:.2f} s</b> (game minimum {minimum_game_value:.2f} s)."
+                "<br><br>Settings shows the current game-file value and what Save will change. "
+                "<b>Close Megabonk only if its config needs changing.</b> A game-file change "
+                "takes effect on the next game launch. Changed config files are verified."
             )
         )
         layout.addWidget(
             dialog_danger_card(
-                "<b>Experimental tuning</b><br><br>"
-                "Values below 0.10 s can improve restart speed, but very low Reset Hold "
-                "Duration or Safety Margin values may release R before the game reliably "
-                "registers the reset. The best minimum can vary with game performance and "
-                "system timing.<br><br>"
-                "If Auto-Reroll presses R but the run does not restart, check Reset "
-                "Hold Duration and Safety Margin in BonkScanner Settings first.<br><br>"
-                "Before Auto-Reroll starts, BonkScanner compares the configured hold "
-                "duration with Megabonk's <b>quick_reset_time</b>. If the game requires "
-                "a longer hold, BonkScanner automatically raises its value while "
-                "preserving the safety margin.<br><br>"
-                "If resets still do not register after the automatic adjustment, increase "
-                "the advanced <b>Safety Margin</b> field in Settings &mdash; for example, from "
-                f"<b>{margin:.2f}</b> to <b>{example_margin:.2f}</b>.<br><br>"
-                "<b>Megabonk's game config:</b> %USERPROFILE%\\&#8203;AppData\\&#8203;"
-                "LocalLow\\&#8203;Ved\\&#8203;Megabonk\\&#8203;Saves\\&#8203;"
-                "LocalDir\\&#8203;config.json"
+                "<b>3. If a reset is missed</b><br><br>"
+                "Open <b>Advanced</b> and increase <b>Extra hold time</b>, "
+                f"for example from {margin:.2f} s to {example_margin:.2f} s. This lengthens "
+                "the key hold while preserving the current or planned game threshold. "
+                "Save and try several resets.<br><br>"
+                "Very short holds or a zero margin may release the key before the game "
+                "registers it reliably. The best value depends on game performance and "
+                "system timing.<br><br>Before Auto-Reroll starts, BonkScanner rechecks "
+                "the game config and automatically raises a hold that is too short."
             )
         )
+        details = CollapsibleSection("Game config location")
+        details.body_layout.addWidget(dialog_note(
+            "Megabonk's game config: %USERPROFILE%\\AppData\\LocalLow\\Ved\\Megabonk\\"
+            "Saves\\LocalDir\\config.json. This is the saved file, not a live read of "
+            "the running game's settings."
+        ))
+        layout.addWidget(details)
 
         got_it_btn = QPushButton("Got it")
         got_it_btn.clicked.connect(self.confirm)
@@ -1244,6 +1265,7 @@ class GameResetTimeNoticeDialog(QDialog):
         scanner_hold: float | None = None,
         game_value: float | None = None,
         margin: float | None = None,
+        game_updated: bool = True,
     ):
         super().__init__(parent)
         self.setModal(True)
@@ -1259,16 +1281,23 @@ class GameResetTimeNoticeDialog(QDialog):
             if scanner_hold is not None and game_value is not None and margin is not None:
                 value_summary = (
                     f"<br><br><b>BonkScanner hold:</b> {scanner_hold:.2f} s"
-                    f"<br><b>Megabonk quick reset:</b> {game_value:.2f} s"
-                    f"<br><b>Safety margin:</b> {margin:.2f} s"
+                    f"<br><b>Game-file threshold:</b> {game_value:.2f} s"
+                    f"<br><b>Minimum extra hold time:</b> {margin:.2f} s"
+                    f"<br><b>Actual extra hold time:</b> {max(0.0, scanner_hold - game_value):.2f} s"
                 )
-            layout.addWidget(
-                dialog_info_card(
-                    "Reset Speed was written to and verified in both config files."
+            if game_updated:
+                detail = (
+                    "Both config files were saved and verified."
                     f"{value_summary}"
                     "<br><br>The value will be active the next time Megabonk starts."
                 )
-            )
+            else:
+                detail = (
+                    "The key hold was saved and applies to the next reset. "
+                    "Megabonk's config was not changed."
+                    f"{value_summary}"
+                )
+            layout.addWidget(dialog_info_card(detail))
         else:
             self.setWindowTitle("Settings Not Saved")
             layout = dialog_body(
@@ -1278,8 +1307,8 @@ class GameResetTimeNoticeDialog(QDialog):
             )
             layout.addWidget(
                 dialog_card(
-                    "BonkScanner did not apply the new settings because the complete "
-                    "save could not be verified.<br><br>"
+                    "Your Settings changes were not applied. The save was blocked or "
+                    "could not be verified.<br><br>"
                     f"<b>Reason:</b> {html.escape(reason or 'The change could not be verified.')}"
                     "<br><br>Correct the problem and press Save again."
                 )
@@ -1475,12 +1504,6 @@ _SETTINGS_FIELD_WIDTH = 130
 #: fields step sideways from row to row.
 _SETTINGS_LABEL_WIDTH = 120
 
-# The four destinations have similarly short labels. Keeping one compact size
-# makes them read as secondary links instead of another full-width action row.
-_SUPPORT_BUTTON_WIDTH = 104
-_SUPPORT_BUTTON_HEIGHT = 32
-_SUPPORT_BUTTON_ICON_SIZE = 16
-
 
 def _settings_group_label(text: str) -> QLabel:
     label = QLabel(str(text).upper())
@@ -1514,26 +1537,93 @@ def _settings_grid(rows) -> QGridLayout:
     return grid
 
 
+_SUPPORT_BUTTON_HEIGHT = 32
+_SUPPORT_BUTTON_ICON_SIZE = 16
+
+
 class SettingsDialog(QDialog):
     def __init__(self, parent, master=None):
         super().__init__(parent)
         self.master = master or parent
+        self._reloading_general_settings = False
+        self._general_settings_dirty = False
         self.setWindowTitle("Settings")
         self.setModal(True)
+
+        self.settings_header_tabs = QTabBar(self)
+        self.settings_header_tabs.setObjectName("SettingsHeaderTabs")
+        self.settings_header_tabs.setDrawBase(False)
+        self.settings_header_tabs.setExpanding(False)
+        self.settings_header_tabs.setUsesScrollButtons(False)
+        self.settings_header_tabs.addTab("General")
+        self.settings_header_tabs.addTab("Restart")
+        self.settings_header_tabs.addTab("Data")
+        self.settings_header_tabs.addTab("Support")
         shell_layout = dialog_body(
             self,
             title="Settings",
-            subtitle="Hotkeys, capture intervals, startup options and reminders.",
+            header_widget=self.settings_header_tabs,
             width=DIALOG_REGULAR,
             height=DIALOG_TALL,
         )
+
+        self.settings_tabs = QTabWidget(self)
+        self.settings_tabs.setObjectName("SettingsTabs")
+
+        self.general_settings_page = QWidget(self.settings_tabs)
+        self.general_settings_page.setObjectName("GeneralSettingsPage")
+        general_page_layout = QVBoxLayout(self.general_settings_page)
+        general_page_layout.setContentsMargins(0, 0, 0, 0)
+        general_page_layout.setSpacing(0)
+
         settings_scroll, settings_content, layout = _make_scroll_section()
         settings_scroll.setObjectName("SettingsScroll")
         settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         settings_content.setObjectName("SettingsScrollContent")
         layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(12)
-        shell_layout.addWidget(settings_scroll, 1)
+        general_page_layout.addWidget(settings_scroll)
+        self.settings_tabs.addTab(self.general_settings_page, "General")
+
+        self.restart_settings_page = QWidget(self.settings_tabs)
+        self.restart_settings_page.setObjectName("RestartSettingsPage")
+        restart_page_layout = QVBoxLayout(self.restart_settings_page)
+        restart_page_layout.setContentsMargins(0, 0, 0, 0)
+        restart_page_layout.setSpacing(0)
+        restart_scroll, restart_content, restart_layout = _make_scroll_section()
+        restart_scroll.setObjectName("RestartSettingsScroll")
+        restart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        restart_content.setObjectName("RestartSettingsScrollContent")
+        restart_layout.setContentsMargins(0, 0, 4, 0)
+        restart_layout.setSpacing(12)
+        restart_page_layout.addWidget(restart_scroll)
+        self.settings_tabs.addTab(self.restart_settings_page, "Restart")
+
+        self.data_storage_page = DataStoragePage(
+            request_migration=self._request_data_migration,
+            restart_application=self._restart_for_data_migration,
+            parent=self.settings_tabs,
+        )
+        self.settings_tabs.addTab(self.data_storage_page, "Data")
+
+        self.supporter_access_page = SupporterAccessPage(
+            controller=getattr(self.master, "supporter_access", None),
+            open_patreon=self.open_patreon_support_page,
+            open_crypto=self.open_crypto_support_page,
+            open_github=self.open_github_repository_page,
+            open_discord=self.open_discord_support_page,
+            crypto_enabled=bool(CRYPTO_SUPPORT_URL),
+            parent=self.settings_tabs,
+        )
+        self.settings_tabs.addTab(self.supporter_access_page, "Support")
+        self.settings_tabs.tabBar().hide()
+        self.settings_header_tabs.currentChanged.connect(
+            self.settings_tabs.setCurrentIndex
+        )
+        self.settings_tabs.currentChanged.connect(
+            self.settings_header_tabs.setCurrentIndex
+        )
+        shell_layout.addWidget(self.settings_tabs, 1)
 
         # Three groups, two columns, and every field capped. One column of
         # full-width rows was what made this window read as scattered: a field
@@ -1560,6 +1650,13 @@ class SettingsDialog(QDialog):
         ):
             entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
 
+        layout.addWidget(_settings_group_label("Appearance"))
+        self.theme_selector = ThemeSelector(self.master)
+        self.theme_selector.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
+        appearance_form = QFormLayout()
+        appearance_form.addRow("Design:", self.theme_selector)
+        layout.addLayout(appearance_form)
+
         layout.addWidget(_settings_group_label("Hotkeys"))
         layout.addLayout(
             _settings_grid(
@@ -1572,7 +1669,7 @@ class SettingsDialog(QDialog):
             )
         )
 
-        self.reset_hold_safety_margin_entry = QDoubleSpinBox()
+        self.reset_hold_safety_margin_entry = ResetTimingInput()
         self.reset_hold_safety_margin_entry.setRange(
             0.0,
             config.MAX_RESET_HOLD_SAFETY_MARGIN,
@@ -1585,19 +1682,18 @@ class SettingsDialog(QDialog):
         self.reset_hold_safety_margin_entry.setSuffix(" s")
         self.reset_hold_safety_margin_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
         self.reset_hold_safety_margin_entry.setToolTip(
-            "Extra time BonkScanner holds R beyond Megabonk's own threshold. "
-            "Lower values are faster but leave less tolerance for timing variation."
+            "Increase this if resets are missed. "
+            "Minimum extra time above the game's reset threshold (Safety Margin). "
+            "Changing this field adjusts the key hold and keeps the current or planned "
+            "game threshold. Lower values leave less tolerance for timing variation."
         )
 
-        self.reset_hold_duration_entry = QDoubleSpinBox()
+        self.reset_hold_duration_entry = ResetTimingInput()
         self.reset_hold_duration_entry.setRange(
             config.minimum_reset_hold_duration(
                 self.reset_hold_safety_margin_entry.value()
             ),
             config.MAX_RESET_HOLD_DURATION,
-        )
-        self.reset_hold_duration_entry.setCorrectionMode(
-            QAbstractSpinBox.CorrectionMode.CorrectToNearestValue
         )
         self.reset_hold_duration_entry.setSingleStep(0.01)
         self.reset_hold_duration_entry.setDecimals(2)
@@ -1605,8 +1701,14 @@ class SettingsDialog(QDialog):
         self.reset_hold_duration_entry.setSuffix(" s")
         self.reset_hold_duration_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
         self.reset_hold_duration_entry.setToolTip(
-            "How long BonkScanner physically holds the reset key."
+            "How long BonkScanner physically holds the reset key. Values outside "
+            "the allowed range stay visible and must be corrected before saving."
         )
+        self._reset_hold_input_note = ""
+        self._timing_save_message = ""
+        self._timing_save_error = ""
+        self._timing_save_error_tone = "error"
+        self.reset_hold_duration_entry.editingFinished.connect(self._refresh_reset_timing_preview)
         self._initial_reset_hold_duration = round(float(config.RESET_HOLD_DURATION), 2)
         self._initial_reset_hold_safety_margin = round(
             float(config.RESET_HOLD_SAFETY_MARGIN),
@@ -1614,12 +1716,27 @@ class SettingsDialog(QDialog):
         )
 
         self.reset_game_value_label = QLabel()
-        self.reset_game_value_label.setObjectName("rowValue")
+        self.reset_game_value_label.setObjectName("rowValueMuted")
         self.reset_game_value_label.setMinimumWidth(_SETTINGS_FIELD_WIDTH)
         self.reset_game_value_label.setToolTip(
-            "The quick_reset_time value BonkScanner will write to Megabonk. "
-            "It is Reset Hold minus Safety Margin."
+            "The quick_reset_time currently saved in Megabonk's config file. "
+            "It may differ from settings already loaded by the running game."
         )
+        self.reset_game_after_label = QLabel()
+        self.reset_game_after_label.setObjectName("rowValue")
+        self.reset_game_after_label.setWordWrap(True)
+        self.reset_hold_after_label = QLabel()
+        self.reset_hold_after_label.setObjectName("rowValue")
+        self.reset_hold_after_label.setWordWrap(True)
+        self.reset_timing_limits_label = QLabel()
+        self.reset_timing_limits_label.setObjectName("dialogHint")
+        self.reset_timing_limits_label.setWordWrap(True)
+        self.reset_minimum_label = QLabel()
+        self.reset_minimum_label.setObjectName("dialogHint")
+        self.reset_minimum_label.setWordWrap(True)
+        self._preview_margin = self._initial_reset_hold_safety_margin
+        self._preview_game_value = None
+        self._refreshing_reset_timing = False
 
         self.record_interval_entry = QSpinBox()
         self.record_interval_entry.setRange(
@@ -1647,38 +1764,47 @@ class SettingsDialog(QDialog):
             self._normalize_record_interval_entry
         )
 
-        layout.addWidget(_settings_group_label("Timing"))
-        reset_hold_note = QLabel(
-            "Close Megabonk before changing Reset Speed. The game value is calculated "
-            "for you and both config files are verified when you save. Safety margin "
-            "is an advanced setting: lower is faster, but less tolerant."
-        )
-        reset_hold_note.setObjectName("dialogHint")
-        reset_hold_note.setWordWrap(True)
-        layout.addWidget(reset_hold_note)
-        layout.addLayout(
-            _settings_grid(
-                (
-                    ("Reset hold:", self.reset_hold_duration_entry),
-                    ("Snapshot every:", self.record_interval_entry),
-                    ("Safety margin:", self.reset_hold_safety_margin_entry),
-                    ("Game quick reset:", self.reset_game_value_label),
-                )
-            )
-        )
-        self.reset_timing_status_label = QLabel()
-        self.reset_timing_status_label.setObjectName("dialogHint")
+        self._general_layout = layout
+        restart_layout.addWidget(_settings_group_label("Reset timing"))
+        reset_form = QGridLayout()
+        reset_form.setColumnStretch(0, 1)
+        self.reset_game_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        reset_form.addWidget(QLabel("Reset key hold:"), 0, 0)
+        reset_form.addWidget(self.reset_hold_duration_entry, 0, 1)
+        game_config_caption = QLabel("Game config:")
+        game_config_caption.setObjectName("dialogHint")
+        reset_form.addWidget(game_config_caption, 1, 0)
+        reset_form.addWidget(self.reset_game_value_label, 1, 1)
+        restart_layout.addLayout(reset_form)
+        # Retained as internal preview labels for callers inspecting the plan.
+        for label in (self.reset_game_after_label, self.reset_hold_after_label):
+            label.setParent(self)
+            label.hide()
+        self.reset_timing_status_label = QLabel(restart_content)
         self.reset_timing_status_label.setWordWrap(True)
-        layout.addWidget(self.reset_timing_status_label)
-        self.reset_hold_duration_entry.valueChanged.connect(
-            self._refresh_reset_timing_preview
+        self.reset_timing_status_label.setTextFormat(Qt.PlainText)
+        self.reset_timing_status_label.setObjectName("ResetTimingStatus")
+        self.reset_timing_status_label.setMinimumHeight(
+            self.reset_timing_status_label.fontMetrics().height() + 20
         )
-        self.reset_hold_safety_margin_entry.valueChanged.connect(
-            self._refresh_reset_timing_preview
+        self.advanced_reset_timing = CollapsibleSection("Advanced", expanded=False)
+        advanced_form = QGridLayout()
+        advanced_form.setColumnStretch(0, 1)
+        advanced_form.addWidget(QLabel("Extra hold time:"), 0, 0)
+        advanced_form.addWidget(self.reset_hold_safety_margin_entry, 0, 1)
+        self.advanced_reset_timing.body_layout.addLayout(advanced_form)
+        self.advanced_reset_timing.body_layout.addWidget(self.reset_minimum_label)
+        self.reset_timing_hint = dialog_info_card(
+            "Reset key hold includes the game's reset time plus extra hold time."
+            "<br><b>Recommended:</b> 0.01 s in the game + 0.05 s extra = 0.06 s key hold."
         )
-        self._refresh_reset_timing_preview()
-
-        layout.addWidget(_settings_group_label("Auto-Reroll"))
+        self.reset_timing_hint.setParent(restart_content)
+        self.reset_timing_limits_label.setParent(self)
+        self.reset_timing_limits_label.hide()
+        restart_layout.addWidget(self.advanced_reset_timing)
+        self.recommended_reset_btn = QPushButton("Use recommended values…")
+        self.recommended_reset_btn.clicked.connect(self._apply_recommended_reset_timing)
+        restart_layout.addWidget(_settings_group_label("Scanning"))
         self.stop_scanning_on_player_movement_var = QCheckBox(
             "Stop scanning when player moves"
         )
@@ -1688,7 +1814,19 @@ class SettingsDialog(QDialog):
         self.stop_scanning_on_player_movement_var.setToolTip(
             "While Auto-Reroll is active, pressing W, A, S, D or Space pauses it immediately."
         )
-        layout.addWidget(self.stop_scanning_on_player_movement_var)
+        restart_layout.addWidget(self.stop_scanning_on_player_movement_var)
+
+
+        self.reset_hold_duration_entry.valueChanged.connect(
+            self._refresh_reset_timing_preview
+        )
+        self.reset_hold_safety_margin_entry.valueChanged.connect(
+            self._on_reset_margin_changed
+        )
+        layout.addWidget(_settings_group_label("Recording"))
+        recording_form = QFormLayout()
+        recording_form.addRow("Snapshot every:", self.record_interval_entry)
+        layout.addLayout(recording_form)
 
         layout.addWidget(_settings_group_label("On start"))
         self.auto_start_recording_var = QCheckBox("Auto-start recording")
@@ -1703,11 +1841,61 @@ class SettingsDialog(QDialog):
 
         layout.addStretch(1)
 
-        # A card rather than a centred block under a rule. Centred text under a
-        # left-aligned form is two alignments in one short window, and the rule
-        # above it was a third divider in a dialog that already has one under
-        # its title.
-        support_card = QFrame()
+        support_card, buttons = self._make_support_card(settings_content)
+        self.patreon_btn, self.crypto_btn, self.github_btn, self.discord_btn = buttons
+        layout.addWidget(support_card)
+        restart_layout.addStretch(1)
+        restart_layout.addWidget(self.reset_timing_hint)
+        restart_layout.addWidget(self.reset_timing_status_label)
+        restart_support_card, _ = self._make_support_card(restart_content)
+        restart_layout.addWidget(restart_support_card)
+        data_support_card, _ = self._make_support_card(self.data_storage_page)
+        self.data_storage_page.layout().addWidget(data_support_card)
+
+        # Update checking lives in the always-visible footer. Settings keeps one
+        # clear job and one primary action instead of duplicating that control.
+        self.save_btn = QPushButton("Save")
+        self.save_btn.clicked.connect(self._on_primary_action)
+        self.save_btn.setToolTip("Save all changes made in this Settings window.")
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        dialog_footer(self, primary=self.save_btn, secondary=self.cancel_btn,
+                      leading=self.recommended_reset_btn)
+        self.settings_tabs.currentChanged.connect(self._on_settings_tab_changed)
+
+        for entry in (
+            self.hotkey_entry,
+            self.reset_hotkey_entry,
+            self.record_hotkey_entry,
+            self.overlay_edit_hotkey_entry,
+        ):
+            entry.textEdited.connect(self._mark_general_settings_dirty)
+        for spinbox in (
+            self.reset_hold_duration_entry,
+            self.reset_hold_safety_margin_entry,
+            self.record_interval_entry,
+        ):
+            spinbox.valueChanged.connect(self._mark_general_settings_dirty)
+        self.theme_selector.currentIndexChanged.connect(self._mark_general_settings_dirty)
+        for checkbox in (
+            self.stop_scanning_on_player_movement_var,
+            self.auto_start_recording_var,
+            self.show_obs_reminder_on_start_scanner_var,
+        ):
+            checkbox.clicked.connect(self._mark_general_settings_dirty)
+        for entry in (self.reset_hold_duration_entry, self.reset_hold_safety_margin_entry):
+            entry.textEdited.connect(self._on_reset_text_edited)
+            entry.editingFinished.connect(self._refresh_reset_timing_preview)
+        for button in self.findChildren(QPushButton):
+            button.setDefault(False)
+            button.setAutoDefault(False)
+        self._on_settings_tab_changed(self.settings_tabs.currentIndex())
+        self.reset_timing_timer = QTimer(self)
+        self.reset_timing_timer.setInterval(1000)
+        self.reset_timing_timer.timeout.connect(self._refresh_live_reset_timing)
+
+    def _make_support_card(self, parent: QWidget):
+        support_card = QFrame(parent)
         support_card.setObjectName("card")
         support_layout = QVBoxLayout(support_card)
         support_layout.setContentsMargins(12, 10, 12, 12)
@@ -1718,8 +1906,7 @@ class SettingsDialog(QDialog):
         support_layout.addWidget(support_label)
 
         support_note = QLabel(
-            "BonkScanner is free to download. For feedback, bugs or ideas, "
-            "use GitHub or Discord.",
+            "Support the project or join the BonkScanner community.",
             support_card,
         )
         support_note.setObjectName("SupportSectionNote")
@@ -1727,67 +1914,188 @@ class SettingsDialog(QDialog):
         support_layout.addWidget(support_note)
 
         support_button_row = QHBoxLayout()
+        support_button_row.setContentsMargins(0, 0, 0, 0)
         support_button_row.setSpacing(8)
-        self.patreon_btn = QPushButton("Patreon")
-        self.patreon_btn.setObjectName("PatreonButton")
-        self.patreon_btn.setIcon(QIcon(resource_path(PATREON_ICON_PATH)))
-        self.patreon_btn.setIconSize(
-            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        patreon_btn = self._compact_support_button(
+            "Patreon",
+            "PatreonButton",
+            PATREON_ICON_PATH,
+            self.open_patreon_support_page,
         )
-        self.patreon_btn.clicked.connect(self.open_patreon_support_page)
-        self.patreon_btn.setProperty("class", "SupportPlatformButton")
-        self.crypto_btn = QPushButton("Crypto")
-        self.crypto_btn.setObjectName("CryptoButton")
-        self.crypto_btn.setIcon(QIcon(resource_path(CRYPTO_ICON_PATH)))
-        self.crypto_btn.setIconSize(
-            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        crypto_btn = self._compact_support_button(
+            "Crypto",
+            "CryptoButton",
+            CRYPTO_ICON_PATH,
+            self.open_crypto_support_page,
         )
-        self.crypto_btn.clicked.connect(self.open_crypto_support_page)
-        self.crypto_btn.setProperty("class", "SupportPlatformButton")
-        self.crypto_btn.setEnabled(bool(CRYPTO_SUPPORT_URL))
+        github_btn = self._compact_support_button(
+            "GitHub",
+            "GithubButton",
+            GITHUB_ICON_PATH,
+            self.open_github_repository_page,
+        )
+        discord_btn = self._compact_support_button(
+            "Discord",
+            "DiscordButton",
+            DISCORD_ICON_PATH,
+            self.open_discord_support_page,
+        )
+        crypto_btn.setEnabled(bool(CRYPTO_SUPPORT_URL))
         if not CRYPTO_SUPPORT_URL:
-            self.crypto_btn.setToolTip("Crypto support page is coming soon.")
-        self.github_btn = QPushButton("GitHub")
-        self.github_btn.setObjectName("GithubButton")
-        self.github_btn.setIcon(QIcon(resource_path(GITHUB_ICON_PATH)))
-        self.github_btn.setIconSize(
-            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
-        )
-        self.github_btn.clicked.connect(self.open_github_repository_page)
-        self.github_btn.setProperty("class", "SupportPlatformButton")
-        self.discord_btn = QPushButton("Discord")
-        self.discord_btn.setObjectName("DiscordButton")
-        self.discord_btn.setIcon(QIcon(resource_path(DISCORD_ICON_PATH)))
-        self.discord_btn.setIconSize(
-            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
-        )
-        self.discord_btn.clicked.connect(self.open_discord_support_page)
-        self.discord_btn.setProperty("class", "SupportPlatformButton")
+            crypto_btn.setToolTip("Crypto support page is coming soon.")
         for button in (
-            self.patreon_btn,
-            self.crypto_btn,
-            self.github_btn,
-            self.discord_btn,
+            patreon_btn,
+            crypto_btn,
+            github_btn,
+            discord_btn,
         ):
-            button.setProperty("settingsSupportAction", "true")
-            button.setFixedSize(_SUPPORT_BUTTON_WIDTH, _SUPPORT_BUTTON_HEIGHT)
-            support_button_row.addWidget(button)
-        support_button_row.addStretch(1)
+            support_button_row.addWidget(button, 1)
         support_layout.addLayout(support_button_row)
-        layout.addWidget(support_card)
+        return support_card, (patreon_btn, crypto_btn, github_btn, discord_btn)
 
-        # Update checking lives in the always-visible footer. Settings keeps one
-        # clear job and one primary action instead of duplicating that control.
-        self.save_btn = QPushButton("Save")
-        self.save_btn.clicked.connect(self.save)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        dialog_footer(self, primary=self.save_btn, secondary=cancel_btn)
+    @staticmethod
+    def _compact_support_button(
+        text: str,
+        object_name: str,
+        icon_path: str,
+        callback,
+    ) -> QPushButton:
+        button = QPushButton(text)
+        button.setObjectName(object_name)
+        button.setIcon(QIcon(resource_path(icon_path)))
+        button.setIconSize(
+            QSize(_SUPPORT_BUTTON_ICON_SIZE, _SUPPORT_BUTTON_ICON_SIZE)
+        )
+        button.setProperty("class", "SupportPlatformButton")
+        button.setProperty("settingsSupportAction", "true")
+        button.setFixedHeight(_SUPPORT_BUTTON_HEIGHT)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.clicked.connect(callback)
+        return button
+
+    def show_page(self, page: str) -> None:
+        """Select a Settings page for shortcuts such as the header badge."""
+        normalized = str(page or "").strip().lower()
+        target = (
+            self.supporter_access_page
+            if normalized == "support"
+            else self.data_storage_page
+            if normalized == "data"
+            else self.restart_settings_page
+            if normalized in ("restart", "restarts")
+            else self.general_settings_page
+        )
+        self.settings_tabs.setCurrentWidget(target)
+        if target is self.supporter_access_page:
+            QTimer.singleShot(0, self.supporter_access_page.focus_primary_action)
+
+    def _on_settings_tab_changed(self, _index: int) -> None:
+        on_editable_page = self.settings_tabs.currentWidget() in (
+            self.general_settings_page, self.restart_settings_page
+        )
+        has_general_edits = bool(self._general_settings_dirty)
+        self.save_btn.setText(
+            "Save changes"
+            if not on_editable_page and has_general_edits
+            else "Done"
+            if not on_editable_page
+            else "Save"
+        )
+        self.cancel_btn.setVisible(on_editable_page or has_general_edits)
+        # Key actions are explicit and immediate. Keep Support free of a dialog
+        # default so Return in its key field can only reach Activate, while the
+        # General page retains the conventional Save default.
+        self.save_btn.setDefault(on_editable_page)
+        self.save_btn.setAutoDefault(on_editable_page)
+        self.supporter_access_page.activate_button.setDefault(False)
+        self.supporter_access_page.activate_button.setAutoDefault(False)
+        self.recommended_reset_btn.setVisible(
+            self.settings_tabs.currentWidget() is self.restart_settings_page
+        )
+        self._refresh_reset_timing_preview()
+
+    def _on_reset_text_edited(self, *_args) -> None:
+        self._timing_save_message = self._timing_save_error = ""
+        self._mark_general_settings_dirty()
+        self._refresh_reset_timing_preview()
+
+    def _mark_general_settings_dirty(self, *_args) -> None:
+        if self._reloading_general_settings:
+            return
+        self._timing_save_message = ""
+        self._general_settings_dirty = True
+        self._on_settings_tab_changed(self.settings_tabs.currentIndex())
+
+    def _on_primary_action(self) -> None:
+        if (
+            self.settings_tabs.currentWidget()
+            not in (self.general_settings_page, self.restart_settings_page)
+            and not self._general_settings_dirty
+        ):
+            self.accept()
+        else:
+            self.save()
+
+    def _restart_for_data_migration(self):
+        if self._general_settings_dirty and not self.save(close_dialog=False):
+            return
+        self.master._restart_requested = True
+        self.accept()
+        QTimer.singleShot(0, self.master.window.close)
+
+    def _request_data_migration(self, destination=None):
+        from app.data_storage import MigrationActionResult, request_migration
+
+        if self._general_settings_dirty:
+            save_first = ask_app_confirmation(
+                self,
+                title="Save settings first?",
+                subtitle="Data storage",
+                message=(
+                    "Your settings contain unsaved changes. Save them before "
+                    "scheduling the data migration?"
+                ),
+                confirm_text="Save changes",
+                note="The migration will not be scheduled if you cancel.",
+            )
+            if not save_first:
+                return MigrationActionResult(
+                    False, "cancelled", "Migration was not scheduled."
+                )
+            if not self.save(close_dialog=False):
+                return MigrationActionResult(
+                    False,
+                    "failed",
+                    "Migration was not scheduled because the settings could not be saved.",
+                )
+        return request_migration(destination)
 
     @staticmethod
     def _show_game_reset_notice(parent, **kwargs) -> None:
+        if isinstance(parent, SettingsDialog) and not kwargs.get("saved"):
+            parent._timing_save_error = kwargs.get("reason", "Could not save settings.")
+            parent._timing_save_error_tone = "error"
+            parent._refresh_reset_timing_preview()
+            return
         try:
-            _exec_transient_dialog(GameResetTimeNoticeDialog(parent, **kwargs))
+            dialog = GameResetTimeNoticeDialog(parent, **kwargs)
+            if kwargs.get("saved") and kwargs.get("game_updated") is False:
+                # Retain the wrapper until the single-shot callback fires, including
+                # when Settings has already closed and the notice has no parent.
+                dialog.setModal(False)
+                dialog.setAttribute(Qt.WA_DeleteOnClose, False)
+                dialog.show()
+
+                def finish_notice() -> None:
+                    try:
+                        dialog.close()
+                        dialog.deleteLater()
+                    except RuntimeError:
+                        pass  # Its parent may have been destroyed first.
+
+                QTimer.singleShot(3500, finish_notice)
+            else:
+                _exec_transient_dialog(dialog)
         except Exception:
             # This is a result notice, not part of the persistence transaction.
             # A native dialog teardown race must not escape the Save click.
@@ -1795,6 +2103,9 @@ class SettingsDialog(QDialog):
 
     def reload_from_config(self) -> None:
         """Discard unsaved edits before reopening the reusable dialog."""
+        self._reloading_general_settings = True
+        self.theme_selector.reload()
+        self._timing_save_message = self._timing_save_error = ""
         self.hotkey_entry.setText(str(config.HOTKEY))
         self.reset_hotkey_entry.setText(str(config.RESET_HOTKEY))
         self.record_hotkey_entry.setText(
@@ -1807,15 +2118,11 @@ class SettingsDialog(QDialog):
             float(config.RESET_HOLD_SAFETY_MARGIN),
             2,
         )
-        self.reset_hold_safety_margin_entry.setValue(reset_hold_safety_margin)
-        self.reset_hold_duration_entry.setMinimum(
-            config.minimum_reset_hold_duration(reset_hold_safety_margin)
-        )
         reset_hold_duration = max(
             config.minimum_reset_hold_duration(reset_hold_safety_margin),
             round(float(config.RESET_HOLD_DURATION), 2),
         )
-        self.reset_hold_duration_entry.setValue(reset_hold_duration)
+        self._set_reset_timing_fields(reset_hold_duration, reset_hold_safety_margin)
         self._initial_reset_hold_duration = reset_hold_duration
         self._initial_reset_hold_safety_margin = reset_hold_safety_margin
         self.record_interval_entry.setValue(
@@ -1837,6 +2144,11 @@ class SettingsDialog(QDialog):
             bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
         )
         self._refresh_reset_timing_preview()
+        self.supporter_access_page.reload()
+        self.data_storage_page.refresh()
+        self._general_settings_dirty = False
+        self._reloading_general_settings = False
+        self._on_settings_tab_changed(self.settings_tabs.currentIndex())
 
     def _normalize_record_interval_entry(self) -> None:
         self.record_interval_entry.setValue(
@@ -1855,12 +2167,211 @@ class SettingsDialog(QDialog):
         except Exception as exc:
             return True, f"BonkScanner could not check whether Megabonk is running: {exc}"
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if hasattr(self, "reset_timing_timer"):
+            self._on_settings_tab_changed(self.settings_tabs.currentIndex())
+            self._refresh_live_reset_timing()
+            self.reset_timing_timer.start()
+
+    def hideEvent(self, event) -> None:
+        if hasattr(self, "reset_timing_timer"):
+            self.reset_timing_timer.stop()
+        super().hideEvent(event)
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.WindowActivate and hasattr(self, "reset_timing_timer"):
+            self._refresh_live_reset_timing()
+        return super().event(event)
+
+    def _set_reset_timing_fields(self, hold: float, margin: float) -> None:
+        self._reset_hold_input_note = ""
+        entries = (self.reset_hold_duration_entry, self.reset_hold_safety_margin_entry)
+        previous = [entry.blockSignals(True) for entry in entries]
+        try:
+            self.reset_hold_safety_margin_entry.setValue(margin)
+            self.reset_hold_duration_entry.setMinimum(config.minimum_reset_hold_duration(margin))
+            self.reset_hold_duration_entry.setValue(hold)
+            self._preview_margin = round(margin, 2)
+        finally:
+            for entry, was_blocked in zip(entries, previous):
+                entry.blockSignals(was_blocked)
+
+    def _reset_timing_is_edited(self) -> bool:
+        return (
+            round(self.reset_hold_duration_entry.value(), 2) != self._initial_reset_hold_duration
+            or round(self.reset_hold_safety_margin_entry.value(), 2) != self._initial_reset_hold_safety_margin
+        )
+
+    def _reset_input_problem(self, *, final=False) -> tuple[str, bool]:
+        entries = ((self.reset_hold_duration_entry, "Reset key hold"),
+                   (self.reset_hold_safety_margin_entry, "Extra hold time"))
+        for entry, name in entries:
+            value = entry.number()
+            if value is None:
+                pending = entry.is_incomplete() and not (final or entry.finished_input)
+                return ("Finish entering the value." if pending else
+                        f"{name}: enter a number with up to two decimal places."), pending
+            if not 0 <= value <= entry.maximum():
+                return f"{name} must be between 0.00 and {entry.maximum():.2f} s.", False
+        margin = self.reset_hold_safety_margin_entry.value()
+        minimum = config.minimum_reset_hold_duration(margin)
+        if self.reset_hold_duration_entry.value() < minimum:
+            return f"Minimum {minimum:.2f} s with {margin:.2f} s extra hold time.", False
+        return "", False
+
+    def _set_reset_status(self, tone: str, message: str, *, blocked=False) -> None:
+        colors = {"neutral": ("#192129", "#A1B0BF", "•"),
+                  "success": ("#142B22", "#8CDBAD", "✓"),
+                  "warning": ("#302919", "#F1CE7F", "!"),
+                  "error": ("#321E25", "#F2A0AA", "×")}
+        background, foreground, icon = colors[tone]
+        if not message:
+            background = "transparent"
+        self.reset_timing_status_label.setProperty("tone", tone)
+        self.reset_timing_status_label.setStyleSheet(
+            f"QLabel {{ background: {background}; color: {foreground}; "
+            "border-radius: 6px; padding: 10px 12px; }")
+        self.reset_timing_status_label.setText(f"{icon}  {message}" if message else "")
+        self.reset_timing_status_label.setToolTip(message)
+        self.reset_timing_status_label.setVisible(bool(message))
+        self.reset_timing_hint.setVisible(not bool(message))
+        if not message:
+            # Keep the empty row's height when a one-line confirmation appears.
+            self.reset_timing_status_label.setMinimumHeight(max(
+                self.reset_timing_status_label.minimumHeight(),
+                self.reset_timing_status_label.sizeHint().height(),
+            ))
+        if hasattr(self, "save_btn"):
+            self.save_btn.setEnabled(not blocked)
+            # Validation remains visible even when edits were made on another tab.
+            if blocked and self.settings_tabs.currentWidget() is not self.restart_settings_page:
+                self.reset_timing_status_label.setToolTip(message)
+                self.save_btn.setToolTip(message + " Open Restart to review.")
+            else:
+                self.save_btn.setToolTip("Save all changes made in this Settings window.")
+
+    def _apply_recommended_reset_timing(self) -> None:
+        try:
+            game = config.read_game_quick_reset_time()
+        except Exception as exc:
+            self._timing_save_error = f"Could not read game config: {exc}"
+            self._set_reset_status("error", self._timing_save_error)
+            return
+        note = (
+            "Game config is already at 0.01 s. Megabonk can stay open."
+            if game.success and game.value == config.MIN_GAME_QUICK_RESET_TIME else
+            "Close Megabonk before applying. The game reads this value on its next launch."
+        )
+        if not ask_app_confirmation(
+            self, title="Apply recommended values?", subtitle="Reset timing",
+            message="Game config: 0.01 s<br>Extra hold time: 0.05 s<br>Reset key hold: 0.06 s",
+            confirm_text="Apply",
+            note=note + " Other Settings edits stay unsaved.",
+        ):
+            return
+        result = config.apply_recommended_reset_timing(self._detect_game_running)
+        if not result.success:
+            self._timing_save_error = result.reason
+            self._timing_save_error_tone = "warning" if result.reason.startswith("Close Megabonk") else "error"
+            self._set_reset_status(self._timing_save_error_tone, result.reason)
+            return
+        self._set_reset_timing_fields(config.RESET_HOLD_DURATION, config.RESET_HOLD_SAFETY_MARGIN)
+        self._initial_reset_hold_duration = config.RESET_HOLD_DURATION
+        self._initial_reset_hold_safety_margin = config.RESET_HOLD_SAFETY_MARGIN
+        self._timing_save_error = ""
+        self._timing_save_message = "Recommended values saved."
+        self._refresh_reset_timing_preview()
+
+    def _refresh_live_reset_timing(self) -> None:
+        if self._refreshing_reset_timing or self._reloading_general_settings:
+            return
+        # A not-yet-committed typed number is a draft too. Polling must not
+        # replace it merely because QDoubleSpinBox.value() still has the old value.
+        typing = any(entry.lineEdit().isModified() for entry in (
+            self.reset_hold_duration_entry, self.reset_hold_safety_margin_entry
+        ))
+        if not typing and not self._reset_timing_is_edited():
+            live_hold = round(float(config.RESET_HOLD_DURATION), 2)
+            live_margin = round(float(config.RESET_HOLD_SAFETY_MARGIN), 2)
+            if (live_hold, live_margin) != (
+                self._initial_reset_hold_duration, self._initial_reset_hold_safety_margin
+            ):
+                self._set_reset_timing_fields(live_hold, live_margin)
+                self._initial_reset_hold_duration = live_hold
+                self._initial_reset_hold_safety_margin = live_margin
+        self._refresh_reset_timing_preview()
+
+    def _on_reset_margin_changed(self, value: float) -> None:
+        if self._reloading_general_settings:
+            return
+        if self.reset_hold_safety_margin_entry.number() is None:
+            return
+        # Do not replace an invalid/unfinished hold draft when editing the margin.
+        hold_number = self.reset_hold_duration_entry.number()
+        if hold_number is None or not (
+            config.minimum_reset_hold_duration(self._preview_margin)
+            <= hold_number <= config.MAX_RESET_HOLD_DURATION
+        ):
+            self._refresh_reset_timing_preview()
+            return
+        margin = config.normalize_reset_hold_safety_margin(value)
+        previous_margin = self._preview_margin
+        old_hold = round(self.reset_hold_duration_entry.value(), 2)
+        target = self._preview_game_value
+        try:
+            game_read = config.read_game_quick_reset_time()
+        except Exception:
+            game_read = config.GameConfigReadResult(False)
+        if game_read.success and game_read.value is not None:
+            # Resolve against the file again, not a cached preview from before
+            # the user closed the game or another application changed the file.
+            was_edited = (
+                old_hold != self._initial_reset_hold_duration
+                or previous_margin != self._initial_reset_hold_safety_margin
+            )
+            target = (
+                min(game_read.value, config.reset_hold_duration_to_game_value(
+                    old_hold, safety_margin=previous_margin
+                )) if was_edited else game_read.value
+            )
+        required_hold = config.minimum_reset_hold_duration(margin)
+        if target is not None:
+            required_hold = max(required_hold, round(target + margin, 2))
+        if required_hold > config.MAX_RESET_HOLD_DURATION:
+            self._set_reset_timing_fields(old_hold, previous_margin)
+            self._timing_save_error = (
+                "Extra hold time was not changed: preserving the game threshold "
+                "would exceed the maximum key hold."
+            )
+            self._refresh_reset_timing_preview()
+            return
+        hold = min(config.MAX_RESET_HOLD_DURATION, max(
+            required_hold, round(old_hold + margin - previous_margin, 2)
+        ))
+        self._set_reset_timing_fields(hold, margin)
+        self._refresh_reset_timing_preview()
+
     def _refresh_reset_timing_preview(self, *_args) -> None:
+        if self._refreshing_reset_timing:
+            return
+        self._refreshing_reset_timing = True
+        try:
+            self._update_reset_timing_preview()
+        finally:
+            self._refreshing_reset_timing = False
+
+    def _update_reset_timing_preview(self) -> None:
+        problem, pending = self._reset_input_problem()
+        if problem:
+            self._set_reset_status("neutral" if pending else "error", problem, blocked=True)
+            return
         margin = config.normalize_reset_hold_safety_margin(
             self.reset_hold_safety_margin_entry.value()
         )
         minimum_hold = config.minimum_reset_hold_duration(margin)
-        self.reset_hold_duration_entry.setMinimum(minimum_hold)
+        if self.reset_hold_duration_entry.minimum() != minimum_hold:
+            self.reset_hold_duration_entry.setMinimum(minimum_hold)
         scanner_hold = max(
             minimum_hold,
             round(float(self.reset_hold_duration_entry.value()), 2),
@@ -1869,27 +2380,76 @@ class SettingsDialog(QDialog):
             scanner_hold,
             safety_margin=margin,
         )
-        self.reset_game_value_label.setText(f"{game_value:.2f} s")
-
         game_running, detection_error = self._detect_game_running()
         try:
             game_read = config.read_game_quick_reset_time()
         except Exception as exc:
             game_read = config.GameConfigReadResult(False, reason=str(exc))
-        if detection_error:
-            status = detection_error
-        elif game_running:
-            status = "Megabonk is running. Close it before saving Reset Speed changes."
+        self.reset_game_value_label.setText(
+            f"{game_read.value:.2f} s"
+            if game_read.success and game_read.value is not None
+            else "Unavailable"
+        )
+        edited = self._reset_timing_is_edited()
+        if not edited:
+            # Save preserves newer live timing when these fields were not edited.
+            # The preview must agree even while polling preserves partially typed text.
+            margin = config.normalize_reset_hold_safety_margin(config.RESET_HOLD_SAFETY_MARGIN)
+            minimum_hold = config.minimum_reset_hold_duration(margin)
+            scanner_hold = max(minimum_hold, round(float(config.RESET_HOLD_DURATION), 2))
+            game_value = config.reset_hold_duration_to_game_value(scanner_hold, safety_margin=margin)
+        game_floor = (
+            round(game_read.value + margin, 2)
+            if game_read.success and game_read.value is not None
+            else None
+        )
+        scanner_only = game_floor is not None and scanner_hold >= game_floor
+        game_after = game_read.value if scanner_only or not edited else game_value
+        if not game_read.success or game_read.value is None:
+            game_after = None
+        self._preview_game_value = game_after
+        self._preview_margin = margin
+        self.reset_game_after_label.setText(
+            "Unavailable" if game_after is None else
+            f"{game_after:.2f} s (unchanged)" if game_after == game_read.value else
+            f"{game_read.value:.2f} s → {game_after:.2f} s"
+        )
+        self.reset_hold_after_label.setText(f"{scanner_hold:.2f} s")
+        self.reset_minimum_label.setText(
+            self._reset_hold_input_note
+            + f"Minimum hold: {minimum_hold:.2f} s "
+            f"(game minimum {config.MIN_GAME_QUICK_RESET_TIME:.2f} s + extra {margin:.2f} s)."
+        )
+        actual_extra = None if game_after is None else round(scanner_hold - game_after, 2)
+        self.reset_timing_limits_label.setText(
+            "Actual extra hold time cannot be checked." if actual_extra is None else
+            "The hold is below the saved game threshold; it will be checked before Auto-Reroll."
+            if actual_extra < 0 else f"Actual extra hold time after Save: {actual_extra:.2f} s."
+        )
+        blocked = edited and (
+            not game_read.success or game_read.value is None
+            or (not scanner_only and (game_running or bool(detection_error)))
+        )
+        tone = "neutral"
+        if self._timing_save_error:
+            tone, status = self._timing_save_error_tone, self._timing_save_error
+        elif not edited:
+            if self._timing_save_message:
+                tone, status = "success", self._timing_save_message
+            else:
+                status = ""
         elif not game_read.success or game_read.value is None:
-            status = game_read.reason or "Megabonk quick_reset_time could not be read."
-        elif round(float(game_read.value), 2) == game_value:
-            status = "Scanner and Megabonk reset values are in sync."
+            tone, status, blocked = "error", (game_read.reason or "Game config unavailable."), True
+        elif scanner_only:
+            tone, status = "success", "Ready to save. Game config stays unchanged."
+        elif detection_error:
+            tone, status, blocked = "error", detection_error, True
+        elif game_running:
+            tone, status, blocked = "warning", "Close Megabonk to save these changes.", True
         else:
-            status = (
-                f"Megabonk currently uses {game_read.value:.2f} s. "
-                f"Save will update it to {game_value:.2f} s."
-            )
-        self.reset_timing_status_label.setText(status)
+            tone, status = "warning", f"Save changes game config: {game_read.value:.2f} → {game_value:.2f} s."
+        self._set_reset_status(tone, status, blocked=blocked)
+
 
     def open_patreon_support_page(self):
         self._open_external_page(PATREON_SUPPORT_URL)
@@ -1919,7 +2479,13 @@ class SettingsDialog(QDialog):
                 f"BonkScanner could not open this page.\n\n{reason}",
             )
 
-    def save(self):
+    def save(self, *, close_dialog: bool = True) -> bool:
+        if isinstance(self, SettingsDialog):
+            problem, _pending = self._reset_input_problem(final=True)
+            if problem:
+                self._set_reset_status("error", problem, blocked=True)
+                return False
+            self._timing_save_error = ""
         new_hotkey = _read_text(self.hotkey_entry).strip()
         new_reset_hotkey = _read_text(self.reset_hotkey_entry).strip()
         new_record_hotkey = _read_text(self.record_hotkey_entry).strip()
@@ -1967,7 +2533,7 @@ class SettingsDialog(QDialog):
                 "Invalid Settings",
                 "Reset Hold Duration must be a valid number.",
             )
-            return
+            return False
 
         try:
             new_interval = max(
@@ -1980,7 +2546,7 @@ class SettingsDialog(QDialog):
                 "Invalid Settings",
                 "Snapshot interval must be a valid number.",
             )
-            return
+            return False
 
         initial_duration = round(
             float(getattr(self, "_initial_reset_hold_duration", config.RESET_HOLD_DURATION)),
@@ -2013,25 +2579,42 @@ class SettingsDialog(QDialog):
             game_read = config.read_game_quick_reset_time()
         except Exception as exc:
             game_read = config.GameConfigReadResult(False, reason=str(exc))
-        game_matches = (
+        if timing_changed and (not game_read.success or game_read.value is None):
+            SettingsDialog._show_game_reset_notice(
+                self, saved=False,
+                reason=(game_read.reason or "The game-file threshold could not be read.")
+                + " Reset timing changes require a readable game config. Your edits are kept in Settings.",
+            )
+            if isinstance(self, SettingsDialog):
+                self._refresh_reset_timing_preview()
+            return False
+        scanner_only = (
             game_read.success
             and game_read.value is not None
-            and round(float(game_read.value), 2) == game_value
+            and new_duration >= round(float(game_read.value) + new_margin, 2)
         )
-        needs_game_sync = not game_matches
-        game_running, detection_error = SettingsDialog._detect_game_running(self)
-        if game_running and (timing_changed or needs_game_sync):
+        sync_game = timing_changed and not scanner_only
+        game_running, detection_error = (
+            SettingsDialog._detect_game_running(self) if sync_game else (False, "")
+        )
+        if game_running:
             reason = detection_error or (
-                "Megabonk is currently running. Close the game before saving Reset "
-                "Speed so it cannot overwrite config.json and so the scanner and game "
-                "cannot start with different reset values."
+                "Megabonk is currently running. Close it before lowering the game "
+                "quick reset value for this Reset Hold Duration."
             )
+            if isinstance(self, SettingsDialog):
+                self._timing_save_error = detection_error
+                self._timing_save_error_tone = "error"
+                self._refresh_reset_timing_preview()
+                return False
             SettingsDialog._show_game_reset_notice(
                 self,
                 saved=False,
                 reason=reason,
             )
-            return
+            if isinstance(self, SettingsDialog):
+                self._refresh_reset_timing_preview()
+            return False
 
         settings_updates = {
             "HOTKEY": new_hotkey,
@@ -2043,22 +2626,26 @@ class SettingsDialog(QDialog):
             "STOP_SCANNING_ON_PLAYER_MOVEMENT": stop_scanning_on_player_movement,
             "PLAYER_STATS_RECORD_INTERVAL_SECONDS": new_interval,
         }
+        theme_selector = getattr(self, "theme_selector", None)
+        if theme_selector is not None:
+            settings_updates[THEME_CONFIG_KEY] = theme_selector.currentData()
+            # Keep the two-theme choice readable by earlier application versions.
+            settings_updates[LEGACY_THEME_CONFIG_KEY] = theme_selector.currentData() == "original"
         if timing_changed:
             settings_updates.update(
                 {
                     "RESET_HOLD_DURATION": new_duration,
                     "RESET_HOLD_SAFETY_MARGIN": new_margin,
+                    "RESET_TIMING_SETUP_PENDING": False,
                 }
             )
 
         try:
             save_result = config.save_settings_with_game_reset(
                 settings_updates,
-                game_value if timing_changed else None,
-                # When the game is closed, always write and read back its value. This
-                # both repairs hand-edited drift and closes the old false-success gap
-                # where an unchanged UI field meant the game file was never checked.
-                sync_game=not game_running,
+                game_value if sync_game else None,
+                sync_game=sync_game,
+                verify_game_floor=timing_changed and scanner_only,
             )
         except Exception as exc:
             save_result = config.SettingsSaveResult(False, reason=str(exc))
@@ -2068,7 +2655,9 @@ class SettingsDialog(QDialog):
                 saved=False,
                 reason=save_result.reason or "The settings change could not be verified.",
             )
-            return
+            if isinstance(self, SettingsDialog):
+                self._refresh_reset_timing_preview()
+            return False
 
         # The config transaction already committed these keys to the runtime
         # mapping. Keep this idempotent update for isolated dialog tests that
@@ -2092,6 +2681,11 @@ class SettingsDialog(QDialog):
             effective_duration,
             safety_margin=effective_margin,
         )
+        if timing_changed and scanner_only and game_read.value is not None:
+            verified_game_value = getattr(save_result, "game_value", None)
+            effective_game_value = round(float(
+                game_read.value if verified_game_value is None else verified_game_value
+            ), 2)
         self._initial_reset_hold_duration = effective_duration
         self._initial_reset_hold_safety_margin = effective_margin
         runtime_errors: list[str] = []
@@ -2101,6 +2695,10 @@ class SettingsDialog(QDialog):
                 callback()
             except Exception as exc:
                 runtime_errors.append(f"{name}: {type(exc).__name__}: {exc}")
+
+        apply_theme = getattr(self.master, "apply_visual_theme", None)
+        if callable(apply_theme):
+            apply_runtime_step("appearance", apply_theme)
 
         runtime = getattr(self.master, "runtime", None)
         if auto_start_recording and runtime is not None:
@@ -2191,8 +2789,21 @@ class SettingsDialog(QDialog):
         # always has `accept` -- and reachable only from the suite, whose
         # stand-ins carried `destroy` and no `accept`. Those stand-ins model a
         # `QDialog` now, so the branch that only the fakes could take is gone.
-        self.accept()
-        if timing_changed or needs_game_sync:
+        if isinstance(self, SettingsDialog):
+            self._set_reset_timing_fields(effective_duration, effective_margin)
+            self._timing_save_message = (
+                "Settings saved. Restart BonkScanner: some live updates failed."
+                if runtime_errors else "Saved." if timing_changed else ""
+            )
+            if runtime_errors:
+                self._timing_save_error = self._timing_save_message
+                self._timing_save_error_tone = "warning"
+            self._general_settings_dirty = False
+            self._refresh_reset_timing_preview()
+            self._on_settings_tab_changed(self.settings_tabs.currentIndex())
+        if close_dialog:
+            self.accept()
+        if close_dialog and timing_changed and (sync_game or not runtime_errors):
             parent_method = getattr(self, "parent", None)
             notice_parent = parent_method() if callable(parent_method) else None
             SettingsDialog._show_game_reset_notice(
@@ -2201,7 +2812,9 @@ class SettingsDialog(QDialog):
                 scanner_hold=effective_duration,
                 game_value=effective_game_value,
                 margin=effective_margin,
+                **({"game_updated": False} if scanner_only else {}),
             )
+        return True
 
 
 class TwitchCommandSettingsDialog(QDialog):

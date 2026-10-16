@@ -64,6 +64,39 @@ class TimelineAxisProjection:
         return self.nearest_index(float(target_time) / max(self.duration, 1.0))
 
 
+@dataclass(frozen=True)
+class SnapshotTimeIndex:
+    """Prepared absolute-time lookup with stable earliest-index tie breaking."""
+
+    times: tuple[float, ...]
+    indices: tuple[int, ...]
+
+    @classmethod
+    def build(cls, snapshots) -> "SnapshotTimeIndex":
+        entries = [(value, index) for index, value in enumerate(snapshot_times(snapshots))]
+        return cls(
+            tuple(value for value, _index in entries),
+            tuple(index for _value, index in entries),
+        )
+
+    def nearest(self, target_time: float) -> int:
+        if not self.times:
+            return 0
+        target = float(target_time)
+        position = bisect.bisect_left(self.times, target)
+        best: tuple[float, int] | None = None
+        for neighbour in (position - 1, position):
+            if not 0 <= neighbour < len(self.times):
+                continue
+            value = self.times[neighbour]
+            low = bisect.bisect_left(self.times, value)
+            high = bisect.bisect_right(self.times, value)
+            candidate = (abs(value - target), min(self.indices[low:high]))
+            if best is None or candidate < best:
+                best = candidate
+        return 0 if best is None else best[1]
+
+
 def build_axis_projection(
     snapshots,
     *,

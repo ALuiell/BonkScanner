@@ -176,6 +176,7 @@ class VodCapture:
         log: Callable[..., None],
         reset_snapshot_buffer: Callable[[], None],
         read_character_identity: Callable[[], tuple[int, str] | None] | None = None,
+        active_recording_feed: Callable[[], Any] | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
         self._recorder = recorder
@@ -190,6 +191,7 @@ class VodCapture:
         self._log = log
         self._reset_snapshot_buffer = reset_snapshot_buffer
         self._read_character_identity = read_character_identity or (lambda: None)
+        self._active_recording_feed = active_recording_feed or (lambda: None)
         # Not `clock=time.monotonic` in the signature: a default argument binds
         # the function at import, where the code this replaces looked `time` up
         # on the module every call. Step 20 shipped that bug once already.
@@ -242,6 +244,24 @@ class VodCapture:
         self.player_stats_auto_recording_suppressed = False
 
     # -- the recording lifecycle ------------------------------------------
+
+    def observe_powerups(self, snapshot, run_id=None) -> None:
+        from core.powerup_history import observation_from_snapshot
+
+        recorder = self._recorder()
+        if not recorder.is_recording or not callable(getattr(recorder, "observe_powerups", None)):
+            return
+        captured_at = getattr(getattr(snapshot, "timing_health", None), "captured_at", None)
+        observation = observation_from_snapshot(
+            snapshot, run_id, captured_at=captured_at or self._clock())
+        try:
+            recorder.observe_powerups(observation)
+        except OSError as exc:
+            self._log(f"Could not write power-up history: {exc}", tag="error")
+        finally:
+            feed = self._active_recording_feed()
+            if feed is not None:
+                feed.update_powerups(recorder.powerup_history)
 
     def toggle_recording(self):
         recorder = self._recorder()
@@ -321,6 +341,9 @@ class VodCapture:
                 character_name=character_name,
             )
         self._reset_snapshot_buffer()
+        feed = self._active_recording_feed()
+        if feed is not None:
+            feed.start(self._recorder().current_metadata())
         self.player_stats_recording_seed = seed
         self.player_stats_recording_stage_ptr = stage_ptr
         self.player_stats_recording_stage_index = stage_index
@@ -338,6 +361,7 @@ class VodCapture:
         log_tag: str | None = None,
         refresh_live_stats: bool = True,
         finalize_snapshot: bool = True,
+        refresh_library: bool = True,
     ) -> None:
         recorder = self._recorder()
         if finalize_snapshot and recorder.is_recording:
@@ -348,8 +372,9 @@ class VodCapture:
                 # before the last best-effort memory snapshot can be built.
                 pass
         stop_error = None
+        stop_status = None
         try:
-            recorder.stop()
+            stop_status = recorder.stop()
         except Exception as exc:
             stop_error = exc
             try:
@@ -360,6 +385,23 @@ class VodCapture:
             # Recorder.stop() can fail while flushing a summary or closing a
             # full/removed file. The logical recording still has to end, or
             # every later refresh keeps treating a broken writer as active.
+            feed = self._active_recording_feed()
+            if feed is not None:
+                try:
+                    history = getattr(recorder, "powerup_history", None)
+                    if history is not None:
+                        feed.update_powerups(history)
+                    if stop_error is not None:
+                        feed.fail_finalize(stop_error)
+                    elif stop_status in {"deleted_empty", "deleted_short"}:
+                        feed.discard(stop_status)
+                    else:
+                        feed.finalize(recorder.current_metadata())
+                except Exception as exc:
+                    self._log(
+                        f"Could not publish finalized recording state: {exc}",
+                        tag="warning",
+                    )
             self._reset_snapshot_buffer()
             self.player_stats_recording_seed = None
             self.player_stats_recording_stage_ptr = 0
@@ -382,7 +424,8 @@ class VodCapture:
                 self._player_stats_view().set_recording_status_text(
                     f"Recording stopped, but the file could not be finalized: {stop_error}"
                 )
-        self._recordings_list_view()._refresh_vods_list_if_visible()
+        if refresh_library:
+            self._recordings_list_view()._refresh_vods_list_if_visible()
 
     def sync_run_state(self, context=None) -> str | None:
         """``context`` is the current ``RefreshTickContext`` when this runs from

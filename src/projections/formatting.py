@@ -1114,21 +1114,15 @@ def _format_compare_run_item_deltas(snapshot_a, snapshot_b, *, details_expanded:
     return rows
 
 
-def build_compare_runs_items_summary(snapshot_a, snapshot_b, *, details_expanded: bool = False) -> str:
-    """The Items card's text half, with the per-item table left to the widget."""
+def build_compare_runs_items_summary(snapshot_a, snapshot_b) -> str:
+    """The Items card's rarity summary, with the full table left to the widget."""
     _counts_a, _counts_b, more_in_b, more_in_a = _compare_run_item_counts(snapshot_a, snapshot_b)
-    rows = _item_delta_text_rows(more_in_b, more_in_a, include_inline=not details_expanded)
+    rows = _item_delta_text_rows(more_in_b, more_in_a, include_inline=False)
     return "<br>".join(rows) if rows else "--"
 
 
-def build_compare_runs_items_table(snapshot_a, snapshot_b, *, details_expanded: bool = False) -> MetricTable:
-    """The per-item table, and only when the user has expanded the details.
-
-    Folded away it is an empty table, which the view renders as nothing at all
-    -- the summary line above it already says there is nothing to show.
-    """
-    if not details_expanded:
-        return EMPTY_METRIC_TABLE
+def build_compare_runs_items_table(snapshot_a, snapshot_b) -> MetricTable:
+    """Every item present in either run, with missing counts represented as zero."""
     counts_a, counts_b, _more_in_b, _more_in_a = _compare_run_item_counts(snapshot_a, snapshot_b)
     rows = tuple(
         MetricRow(
@@ -1215,8 +1209,6 @@ def _item_delta_table_rows(counts_a: dict[str, int], counts_b: dict[str, int]) -
         count_a = counts_a.get(name, 0)
         count_b = counts_b.get(name, 0)
         delta = count_a - count_b
-        if delta == 0:
-            continue
         rows.append((name, count_a, count_b, delta))
     return tuple(
         sorted(

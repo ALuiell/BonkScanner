@@ -10,7 +10,8 @@ that locked for itself would reintroduce exactly the coherence problem
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import gcd
+from math import ceil, floor, frexp, gcd, isfinite, ldexp
+import struct
 from typing import Any
 
 from core.stat_labels import abbreviate_stat_label
@@ -22,7 +23,7 @@ from core.tracker.snapshots import ChaosTomeStatTotal
 @dataclass
 class _ChaosTomeState:
     chaos_tome_level: int | None = None
-    chaos_modifier_baselines: dict[int, tuple[float, ...]] = field(default_factory=dict)
+    chaos_modifier_baselines: dict[tuple[int, int], float] = field(default_factory=dict)
     chaos_totals: dict[int, ChaosTomeStatTotal] = field(default_factory=dict)
     chaos_ambiguous_rolls: int = 0
     chaos_available_rolls: int = 0
@@ -57,6 +58,10 @@ def _compute_chaos_fingerprints() -> dict[int, list[float]]:
 
 
 CHAOS_FINGERPRINTS: dict[int, list[float]] = _compute_chaos_fingerprints()
+CHAOS_FLOAT32_FINGERPRINTS: dict[int, tuple[float, ...]] = {
+    stat_id: tuple(struct.unpack("<f", struct.pack("<f", value))[0] for value in values)
+    for stat_id, values in CHAOS_FINGERPRINTS.items()
+}
 CHAOS_TOME_STAT_IDS: frozenset[int] = frozenset(CHAOS_FINGERPRINTS.keys())
 CHAOS_UNBUDGETED_BASELINE_SAMPLES = 4
 CHAOS_TOME_GAME_STAT_ORDER: dict[int, int] = {
@@ -163,71 +168,50 @@ def record_modifier_deltas(
 ) -> None:
     for stat_id, modifiers in (permanent_modifiers or {}).items():
         stat_id = int(stat_id)
-        values = tuple(modifiers or ())
-        old_values = state.chaos_modifier_baselines.get(stat_id, ())
-        new_values = tuple(float(getattr(m, "value", 0.0)) for m in values)
-
-        new_baseline = list(old_values)
-
-        # Check existing indices for stacked modifiers
-        for i in range(min(len(old_values), len(new_values))):
-            delta = new_values[i] - old_values[i]
-            if abs(delta) > 0.001:
-                matched_rolls = looks_like_chaos_value(
-                    stat_id,
-                    delta,
-                    max_rolls=max(1, int(state.chaos_tome_level or 1)),
+        for index, modifier in enumerate(modifiers or ()):
+            # Dice/shrine filtering can remove or reorder entries. Their list
+            # positions are not identities. Keep absent objects' baselines so
+            # returning to the filtered list cannot turn an old grant into new.
+            # Pointerless legacy snapshots retain positional compatibility.
+            identity = int(getattr(modifier, "object_ptr", 0) or 0) or -(index + 1)
+            key = (stat_id, identity)
+            value = float(getattr(modifier, "value", 0.0))
+            if not isfinite(value):
+                continue
+            old_value = state.chaos_modifier_baselines.get(key, 0.0)
+            delta = value - old_value
+            if delta == 0:
+                continue
+            matched_rolls = looks_like_chaos_value(
+                stat_id,
+                delta,
+                max_rolls=max(1, int(state.chaos_tome_level or 1)),
+                # Subtracting two stacked float32 totals loses precision at
+                # the totals' scale, rather than at the smaller delta's scale.
+                value_tolerance=_float32_tolerance(value) + _float32_tolerance(old_value),
+            )
+            rolls_to_process = min(state.chaos_available_rolls, matched_rolls)
+            if rolls_to_process > 0:
+                add_total_by_value(
+                    state, stat_id, modifier,
+                    delta * (rolls_to_process / matched_rolls),
+                    rolls=rolls_to_process,
                 )
-                if matched_rolls > 0:
-                    rolls_to_process = min(state.chaos_available_rolls, matched_rolls)
-                    if rolls_to_process > 0:
-                        add_total_by_value(
-                            state,
-                            stat_id,
-                            values[i],
-                            delta * (rolls_to_process / matched_rolls),
-                            rolls=rolls_to_process,
-                        )
-                        state.chaos_available_rolls -= rolls_to_process
-                        new_baseline[i] = new_values[i]
-                        state.chaos_unbudgeted_candidates.pop((stat_id, i), None)
-                    elif should_commit_unbudgeted_candidate(state, stat_id, i, new_values[i]):
-                        new_baseline[i] = new_values[i]
-                else:
-                    new_baseline[i] = new_values[i]
-                    state.chaos_unbudgeted_candidates.pop((stat_id, i), None)
+                state.chaos_available_rolls -= rolls_to_process
+            elif matched_rolls > 0 and not should_commit_unbudgeted_candidate(
+                state, stat_id, identity, value
+            ):
+                # Retain the candidate if its modifier arrived before its
+                # budget. Later objects can still be processed independently.
+                continue
+            state.chaos_modifier_baselines[key] = max(0.0, value)
+            state.chaos_unbudgeted_candidates.pop(key, None)
 
-        # Check new indices for spawned modifiers
-        if len(new_values) > len(old_values):
-            for i in range(len(old_values), len(new_values)):
-                val = new_values[i]
-                matched_rolls = looks_like_chaos_value(
-                    stat_id,
-                    val,
-                    max_rolls=max(1, int(state.chaos_tome_level or 1)),
-                )
-                if matched_rolls > 0:
-                    rolls_to_process = min(state.chaos_available_rolls, matched_rolls)
-                    if rolls_to_process > 0:
-                        add_total_by_value(
-                            state,
-                            stat_id,
-                            values[i],
-                            val * (rolls_to_process / matched_rolls),
-                            rolls=rolls_to_process,
-                        )
-                        state.chaos_available_rolls -= rolls_to_process
-                        new_baseline.append(val)
-                        state.chaos_unbudgeted_candidates.pop((stat_id, i), None)
-                    elif should_commit_unbudgeted_candidate(state, stat_id, i, val):
-                        new_baseline.append(val)
-                    else:
-                        break
-                else:
-                    new_baseline.append(val)
-                    state.chaos_unbudgeted_candidates.pop((stat_id, i), None)
 
-        state.chaos_modifier_baselines[stat_id] = tuple(new_baseline)
+def _float32_tolerance(value: float) -> float:
+    """Two float32 ULPs, including subnormal values."""
+    exponent = frexp(abs(value))[1] - 24 if value else -149
+    return 2.0 * ldexp(1.0, max(-149, exponent))
 
 
 def looks_like_chaos_value(
@@ -235,34 +219,43 @@ def looks_like_chaos_value(
     value: float,
     *,
     max_rolls: int = 1,
+    value_tolerance: float | None = None,
 ) -> int:
-    numeric = abs(value)
-    if numeric <= 0:
+    numeric = float(value)
+    if not isfinite(numeric) or numeric <= 0:
         return 0
 
     fingerprints = CHAOS_FINGERPRINTS.get(stat_id)
     if not fingerprints:
         return 0
 
-    # The game stacks different Chaos rolls for the same stat into one
-    # modifier value. Work in thousandths (the game's own rounding) and
-    # find the smallest valid combination of known fingerprints.
-    target = int(round(numeric * 1000.0))
+    tolerance = _float32_tolerance(numeric)
+    if value_tolerance is not None:
+        tolerance = max(tolerance, value_tolerance)
+    if any(abs(numeric - fingerprint) <= tolerance
+           for fingerprint in CHAOS_FLOAT32_FINGERPRINTS[stat_id]):
+        return 1
+    if max_rolls <= 1:
+        return 0
+
+    # Preserve legacy stacked recovery by finding the smallest fingerprint
+    # sum. Only float32 error is allowed; whole thousandths are not noise.
+    lower_raw = max(0, ceil((numeric - tolerance) * 1000.0))
+    upper_raw = floor((numeric + tolerance) * 1000.0)
     fingerprint_units = tuple(
         sorted({int(round(float(fp) * 1000.0)) for fp in fingerprints if fp > 0})
     )
-    if target <= 0 or not fingerprint_units:
+    if upper_raw <= 0 or lower_raw > upper_raw or not fingerprint_units:
         return 0
 
     max_rolls = max(1, int(max_rolls))
-    minimum_progress = max(1, min(fingerprint_units) - 2)
-    max_rolls = min(max_rolls, (target // minimum_progress) + 1)
+    max_rolls = min(max_rolls, upper_raw // min(fingerprint_units))
     scale = 0
     for fingerprint in fingerprint_units:
         scale = gcd(scale, fingerprint)
     scale = max(1, scale)
     scaled_fingerprints = tuple(fingerprint // scale for fingerprint in fingerprint_units)
-    maximum_sum = (target + (2 * max_rolls)) // scale
+    maximum_sum = upper_raw // scale
     reachable = 1  # Bit N means that a scaled fingerprint sum of N is reachable.
     sum_mask = (1 << (maximum_sum + 1)) - 1
     for roll_count in range(1, max_rolls + 1):
@@ -270,9 +263,6 @@ def looks_like_chaos_value(
         for fingerprint in scaled_fingerprints:
             next_reachable |= reachable << fingerprint
         reachable = next_reachable & sum_mask
-        tolerance = max(2, 2 * roll_count)
-        lower_raw = max(0, target - tolerance)
-        upper_raw = target + tolerance
         lower = (lower_raw + scale - 1) // scale
         upper = min(maximum_sum, upper_raw // scale)
         window_width = upper - lower + 1
@@ -287,12 +277,12 @@ def looks_like_chaos_value(
 def should_commit_unbudgeted_candidate(
     state: _ChaosTomeState,
     stat_id: int,
-    index: int,
+    identity: int,
     value: float,
 ) -> bool:
-    key = (stat_id, index)
+    key = (stat_id, identity)
     previous = state.chaos_unbudgeted_candidates.get(key)
-    if previous is not None and abs(previous[0] - value) <= 0.001:
+    if previous is not None and abs(previous[0] - value) <= _float32_tolerance(value):
         samples = previous[1] + 1
     else:
         samples = 1

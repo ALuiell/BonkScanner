@@ -21,12 +21,15 @@ import subprocess
 import sys
 import textwrap
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
+from app import config
 from core.item_metadata import COLOR_MAP
+from ui.layout import _save_show_target_gaps
 from ui.log_view import (
     SEVERITIES,
     LogRecord,
@@ -142,6 +145,41 @@ class LogFilterTests(unittest.TestCase):
     def test_search_ignores_case(self) -> None:
         record = self._record("Megabonk.exe")
         self.assertTrue(record_matches(record, severities=set(), search="megabonk"))
+
+
+class TargetGapPersistenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.previous = bool(getattr(config, "SHOW_TARGET_GAPS", True))
+        self.previous_config = config.user_config.get("SHOW_TARGET_GAPS", self.previous)
+
+    def tearDown(self) -> None:
+        config.SHOW_TARGET_GAPS = self.previous
+        config.user_config["SHOW_TARGET_GAPS"] = self.previous_config
+
+    def test_toggle_persists_runtime_and_config_state(self) -> None:
+        with patch.object(
+            config,
+            "save_config",
+            return_value=config.ConfigSaveResult(True),
+        ) as save:
+            self.assertTrue(_save_show_target_gaps(False))
+
+        self.assertFalse(config.SHOW_TARGET_GAPS)
+        self.assertFalse(config.user_config["SHOW_TARGET_GAPS"])
+        save.assert_called_once_with(config.user_config)
+
+    def test_failed_save_rolls_back_runtime_and_config_state(self) -> None:
+        config.SHOW_TARGET_GAPS = True
+        config.user_config["SHOW_TARGET_GAPS"] = True
+        with patch.object(
+            config,
+            "save_config",
+            return_value=config.ConfigSaveResult(False, "disk full"),
+        ):
+            self.assertFalse(_save_show_target_gaps(False))
+
+        self.assertTrue(config.SHOW_TARGET_GAPS)
+        self.assertTrue(config.user_config["SHOW_TARGET_GAPS"])
 
 
 class LogViewWidgetTests(unittest.TestCase):
@@ -314,6 +352,31 @@ class LogViewWidgetTests(unittest.TestCase):
             assert scrollbar.value() == reading_position, (
                 scrollbar.value(), reading_position
             )
+            """
+        )
+
+    def test_target_gaps_default_on_and_persist_callback_can_reject_change(self) -> None:
+        self._run(
+            """
+            assert view.target_gaps_enabled() is True
+
+            changes = []
+            accepted = LogView(
+                throttle=Inline(),
+                show_target_gaps=True,
+                on_target_gaps_changed=lambda enabled: changes.append(enabled) or True,
+            )
+            accepted._target_gaps.setChecked(False)
+            assert changes == [False], changes
+            assert accepted.target_gaps_enabled() is False
+
+            rejected = LogView(
+                throttle=Inline(),
+                show_target_gaps=True,
+                on_target_gaps_changed=lambda _enabled: False,
+            )
+            rejected._target_gaps.setChecked(False)
+            assert rejected.target_gaps_enabled() is True
             """
         )
 

@@ -53,6 +53,8 @@ def build_refresh_tasks(
     memory: Any = None,
     world: Any = None,
     permanent_source_recovery_job_factory: Callable[..., Any] | None = None,
+    roll_analytics_service: Any = None,
+    roll_analytics_active: bool | Callable[[], bool] = False,
 ) -> tuple[RefreshTasks, Any]:
     """A real `RefreshTasks` with its thirteen collaborators faked."""
     if world is None:
@@ -148,5 +150,7 @@ def build_refresh_tasks(
         refresh_session_tracked_items=lambda: world.session_tracked_item_refreshes.append(1),
         refresh_required=_predicate(refresh_required),
         permanent_source_recovery_job_factory=permanent_source_recovery_job_factory,
+        roll_analytics_service=lambda: roll_analytics_service,
+        roll_analytics_collection_active=_predicate(roll_analytics_active),
     )
     return service, world

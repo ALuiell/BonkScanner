@@ -128,20 +128,39 @@ class SupporterAccessController:
         initial_delay_ms = 1500 + int.from_bytes(digest[:2], "big") % 13_500
         self._schedule_check(initial_delay_ms)
 
-    def has_feature(self, feature_code: str) -> bool:
+    def premium_access_remaining_seconds(self) -> float | None:
+        """Effective access lifetime: zero if unavailable, None if unbounded.
+
+        UI consumers can schedule one deadline notification instead of polling.
+        Keep expiry and offline-grace policy here, shared with the access gate.
+        """
         state = self._state
-        now = self._now()
-        if not state.active or feature_code not in state.features:
-            return False
-        if state.expires_at is not None and state.expires_at <= now:
-            return False
-        if (
-            not state.online
-            and state.checked_at is not None
-            and state.checked_at + OFFLINE_GRACE <= now
-        ):
-            return False
-        return True
+        if not state.active:
+            return 0.0
+        deadlines = []
+        if state.expires_at is not None:
+            deadlines.append(state.expires_at)
+        if not state.online and state.checked_at is not None:
+            deadlines.append(state.checked_at + OFFLINE_GRACE)
+        if not deadlines:
+            return None
+        return max(0.0, (min(deadlines) - self._now()).total_seconds())
+
+    def has_premium_access(self) -> bool:
+        """Return whether the current key has effective Premium access."""
+        remaining = self.premium_access_remaining_seconds()
+        return remaining is None or remaining > 0.0
+
+    def has_feature(self, feature_code: str) -> bool:
+        """Compatibility gate for the all-features Premium policy.
+
+        Feature codes remain in the server response for presentation and
+        backwards compatibility, but access is no longer assigned per key: an
+        effective Premium subscription unlocks every Premium capability.
+        """
+
+        _ = feature_code
+        return self.has_premium_access()
 
     def activate(self, raw_key: str) -> bool:
         try:
@@ -183,7 +202,7 @@ class SupporterAccessController:
     def _no_key_state() -> SupporterAccessState:
         return SupporterAccessState(
             status="no_key",
-            message="Add a supporter key to unlock assigned premium features.",
+            message="Add a supporter key to unlock all Premium features.",
         )
 
     def _state_from_cache(self, raw_key: str) -> SupporterAccessState | None:

@@ -34,6 +34,7 @@ Left side:
 Right side:
 - `Logs` - scanner activity, warnings, wait states, and match results.
 - `Session Stats` - session time, reroll count, RPM, best and worst maps, and averages per target.
+- `Session Stats > Roll Analytics` - separate Dice passive and Chaos Tome tabs. All 27 stats appear in one two-column table; `Sort by` changes their order across both columns. `Expected` shows the 27-stat reference model and signed differences, not a prediction. Select `Lifetime history` or `From recording`; choose a saved run, `Latest saved`, or `Open file...`. The last confirmed saved counters are read, without adding them to lifetime history; an earlier confirmed snapshot is labelled with its timestamp. Missing data is unavailable, not zero. Optional lifetime collection requires Premium and works without run recording; saved-data viewing remains available without Premium.
 - `Live Stats` - current run stats, items, weapons, tomes, and recording controls.
 - `Recordings` - saved recordings viewer with timeline, rename, delete, and cleanup actions.
 - `Compare Runs` - side-by-side comparison of two saved runs with synced in-game time and a central difference panel.
@@ -44,9 +45,9 @@ Right side:
 Reroll and Restart
 ------------------
 - Standard keyboard restart is still the default and simplest option.
-- If rerolls feel unstable, first try increasing `Reset Hold Duration (s)` a little.
+- If a reset is missed, increase `Extra hold time` under `Settings → Restart → Advanced`, save, and try several resets. This lengthens the key hold while keeping the current or planned game threshold.
 - BonkScanner waits for a safe map-ready and memory-read state, so short pauses between restart and evaluation are normal.
-- `Stop scanning when player moves` in Settings pauses Auto-Reroll immediately when W, A, S, D, or Space is pressed. It only reacts while Auto-Reroll is active and Megabonk is the active window.
+- `Stop scanning when player moves` in `Settings → Restart` pauses Auto-Reroll immediately when W, A, S, D, or Space is pressed. It only reacts while Auto-Reroll is active and Megabonk is the active window.
 - If a Forest or Desert run is already past Tier 1, the configured scan hotkey keeps Auto-Reroll off and shows a warning. Tier 1, Graveyard, and the game's normal manual `R` input are not blocked.
 
 Live Stats
@@ -222,15 +223,26 @@ Important:
 
 Settings and Updates
 --------------------
-Main settings:
+`Settings`:
+- `General → Appearance → Design` - select Default (the original BonkScanner style) or Halloween. Both are free; new profiles use Halloween. Earlier standard-style choices are preserved. Save applies the choice immediately and remembers it between launches; Cancel discards the edit. Desktop appearance does not change OBS output or in-game overlay styling. There is no automatic date-based switching.
+- In Halloween, the footer heart becomes a purple pulsing web. Support reminders rise with a spider; Premium users receive a thank-you on launch at most once every 24 hours instead of a donation prompt; the cooldown is saved across restarts and appearance changes. Both messages allow eight seconds for reading after the climb. Animation pauses while the application is inactive or minimized. Standard appearance keeps the regular cards and heart.
+- The header pumpkin's fire, tree lighting and footer web flash together twice about every 5.7 seconds, with a 4.5-second pause between sequences. Hovering over the web or showing a Support message restarts the effects together.
 - `Scan Hotkey` - starts or pauses the scan loop while the app is running.
 - `Reset Hotkey` - keyboard restart hotkey.
 - `Record Hotkey` - starts or stops live stats recording.
 - `In-Game Overlay Edit Hotkey` - enters or exits overlay Layout Mode.
-- `Reset Hold Duration (s)` - keyboard reset hold time in the app. Close Megabonk before changing Reset Speed; the game reads the synchronized value on its next start.
-- `Safety Margin (s)` - advanced tolerance added above Megabonk's own `quick_reset_time`. Lower is faster but less tolerant. The default is `0.05`; values from `0.00` to `1.00` are accepted. The effective scanner minimum is the game's `0.01` minimum plus this margin; there is no separate `0.10` floor.
-- `Game quick reset` - read-only preview of the exact `quick_reset_time` BonkScanner will write. Every Settings save verifies the scanner config and synchronizes and verifies the game config, even if Reset Hold did not change. On failure, Settings stays open, preserves the last known-good runtime values, and shows the exact reason.
 - `Snapshot Interval (s)` - how often recording saves a new snapshot.
+
+`Settings → Restart`:
+- `Reset key hold` - how long BonkScanner holds the restart key. Shorter holds can make resets faster; map loading also affects the time between runs. The hold must cover the game threshold plus the chosen extra hold time.
+- `Extra hold time` (Safety Margin), under `Advanced` - minimum tolerance above the game threshold. Default: `0.05 s`; range: `0.00–1.00 s`. Changing this field lengthens or shortens the key hold while preserving the current or planned game threshold. The minimum selectable hold is `0.01 s` plus this margin. Very short holds or zero margin can miss resets.
+- `Game config` shows `quick_reset_time` from the saved file, not the running game. It refreshes while Settings is open without replacing your edits.
+- A blue hint is shown before reset timing is edited. Timing edits replace it with a status: green when ready or successfully saved, yellow when the game config will change, and red for invalid input or a save failure. Advanced is collapsed by default; expand it to edit Extra hold time. Invalid input stays visible. Save is disabled until the value is valid and, when necessary, Megabonk is closed.
+- `Use recommended values…` confirms and applies only reset timing: game `0.01 s`, extra `0.05 s`, hold `0.06 s`. Other edits remain unsaved. New installations attempt this setup when the game is closed; existing users keep their saved settings. If setup is blocked, use this button after closing the game. A manual timing save cancels the pending initial setup.
+- Save changes all edited Settings together. When the hold already covers the game threshold and margin, only BonkScanner is updated; the game may stay open. Lowering the game-file threshold requires Megabonk to be closed, and the game reads it on its next launch. Saving unrelated settings does not change reset timing. Changed config files are verified; failures keep Settings open with your edits and explain whether previous files were restored.
+- Before keyboard Auto-Reroll starts, the game-file threshold is checked again. A hold that is too short is raised automatically; deliberately longer holds are kept. If the game config cannot be read or the correction cannot be saved, the log explains the limitation.
+
+Updates:
 - `Check for Updates` - checks for a newer packaged build when that updater flow is available.
 
 Other notes:

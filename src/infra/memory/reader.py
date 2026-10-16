@@ -94,6 +94,40 @@ class ProcessMemory:
             except Exception:
                 pass
 
+    def process_identity(self) -> str:
+        """Return an identity stable for one game process, including reattach."""
+
+        if self._pm is None:
+            raise MemoryReadError("Process memory is not initialized.")
+        process_id = int(getattr(self._pm, "process_id", 0) or 0)
+        creation_ticks = 0
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            creation = wintypes.FILETIME()
+            exit_time = wintypes.FILETIME()
+            kernel = wintypes.FILETIME()
+            user = wintypes.FILETIME()
+            handle = wintypes.HANDLE(int(self._pm.process_handle))
+            if ctypes.windll.kernel32.GetProcessTimes(
+                handle,
+                ctypes.byref(creation),
+                ctypes.byref(exit_time),
+                ctypes.byref(kernel),
+                ctypes.byref(user),
+            ):
+                creation_ticks = (
+                    int(creation.dwHighDateTime) << 32
+                ) | int(creation.dwLowDateTime)
+        except (AttributeError, OSError, TypeError, ValueError):
+            # PID is still a useful fallback. Production Windows handles should
+            # take the GetProcessTimes path; lightweight test doubles do not.
+            creation_ticks = 0
+        if process_id <= 0:
+            raise MemoryReadError("Process identity is unavailable.")
+        return f"{process_id}:{creation_ticks}"
+
     def __enter__(self) -> "ProcessMemory":
         return self
 

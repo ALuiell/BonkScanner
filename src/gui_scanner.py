@@ -33,8 +33,14 @@ import time
 from typing import Any, Callable
 
 from app import config
+from app.reroll_rate import RerollCyclePeak
 from infra.crash_journal import log_runtime_event
-from app.map_scoring import calculate_map_score, evaluate_candidate, format_stats
+from app.map_scoring import (
+    calculate_map_score,
+    evaluate_candidate,
+    format_candidate_gaps,
+    format_stats,
+)
 from ui.tabs.session_stats import SessionStatsTab
 from app.template_filters import TemplateRuntimeFilters
 # Top-level, not deferred into the builder. `gui_dialogs` imports nothing from
@@ -81,6 +87,13 @@ class Scanner:
         current_runtime_snapshot: Callable[[], Any],
         reroll_warning_dialog: Callable[[], Any],
         obs_reminder_dialog: Callable[[], Any],
+        open_merchant_analytics_dialog: Callable[[], None] = lambda: None,
+        toggle_merchant_analytics: Callable[[bool], bool] = lambda _enabled: False,
+        merchant_analytics_status: Callable[[], Any] = lambda: None,
+        has_premium_access: Callable[[], bool] = lambda: False,
+        open_roll_analytics_dialog: Callable[[], None] = lambda: None,
+        toggle_roll_analytics: Callable[[bool], bool] = lambda _enabled: False,
+        roll_analytics_status: Callable[[], Any] = lambda: None,
     ) -> None:
         self._coordinator = coordinator
         self._run_control = run_control
@@ -94,6 +107,13 @@ class Scanner:
         self._refresh_session_stats_snapshot = refresh_session_stats_snapshot
         self._refresh_session_tracked_item_stats_ui = refresh_session_tracked_item_stats_ui
         self._open_tracked_item_settings_dialog = open_tracked_item_settings_dialog
+        self._open_merchant_analytics_dialog = open_merchant_analytics_dialog
+        self._toggle_merchant_analytics = toggle_merchant_analytics
+        self._merchant_analytics_status = merchant_analytics_status
+        self._has_premium_access = has_premium_access
+        self._open_roll_analytics_dialog = open_roll_analytics_dialog
+        self._toggle_roll_analytics = toggle_roll_analytics
+        self._roll_analytics_status = roll_analytics_status
         self._is_recording = is_recording
         self._refresh_timeline = refresh_timeline
         self._is_shutting_down = is_shutting_down
@@ -117,6 +137,7 @@ class Scanner:
         # Session counters, read by the tab below and by `SessionStats`.
         self.session_start_time = None
         self.session_rerolls = 0
+        self._reroll_peak = RerollCyclePeak()
         self.best_map_stats = None
         self.best_map_score = -1
         self.worst_map_stats = None
@@ -208,6 +229,10 @@ class Scanner:
     def _scan_abort_requested(self) -> bool:
         return self.stop_event.is_set() or not self.scan_event.is_set()
 
+    def _break_reroll_sequence(self) -> None:
+        with self._filters.state_lock:
+            self._reroll_peak.break_sequence()
+
     def handle_player_movement(self) -> None:
         """Pause an active scan after W/A/S/D/Space in the game window.
 
@@ -232,6 +257,7 @@ class Scanner:
             self.is_running = False
             self.pause_reason = "player_movement"
             self.scan_event.clear()
+            self._break_reroll_sequence()
 
         self.log("[SAFETY] Player movement detected. Auto-reroll paused.", tag="warning")
         self._schedule(0, self.update_status_ui)
@@ -251,6 +277,7 @@ class Scanner:
             self.is_running = False
             self.stop_event.set()
             self.scan_event.set()
+            self._break_reroll_sequence()
         self._flush_total_rerolls(force=True)
         worker = self.scanner_thread
         if worker is None:
@@ -304,6 +331,7 @@ class Scanner:
         with self._filters.state_lock:
             session_start_time = self.session_start_time
             session_rerolls = self.session_rerolls
+            peak_rpm = self._reroll_peak.maximum
         if self.is_scanning() and session_start_time:
             elapsed = int(time.time() - session_start_time)
             td = datetime.timedelta(seconds=elapsed)
@@ -311,6 +339,8 @@ class Scanner:
                 rpm = (session_rerolls / elapsed) * 60
             if self._stats_view is not None:
                 self._stats_view.set_session_clock(elapsed_text=str(td), rpm=rpm)
+        if self._stats_view is not None:
+            self._stats_view.set_peak_rpm(peak_rpm)
 
         status_label = self._status_label()
         session_meta = getattr(status_label, "_session_meta_label", None)
@@ -471,6 +501,7 @@ class Scanner:
             self.is_running = False
             self.pause_reason = "manual"
             self.scan_event.clear()
+            self._break_reroll_sequence()
             self.log("[*] Scan paused. Press the scan hotkey again to resume.")
         else:
             if self._is_late_forest_or_desert_stage():
@@ -483,6 +514,7 @@ class Scanner:
                 return
             self.is_running = True
             self.pause_reason = None
+            self._break_reroll_sequence()
             self.scan_event.set()
             self.log("[*] Scan started. Looking for selected target...")
             # A movement key may already be held when scanning is resumed, so
@@ -503,6 +535,10 @@ class Scanner:
         notice = config.reset_hold_duration_notice(config.refresh_reset_hold_duration())
         if notice is not None:
             self.log(notice, tag="warning")
+        warning = config.RESET_HOLD_SYNC_WARNING
+        if warning and warning != getattr(self, "_last_reset_timing_warning", ""):
+            self.log("[!] " + warning, tag="warning")
+        self._last_reset_timing_warning = warning
 
     def toggle_main_loop(self):
         """Queue a start or request a non-blocking interactive stop.
@@ -612,6 +648,7 @@ class Scanner:
             with self._filters.state_lock:
                 self.session_start_time = time.time()
                 self.session_rerolls = 0
+                self._reroll_peak.start()
                 self.best_map_stats = None
                 self.best_map_score = -1
                 self.worst_map_stats = None
@@ -661,6 +698,7 @@ class Scanner:
 
     def request_stop(self) -> None:
         """Signal the scan worker and return immediately to the Qt loop."""
+        self._break_reroll_sequence()
         if self._stop_pending:
             return
         worker = self.scanner_thread
@@ -718,11 +756,31 @@ class Scanner:
                 else self.worst_map_stats
             )
             active_templates, template_stats = self._filters.snapshot()
+            peak_rpm = self._reroll_peak.maximum
         view.set_counters(
             rerolls=session_rerolls,
             seeds_found=self._session_seed_count(template_stats),
             all_time_rerolls=config.TOTAL_REROLLS,
         )
+        view.set_peak_rpm(peak_rpm)
+        set_analytics_status = getattr(view, "set_merchant_analytics_status", None)
+        if callable(set_analytics_status):
+            analytics_status = self._merchant_analytics_status()
+            set_analytics_status(
+                enabled=bool(getattr(config, "MERCHANT_ANALYTICS_ENABLED", False)),
+                premium=bool(self._has_premium_access()),
+                session_recorded=int(getattr(analytics_status, "session_recorded", 0)),
+                error=getattr(analytics_status, "error", None),
+            )
+        set_roll_status = getattr(view, "set_roll_analytics_status", None)
+        if callable(set_roll_status):
+            status = self._roll_analytics_status()
+            set_roll_status(
+                enabled=bool(getattr(config, "ROLL_ANALYTICS_ENABLED", False)),
+                premium=bool(self._has_premium_access()),
+                session_recorded=int(getattr(status, "session_recorded", 0)),
+                error=getattr(status, "error", None),
+            )
         self._refresh_session_tracked_item_stats_ui()
         view.set_map_highlights(
             best_stats=best_stats,
@@ -834,6 +892,11 @@ class Scanner:
         if changed:
             self._request_stats_refresh()
 
+    def on_supporter_access_changed(self, _state=None) -> None:
+        """Refresh collection controls when cached access is confirmed or revoked."""
+        if not self._is_shutting_down():
+            self._request_stats_refresh()
+
     def _request_stats_refresh(self) -> None:
         """Coalesce worker publications into one queued Qt repaint."""
         with self._filters.state_lock:
@@ -854,23 +917,31 @@ class Scanner:
 
     def reroll_map(self) -> bool:
         if self._run_control.run_control_provider is None:
+            self._break_reroll_sequence()
             self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
             return False
 
         with self._restart_lock:
             if self._scan_abort_requested():
+                self._break_reroll_sequence()
                 return False
 
             try:
                 self._run_control.run_control_provider.restart_run()
             except RunControlError as exc:
+                self._break_reroll_sequence()
                 self.log(f"[-] {exc}", tag="error")
                 return False
+
+            with self._filters.state_lock:
+                self._reroll_peak.restarted()
 
         self.log_reroll_stats()
         return True
 
     def close_client(self):
+        self._break_reroll_sequence()
+        self._run_control.reset_restart_permission_check()
         if self.client:
             try:
                 self.client.close()
@@ -930,6 +1001,9 @@ class Scanner:
         self.update_status_ui()
 
     def _run_background_loop(self):
+        self._run_control.reset_restart_permission_check()
+        if not self._run_control.check_restart_permissions():
+            return
         process_name = config.PROCESS_NAME.strip()
         wait_state = None
         last_state = None
@@ -939,7 +1013,16 @@ class Scanner:
         while not self.stop_event.is_set():
             if self.client is None:
                 try:
+                    # Check before opening memory: elevated games may refuse
+                    # that open, so waiting for attachment could hide the cause.
+                    if not self._run_control.check_restart_permissions():
+                        return
                     self.client = GameDataClient(process_name=process_name)
+                    # Name lookup and attachment can race a game restart.
+                    if not self._run_control.check_restart_permissions(
+                        self._run_control.attached_game_process_id()
+                    ):
+                        return
                     self.log(f"[+] Game connected! Press '{config.HOTKEY}' to start auto-reroll.", tag="success")
                     self.is_ready_to_start = True
                     self._schedule(0, self.update_status_ui)
@@ -959,6 +1042,8 @@ class Scanner:
                     continue
 
             was_waiting = not self.scan_event.is_set()
+            if was_waiting:
+                self._break_reroll_sequence()
             if not self.scan_event.wait(timeout=0.25):
                 continue
             if was_waiting:
@@ -971,7 +1056,10 @@ class Scanner:
 
             try:
                 focus_was_active = self._run_control.is_game_window_active(process_name)
+                if not focus_was_active:
+                    self._break_reroll_sequence()
                 if not self._run_control.wait_for_game_window_focus(process_name):
+                    self._break_reroll_sequence()
                     continue
                 if self._disconnect_stale_scanner_client(process_name):
                     is_first_scan = True
@@ -993,10 +1081,14 @@ class Scanner:
                         timeout=10.0,
                     )
                 except InterruptedError:
+                    self._break_reroll_sequence()
                     continue
 
                 if self._scan_abort_requested():
+                    self._break_reroll_sequence()
                     continue
+                with self._filters.state_lock:
+                    self._reroll_peak.map_ready(time.monotonic())
                 is_first_scan = False
                 # `wait_for_map_ready` captured this state in the same strict
                 # sample that confirmed the stats. Re-reading through the
@@ -1020,6 +1112,7 @@ class Scanner:
                     continue
 
                 if candidate is not None:
+                    self._break_reroll_sequence()
                     if not self._run_control.wait_for_game_window_focus(process_name):
                         continue
                     if self._scan_abort_requested():
@@ -1057,13 +1150,25 @@ class Scanner:
                     continue
                 else:
                     self.log(f"Stats: {format_stats(stats, self.active_templates)}")
+                    if getattr(config, "SHOW_TARGET_GAPS", True):
+                        gap_text = format_candidate_gaps(
+                            stats,
+                            self.active_templates,
+                            context=eval_context,
+                        )
+                        if gap_text:
+                            self.log(gap_text)
 
+                if not self._run_control.is_game_window_active(process_name):
+                    self._break_reroll_sequence()
                 if not self._run_control.wait_for_game_window_focus(process_name):
+                    self._break_reroll_sequence()
                     continue
 
                 self.reroll_map()
 
             except TimeoutError as exc:
+                self._break_reroll_sequence()
                 # `wait_for_map_ready` spells out *which* readiness gate never
                 # opened -- change_seen/generation_seen separate "the reset key
                 # was never accepted by the game" from "the map really is slow
@@ -1085,6 +1190,7 @@ class Scanner:
                 last_state = None
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
+                self._break_reroll_sequence()
                 self.is_running = False
                 self.is_ready_to_start = False
                 self.pause_reason = None
@@ -1097,6 +1203,7 @@ class Scanner:
                 self._schedule(0, self.update_status_ui)
                 self.stop_event.wait(1.0)
             except Exception as exc:
+                self._break_reroll_sequence()
                 self.log(f"[-] Error during execution: {exc}", tag="error")
                 self.stop_event.wait(1.0)
 
@@ -1123,6 +1230,10 @@ class Scanner:
         """
         self._stats_view = SessionStatsTab(
             on_open_tracked_item_settings=self._open_tracked_item_settings_dialog,
+            on_open_merchant_analytics=self._open_merchant_analytics_dialog,
+            on_toggle_merchant_analytics=self._toggle_merchant_analytics,
+            on_open_roll_analytics=self._open_roll_analytics_dialog,
+            on_toggle_roll_analytics=self._toggle_roll_analytics,
         )
         self.tab_stats = self._stats_view.build()
         # See the slot's comment: two callers outside this file read it as
@@ -1157,7 +1268,7 @@ def build_scanner(
     `gui_dialogs` is top-level debt, so the composition root supplies the
     factory rather than the component importing it.
     """
-    return Scanner(
+    scanner = Scanner(
         coordinator,
         run_control=run_control,
         filters=filters,
@@ -1174,6 +1285,15 @@ def build_scanner(
         refresh_session_stats_snapshot=lambda: app._refresh_session_stats_snapshot(),
         refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(),
         open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(),
+        open_merchant_analytics_dialog=lambda: _open_merchant_analytics_for_app(app),
+        toggle_merchant_analytics=lambda enabled: _toggle_merchant_analytics_for_app(
+            app, enabled
+        ),
+        merchant_analytics_status=coordinator.merchant_analytics.status,
+        open_roll_analytics_dialog=lambda: _open_roll_analytics_for_app(app),
+        toggle_roll_analytics=lambda enabled: _toggle_roll_analytics_for_app(app, enabled),
+        roll_analytics_status=coordinator.roll_analytics.status,
+        has_premium_access=lambda: app.has_premium_access(),
         is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording),
         refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(
             update_slider=False
@@ -1183,3 +1303,27 @@ def build_scanner(
         reroll_warning_dialog=lambda: RerollWarningDialog(app.window),
         obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window),
     )
+    app.supporter_access.add_listener(scanner.on_supporter_access_changed)
+    return scanner
+
+
+def _open_merchant_analytics_for_app(app: Any) -> None:
+    from ui.dialogs.merchant_analytics import show_merchant_analytics
+
+    show_merchant_analytics(app)
+
+
+def _toggle_merchant_analytics_for_app(app: Any, enabled: bool) -> bool:
+    from ui.dialogs.merchant_analytics import set_merchant_analytics_collection
+
+    return set_merchant_analytics_collection(app, enabled, parent=app.window)
+
+
+def _open_roll_analytics_for_app(app: Any) -> None:
+    from ui.dialogs.roll_analytics import show_roll_analytics
+    show_roll_analytics(app)
+
+
+def _toggle_roll_analytics_for_app(app: Any, enabled: bool) -> bool:
+    from ui.dialogs.roll_analytics import set_roll_analytics_collection
+    return set_roll_analytics_collection(app, enabled, parent=app.window)

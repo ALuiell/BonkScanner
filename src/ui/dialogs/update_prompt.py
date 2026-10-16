@@ -15,7 +15,9 @@ from app.update_flow import (
 from ui.dialogs.update_dialog import show_update_dialog
 
 
-SUPPORTERS_REFRESH_INTERVAL_MS = 10 * 60 * 1000
+SUPPORTERS_REFRESH_INTERVAL_MS = 60 * 60 * 1000
+SUPPORTERS_OPEN_REFRESH_AGE_SECONDS = 30 * 60
+SUPPORTERS_FAILURE_RETRY_SECONDS = 5 * 60
 _SUPPORTERS_REFRESH_STARTED_KEY = "_supporters_refresh_started"
 _SUPPORTERS_REFRESH_THREAD_KEY = "_supporters_refresh_thread"
 
@@ -294,7 +296,7 @@ def start_update_check(app_instance, *, force_check: bool):
 
 
 def start_supporters_load(app_instance):
-    """Fill the footer off the GUI thread now and refresh it every ten minutes."""
+    """Fill the footer off the GUI thread now and refresh it every hour."""
     footer = getattr(app_instance, "footer", None) if app_instance else None
     after = getattr(app_instance, "after", None) if app_instance else None
     if footer is None or after is None:
@@ -306,7 +308,8 @@ def start_supporters_load(app_instance):
     state[_SUPPORTERS_REFRESH_STARTED_KEY] = True
     flight_lock = threading.Lock()
     busy = False
-    last_checked = 0.0
+    last_successful = None
+    last_attempt = None
 
     def is_shutting_down() -> bool:
         return bool(state.get("_is_shutting_down", False))
@@ -326,9 +329,10 @@ def start_supporters_load(app_instance):
             return
 
         def apply() -> None:
-            nonlocal last_checked
+            nonlocal last_successful
             if not is_shutting_down():
-                last_checked = time.monotonic()
+                if getattr(supporters, "supporters", supporters) is not None:
+                    last_successful = time.monotonic()
                 try:
                     footer.set_supporters(supporters)
                 except Exception:
@@ -345,13 +349,14 @@ def start_supporters_load(app_instance):
                 busy = False
 
     def refresh():
-        nonlocal busy
+        nonlocal busy, last_attempt
         if is_shutting_down():
             return None
         with flight_lock:
             if busy:
                 return state.get(_SUPPORTERS_REFRESH_THREAD_KEY)
             busy = True
+            last_attempt = time.monotonic()
         previous = state.get(_SUPPORTERS_REFRESH_THREAD_KEY)
         registry = state.get("_background_threads")
         is_alive = getattr(previous, "is_alive", None)
@@ -365,6 +370,7 @@ def start_supporters_load(app_instance):
         except Exception:
             with flight_lock:
                 busy = False
+                last_attempt = None
             raise
         state[_SUPPORTERS_REFRESH_THREAD_KEY] = worker
         return worker
@@ -375,7 +381,17 @@ def start_supporters_load(app_instance):
         finally:
             schedule(SUPPORTERS_REFRESH_INTERVAL_MS, periodic_refresh)
 
-    footer.refresh_supporters_if_stale = lambda: refresh() if time.monotonic() - last_checked > 300 else None
+    def refresh_if_stale():
+        now = time.monotonic()
+        if (last_successful is not None
+                and now - last_successful < SUPPORTERS_OPEN_REFRESH_AGE_SECONDS):
+            return None
+        if (last_attempt is not None
+                and now - last_attempt < SUPPORTERS_FAILURE_RETRY_SECONDS):
+            return None
+        return refresh()
+
+    footer.refresh_supporters_if_stale = refresh_if_stale
     schedule(SUPPORTERS_REFRESH_INTERVAL_MS, periodic_refresh)
     try:
         return refresh()

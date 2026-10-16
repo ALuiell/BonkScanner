@@ -156,9 +156,7 @@ class CompareDirectionTests(unittest.TestCase):
             snapshot_a, snapshot_b, stat_labels=("Damage",)
         )
         weapons = formatting.build_compare_runs_weapons_table(snapshot_a, snapshot_b)
-        items = formatting.build_compare_runs_items_table(
-            snapshot_a, snapshot_b, details_expanded=True
-        )
+        items = formatting.build_compare_runs_items_table(snapshot_a, snapshot_b)
         snapshots = formatting.build_compare_runs_snapshot_table(
             vod_a, 0, snapshot_a, vod_b, 0, snapshot_b
         )
@@ -318,7 +316,7 @@ class TomesTableTests(unittest.TestCase):
 
 
 class ItemsTableTests(unittest.TestCase):
-    """The Items card is split: a summary line, plus a table only when expanded."""
+    """The Items card always shows the union of both inventories."""
 
     def _snapshots(self):
         return (
@@ -326,56 +324,55 @@ class ItemsTableTests(unittest.TestCase):
             snapshot(items=("Key x5", "Golden Ring x1", "Magnet x1")),
         )
 
-    def test_the_table_is_empty_until_the_details_are_expanded(self) -> None:
+    def test_table_lists_changed_unchanged_and_missing_items(self) -> None:
         table = formatting.build_compare_runs_items_table(*self._snapshots())
-
-        self.assertEqual((), table.sections)
-        self.assertEqual(
-            "",
-            table.empty_text,
-            "an empty caption is what tells the view to render nothing at all",
-        )
-
-    def test_expanded_lists_one_row_per_changed_item(self) -> None:
-        table = formatting.build_compare_runs_items_table(*self._snapshots(), details_expanded=True)
         rows = {row.label: row for row in table.sections[0].rows}
 
         self.assertEqual(("Name", "A", "B", "Diff"), table.sections[0].headers)
-        self.assertEqual({"Key", "Za Warudo", "Magnet"}, set(rows), "unchanged items are omitted")
+        self.assertEqual({"Key", "Za Warudo", "The One Ring", "Magnet"}, set(rows))
         self.assertEqual(("2", "5", "-3"), (rows["Key"].value_a, rows["Key"].value_b, rows["Key"].delta))
         self.assertEqual(("1", "0", "+1"), (
             rows["Za Warudo"].value_a,
             rows["Za Warudo"].value_b,
             rows["Za Warudo"].delta,
         ), "A holds the only Za Warudo, so its delta is positive")
+        self.assertEqual(("1", "1", "0"), (
+            rows["The One Ring"].value_a,
+            rows["The One Ring"].value_b,
+            rows["The One Ring"].delta,
+        ), "equal counts remain visible")
+        self.assertEqual(("0", "1", "-1"), (
+            rows["Magnet"].value_a,
+            rows["Magnet"].value_b,
+            rows["Magnet"].delta,
+        ), "an item missing from A is represented by zero")
 
     def test_each_row_carries_the_item_colour_the_html_used(self) -> None:
-        table = formatting.build_compare_runs_items_table(*self._snapshots(), details_expanded=True)
+        table = formatting.build_compare_runs_items_table(*self._snapshots())
 
         for row in table.sections[0].rows:
             self.assertTrue(row.label_color.startswith("#"), row.label)
             self.assertIn(row.label_color, formatting._format_item_delta_name(row.label))
 
-    def test_the_summary_keeps_the_inline_lists_only_while_collapsed(self) -> None:
+    def test_the_summary_leaves_item_rows_to_the_always_visible_table(self) -> None:
         snapshot_a, snapshot_b = self._snapshots()
 
-        collapsed = formatting.build_compare_runs_items_summary(snapshot_a, snapshot_b)
-        expanded = formatting.build_compare_runs_items_summary(
-            snapshot_a, snapshot_b, details_expanded=True
-        )
+        summary = formatting.build_compare_runs_items_summary(snapshot_a, snapshot_b)
 
-        self.assertIn("B has more", collapsed)
-        self.assertNotIn("B has more", expanded, "the table below replaces the inline list")
-        self.assertIn("Rarity Delta", expanded)
+        self.assertNotIn("B has more", summary, "the table below carries every item")
+        self.assertIn("Rarity Delta", summary)
 
-    def test_identical_inventories_say_so_and_show_no_table(self) -> None:
+    def test_identical_inventories_say_so_and_still_show_the_item(self) -> None:
         same = snapshot(items=("Key x2",))
 
-        summary = formatting.build_compare_runs_items_summary(same, same, details_expanded=True)
-        table = formatting.build_compare_runs_items_table(same, same, details_expanded=True)
+        summary = formatting.build_compare_runs_items_summary(same, same)
+        table = formatting.build_compare_runs_items_table(same, same)
 
         self.assertIn("No item count differences", summary)
-        self.assertEqual((), table.sections)
+        row = table.sections[0].rows[0]
+        self.assertEqual(("Key", "2", "2", "0"), (
+            row.label, row.value_a, row.value_b, row.delta
+        ))
 
     def test_the_summary_and_table_together_cover_the_html_formatter(self) -> None:
         """Nothing the old single-string card showed may have been dropped."""
@@ -383,9 +380,7 @@ class ItemsTableTests(unittest.TestCase):
         rendered = formatting.format_compare_runs_items_diff(
             snapshot_a, snapshot_b, details_expanded=True
         )
-        table = formatting.build_compare_runs_items_table(
-            snapshot_a, snapshot_b, details_expanded=True
-        )
+        table = formatting.build_compare_runs_items_table(snapshot_a, snapshot_b)
 
         self.assertIn("Rarity Delta", rendered)
         for row in table.sections[0].rows:

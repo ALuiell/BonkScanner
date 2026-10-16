@@ -43,7 +43,7 @@ from collections import deque
 from dataclasses import dataclass, field
 import html
 import time
-from typing import Sequence
+from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor
@@ -210,13 +210,22 @@ def render_record_html(record: LogRecord) -> str:
 class LogView(QWidget):
     """The Logs tab: filter bar, document and footer over one buffer."""
 
-    def __init__(self, parent=None, *, throttle=None) -> None:
+    def __init__(
+        self,
+        parent=None,
+        *,
+        throttle=None,
+        show_target_gaps: bool = True,
+        on_target_gaps_changed: Callable[[bool], bool | None] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("logPanel")
         self._records: deque[LogRecord] = deque(maxlen=LOG_BUFFER_LIMIT)
         self._severities: set[str] = set()
         self._search = ""
         self._render_throttle = throttle or UiUpdateThrottle(qt_context=self)
+        self._show_target_gaps_initial = bool(show_target_gaps)
+        self._on_target_gaps_changed = on_target_gaps_changed
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -275,6 +284,11 @@ class LogView(QWidget):
         bar.addWidget(self._search_entry)
 
         bar.addStretch(1)
+
+        self._target_gaps = QCheckBox("Show target gaps")
+        self._target_gaps.setChecked(self._show_target_gaps_initial)
+        self._target_gaps.toggled.connect(self._on_target_gaps_toggled)
+        bar.addWidget(self._target_gaps)
 
         self._autoscroll = QCheckBox("Auto-scroll")
         self._autoscroll.setChecked(True)
@@ -373,6 +387,25 @@ class LogView(QWidget):
     def _on_search(self, text: str) -> None:
         self._search = str(text)
         self._render()
+
+    def _on_target_gaps_toggled(self, enabled: bool) -> None:
+        callback = self._on_target_gaps_changed
+        if callback is None:
+            return
+        try:
+            accepted = callback(bool(enabled)) is not False
+        except Exception:
+            accepted = False
+        if accepted:
+            return
+        self._target_gaps.blockSignals(True)
+        try:
+            self._target_gaps.setChecked(not bool(enabled))
+        finally:
+            self._target_gaps.blockSignals(False)
+
+    def target_gaps_enabled(self) -> bool:
+        return self._target_gaps.isChecked()
 
     # -- rendering ------------------------------------------------------------
 

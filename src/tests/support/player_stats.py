@@ -50,7 +50,8 @@ class RecordingStatCardsView:
     def invalidate(self) -> None:
         self.invalidations += 1
 
-    def display_weapons(self, weapons, *, status_text: str | None = None, general_stats=None) -> None:
+    def display_weapons(self, weapons, *, status_text: str | None = None, general_stats=None,
+                        recorded_effective_stats=None) -> None:
         self.weapons.append((tuple(weapons or ()), status_text))
         self.weapon_globals.append(general_stats)
 
@@ -506,6 +507,7 @@ def build_recordings_tab(**overrides) -> RecordingsTab:
         # frame may simply never arrive.
         "snapshot_throttle": None,
         "timeline_series_slots": None,
+        "active_recording_feed": None,
     }
     unknown = set(overrides) - set(defaults)
     assert not unknown, f"not RecordingsTab constructor arguments: {sorted(unknown)}"

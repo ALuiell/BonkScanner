@@ -44,6 +44,39 @@ class LatestWinsLoaderTests(unittest.TestCase):
         release.set()
         self.assertEqual(completed, [])
 
+    def test_new_request_cooperatively_cancels_active_parse(self) -> None:
+        first_started = threading.Event()
+        first_cancelled = threading.Event()
+        completed = []
+        done = threading.Event()
+
+        def load(value, cancel_event, _progress):
+            if value == "first":
+                first_started.set()
+                self.assertTrue(cancel_event.wait(2.0))
+                first_cancelled.set()
+            return value
+
+        loader = LatestWinsLoader(schedule=lambda callback: callback())
+        loader.submit(
+            "first",
+            load=load,
+            complete=lambda *_args: completed.append("first"),
+            cancellable=True,
+        )
+        self.assertTrue(first_started.wait(1.0))
+        loader.submit(
+            "last",
+            load=load,
+            complete=lambda result, _error: (completed.append(result), done.set()),
+            cancellable=True,
+        )
+
+        self.assertTrue(done.wait(2.0))
+        loader.dispose()
+        self.assertTrue(first_cancelled.is_set())
+        self.assertEqual(["last"], completed)
+
 
 if __name__ == "__main__":
     unittest.main()

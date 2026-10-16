@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="180" viewBox="0 0 160 180">
+<defs>
+ <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#60416F"/><stop offset=".5" stop-color="#493153"/><stop offset="1" stop-color="#2B1C37"/></linearGradient>
+ <linearGradient id="fire" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#FFD27A"/><stop offset="1" stop-color="#DD802F"/></linearGradient>
+</defs>
+<!-- Short stem and uncomplicated cuts remain legible at 28 logical pixels. -->
+<path d="M73 47 C79 36 64 29 72 17 C78 8 88 11 93 19 L88 20 C92 27 91 36 97 47" fill="#624B71" stroke="#8D729D" stroke-width="5" stroke-linejoin="round"/>
+<path d="M79 43 C68 38 56 40 47 45 C30 43 17 56 12 74 C4 101 12 135 30 151 C44 166 65 169 80 170 C102 170 123 165 136 148 C151 130 155 99 147 73 C142 55 128 44 114 45 C103 39 90 39 79 43 Z" fill="url(#skin)" stroke="#8B649E" stroke-width="5"/>
+<path d="M49 49 C25 76 23 131 43 153 M111 49 C135 76 137 131 117 153 M73 47 C60 57 53 71 49 80 M87 47 C100 57 107 71 111 80" fill="none" stroke="#8B609D" stroke-width="5" stroke-linecap="round"/>
+<!-- Two simple, symmetric angry eye sockets without crossing eyebrow lines. -->
+<path d="M36 82 Q51 85 69 96 L62 111 Q46 112 39 102 Z" fill="url(#fire)" stroke="#170F21" stroke-width="5" stroke-linejoin="round"/>
+<path d="M124 82 Q109 85 91 96 L98 111 Q114 112 121 102 Z" fill="url(#fire)" stroke="#170F21" stroke-width="5" stroke-linejoin="round"/>
+<path d="M80 107 L72 122 L87 122 Z" fill="#170F21" stroke="#170F21" stroke-width="2" stroke-linejoin="round"/>
+<path d="M29 118 L44 130 L53 121 L66 138 L80 127 L94 138 L107 121 L116 130 L131 118 C124 145 105 159 80 160 C54 159 36 145 29 118 Z" fill="#170F21"/>
+<path d="M41 137 L51 139 L55 133 L66 148 L80 139 L94 148 L105 133 L109 139 L119 137 C109 149 96 155 80 155 C63 155 51 149 41 137 Z" fill="url(#fire)"/>
+</svg>

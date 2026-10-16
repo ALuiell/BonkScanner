@@ -7,6 +7,7 @@ import inspect
 from typing import Any, Callable
 
 from app import config
+from app.active_recording_feed import ActiveRecordingFeed
 from app.coordinator import AppCoordinator
 from app.player_stats_memory import PlayerStatsMemory
 from app.player_stats_refresh import PlayerStatsRefresh
@@ -45,6 +46,7 @@ class AppRuntimePorts:
     sync_overlay_state: Callable[[], None]
     sync_in_game_kps: Callable[[], None]
     refresh_session_tracked_items: Callable[[], None]
+    merchant_analytics_collection_active: Callable[[], bool]
     log: Callable[..., None]
     stop_hotkeys: Callable[[], Any]
     stop_in_game_overlay: Callable[..., Any]
@@ -52,6 +54,7 @@ class AppRuntimePorts:
     stop_twitch: Callable[..., Any]
     wait_background_threads: Callable[..., Any]
     close_overlay_server: Callable[..., Any]
+    roll_analytics_collection_active: Callable[[], bool] = lambda: False
 
 
 class AppRuntime:
@@ -63,6 +66,7 @@ class AppRuntime:
         self.snapshot_store = coordinator.snapshot_store
         self.live_run_tracker = coordinator.live_run_tracker
         self.vod_recorder = coordinator.vod_recorder
+        self.active_recording_feed = ActiveRecordingFeed()
         self.vod_library: VodLibrary | None = None
         self._started = False
         self._shutdown_report: ShutdownReport | None = None
@@ -103,6 +107,7 @@ class AppRuntime:
             log=ports.log,
             reset_snapshot_buffer=ports.reset_snapshot_buffer,
             read_character_identity=self._read_character_identity,
+            active_recording_feed=lambda: self.active_recording_feed,
         )
         self.refresh_tasks = RefreshTasks(
             memory=lambda: self.player_stats_memory,
@@ -120,6 +125,8 @@ class AppRuntime:
             refresh_session_tracked_items=ports.refresh_session_tracked_items,
             refresh_required=self._player_stats_refresh_required,
             build_progression_service=lambda: coordinator.build_progression_service,
+            roll_analytics_service=lambda: coordinator.roll_analytics,
+            roll_analytics_collection_active=ports.roll_analytics_collection_active,
         )
         self.refresh_coordinator = build_refresh_coordinator(
             self.refresh_tasks,
@@ -146,6 +153,7 @@ class AppRuntime:
             set_game_data_client=lambda value: setattr(
                 coordinator, "player_stats_game_data_client", value
             ),
+            active_recording_feed=lambda: self.active_recording_feed,
         )
         coordinator.player_stats_memory = self.player_stats_memory
         coordinator.run_lifecycle = self.run_lifecycle
@@ -201,6 +209,7 @@ class AppRuntime:
             self.vod_library = VodLibrary(
                 settings=self.coordinator.recording_settings,
                 schedule=schedule,
+                active_recording_feed=self.active_recording_feed,
             )
         return self.vod_library
 
@@ -219,7 +228,10 @@ class AppRuntime:
         timed_out.extend(f"in_game_overlay.{name}" for name in self._pending(overlay_result))
         self._step(
             "vod_recorder",
-            lambda: self.vod_recorder.stop()
+            lambda: self.vod_capture.stop_recording(
+                refresh_live_stats=False,
+                refresh_library=False,
+            )
             if self.vod_recorder.is_recording
             else self.vod_recorder.close(),
         )
@@ -269,6 +281,8 @@ class AppRuntime:
             or self.vod_recorder.is_recording
             or self.vod_capture.is_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
+            or self.ports.merchant_analytics_collection_active()
+            or self.ports.roll_analytics_collection_active()
             or any(
                 self.ports.overlay_widget_refresh_active(widget_id)
                 for widget_id in (

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -30,7 +31,7 @@ from ui.run_toggle import IN_GAME_OVERLAY_CAPTIONS
 from ui.dialogs.map_markers import MapMarkerSettingsDialog
 from ui.dialogs.shell import DIALOG_REGULAR, dialog_body, dialog_footer
 from ui.settings_card import SettingsCard, build_workspace
-from ui.shared import LabeledSwitch, _make_scroll_section
+from ui.shared import LabeledSwitch, _make_scroll_section, resource_path
 from ui.styles import _set_widget_style_role
 from ui.tab_hero import STATE_OFF, STATE_OK, STATE_WARN, TabHero
 
@@ -231,18 +232,16 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
     main_column.addStretch(1)
 
     layout.addStretch(1)
-    update_in_game_overlay_status_ui(parent_mixin)
     refresh_in_game_overlay_hotkey_ui(parent_mixin)
-    refresh_in_game_overlay_target_window(parent_mixin)
+    refresh_in_game_overlay_tab_state(parent_mixin)
 
-    # A slow poll for the one live fact this tab still shows. It used to drive
-    # the canvas preview as well; the preview is gone and the detection line is
-    # not, because whether the game is running changes without anything else in
-    # this tab ticking.
+    # Both the target-window line and the status badge depend on live window
+    # state. Refresh them together so WAITING does not remain after the game
+    # comes to the foreground and the overlay becomes visible.
     parent_mixin.igo_target_window_timer = QTimer(parent_mixin.tab_in_game_overlay)
     parent_mixin.igo_target_window_timer.setInterval(1500)
     parent_mixin.igo_target_window_timer.timeout.connect(
-        lambda: refresh_in_game_overlay_target_window(parent_mixin)
+        lambda: refresh_in_game_overlay_tab_state(parent_mixin)
     )
     parent_mixin.igo_target_window_timer.start()
 
@@ -468,15 +467,24 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
     table.addWidget(parent_mixin.igo_map_markers_scale_spin, marker_row, 2)
 
     marker_options, marker_options_row = _options_row()
-    parent_mixin.igo_map_markers_summary = QLabel()
-    parent_mixin.igo_map_markers_summary.setObjectName("tableRowEmpty")
-    marker_options_row.addWidget(parent_mixin.igo_map_markers_summary)
     marker_settings_btn = QPushButton("Settings")
     marker_settings_btn.clicked.connect(
         lambda: _open_map_marker_settings_dialog(parent_mixin)
     )
     parent_mixin.igo_map_markers_settings_btn = marker_settings_btn
     marker_options_row.addWidget(marker_settings_btn)
+    parent_mixin.igo_map_markers_premium_icon = QLabel(marker_options)
+    parent_mixin.igo_map_markers_premium_icon.setPixmap(
+        QIcon(resource_path("media/premium_access_icon.svg")).pixmap(16, 16)
+    )
+    parent_mixin.igo_map_markers_premium_icon.setFixedSize(16, 16)
+    parent_mixin.igo_map_markers_premium_icon.setToolTip(
+        "Premium minimap markers and Shady Guy stock memory"
+    )
+    marker_options_row.addWidget(parent_mixin.igo_map_markers_premium_icon)
+    parent_mixin.igo_map_markers_summary = QLabel()
+    parent_mixin.igo_map_markers_summary.setObjectName("tableRowEmpty")
+    marker_options_row.addWidget(parent_mixin.igo_map_markers_summary)
     marker_options_row.addStretch(1)
     table.addWidget(marker_options, marker_row, 3)
     refresh_map_marker_settings_summary(parent_mixin)
@@ -498,17 +506,40 @@ def refresh_map_marker_settings_summary(parent_mixin: Any) -> None:
         else "Manual only"
     )
     style = "Classic" if marker_cfg.get("style") == "classic" else "New style"
-    summary.setText(f"{mode} · {style} · {hotkeys}")
+    has_premium = getattr(parent_mixin, "_has_premium_access", lambda: False)
+    if not has_premium():
+        premium = "2 Premium options"
+    else:
+        premium_parts = []
+        if marker_cfg.get("minimap_enabled", True):
+            premium_parts.append("Minimap")
+        if marker_cfg.get("merchant_memory_enabled", True):
+            premium_parts.append("Shady memory")
+        premium = " + ".join(premium_parts) if premium_parts else "Premium off"
+    summary.setText(f"{mode} · {style} · {hotkeys} · {premium}")
 
 
 def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
     marker_cfg = config.IN_GAME_OVERLAY["map_markers"]
     parent = getattr(parent_mixin, "tab_in_game_overlay", None)
+    has_premium = getattr(parent_mixin, "_has_premium_access", lambda: False)
     dialog = MapMarkerSettingsDialog(
         marker_cfg.get("hotkeys", []),
         parent,
         automatic_discovery=bool(marker_cfg.get("automatic_discovery", False)),
         style=str(marker_cfg.get("style", "modern")),
+        minimap_enabled=bool(marker_cfg.get("minimap_enabled", True)),
+        minimap_scale=float(marker_cfg.get("minimap_scale", 1.0)),
+        merchant_memory_enabled=bool(
+            marker_cfg.get("merchant_memory_enabled", True)
+        ),
+        merchant_stock_display=str(
+            marker_cfg.get("merchant_stock_display", "smart")
+        ),
+        has_premium_access=bool(has_premium()),
+        open_support_settings=getattr(
+            parent_mixin, "_open_support_settings", lambda: None
+        ),
     )
     try:
         if dialog.exec() != QDialog.Accepted:
@@ -516,6 +547,10 @@ def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
         marker_cfg["hotkeys"] = dialog.bindings
         marker_cfg["automatic_discovery"] = dialog.automatic_discovery
         marker_cfg["style"] = dialog.marker_style
+        marker_cfg["minimap_enabled"] = dialog.minimap_enabled
+        marker_cfg["minimap_scale"] = dialog.minimap_scale
+        marker_cfg["merchant_memory_enabled"] = dialog.merchant_memory_enabled
+        marker_cfg["merchant_stock_display"] = dialog.merchant_stock_display
         config.save_config(config.user_config)
         refresh_map_marker_settings_summary(parent_mixin)
         # Runtime registration is intentionally reached through the existing port;
@@ -595,6 +630,20 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
     if widget_id == "luck_rarity":
         holder, row = _options_row()
         settings = config.IN_GAME_OVERLAY["widgets"]["luck_rarity"]
+        # Keep every row in the same reading order: actions first (none here),
+        # then value/mode controls, and boolean switches last.
+        parent_mixin.igo_luck_layout_combo = QComboBox()
+        for caption, value in (("Column", "column"), ("Row", "row")):
+            parent_mixin.igo_luck_layout_combo.addItem(caption, value)
+        parent_mixin.igo_luck_layout_combo.setCurrentIndex(
+            max(0, parent_mixin.igo_luck_layout_combo.findData(
+                settings.get("expected_layout", "column")))
+        )
+        parent_mixin.igo_luck_layout_combo.setMaximumWidth(108)
+        parent_mixin.igo_luck_layout_combo.currentIndexChanged.connect(
+            parent_mixin._on_igo_settings_changed
+        )
+        row.addWidget(parent_mixin.igo_luck_layout_combo)
         parent_mixin.igo_luck_bar_cb = _build_checkbox(
             "Bar", bool(settings.get("show_bar", True)), parent_mixin._on_igo_settings_changed
         )
@@ -608,18 +657,6 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
         )
         parent_mixin.igo_luck_expected_cb.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
         row.addWidget(parent_mixin.igo_luck_expected_cb)
-        parent_mixin.igo_luck_layout_combo = QComboBox()
-        for caption, value in (("Column", "column"), ("Row", "row")):
-            parent_mixin.igo_luck_layout_combo.addItem(caption, value)
-        parent_mixin.igo_luck_layout_combo.setCurrentIndex(
-            max(0, parent_mixin.igo_luck_layout_combo.findData(
-                settings.get("expected_layout", "column")))
-        )
-        parent_mixin.igo_luck_layout_combo.setMaximumWidth(108)
-        parent_mixin.igo_luck_layout_combo.currentIndexChanged.connect(
-            parent_mixin._on_igo_settings_changed
-        )
-        row.addWidget(parent_mixin.igo_luck_layout_combo)
         row.addStretch(1)
         return holder
 
@@ -803,6 +840,11 @@ def _save_in_game_overlay_hotkey(parent_mixin: Any) -> None:
     # app restarts -- with the tip already telling the user to press it.
     parent_mixin.rebind_hotkeys()
     refresh_in_game_overlay_hotkey_ui(parent_mixin)
+
+
+def refresh_in_game_overlay_tab_state(parent_mixin: Any) -> None:
+    refresh_in_game_overlay_target_window(parent_mixin)
+    update_in_game_overlay_status_ui(parent_mixin)
 
 
 def refresh_in_game_overlay_target_window(parent_mixin: Any) -> None:

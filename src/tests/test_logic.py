@@ -83,7 +83,7 @@ class LogicTests(unittest.TestCase):
 
         self.assertEqual(score, 21.875)
 
-    def test_score_caps_magnet_shrines_at_two(self) -> None:
+    def test_score_counts_every_positive_magnet_shrine(self) -> None:
         stats = {
             "Shady Guy": 0,
             "Moais": 0,
@@ -94,7 +94,7 @@ class LogicTests(unittest.TestCase):
 
         score = logic.calculate_score(stats, self.scores_config)
 
-        self.assertEqual(score, 1.0)
+        self.assertEqual(score, 2.5)
 
     def test_negative_magnet_points_penalize_every_magnet(self) -> None:
         stats = {
@@ -206,7 +206,69 @@ class LogicTests(unittest.TestCase):
 
         score = logic.calculate_score(stats, config)
 
-        self.assertEqual(score, 54.0)
+        self.assertEqual(score, 70.0)
+
+    def test_zero_microwave_multiplier_produces_zero_score(self) -> None:
+        stats = {
+            "Shady Guy": 5,
+            "Moais": 5,
+            "Microwaves": 1,
+            "Boss Curses": 5,
+            "Magnet Shrines": 5,
+        }
+        scores_config = {
+            **self.scores_config,
+            "multipliers": {"microwave": {"1": 0.0, "2": 1.25}},
+        }
+
+        self.assertEqual(logic.calculate_score(stats, scores_config), 0.0)
+
+    def test_score_tier_reasons_include_score_and_hard_requirements(self) -> None:
+        stats = {
+            "Shady Guy": 3,
+            "Moais": 4,
+            "Microwaves": 1,
+            "Boss Curses": 1,
+            "Magnet Shrines": 0,
+        }
+
+        reasons = logic.score_tier_miss_reasons(
+            stats,
+            self.scores_config,
+            "Perfect",
+        )
+
+        self.assertIn("Score 19.0/25.0 (−6.0)", reasons)
+        self.assertIn("S+M 7/8", reasons)
+        self.assertIn("Boss 1/2", reasons)
+
+    def test_template_reasons_include_minimum_maximum_and_unavailable_counter(self) -> None:
+        stats = {
+            "Shady Guy": 2,
+            "Moais": 3,
+            "Microwaves": 1,
+            "Boss Curses": 1,
+            "Magnet Shrines": 2,
+            "Bald Heads": 0,
+        }
+        template = {
+            "sm_total": 8,
+            "boss": 2,
+            "magnet_max": 0,
+            "bald_heads": 1,
+        }
+
+        reasons = logic.template_miss_reasons(stats, template)
+
+        self.assertEqual(
+            reasons,
+            (
+                "S+M 5/8",
+                "B 1/2",
+                "Mag 2 (needs ≤0)",
+                "BH unavailable",
+            ),
+        )
 
     def test_template_with_one_microwave_requirement_matches_zero_or_missing_microwaves(self) -> None:
         stats = {

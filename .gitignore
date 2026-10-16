@@ -4,11 +4,20 @@ old/my_private_settings.py
 # === DOCUMENTATION & PERSONAL NOTES & CONFIGS===
 /docs/
 AGENT.md
+AGENTS.md
 Instructions_*.txt
 config.json
 vod_metadata_index.json
 config.json.*.tmp
 vod_metadata_index.json.*.tmp
+merchant_history.jsonl
+merchant_history.jsonl.lock
+merchant_history.jsonl.broken-*
+roll_history.json
+roll_history.json.lock
+roll_history.json.*.tmp
+.bonkscanner-data.lock
+supporter_access_cache.json
 
 # === AGENT SCRATCH ===
 .scratch_diffs/
@@ -64,3 +73,7 @@ reports/
 ui_assets/
 
 Dump
+
+# Local opt-in to the shared user-data profile.
+/.bonkscanner-shared.json
+/config_advanced.json

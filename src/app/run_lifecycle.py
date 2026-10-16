@@ -158,6 +158,12 @@ class RunLifecycle:
         state = self._cached_state
         return bool(state is not None and state.is_active_run)
 
+    def is_paused_run(self) -> bool:
+        """Return the cached pause flag without triggering another memory read."""
+
+        state = self._cached_state
+        return bool(state is not None and state.is_paused_run)
+
     def refresh(self, context=None) -> RuntimeGameState:
         """Was ``PlayerStatsRefreshMixin._refresh_core_run_lifecycle_state``.
 

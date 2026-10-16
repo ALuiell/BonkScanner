@@ -315,9 +315,9 @@ class FastItemCooldowns:
 
     ``None`` is "no fresh read", never "no cooldowns". An inventory holding no
     timed item produces a snapshot with an empty ``readings`` tuple, which is a
-    real answer; a failed pass produces nothing at all and the TTL retires the
-    last good one. The two must stay distinguishable or a missed pass renders
-    as "this item has no cooldown".
+    real answer; an incomplete/failed pass leaves the last good timestamp
+    untouched, and the TTL retires it. The two must stay distinguishable or a
+    missed pass renders as "this item has no cooldown".
 
     The TTL does **not** cover a finished run. Measured on the death screen: the
     game clock freezes bit-exact, the item dictionary stays intact, and every

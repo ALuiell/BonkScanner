@@ -118,3 +118,51 @@ def evaluate_candidate(stats: dict, active_templates, *, context: dict | None = 
             context=context,
         )
     return logic.evaluate_map_by_scores(stats, config.SCORES_SYSTEM)
+
+
+def format_candidate_gaps(
+    stats: dict,
+    active_templates,
+    *,
+    context: dict | None = None,
+) -> str:
+    """Render why a rejected map missed every active target.
+
+    The reason lists come from ``core.logic``'s matching predicates, not a
+    parallel approximation maintained only for Logs.
+    """
+    targets: list[str] = []
+    if config.EVALUATION_MODE == "templates":
+        active_names = set(active_templates or ())
+        for template in sorted(
+            config.TEMPLATES,
+            key=lambda item: item.get("id", 0),
+            reverse=True,
+        ):
+            name = str(template.get("name") or "")
+            if name not in active_names:
+                continue
+            reasons = logic.template_miss_reasons(
+                stats,
+                template,
+                context=context,
+            )
+            if reasons:
+                targets.append(f"{name}: {', '.join(reasons)}")
+    else:
+        scores_config = config.SCORES_SYSTEM
+        active_tiers = set(scores_config.get("active_tiers", ()))
+        score = logic.calculate_score(stats, scores_config)
+        for tier in logic.SCORE_TIER_ORDER:
+            if tier not in active_tiers:
+                continue
+            reasons = logic.score_tier_miss_reasons(
+                stats,
+                scores_config,
+                tier,
+                score=score,
+            )
+            if reasons:
+                targets.append(f"{tier}: {', '.join(reasons)}")
+
+    return f"Target gaps: {' | '.join(targets)}" if targets else ""

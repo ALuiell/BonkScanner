@@ -1,24 +1,12 @@
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 import unittest
 
-
-def _load_census():
-    path = Path(__file__).resolve().parents[2] / "tools" / "read_census.py"
-    spec = importlib.util.spec_from_file_location("read_census", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot load census from {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from tests.support import read_census as census
 
 
 class ReadCensusRatchetTests(unittest.TestCase):
     def test_current_on_tick_source_set_is_exact_and_has_no_bypasses(self) -> None:
-        census = _load_census()
-
         self.assertEqual(
             census.enrolled_on_tick_source_names(),
             set(census.ENROLLABLE_ON_TICK_SOURCE_NAMES),
@@ -26,8 +14,6 @@ class ReadCensusRatchetTests(unittest.TestCase):
         self.assertEqual(census.direct_on_tick_client_reads(), [])
 
     def test_boundary_populations_are_derived_from_the_tree(self) -> None:
-        census = _load_census()
-
         # 30 with the Charge Shrine tracking source. It reuses the shared
         # passive-item sample for Wrench and does not need a stage-context read.
         # The previous 29 followed
@@ -58,7 +44,6 @@ class ReadCensusRatchetTests(unittest.TestCase):
         )
 
     def test_missing_one_enrolment_fails_the_guard(self) -> None:
-        census = _load_census()
         declared = len(census.ENROLLABLE_ON_TICK_SOURCE_NAMES)
         payload = {
             "on_tick_sites": 25,

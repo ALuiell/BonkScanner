@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Property, QEasingCurve, QEvent, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 #: Which states are alive: the scanner running, and a recording in progress.
 #: Both are things that keep happening while the user looks elsewhere, which
@@ -165,6 +165,29 @@ class PulsingDot(QLabel):
         finally:
             if painter.isActive():
                 painter.end()
+
+
+class PremiumAccessBadge(QPushButton):
+    """Quiet header shortcut shown only while supporter access is active."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__("PREMIUM", parent)
+        self.setObjectName("premiumAccessBadge")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("Premium access is active. Open Settings.")
+        self.setVisible(False)
+
+    def set_access_state(self, state) -> None:
+        """Follow the controller's effective access, including its offline grace."""
+        active = bool(getattr(state, "active", False))
+        online = bool(getattr(state, "online", False))
+        self.setProperty("connection", "online" if online else "cached")
+        self.setToolTip(
+            "Premium access is active. Open Settings."
+            if online
+            else "Premium access is active from a recent check. Open Settings."
+        )
+        self.setVisible(active)
 
 
 class RecordingFlag(QWidget):

@@ -40,7 +40,9 @@ from __future__ import annotations
 from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -52,7 +54,7 @@ from PySide6.QtWidgets import (
 
 from app.map_scoring import map_highlight_rows
 from projections import formatting
-from ui.shared import _apply_button_icon, _make_scroll_section, _set_text
+from ui.shared import _apply_button_icon, _make_scroll_section, _set_text, resource_path
 
 #: The two conditions the settings dialog can produce. Everything else in
 #: `TrackedItemRule.mode` is unreachable from the UI, so the badge only ever
@@ -96,11 +98,24 @@ def average_bar_fractions(averages: Sequence[float]) -> list[float]:
 class SessionStatsTab:
     """Session Stats: the KPI strip, both map cards and the two tables."""
 
-    def __init__(self, *, on_open_tracked_item_settings: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        *,
+        on_open_tracked_item_settings: Callable[[], None],
+        on_open_merchant_analytics: Callable[[], None] = lambda: None,
+        on_toggle_merchant_analytics: Callable[[bool], bool] = lambda _enabled: False,
+        on_open_roll_analytics: Callable[[], None] = lambda: None,
+        on_toggle_roll_analytics: Callable[[bool], bool] = lambda _enabled: False,
+    ) -> None:
         self._on_open_tracked_item_settings = on_open_tracked_item_settings
+        self._on_open_merchant_analytics = on_open_merchant_analytics
+        self._on_toggle_merchant_analytics = on_toggle_merchant_analytics
+        self._on_open_roll_analytics = on_open_roll_analytics
+        self._on_toggle_roll_analytics = on_toggle_roll_analytics
 
         self._root = None
         self._kpi_values: dict[str, QLabel] = {}
+        self._peak_rpm_value: QLabel | None = None
         self._chip_values: dict[str, QLabel] = {}
         self._best_score = None
         self._worst_score = None
@@ -118,6 +133,10 @@ class SessionStatsTab:
         self._tracked_row_pool: dict[object, _TrackedRow] = {}
         self._tracked_rows: list[_TrackedRow] = []
         self._tracked_signature: tuple | None = None
+        self._merchant_analytics_collect = None
+        self._merchant_analytics_locked = None
+        self._roll_analytics_collect = None
+        self._roll_analytics_locked = None
 
         # What the scanner has handed over so far, so a setter that only knows
         # part of the state can re-render the whole strip.
@@ -161,11 +180,36 @@ class SessionStatsTab:
                 ("rpm", "Rerolls / min"),
             )
         ):
-            grid.addWidget(_eyebrow(caption), 0, column)
+            label = _eyebrow(caption)
+            if key == "rpm":
+                label.setToolTip(
+                    "Current: average since the scanner session started. "
+                    "Max: highest average speed over 10 consecutive complete reroll cycles."
+                )
+            grid.addWidget(label, 0, column)
             value = QLabel("--")
             value.setObjectName("kpiValueHero")
             self._kpi_values[key] = value
-            grid.addWidget(value, 1, column)
+            if key == "rpm":
+                value.setToolTip("Average rerolls per minute since this scanner session started.")
+                row = QHBoxLayout()
+                row.setContentsMargins(0, 0, 0, 0)
+                row.setSpacing(8)
+                row.addWidget(value, 0, Qt.AlignBottom)
+                peak = QLabel("Max --")
+                peak.setObjectName("kpiPeakValue")
+                peak.setToolTip(
+                    "Highest average rerolls per minute over 10 consecutive complete cycles "
+                    "this scanner session, including map loading. "
+                    "Pauses break the measurement sequence but preserve Max. "
+                    "Available after 10 complete rerolls."
+                )
+                self._peak_rpm_value = peak
+                row.addWidget(peak, 0, Qt.AlignBottom)
+                row.addStretch(1)
+                grid.addLayout(row, 1, column)
+            else:
+                grid.addWidget(value, 1, column)
             grid.setColumnStretch(column, 1)
         layout.addLayout(grid)
 
@@ -191,6 +235,88 @@ class SessionStatsTab:
             chips.addLayout(chip)
         chips.addStretch(1)
         layout.addLayout(chips)
+        layout.addSpacing(10)
+        layout.addWidget(_divider())
+        layout.addSpacing(10)
+        analytics = QHBoxLayout()
+        analytics.setContentsMargins(0, 0, 0, 0)
+        analytics.setSpacing(12)
+        self._merchant_analytics_collect = QCheckBox("Collect Shady Guy analytics")
+        self._merchant_analytics_collect.toggled.connect(
+            self._toggle_merchant_analytics
+        )
+        analytics.addWidget(self._merchant_analytics_collect, 1)
+        self._merchant_analytics_collect.hide()
+        locked = QFrame()
+        locked.setObjectName("PremiumFeatureLocked")
+        self._merchant_analytics_locked = locked
+        locked_layout = QVBoxLayout(locked)
+        locked_layout.setContentsMargins(14, 12, 14, 12)
+        locked_layout.setSpacing(4)
+        title = QLabel("Shady Guy Analytics")
+        title.setObjectName("PremiumFeatureLockedTitle")
+        locked_layout.addWidget(title)
+        note = QLabel("Lifetime item availability from the merchants you have viewed.")
+        note.setObjectName("PremiumFeatureNote")
+        note.setWordWrap(True)
+        locked_layout.addWidget(note)
+        status = QHBoxLayout()
+        status.setContentsMargins(0, 8, 0, 0)
+        status.setSpacing(6)
+        icon = QLabel()
+        icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
+        status.addWidget(icon)
+        label = QLabel("Requires Premium")
+        label.setObjectName("PremiumFeatureLockedStatus")
+        status.addWidget(label)
+        status.addStretch(1)
+        locked_layout.addLayout(status)
+        analytics.addWidget(locked, 1)
+        open_analytics = QPushButton("Shady Analytics")
+        open_analytics.setToolTip("Open analytics. Saved history remains available without Premium.")
+        open_analytics.clicked.connect(
+            lambda _checked=False: self._on_open_merchant_analytics()
+        )
+        analytics.addWidget(open_analytics)
+        layout.addLayout(analytics)
+        layout.addSpacing(10)
+        rolls = QHBoxLayout()
+        rolls.setContentsMargins(0, 0, 0, 0)
+        rolls.setSpacing(12)
+        self._roll_analytics_collect = QCheckBox("Collect roll analytics")
+        self._roll_analytics_collect.toggled.connect(self._toggle_roll_analytics)
+        rolls.addWidget(self._roll_analytics_collect, 1)
+        self._roll_analytics_collect.hide()
+        locked = QFrame()
+        locked.setObjectName("PremiumFeatureLocked")
+        self._roll_analytics_locked = locked
+        locked_layout = QVBoxLayout(locked)
+        locked_layout.setContentsMargins(14, 12, 14, 12)
+        locked_layout.setSpacing(4)
+        title = QLabel("Roll Analytics")
+        title.setObjectName("PremiumFeatureLockedTitle")
+        locked_layout.addWidget(title)
+        note = QLabel("Lifetime stat rolls from Dice passive and Chaos Tome.")
+        note.setObjectName("PremiumFeatureNote")
+        note.setWordWrap(True)
+        locked_layout.addWidget(note)
+        status = QHBoxLayout()
+        status.setContentsMargins(0, 8, 0, 0)
+        status.setSpacing(6)
+        icon = QLabel()
+        icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
+        status.addWidget(icon)
+        label = QLabel("Requires Premium")
+        label.setObjectName("PremiumFeatureLockedStatus")
+        status.addWidget(label)
+        status.addStretch(1)
+        locked_layout.addLayout(status)
+        rolls.addWidget(locked, 1)
+        button = QPushButton("Roll Analytics")
+        button.setToolTip("Open analytics. Saved history remains available without Premium.")
+        button.clicked.connect(lambda _checked=False: self._on_open_roll_analytics())
+        rolls.addWidget(button)
+        layout.addLayout(rolls)
         return card
 
     def _build_map_cards(self) -> QHBoxLayout:
@@ -283,6 +409,10 @@ class SessionStatsTab:
         _set_text(self._kpi_values.get("time"), elapsed_text)
         _set_text(self._kpi_values.get("rpm"), f"{rpm:.1f}")
 
+    def set_peak_rpm(self, peak_rpm: float | None) -> None:
+        text = "Max --" if peak_rpm is None else f"Max {peak_rpm:,.1f}"
+        _set_text(self._peak_rpm_value, text)
+
     def set_counters(self, *, rerolls: int, seeds_found: int, all_time_rerolls: int) -> None:
         self._rerolls = max(0, int(rerolls))
         self._seeds_found = max(0, int(seeds_found))
@@ -293,6 +423,64 @@ class SessionStatsTab:
             rerolls_per_seed(self._rerolls, self._seeds_found),
         )
         _set_text(self._chip_values.get("all_time"), f"{max(0, int(all_time_rerolls)):,}")
+
+    def set_merchant_analytics_status(
+        self,
+        *,
+        enabled: bool,
+        premium: bool,
+        session_recorded: int,
+        error: str | None = None,
+    ) -> None:
+        if error:
+            text = "Collection paused"
+        elif enabled and premium:
+            text = f"Active · {max(0, int(session_recorded)):,} merchants recorded this session"
+        elif enabled:
+            text = "Collection paused · Premium required"
+        else:
+            text = "Collection off"
+        checkbox = self._merchant_analytics_collect
+        if checkbox is not None:
+            checkbox.setToolTip(error or text)
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(enabled))
+            checkbox.setEnabled(bool(premium))
+            checkbox.setVisible(bool(premium))
+            checkbox.blockSignals(False)
+        if self._merchant_analytics_locked is not None:
+            self._merchant_analytics_locked.setVisible(not premium)
+
+    def _toggle_merchant_analytics(self, enabled: bool) -> None:
+        actual = bool(self._on_toggle_merchant_analytics(bool(enabled)))
+        checkbox = self._merchant_analytics_collect
+        if checkbox is not None and checkbox.isChecked() != actual:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(actual)
+            checkbox.blockSignals(False)
+
+    def set_roll_analytics_status(self, *, enabled, premium, session_recorded=0, error=None):
+        checkbox = self._roll_analytics_collect
+        if checkbox is not None:
+            text = ("Collection paused" if error else
+                    f"Active · {session_recorded:,} rolls recorded this session" if enabled and premium else
+                    "Collection paused · Premium required" if enabled else "Collection off")
+            checkbox.setToolTip(error or text)
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(enabled))
+            checkbox.setEnabled(bool(premium))
+            checkbox.setVisible(bool(premium))
+            checkbox.blockSignals(False)
+        if self._roll_analytics_locked is not None:
+            self._roll_analytics_locked.setVisible(not premium)
+
+    def _toggle_roll_analytics(self, enabled):
+        actual = bool(self._on_toggle_roll_analytics(bool(enabled)))
+        checkbox = self._roll_analytics_collect
+        if checkbox is not None and checkbox.isChecked() != actual:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(actual)
+            checkbox.blockSignals(False)
 
     def set_map_highlights(self, *, best_stats, worst_stats, active_templates) -> None:
         for stats, score_label, rows_layout, kind in (

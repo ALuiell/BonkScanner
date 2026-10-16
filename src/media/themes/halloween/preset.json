@@ -1,0 +1,168 @@
+{
+  "id": "halloween",
+  "name": "Witching Hour",
+  "description": "Halloween concept 02: plum surfaces, violet controls, restrained amber details.",
+  "color_map": {
+    "#0E1217": "#15111C",
+    "#101419": "#1D1727",
+    "#0B0F14": "#120F19",
+    "#141A22": "#211A2D",
+    "#10141B": "#15111C",
+    "#131A23": "#1D1727",
+    "#0B1220": "#120F19",
+    "#111827": "#1B1524",
+    "#111923": "#1B1524",
+    "#11171E": "#1B1524",
+    "#0D1824": "#20182B",
+    "#192C40": "#2B203D",
+    "#1B222B": "#393047",
+    "#2A3542": "#473B58",
+    "#2E3A48": "#534362",
+    "#263241": "#393047",
+    "#26313E": "#393047",
+    "#263740": "#473B58",
+    "#202A35": "#393047",
+    "#232B36": "#393047",
+    "#202832": "#393047",
+    "#38495E": "#655077",
+    "#24415F": "#534362",
+    "#1F2937": "#211A2D",
+    "#2B3648": "#473B58",
+    "#243042": "#393047",
+    "#1B2433": "#393047",
+    "#2F6FB0": "#8058BA",
+    "#3E82C6": "#A17CD3",
+    "#3781CE": "#946BCF",
+    "#276099": "#69449D",
+    "#1F6AA5": "#8058BA",
+    "#2A80C0": "#946BCF",
+    "#3B82F6": "#A17CD3",
+    "#38BDF8": "#BE9CE9",
+    "#4DA3FF": "#BE9CE9",
+    "#EDF1F5": "#F0EBF7",
+    "#E5E7EB": "#F0EBF7",
+    "#D7DEE8": "#E3DAEF",
+    "#B9C2CE": "#CDC0DE",
+    "#8A94A3": "#A79AB8",
+    "#98A7BA": "#A79AB8",
+    "#5C6675": "#70647F",
+    "#64748B": "#82718F",
+    "#65758B": "#82718F"
+  },
+  "neutral_color_map": {
+    "#0E1217": "#15111C",
+    "#101419": "#1D1727",
+    "#0B0F14": "#120F19",
+    "#141A22": "#211A2D",
+    "#10141B": "#15111C",
+    "#131A23": "#1D1727",
+    "#0B1220": "#120F19",
+    "#111827": "#1B1524",
+    "#111923": "#1B1524",
+    "#11171E": "#1B1524",
+    "#0D1824": "#20182B",
+    "#192C40": "#2B203D",
+    "#1B222B": "#393047",
+    "#2A3542": "#473B58",
+    "#2E3A48": "#534362",
+    "#263241": "#393047",
+    "#26313E": "#393047",
+    "#263740": "#473B58",
+    "#202A35": "#393047",
+    "#232B36": "#393047",
+    "#202832": "#393047",
+    "#EDF1F5": "#F0EBF7",
+    "#E5E7EB": "#F0EBF7",
+    "#D7DEE8": "#E3DAEF",
+    "#B9C2CE": "#CDC0DE",
+    "#8A94A3": "#A79AB8",
+    "#98A7BA": "#A79AB8",
+    "#5C6675": "#70647F",
+    "#64748B": "#82718F",
+    "#65758B": "#82718F"
+  },
+  "qt_palette": {
+    "Window": "#15111C",
+    "Base": "#120F19",
+    "AlternateBase": "#211A2D",
+    "Button": "#211A2D",
+    "WindowText": "#F0EBF7",
+    "Text": "#F0EBF7",
+    "ButtonText": "#F0EBF7",
+    "Highlight": "#8058BA",
+    "HighlightedText": "#F0EBF7"
+  },
+  "schema_version": 1,
+  "version": "1",
+  "runtime_provider": "halloween",
+  "assets": {
+    "forest-left": {
+      "path": "assets/forest-left.svg",
+      "required": true
+    },
+    "forest-right": {
+      "path": "assets/forest-right.svg",
+      "required": true
+    },
+    "bats": {
+      "path": "assets/bats.svg",
+      "required": true
+    },
+    "web": {
+      "path": "assets/web.svg",
+      "required": true
+    },
+    "skeleton-reclining": {
+      "path": "assets/skeleton-reclining.svg",
+      "required": true
+    },
+    "hat": {
+      "path": "assets/hat.svg",
+      "required": true
+    },
+    "premium-crown": {
+      "path": "assets/premium-crown.svg",
+      "required": true
+    },
+    "header-fire-base": {
+      "path": "assets/header-fire-base.svg",
+      "required": true
+    },
+    "header-pumpkin": {
+      "path": "assets/header-pumpkin.svg",
+      "required": true
+    },
+    "dark-moop-face": {
+      "path": "assets/dark-moop-face.png",
+      "required": true
+    },
+    "support-spider": {
+      "path": "assets/support-spider.svg",
+      "required": true
+    },
+    "support-spider-thank-you": {
+      "path": "assets/support-spider-thank-you.svg",
+      "required": true
+    }
+  },
+  "parameters": {
+    "pulse_pause_ms": 4500,
+    "pulse_frame_ms": 33,
+    "footer_icon_scale": 0.8,
+    "footer_icon_slot": 40,
+    "footer_link_height": 44,
+    "footer_height": 48,
+    "forest_height": 86,
+    "forest_left_width": 278,
+    "web_width": 108,
+    "web_height": 148,
+    "skeleton_max_width": 340,
+    "skeleton_right_margin": 16,
+    "skeleton_bottom_margin": 18,
+    "support_thread_seconds": 0.65,
+    "support_climb_seconds": 4.4,
+    "support_read_seconds": 8,
+    "support_exit_seconds": 0.45
+  },
+  "effect_color_map": {}
+}

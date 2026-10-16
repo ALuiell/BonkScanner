@@ -10,6 +10,76 @@ import src  # noqa: F401 -- repository path bootstrap
 
 
 class TemplatesQtLifecycleTests(unittest.TestCase):
+    def test_scores_settings_accept_zero_multiplier_and_no_active_tiers(self) -> None:
+        script = textwrap.dedent(
+            """
+            import os
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+            from unittest.mock import patch
+            from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+
+            from app import config
+            from ui.dialogs import ScoresSettingsDialog
+
+            app = QApplication([])
+            config.SCORES_SYSTEM = {
+                "manual_thresholds": False,
+                "base_target_score": 30.0,
+                "weights": {
+                    "moais": 3.0,
+                    "shady": 2.0,
+                    "boss": 1.0,
+                    "magnet": 0.5,
+                    "challenges": 0.0,
+                },
+                "multipliers": {"microwave": {"1": 1.0, "2": 1.25}},
+                "thresholds": {
+                    "Light": 14.0,
+                    "Good": 20.0,
+                    "Perfect": 25.0,
+                    "Perfect+": 30.0,
+                },
+                "active_tiers": ["Light", "Good", "Perfect", "Perfect+"],
+            }
+            config.user_config["SCORES_SYSTEM"] = config.SCORES_SYSTEM
+            dialog = ScoresSettingsDialog(None)
+            for checkbox in dialog.active_tier_checks.values():
+                checkbox.setChecked(False)
+            dialog.multiplier_entries["1"].setText("0")
+
+            warnings = []
+            with patch.object(
+                config,
+                "save_config",
+                return_value=config.ConfigSaveResult(True),
+            ), patch.object(
+                QMessageBox,
+                "warning",
+                side_effect=lambda _parent, title, text: warnings.append((title, text)),
+            ):
+                dialog.save()
+
+            assert dialog.result() == QDialog.Accepted, warnings
+            assert config.SCORES_SYSTEM["active_tiers"] == []
+            assert config.SCORES_SYSTEM["multipliers"]["microwave"]["1"] == 0.0
+            print("SCORES_ZERO_AND_EMPTY_OK")
+            """
+        )
+        environment = os.environ.copy()
+        environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=os.getcwd(),
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("SCORES_ZERO_AND_EMPTY_OK", result.stdout)
+
     def test_dialog_timers_and_failed_saves_are_safe_offscreen(self) -> None:
         script = textwrap.dedent(
             """

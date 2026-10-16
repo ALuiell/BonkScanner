@@ -19,6 +19,7 @@ a footer inset from the edges reads as a floating bar, not as the window's base.
 """
 from __future__ import annotations
 
+import logging
 import math
 import random
 import time
@@ -32,6 +33,8 @@ from PySide6.QtCore import (
     QLineF,
     QParallelAnimationGroup,
     QPoint,
+    QPointF,
+    QRect,
     QRectF,
     QPropertyAnimation,
     QSequentialAnimationGroup,
@@ -66,6 +69,9 @@ from app.version import CURRENT_VERSION
 from core.supporter_listing import SupporterDirectory
 from ui.dialogs.update_prompt import start_update_check
 from ui.shared import _clear_layout, resource_path
+from ui.themes.contracts import FooterIcon, SupportContext
+
+_appearance_log = logging.getLogger(__name__)
 
 FOOTER_HEIGHT = 28
 
@@ -89,13 +95,13 @@ HEART_PASSIVE_FIRST_SCALE = 1.08
 HEART_PASSIVE_SECOND_SCALE = 1.04
 HEART_HOVER_SCALE = 1.09
 
-SUPPORT_REMINDER_INTERVAL_MS = 60 * 60 * 1000
+SUPPORT_REMINDER_INTERVAL_MS = 3 * 60 * 60 * 1000
 SUPPORT_REMINDER_RETRY_MS = 60 * 1000
 SUPPORT_REMINDER_ACTIVATION_DELAY_MS = 900
 SUPPORT_REMINDER_STARTUP_MIN_DELAY_MS = 4 * 1000
 SUPPORT_REMINDER_STARTUP_MAX_DELAY_MS = 4 * 1000
-SUPPORT_REMINDER_COOLDOWN_SECONDS = 30 * 60
-SUPPORT_REMINDER_LONG_INACTIVE_SECONDS = 20 * 60
+SUPPORT_REMINDER_COOLDOWN_SECONDS = 2 * 60 * 60
+SUPPORT_REMINDER_LONG_INACTIVE_SECONDS = 60 * 60
 SUPPORT_REMINDER_SLIDE_IN_MS = 320
 SUPPORT_REMINDER_SLIDE_OUT_MS = 260
 SUPPORT_REMINDER_BEAT_LEAD_IN_MS = 260
@@ -112,11 +118,15 @@ SUPPORT_REMINDER_FOOTER_SECOND_SCALE = 1.06
 SUPPORT_REMINDER_FIRST_LIFT = 4.0
 SUPPORT_REMINDER_SECOND_LIFT = 2.0
 SUPPORT_REMINDER_STATE_CONFIG_KEY = "SUPPORT_REMINDER_STATE"
+SUPPORT_THANK_YOU_STARTUP_DELAY_MS = 4 * 1000
+SUPPORT_THANK_YOU_RETRY_MS = 1000
+SUPPORT_THANK_YOU_COOLDOWN_SECONDS = 24 * 60 * 60
+SUPPORT_THANK_YOU_STATE_CONFIG_KEY = "SUPPORT_THANK_YOU_STATE"
 
 
-def _read_support_reminder_state() -> float:
+def _read_support_message_timestamp(config_key: str, *, ignore_future: bool = False) -> float:
     with config.config_lock:
-        raw = config.user_config.get(SUPPORT_REMINDER_STATE_CONFIG_KEY)
+        raw = config.user_config.get(config_key)
         state = dict(raw) if isinstance(raw, dict) else {}
 
     try:
@@ -129,8 +139,29 @@ def _read_support_reminder_state() -> float:
     if math.isfinite(now) and now >= 0.0 and last_shown_at > now:
         # A corrected system clock must not turn one reminder into an
         # indefinite sequence of fresh 30-minute waits.
-        last_shown_at = now
+        last_shown_at = 0.0 if ignore_future else now
     return last_shown_at
+
+
+def _read_support_reminder_state() -> float:
+    return _read_support_message_timestamp(SUPPORT_REMINDER_STATE_CONFIG_KEY)
+
+
+def _read_support_thank_you_state() -> float:
+    # A gratitude timestamp from a corrected clock must not suppress future
+    # launches indefinitely. The next actual show records the corrected time.
+    return _read_support_message_timestamp(SUPPORT_THANK_YOU_STATE_CONFIG_KEY, ignore_future=True)
+
+
+def _update_support_thank_you_state(*, last_shown_at: float):
+    def mutate(candidate: dict) -> None:
+        raw = candidate.get(SUPPORT_THANK_YOU_STATE_CONFIG_KEY)
+        state = dict(raw) if isinstance(raw, dict) else {}
+        shown_at = float(last_shown_at)
+        state["last_shown_at"] = max(0.0, shown_at) if math.isfinite(shown_at) else 0.0
+        candidate[SUPPORT_THANK_YOU_STATE_CONFIG_KEY] = state
+
+    return config.update_config(mutate)
 
 
 def _update_support_reminder_state(
@@ -330,6 +361,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
 
     def __init__(self, text: str, parent: QWidget | None = None) -> None:
         self._caption = ""
+        self._theme_icon = None
+        self._appearance = None
         self._heart_scale = 1.0
         self._hovered = False
         self._heartbeat_suspended = False
@@ -361,6 +394,33 @@ class _SupportFooterLink(_AnimatedFooterLink):
             self._heart_step(HEART_HOVER_SCALE, 1.0, 170, QEasingCurve.InCubic)
         )
 
+    def set_theme_icon(self, icon: FooterIcon | None) -> None:
+        if self._theme_icon is icon:
+            return
+        if self._theme_icon is not None:
+            self._theme_icon.detach()
+        self._theme_icon = icon
+        self._ambient_heartbeat.stop()
+        self._hover_heartbeat.stop()
+        self._set_heart_scale(1.0)
+        self.setFixedHeight(icon.height if icon else 24)
+        if icon is not None:
+            icon.attach(self, self._theme_phase_changed)
+            self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + icon.slot_width + 6)
+        else:
+            self.setMinimumWidth(0)
+            self.setMaximumWidth(16777215)
+        self.updateGeometry()
+        self._restart_ambient_heartbeat()
+
+    def _theme_phase_changed(self) -> None:
+        if self._theme_icon is not None and self.isVisible():
+            self.update(QRect(0, 0, self._theme_icon.slot_width + 6, self.height()))
+
+    def pulse_theme_icon(self, *, force=False) -> None:
+        if self._theme_icon is not None and (force or not self._heartbeat_suspended):
+            self._theme_icon.pulse()
+
     def _heart_step(
         self,
         start: float,
@@ -388,6 +448,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
         visible_text = str(text)
         self._caption = visible_text.replace("♥", "", 1).strip()
         super().setText(visible_text)
+        if self._theme_icon is not None:
+            self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + self._theme_icon.slot_width + 6)
         self.updateGeometry()
 
     def caption(self) -> str:
@@ -409,10 +471,20 @@ class _SupportFooterLink(_AnimatedFooterLink):
         return heart_font, heart_width, caption_width, gap
 
     def _content_width(self) -> float:
+        if self._theme_icon is not None:
+            return QFontMetricsF(self.font()).horizontalAdvance(self._caption) + self._theme_icon.slot_width
         _heart_font, heart_width, caption_width, gap = self._content_metrics()
         return heart_width + gap + caption_width
 
     def _paint_content(self, painter: QPainter, rect: QRectF, color: QColor) -> None:
+        if self._theme_icon is not None:
+            caption_width = QFontMetricsF(self.font()).horizontalAdvance(self._caption)
+            start = rect.center().x() - (caption_width + self._theme_icon.slot_width) / 2
+            self._theme_icon.paint(painter, start, rect.center().y(), self.devicePixelRatioF())
+            self._draw_text(painter, QRectF(start + self._theme_icon.slot_width, rect.y(), caption_width + 2, rect.height()),
+                            self.font(), self._caption, color,
+                            glow_alpha=round(36 * self._hover_progress))
+            return
         heart_font, heart_width, caption_width, gap = self._content_metrics()
         total_width = heart_width + gap + caption_width
         start_x = rect.center().x() - total_width / 2.0
@@ -453,6 +525,8 @@ class _SupportFooterLink(_AnimatedFooterLink):
         painter.restore()
 
     def sizeHint(self) -> QSize:  # noqa: N802 -- Qt's name
+        if self._theme_icon is not None:
+            return QSize(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + self._theme_icon.slot_width + 6, self._theme_icon.height)
         hint = super().sizeHint()
         return QSize(hint.width() + 3, max(24, hint.height()))
 
@@ -462,6 +536,9 @@ class _SupportFooterLink(_AnimatedFooterLink):
     def _restart_ambient_heartbeat(self) -> None:
         self._ambient_heartbeat.stop()
         self._set_heart_scale(1.0)
+        if self._theme_icon is not None:
+            self._theme_icon.refresh()
+            return
         if (
             self.isVisible()
             and not self._hovered
@@ -483,6 +560,9 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._heartbeat_suspended = False
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
+        if self._theme_icon is not None:
+            self._restart_ambient_heartbeat()
+            return
         if self._hovered and self.isVisible():
             self._hover_heartbeat.start()
         else:
@@ -493,7 +573,9 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._ambient_heartbeat.stop()
         self._hover_heartbeat.stop()
         self._set_heart_scale(1.0)
-        if not self._heartbeat_suspended:
+        if self._theme_icon is not None:
+            self.pulse_theme_icon()
+        elif not self._heartbeat_suspended:
             self._hover_heartbeat.start()
         super().enterEvent(event)
 
@@ -507,6 +589,7 @@ class _SupportFooterLink(_AnimatedFooterLink):
 
     def showEvent(self, event) -> None:  # noqa: N802 -- Qt's name
         super().showEvent(event)
+        self.window().installEventFilter(self)
         self._restart_ambient_heartbeat()
 
     def hideEvent(self, event) -> None:  # noqa: N802 -- Qt's name
@@ -607,6 +690,7 @@ class _SupportReminder(QFrame):
         can_show,
         last_shown_at: float,
         record_show,
+        cooldown_seconds: float = SUPPORT_REMINDER_COOLDOWN_SECONDS,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("supportReminder")
@@ -626,10 +710,13 @@ class _SupportReminder(QFrame):
                     wall_elapsed,
                 )
         self._record_show = record_show
+        self._cooldown_seconds = cooldown_seconds
         self._host_window = parent.window()
         self._lift_progress = 0.0
         self._pulse_offset = 0.0
         self._playing = False
+        self._presentation = None
+        self._presentation_failed = False
         self._due = False
         self._due_bypasses_cooldown = False
         self._last_interval_ms = 0
@@ -911,7 +998,7 @@ class _SupportReminder(QFrame):
                 elapsed = 0.0
         if not math.isfinite(elapsed):
             elapsed = 0.0
-        remaining = SUPPORT_REMINDER_COOLDOWN_SECONDS - max(0.0, elapsed)
+        remaining = self._cooldown_seconds - max(0.0, elapsed)
         return max(0, math.ceil(remaining * 1000.0))
 
     def _play_if_due(self) -> bool:
@@ -954,11 +1041,43 @@ class _SupportReminder(QFrame):
         self._set_pulse_offset(0.0)
         self._heart._set_heart_scale(1.0)
         self._support_link.suspend_heartbeat()
-        self._sync_geometry()
-        self.show()
-        self.raise_()
-        self._animation.start()
+        if self._try_start_presentation():
+            self._support_link.resume_heartbeat()
+            self._support_link.pulse_theme_icon(force=True)
+        else:
+            self._sync_geometry()
+            self.show()
+            self.raise_()
+            self._animation.start()
         return True
+
+    def _try_start_presentation(self) -> bool:
+        if self._presentation_failed:
+            return False
+        try:
+            provider = self._support_link._appearance
+            if provider is not None and self._presentation is None:
+                self._presentation = provider.create_support(SupportContext(
+                    host=self.parentWidget(), footer=self._footer_frame,
+                    activate=self._activate_clicked, dismiss=self.dismiss,
+                    finished=self._animation_finished,
+                ))
+            if self._presentation is None:
+                return False
+            self._presentation.start(thank_you=self.property("messageKind") == "thankYou")
+            return True
+        except Exception:
+            _appearance_log.exception("Cannot show appearance message; using the standard card")
+            # Do not retry a broken presentation on every reminder. Reset only
+            # when rebinding the provider; eligibility/cooldown remain unchanged.
+            self._presentation_failed = True
+            presentation, self._presentation = self._presentation, None
+            if presentation is not None:
+                try:
+                    presentation.dispose()
+                except Exception:
+                    _appearance_log.exception("Cannot dispose failed appearance message")
+            return False
 
     def dismiss(self) -> None:
         self._timer.stop()
@@ -977,6 +1096,8 @@ class _SupportReminder(QFrame):
         self._finish_playback(schedule_next=True)
 
     def _finish_playback(self, *, schedule_next: bool) -> None:
+        if self._presentation is not None:
+            self._presentation.stop()
         self._playing = False
         self.hide()
         self._set_lift_progress(0.0)
@@ -1031,13 +1152,12 @@ class _SupportReminder(QFrame):
         self._startup_timer.stop()
         self._activation_timer.start()
 
-    def _application_state_changed(self, state) -> None:
-        if state != Qt.ApplicationActive:
-            self._activation_timer.stop()
-            if self._inactive_since is None:
-                self._inactive_since = time.monotonic()
-            return
+    def _begin_inactivity(self) -> None:
+        self._activation_timer.stop()
+        if self._inactive_since is None:
+            self._inactive_since = time.monotonic()
 
+    def _end_inactivity(self) -> None:
         inactive_since = self._inactive_since
         self._inactive_since = None
         if inactive_since is not None:
@@ -1048,6 +1168,12 @@ class _SupportReminder(QFrame):
                 self._due = True
         self._schedule_activation_attempt()
 
+    def _application_state_changed(self, state) -> None:
+        if state != Qt.ApplicationActive:
+            self._begin_inactivity()
+            return
+        self._end_inactivity()
+
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 -- Qt's name
         event_type = event.type()
         if event_type in {QEvent.Resize, QEvent.LayoutRequest, QEvent.Show}:
@@ -1055,10 +1181,91 @@ class _SupportReminder(QFrame):
                 self._sync_geometry()
         if watched is self._host_window:
             if event_type == QEvent.WindowDeactivate:
-                self._activation_timer.stop()
+                self._begin_inactivity()
             elif event_type == QEvent.WindowActivate:
-                self._schedule_activation_attempt()
+                self._end_inactivity()
         return super().eventFilter(watched, event)
+
+
+class _SupportThankYou(_SupportReminder):
+    """A launch-only thank-you with a persisted daily cooldown and no repeats."""
+
+    def __init__(self, *, parent, footer_frame, support_link, can_show, record_show) -> None:
+        self._has_shown = False
+        self._cooldown_suppressed = False
+        super().__init__(
+            parent=parent,
+            footer_frame=footer_frame,
+            support_link=support_link,
+            activate=self.dismiss,
+            can_show=can_show,
+            last_shown_at=_read_support_thank_you_state(),
+            record_show=record_show,
+            cooldown_seconds=SUPPORT_THANK_YOU_COOLDOWN_SECONDS,
+        )
+        self.setProperty("messageKind", "thankYou")
+        self.setAccessibleName("Thank you for supporting BonkScanner")
+        self._message.setText(
+            "Thank you for supporting BonkScanner!\n"
+            "You help make every update possible."
+        )
+        self._action.setText("×")
+        self._action.setFixedWidth(32)
+        self._action.setToolTip("Close")
+        self._action.setAccessibleName("Dismiss thank-you message")
+
+    def start(self) -> None:
+        if self._has_shown or self._playing or self._due or self._startup_timer.isActive():
+            return
+        if self._skip_for_cooldown():
+            return
+        self._last_startup_delay_ms = SUPPORT_THANK_YOU_STARTUP_DELAY_MS
+        self._startup_timer.start(self._last_startup_delay_ms)
+
+    def _skip_for_cooldown(self) -> bool:
+        if self._cooldown_suppressed:
+            return True
+        if self._cooldown_remaining_ms() > 0:
+            # Skip this launch, rather than scheduling a 24-hour wake-up or
+            # polling after each Premium status refresh.
+            self._cooldown_suppressed = True
+            self._schedule_next()
+            return True
+        return False
+
+    def _schedule_next(self) -> None:
+        # Called on close/animation finish by the shared card; there is no repeat.
+        self._timer.stop()
+        self._startup_timer.stop()
+        self._activation_timer.stop()
+        self._due = False
+        self._due_bypasses_cooldown = False
+
+    def _mark_due(self, *, bypass_cooldown: bool = False) -> None:
+        if not self._has_shown and not self._skip_for_cooldown():
+            super()._mark_due(bypass_cooldown=True)
+
+    def _play_if_due(self) -> bool:
+        if self._has_shown or self._cooldown_suppressed or not self._due:
+            return False
+        if not self._window_is_ready():
+            self._timer.start(SUPPORT_THANK_YOU_RETRY_MS)
+            return False
+        return self.play()
+
+    def play(self, *, force: bool = False) -> bool:
+        if self._has_shown:
+            return False
+        if not force and self._skip_for_cooldown():
+            return False
+        played = super().play(force=force)
+        if played:
+            self._has_shown = True
+        return played
+
+    def _application_state_changed(self, state) -> None:
+        if not self._has_shown and not self._cooldown_suppressed:
+            super()._application_state_changed(state)
 
 
 def _separator() -> QFrame:
@@ -1352,6 +1559,8 @@ class SupportPopup(QFrame):
                 Qt.AlignVCenter,
             )
             item_layout.addWidget(label, 0, Qt.AlignVCenter)
+            if badge_key == "founder":
+                self._founder_legend_layout = item_layout
             badge_row.addWidget(item, 0, Qt.AlignVCenter)
         badge_row.addStretch(1)
         legend_layout.addLayout(badge_row)
@@ -1360,9 +1569,11 @@ class SupportPopup(QFrame):
 
         self._founder_count = QLabel("Founder availability unavailable", card)
         self._founder_count.setObjectName("supporterFounderCount")
+        self._founder_count.setToolTip("Claimed Founder slots / total capacity")
         self._founder_count.setVisible(False)
         self._founder_host = QWidget(card)
         founder_row = QHBoxLayout(self._founder_host)
+        self._founder_empty_layout = founder_row
         founder_row.setContentsMargins(0, 0, 0, 0)
         founder_row.setSpacing(4)
         founder_row.addWidget(_support_badge_icon(
@@ -1510,11 +1721,8 @@ class SupportPopup(QFrame):
             supporters = (self._last_supporters if supporters.supporters is None
                           else supporters.supporters)
         self._last_supporters = tuple(supporters or ())
-        self._founder_count.setVisible(directory_update)
-        self._founder_host.setVisible(directory_update)
         self._founder_count.setText(
-            f"Founder · {slots.used}/{slots.limit} · "
-            + (f"{slots.remaining} spots left" if slots.remaining else "No spots left")
+            f"{slots.used}/{slots.limit}"
             if slots else "Founder availability unavailable"
         )
         people = []
@@ -1548,6 +1756,17 @@ class SupportPopup(QFrame):
                 badges = ()
             if name:
                 people.append((name, style, self._supporter_badges(badges)))
+
+        # Share one counter between the inline Founder legend and the compact
+        # empty-list fallback, so live metadata remains visible without names.
+        counter_layout = self._founder_legend_layout if people else self._founder_empty_layout
+        if self._founder_count.parentWidget() is not counter_layout.parentWidget():
+            self._founder_count.parentWidget().layout().removeWidget(self._founder_count)
+            counter_layout.insertWidget(2 if people else 1, self._founder_count, 0, Qt.AlignVCenter)
+        if people and not slots:
+            self._founder_count.setText("unavailable")
+        self._founder_count.setVisible(directory_update)
+        self._founder_host.setVisible(directory_update and not people)
 
         _clear_layout(self._names_grid)
         self._legend.setVisible(bool(people))
@@ -1745,6 +1964,77 @@ class FooterView:
         self._supporter_directory = SupporterDirectory(())
         self.refresh_supporters_if_stale = None
         self._reminder: _SupportReminder | None = None
+        self._thank_you: _SupportThankYou | None = None
+        self._supporter_access_listener = self._on_supporter_access_changed
+        supporter_access = getattr(app, "supporter_access", None)
+        add_listener = getattr(supporter_access, "add_listener", None)
+        if callable(add_listener):
+            add_listener(self._supporter_access_listener)
+            remove_listener = getattr(supporter_access, "remove_listener", None)
+            if callable(remove_listener):
+                frame.destroyed.connect(
+                    lambda *_args,
+                    owner=supporter_access,
+                    callback=self._supporter_access_listener: owner.remove_listener(
+                        callback
+                    )
+                )
+
+    def set_appearance(self, provider) -> None:
+        """Bind visuals only; retain eligibility, persisted cooldown and count."""
+        if self._support_btn._appearance is provider:
+            return
+        for card in (self._reminder, self._thank_you):
+            if card is not None:
+                if card._playing:
+                    card.dismiss()
+                card._presentation = None  # The previous provider owns disposal.
+                card._presentation_failed = False
+        self._support_btn._appearance = provider
+        self._support_btn.set_theme_icon(provider.footer_icon if provider else None)
+        self.frame.setFixedHeight(provider.footer_height if provider else FOOTER_HEIGHT)
+
+    def _has_premium_access(self) -> bool:
+        checker = getattr(self._app, "has_premium_access", None)
+        if not callable(checker):
+            return False
+        try:
+            return bool(checker())
+        except Exception:
+            return False
+
+    def _on_supporter_access_changed(self, _state=None) -> None:
+        if self._reminder is None:
+            return
+        if not self._has_premium_access():
+            if self._thank_you is not None and (
+                self._thank_you._playing
+                or self._thank_you._due
+                or self._thank_you._startup_timer.isActive()
+            ):
+                self._thank_you.dismiss()
+            return
+        try:
+            # Repeated access refreshes must not reset the shared footer heartbeat
+            # while the gratitude animation is playing.
+            if (
+                self._reminder._playing
+                or self._reminder._due
+                or self._reminder._startup_timer.isActive()
+            ):
+                self._reminder.dismiss()
+        except RuntimeError:
+            self._reminder = None
+            return
+        if self._thank_you is None:
+            self._thank_you = _SupportThankYou(
+                parent=self._reminder.parentWidget(),
+                footer_frame=self.frame,
+                support_link=self._support_btn,
+                can_show=self._thank_you_can_show,
+                record_show=self._record_support_thank_you_shown,
+            )
+        self._thank_you.start()
 
     def _initialize_support_reminder(self) -> None:
         """Build the overlay once the footer has been parented by the root layout."""
@@ -1765,6 +2055,7 @@ class FooterView:
             record_show=self._record_support_reminder_shown,
         )
         self._reminder.start()
+        self._on_supporter_access_changed()
 
     def _save_support_reminder_state(
         self,
@@ -1787,7 +2078,32 @@ class FooterView:
     def _record_support_reminder_shown(self, shown_at: float) -> None:
         self._save_support_reminder_state(shown_at)
 
+    def _record_support_thank_you_shown(self, shown_at: float) -> None:
+        try:
+            result = _update_support_thank_you_state(last_shown_at=shown_at)
+        except Exception as exc:
+            self._log_warning(
+                "Support thank-you state could not be saved: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return
+        if not result.success:
+            reason = result.reason or "the configuration file was not writable"
+            self._log_warning(f"Support thank-you state could not be saved: {reason}")
+
     def _support_reminder_can_show(self) -> bool:
+        if self._has_premium_access():
+            return False
+        return self._support_popup_is_closed()
+
+    def _thank_you_can_show(self) -> bool:
+        return (
+            self._has_premium_access()
+            and self._support_popup_is_closed()
+            and (self._reminder is None or not self._reminder._playing)
+        )
+
+    def _support_popup_is_closed(self) -> bool:
         popup = self._popup
         if popup is None:
             return True
@@ -1882,6 +2198,8 @@ class FooterView:
         try:
             if self._reminder is not None:
                 self._reminder.dismiss()
+            if self._thank_you is not None and self._thank_you._playing:
+                self._thank_you.dismiss()
             if self._popup is None:
                 self._popup = SupportPopup(
                     self.frame.window(),

@@ -13,6 +13,7 @@ class FakePymem:
     def __init__(self, payload: dict[int, bytes]) -> None:
         self.payload = payload
         self.process_handle = object()
+        self.process_id = 4321
 
     def read_bytes(self, address: int, size: int) -> bytes:
         data = self.payload.get(address)
@@ -52,6 +53,11 @@ class ProcessMemoryTests(unittest.TestCase):
         reader = self.create_reader({})
 
         self.assertEqual(reader.module_offset("GameAssembly.dll", 0x1234), 0x10001234)
+
+    def test_process_identity_has_a_stable_pid_fallback(self) -> None:
+        reader = self.create_reader({})
+
+        self.assertEqual(reader.process_identity(), "4321:0")
 
     def test_module_base_is_resolved_once_per_module(self) -> None:
         # `module_from_name` enumerates the whole module list -- ~3.4 ms live,

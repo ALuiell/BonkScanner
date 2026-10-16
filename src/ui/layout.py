@@ -20,7 +20,12 @@ from functools import partial
 from ui.footer import build_footer
 from ui.log_view import LogView
 from ui.scanner_toggle import ScannerToggle
-from ui.status_indicators import LABEL_SPACING, PulsingDot, RecordingFlag
+from ui.status_indicators import (
+    LABEL_SPACING,
+    PremiumAccessBadge,
+    PulsingDot,
+    RecordingFlag,
+)
 from ui.shared import (
     _apply_button_icon,
     _clear_layout,
@@ -325,11 +330,35 @@ def _build_header(app, parent_layout):
 
     title = QLabel("BonkScanner")
     title.setObjectName("appTitle")
+    title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     header.addWidget(title, 0, Qt.AlignVCenter)
+
+    status_cluster = QWidget()
+    status_cluster.setObjectName("headerStatusCluster")
+    status_cluster_layout = QHBoxLayout(status_cluster)
+    status_cluster_layout.setContentsMargins(0, 0, 0, 0)
+    status_cluster_layout.setSpacing(6)
+    header.addWidget(status_cluster, 0, Qt.AlignVCenter)
+
+    app.premium_access_badge = PremiumAccessBadge()
+    _apply_button_icon(
+        app.premium_access_badge,
+        "media/premium_access_icon.svg",
+        14,
+    )
+    app.premium_access_badge.clicked.connect(
+        lambda: app.open_settings_dialog(page="support")
+    )
+    app.supporter_access.add_listener(app.premium_access_badge.set_access_state)
+    status_cluster_layout.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
+    # The access state may make the badge visible immediately. Reparent it via
+    # the layout first so an active Premium account cannot flash a transient
+    # top-level native window during startup.
+    app.premium_access_badge.set_access_state(app.supporter_access.state)
 
     divider = QFrame()
     divider.setObjectName("headerDivider")
-    header.addWidget(divider, 0, Qt.AlignVCenter)
+    status_cluster_layout.addWidget(divider, 0, Qt.AlignVCenter)
 
     # Status reads next to the logo: the dot for the colour, the text for which
     # of the four states it is. The scanner's switch stays at the far end of
@@ -344,9 +373,15 @@ def _build_header(app, parent_layout):
     # ring into, so a live scanner reads as live rather than as a green pixel.
     status_pair = QWidget()
     status_pair.setObjectName("statusPair")
+    status_pair.setFixedHeight(30)
     status_pair_layout = QHBoxLayout(status_pair)
-    status_pair_layout.setContentsMargins(0, 0, 0, 0)
+    # The title's heavier proportional font has a lower optical centre than
+    # the small mono status text. A mathematically centred pair still reads a
+    # couple of pixels too high beside ``BonkScanner``, so give the whole lamp
+    # and caption one deliberate optical offset rather than moving them apart.
+    status_pair_layout.setContentsMargins(0, 4, 0, 0)
     status_pair_layout.setSpacing(LABEL_SPACING)
+    status_pair_layout.setAlignment(Qt.AlignVCenter)
 
     app.status_dot = PulsingDot()
     app.status_dot.setObjectName("statusDot")
@@ -356,9 +391,10 @@ def _build_header(app, parent_layout):
     app.status_label = QLabel("IDLE")
     app.status_label.setObjectName("statusText")
     app.status_label.setProperty("state", "idle")
+    app.status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     status_pair_layout.addWidget(app.status_label, 0, Qt.AlignVCenter)
 
-    header.addWidget(status_pair, 0, Qt.AlignVCenter)
+    status_cluster_layout.addWidget(status_pair, 0, Qt.AlignVCenter)
 
     header.addStretch(1)
 
@@ -1171,6 +1207,23 @@ def _build_right_panel(app, splitter):
     return right_layout
 
 
+def _save_show_target_gaps(enabled: bool) -> bool:
+    """Persist the Logs diagnostic toggle and roll back on write failure."""
+    previous = bool(getattr(config, "SHOW_TARGET_GAPS", True))
+    previous_config = config.user_config.get("SHOW_TARGET_GAPS", previous)
+    config.SHOW_TARGET_GAPS = bool(enabled)
+    config.user_config["SHOW_TARGET_GAPS"] = bool(enabled)
+    try:
+        result = config.save_config(config.user_config)
+    except Exception:
+        result = None
+    if result is not None and getattr(result, "success", True) is not False:
+        return True
+    config.SHOW_TARGET_GAPS = previous
+    config.user_config["SHOW_TARGET_GAPS"] = previous_config
+    return False
+
+
 def _build_logs_tab(app):
     app.tab_logs = QWidget()
     logs_layout = QVBoxLayout(app.tab_logs)
@@ -1179,7 +1232,10 @@ def _build_logs_tab(app):
     # and the scanner still calls one method on it -- but that method is
     # `append_log` now rather than `insertHtml`, because the panel owns records
     # and derives the document from them. See `ui/log_view.py` for why.
-    app.log_box = LogView()
+    app.log_box = LogView(
+        show_target_gaps=bool(getattr(config, "SHOW_TARGET_GAPS", True)),
+        on_target_gaps_changed=_save_show_target_gaps,
+    )
     logs_layout.addWidget(app.log_box)
     app.tabview.addTab(app.tab_logs, "Logs")
 
@@ -1349,11 +1405,13 @@ def _build_compare_runs_view(app, timeline_series_slots):
         schedule=app.marshal_to_ui,
         timeline_series_slots=timeline_series_slots,
         log=app.log,
+        active_recording_feed=app.runtime.active_recording_feed,
     )
     view.build()
     app.vod_library.subscribe(
         invalidate=view.invalidate_compare_runs_list,
         repaint=view.refresh_compare_runs_list,
+        live_repaint=lambda: view.refresh_compare_runs_list(refresh_index=False),
     )
     return view
 
@@ -1397,11 +1455,13 @@ def _build_recordings_view(app, timeline_series_slots):
         log=app.log,
         schedule=app.marshal_to_ui,
         timeline_series_slots=timeline_series_slots,
+        active_recording_feed=app.runtime.active_recording_feed,
     )
     view.build()
     app.vod_library.subscribe(
         invalidate=view.invalidate_vods_list,
         repaint=view.refresh_vods_list,
+        live_repaint=lambda: view.refresh_vods_list(refresh_index=False),
         failed=view.on_vod_metadata_refresh_failed,
     )
     return view

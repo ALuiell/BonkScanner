@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import src  # noqa: F401 -- test path bootstrap
-from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QPushButton
 
 from core.map_markers import (
     display_input_binding,
@@ -40,7 +40,7 @@ class MapMarkerConfigTests(unittest.TestCase):
             ],
         )
 
-    def test_marker_settings_clamp_scale_and_default_to_disabled(self) -> None:
+    def test_marker_settings_clamp_scale_and_default_premium_options_on(self) -> None:
         self.assertEqual(
             normalize_map_marker_settings({"scale": 99, "hotkeys": "bad"}),
             {
@@ -48,6 +48,10 @@ class MapMarkerConfigTests(unittest.TestCase):
                 "automatic_discovery": False,
                 "style": "modern",
                 "scale": 3.0,
+                "minimap_enabled": True,
+                "minimap_scale": 1.0,
+                "merchant_memory_enabled": True,
+                "merchant_stock_display": "smart",
                 "hotkeys": [],
             },
         )
@@ -64,6 +68,18 @@ class MapMarkerConfigTests(unittest.TestCase):
             normalize_map_marker_settings({"style": "unknown"})["style"],
             "modern",
         )
+        premium = normalize_map_marker_settings(
+            {
+                "minimap_enabled": True,
+                "minimap_scale": 99,
+                "merchant_memory_enabled": True,
+                "merchant_stock_display": "cursor",
+            }
+        )
+        self.assertTrue(premium["minimap_enabled"])
+        self.assertEqual(premium["minimap_scale"], 2.0)
+        self.assertTrue(premium["merchant_memory_enabled"])
+        self.assertEqual(premium["merchant_stock_display"], "cursor")
 
     def test_plain_game_controls_are_reserved_but_modified_keys_work(self) -> None:
         self.assertIsNone(normalize_input_binding("tab"))
@@ -76,6 +92,37 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
+
+    def test_stock_memory_includes_prices_without_separate_setting(self) -> None:
+        dialog = MapMarkerSettingsDialog([], has_premium_access=True)
+        try:
+            self.assertTrue(dialog.minimap_enabled)
+            self.assertTrue(dialog.merchant_memory_enabled)
+            self.assertFalse(hasattr(dialog, "merchant_prices_switch"))
+            copy = " ".join(
+                label.text() for label in dialog.merchant_row.findChildren(QLabel)
+            )
+            self.assertIn("names and prices", copy)
+            self.assertIn("Reopen the shop to refresh them", copy)
+        finally:
+            dialog.deleteLater()
+
+    def test_microwave_counter_is_part_of_free_automatic_discovery(self) -> None:
+        for premium in (False, True):
+            with self.subTest(premium=premium):
+                dialog = MapMarkerSettingsDialog([], has_premium_access=premium)
+                try:
+                    dialog.show()
+                    QApplication.processEvents()
+                    self.assertEqual(len(dialog.premium_card.findChildren(QCheckBox)), 2)
+                    copy = " ".join(
+                        label.text()
+                        for label in dialog.behavior_card.findChildren(QLabel)
+                    )
+                    self.assertIn("remaining uses", copy)
+                    self.assertNotIn("Requires Premium", copy)
+                finally:
+                    dialog.close()
 
     def test_dialog_exposes_dynamic_saved_rows(self) -> None:
         dialog = MapMarkerSettingsDialog(
@@ -115,6 +162,114 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
         finally:
             modern.close()
             classic.close()
+
+    def test_behavior_switches_share_one_compact_row_before_premium(self) -> None:
+        dialog = MapMarkerSettingsDialog([], has_premium_access=True)
+        try:
+            dialog.show()
+            QApplication.processEvents()
+
+            automatic_position = dialog.automatic_discovery_cb.mapTo(
+                dialog, QPoint(0, 0)
+            )
+            classic_position = dialog.classic_style_cb.mapTo(
+                dialog, QPoint(0, 0)
+            )
+            premium_position = dialog.premium_card.mapTo(dialog, QPoint(0, 0))
+
+            self.assertLess(automatic_position.x(), classic_position.x())
+            self.assertLessEqual(
+                abs(automatic_position.y() - classic_position.y()), 2
+            )
+            self.assertLess(classic_position.y(), premium_position.y())
+            # The two Premium features stay compact in one paired row.
+            self.assertLessEqual(dialog.premium_card.height(), 225)
+            self.assertEqual(dialog.premium_card.objectName(), "mapMarkerPremiumGroup")
+            self.assertEqual(dialog.premium_card.styleSheet(), "")
+        finally:
+            dialog.close()
+
+    def test_locked_placeholders_preserve_saved_premium_settings(self) -> None:
+        open_support = MagicMock()
+        locked = MapMarkerSettingsDialog(
+            [],
+            minimap_enabled=True,
+            merchant_memory_enabled=True,
+            open_support_settings=open_support,
+        )
+        active = MapMarkerSettingsDialog(
+            [],
+            minimap_enabled=True,
+            minimap_scale=1.4,
+            merchant_memory_enabled=True,
+            merchant_stock_display="cursor",
+            has_premium_access=True,
+        )
+        try:
+            locked.show()
+            QApplication.processEvents()
+
+            self.assertIsInstance(locked.minimap_enabled_switch, QCheckBox)
+            self.assertIsInstance(locked.merchant_memory_switch, QCheckBox)
+            self.assertFalse(locked.minimap_enabled_switch.isEnabled())
+            self.assertFalse(locked.merchant_memory_switch.isEnabled())
+            self.assertFalse(locked.minimap_enabled_switch.isVisible())
+            self.assertFalse(locked.merchant_memory_switch.isVisible())
+            self.assertFalse(locked.minimap_scale_spin.isVisible())
+            self.assertFalse(locked.merchant_stock_display_combo.isVisible())
+            self.assertTrue(locked.minimap_enabled)
+            self.assertTrue(locked.merchant_memory_enabled)
+            for row in (locked.minimap_row, locked.merchant_row):
+                self.assertIsNotNone(row.findChild(QLabel, "PremiumFeatureLockedStatus"))
+            self.assertEqual(
+                locked.minimap_enabled_switch.objectName(),
+                "PremiumFeatureCheck",
+            )
+            self.assertEqual(locked.premium_group_badge.text(), "Premium")
+            self.assertFalse(locked.premium_group_badge.icon().isNull())
+            self.assertEqual(
+                locked.premium_group_badge.property("premiumState"),
+                "locked",
+            )
+            self.assertIs(
+                locked.premium_group_badge.parentWidget(),
+                locked.premium_card,
+            )
+            title_geometry = locked.premium_group_badge.geometry()
+            self.assertGreaterEqual(title_geometry.left(), 0)
+            self.assertGreaterEqual(title_geometry.top(), 0)
+            self.assertLessEqual(title_geometry.right(), locked.premium_card.width())
+            self.assertEqual(title_geometry.height(), 26)
+            self.assertEqual(locked.premium_group_badge.iconSize(), QSize(15, 15))
+            self.assertLess(
+                locked.minimap_row.geometry().right(),
+                locked.merchant_row.geometry().left(),
+            )
+            locked.premium_group_badge.click()
+            open_support.assert_called_once_with()
+
+            self.assertTrue(active.minimap_enabled_switch.isEnabled())
+            self.assertTrue(active.merchant_memory_switch.isEnabled())
+            self.assertEqual(
+                active.premium_group_badge.property("premiumState"),
+                "active",
+            )
+            self.assertTrue(active.minimap_enabled)
+            self.assertAlmostEqual(active.minimap_scale, 1.4)
+            self.assertTrue(active.merchant_memory_enabled)
+            self.assertEqual(active.merchant_stock_display, "cursor")
+            active.show()
+            QApplication.processEvents()
+            self.assertTrue(active.minimap_enabled_switch.isVisible())
+            self.assertTrue(active.merchant_memory_switch.isVisible())
+            for dialog in (locked, active):
+                notes = [row.findChild(QLabel, "PremiumFeatureNote")
+                         for row in (dialog.minimap_row, dialog.merchant_row)]
+                positions = [note.mapTo(dialog, QPoint(0, 0)).y() for note in notes]
+                self.assertLessEqual(abs(positions[0] - positions[1]), 2)
+        finally:
+            locked.close()
+            active.close()
 
     def test_empty_state_text_and_add_button_use_the_available_space(self) -> None:
         dialog = MapMarkerSettingsDialog([])

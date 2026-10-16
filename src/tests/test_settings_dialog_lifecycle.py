@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QScrollArea, QWidget
 
 import gui_app
 from app import config
@@ -40,6 +42,7 @@ class _SettingsDialogProbe(QDialog):
         self.raise_calls = 0
         self.activate_calls = 0
         self.reload_calls = 0
+        self.page_calls = []
         self.instances.append(self)
 
     def exec(self) -> int:
@@ -59,6 +62,9 @@ class _SettingsDialogProbe(QDialog):
 
     def reload_from_config(self) -> None:
         self.reload_calls += 1
+
+    def show_page(self, page: str) -> None:
+        self.page_calls.append(page)
 
 
 class SettingsDialogLifecycleTests(unittest.TestCase):
@@ -143,6 +149,64 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
         first.deleteLater.assert_called_once_with()
         self.assertTrue(any("native handle was deleted" in text for text, _ in self.owner.logs))
 
+    def test_page_request_reaches_new_and_visible_settings_dialog(self) -> None:
+        with patch.object(gui_app, "SettingsDialog", _SettingsDialogProbe):
+            self.owner.open_settings_dialog(page="support")
+            dialog = self.owner._settings_dialog
+            self.assertEqual(dialog.page_calls, ["support"])
+
+            self.owner.open_settings_dialog(page="support")
+            self.assertEqual(dialog.page_calls, ["support", "support"])
+            self.assertEqual(dialog.raise_calls, 1)
+
+    def test_appearance_cancel_reloads_saved_selection(self) -> None:
+        from ui.themes import THEME_CONFIG_KEY
+
+        config.user_config[THEME_CONFIG_KEY] = "halloween"
+        self.owner.open_settings_dialog()
+        dialog = self.owner._settings_dialog
+        self.assertEqual(dialog.theme_selector.currentData(), "halloween")
+        dialog.theme_selector.setCurrentIndex(dialog.theme_selector.findData("original"))
+        self.assertTrue(dialog._general_settings_dirty)
+        dialog.reject()
+        self.assertEqual(config.user_config[THEME_CONFIG_KEY], "halloween")
+        dialog.reload_from_config()
+        self.assertEqual(dialog.theme_selector.currentData(), "halloween")
+
+    def test_appearance_save_commits_before_live_application(self) -> None:
+        from ui.themes import THEME_CONFIG_KEY
+
+        config.user_config[THEME_CONFIG_KEY] = "halloween"
+        self.owner.apply_visual_theme = MagicMock(
+            side_effect=lambda: self.assertEqual(config.user_config[THEME_CONFIG_KEY], "original")
+        )
+        self.owner.open_settings_dialog()
+        dialog = self.owner._settings_dialog
+        dialog.theme_selector.setCurrentIndex(dialog.theme_selector.findData("original"))
+        with patch.object(config, "save_settings_with_game_reset",
+                          return_value=config.SettingsSaveResult(True)) as save:
+            self.assertTrue(dialog.save(close_dialog=False))
+        self.assertEqual(save.call_args.args[0][THEME_CONFIG_KEY], "original")
+        self.owner.apply_visual_theme.assert_called_once_with()
+        dialog.reload_from_config()
+        self.assertEqual(dialog.theme_selector.currentData(), "original")
+
+    def test_failed_appearance_save_keeps_edits_and_current_theme(self) -> None:
+        from ui.themes import THEME_CONFIG_KEY
+
+        config.user_config[THEME_CONFIG_KEY] = "halloween"
+        self.owner.apply_visual_theme = MagicMock()
+        self.owner.open_settings_dialog()
+        dialog = self.owner._settings_dialog
+        dialog.theme_selector.setCurrentIndex(dialog.theme_selector.findData("original"))
+        with patch.object(config, "save_settings_with_game_reset",
+                          return_value=config.SettingsSaveResult(False, reason="disk full")), \
+                patch.object(type(dialog), "_show_game_reset_notice"):
+            self.assertFalse(dialog.save(close_dialog=False))
+        self.assertEqual(config.user_config[THEME_CONFIG_KEY], "halloween")
+        self.assertEqual(dialog.theme_selector.currentData(), "original")
+        self.owner.apply_visual_theme.assert_not_called()
+
     def test_help_dialog_is_deleted_after_its_modal_session(self) -> None:
         dialog = MagicMock()
         with patch.object(gui_app, "HelpDialog", return_value=dialog):
@@ -190,6 +254,51 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
                 self.assertEqual(dialog.hotkey_entry.text(), str(config.HOTKEY))
                 dialog.reject()
 
+    def test_save_button_persists_edits_and_closes_on_each_page(self) -> None:
+        for index, page in enumerate(("general", "restart", "support", "data")):
+            with self.subTest(page=page):
+                self.owner.open_settings_dialog(page=page)
+                dialog = self.owner._settings_dialog
+                new_hotkey = f"f{index + 10}"
+                dialog.hotkey_entry.setText(new_hotkey)
+                dialog.hotkey_entry.textEdited.emit(new_hotkey)
+                QApplication.processEvents()
+
+                with patch.object(
+                    config,
+                    "save_settings_with_game_reset",
+                    return_value=config.SettingsSaveResult(True),
+                ) as persist:
+                    QTest.mouseClick(dialog.save_btn, Qt.LeftButton)
+
+                persist.assert_called_once()
+                self.assertEqual(persist.call_args.args[0]["HOTKEY"], new_hotkey)
+                self.assertEqual(config.HOTKEY, new_hotkey)
+                self.assertEqual(dialog.result(), QDialog.Accepted)
+                self.assertFalse(dialog.isVisible())
+
+    def test_failed_save_button_keeps_dialog_and_edits_open(self) -> None:
+        self.owner.open_settings_dialog()
+        dialog = self.owner._settings_dialog
+        initial_hotkey = config.HOTKEY
+        dialog.hotkey_entry.setText("f7")
+        dialog.hotkey_entry.textEdited.emit("f7")
+        QApplication.processEvents()
+
+        with patch.object(
+            config,
+            "save_settings_with_game_reset",
+            return_value=config.SettingsSaveResult(False, reason="disk unavailable"),
+        ) as persist, patch.object(type(dialog), "_show_game_reset_notice") as notice:
+            QTest.mouseClick(dialog.save_btn, Qt.LeftButton)
+
+        persist.assert_called_once()
+        notice.assert_called_once()
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.hotkey_entry.text(), "f7")
+        self.assertEqual(config.HOTKEY, initial_hotkey)
+        self.assertNotEqual(dialog.result(), QDialog.Accepted)
+
     def test_snapshot_interval_control_accepts_then_clamps_subminimum_input(self) -> None:
         self.owner.open_settings_dialog()
         dialog = self.owner._settings_dialog
@@ -211,27 +320,251 @@ class SettingsDialogLifecycleTests(unittest.TestCase):
             config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS,
         )
 
-    def test_premium_ui_is_absent_and_support_routes_are_compact(self) -> None:
+    def test_support_routes_are_available_on_all_settings_pages(self) -> None:
         self.owner.open_settings_dialog()
         dialog = self.owner._settings_dialog
         self.assertIsNotNone(dialog)
         dialog.show()
         QApplication.processEvents()
 
-        self.assertIsNone(dialog.findChild(QWidget, "SupporterAccessCard"))
-        self.assertFalse(hasattr(dialog, "supporter_key_entry"))
-        for button in (
-            dialog.patreon_btn,
-            dialog.crypto_btn,
-            dialog.github_btn,
-            dialog.discord_btn,
-        ):
-            self.assertEqual(button.property("settingsSupportAction"), "true")
-            self.assertEqual((button.width(), button.height()), (104, 32))
-            self.assertEqual(
-                (button.iconSize().width(), button.iconSize().height()),
-                (16, 16),
+        self.assertEqual(
+            [
+                dialog.settings_tabs.tabText(index)
+                for index in range(dialog.settings_tabs.count())
+            ],
+            ["General", "Restart", "Data", "Support"],
+        )
+        self.assertIsNone(
+            dialog.general_settings_page.findChild(QWidget, "SupporterAccessCard")
+        )
+        self.assertIsNotNone(
+            dialog.supporter_access_page.findChild(QWidget, "SupporterAccessCard")
+        )
+        for button in (dialog.patreon_btn, dialog.crypto_btn, dialog.github_btn, dialog.discord_btn):
+            self.assertTrue(dialog.general_settings_page.isAncestorOf(button))
+            self.assertTrue(button.isVisible())
+        for page in (dialog.general_settings_page, dialog.restart_settings_page, dialog.data_storage_page):
+            dialog.settings_tabs.setCurrentWidget(page)
+            QApplication.processEvents()
+            with patch.object(dialog, "_open_external_page") as open_page:
+                for name, label in (("PatreonButton", "Patreon"), ("CryptoButton", "Crypto"),
+                                    ("GithubButton", "GitHub"), ("DiscordButton", "Discord")):
+                    button = page.findChild(QPushButton, name)
+                    self.assertIsNotNone(button)
+                    self.assertEqual(button.text(), label)
+                    self.assertTrue(button.isVisible())
+                    if button.isEnabled():
+                        button.click()
+                        open_page.assert_called_once()
+                        open_page.reset_mock()
+        for name in ("PatreonButton", "CryptoButton", "GithubButton", "DiscordButton"):
+            self.assertIsNone(dialog.supporter_access_page.findChild(QPushButton, name))
+        self.assertTrue(dialog.supporter_access_page.isAncestorOf(dialog.supporter_access_page.patreon_btn))
+        self.assertFalse(dialog.general_settings_page.isAncestorOf(dialog.supporter_access_page.patreon_btn))
+
+        self.assertEqual(
+            dialog.supporter_access_page.patreon_btn.objectName(),
+            "SupportPatreonPrimary",
+        )
+        self.assertEqual(
+            dialog.supporter_access_page.github_btn.objectName(),
+            "SupportSecondaryLink",
+        )
+
+        dialog.settings_tabs.setCurrentWidget(dialog.supporter_access_page)
+        QApplication.processEvents()
+        self.assertEqual(dialog.save_btn.text(), "Done")
+        self.assertFalse(dialog.cancel_btn.isVisible())
+
+        dialog.settings_tabs.setCurrentWidget(dialog.general_settings_page)
+        QApplication.processEvents()
+        self.assertEqual(dialog.save_btn.text(), "Save")
+        self.assertTrue(dialog.cancel_btn.isVisible())
+
+    def test_data_migration_dirty_settings_prompt_uses_app_dialog(self) -> None:
+        self.owner.open_settings_dialog(page="data")
+        dialog = self.owner._settings_dialog
+        self.assertIsNotNone(dialog)
+        dialog._general_settings_dirty = True
+
+        with patch(
+            "ui.dialogs.ask_app_confirmation", return_value=False
+        ) as confirmation, patch.object(dialog, "save") as save:
+            result = dialog._request_data_migration()
+
+        confirmation.assert_called_once()
+        save.assert_not_called()
+        self.assertFalse(result.success)
+        self.assertEqual(result.status, "cancelled")
+
+    def test_settings_construction_never_shows_a_temporary_window(self) -> None:
+        class WindowShowObserver(QObject):
+            def __init__(self):
+                super().__init__()
+                self.shown_windows = []
+
+            def eventFilter(self, watched, event):
+                if (
+                    event.type() == QEvent.Show
+                    and isinstance(watched, QWidget)
+                    and watched.isWindow()
+                ):
+                    self.shown_windows.append(type(watched).__name__)
+                return False
+
+        for problem in ("", "Invalid reset timing"):
+            with self.subTest(problem=problem):
+                observer = WindowShowObserver()
+                watched_widgets = []
+                original_set_status = gui_app.SettingsDialog._set_reset_status
+
+                def observe_status(dialog, *args, **kwargs):
+                    for widget in (dialog.reset_timing_hint, dialog.reset_timing_status_label):
+                        if widget not in watched_widgets:
+                            widget.installEventFilter(observer)
+                            watched_widgets.append(widget)
+                    original_set_status(dialog, *args, **kwargs)
+
+                try:
+                    with patch.object(
+                        gui_app.SettingsDialog,
+                        "_reset_input_problem",
+                        lambda _dialog, **_kwargs: (problem, False),
+                    ), patch.object(
+                        gui_app.SettingsDialog, "_set_reset_status", observe_status,
+                    ):
+                        dialog = gui_app.SettingsDialog(self.owner.window, master=self.owner)
+                        self.owner._settings_dialog = dialog
+                        self.assertEqual(observer.shown_windows, [])
+                        self.assertFalse(dialog.isVisible())
+                        dialog.installEventFilter(observer)
+                        watched_widgets.append(dialog)
+                        dialog.show_page("restart")
+                        dialog.open()
+                        QApplication.processEvents()
+                        self.assertEqual(observer.shown_windows, ["SettingsDialog"])
+                        self.assertEqual(dialog.reset_timing_hint.isVisible(), not bool(problem))
+                        self.assertEqual(dialog.reset_timing_status_label.isVisible(), bool(problem))
+                finally:
+                    for widget in watched_widgets:
+                        widget.removeEventFilter(observer)
+                    if self.owner._settings_dialog is not None:
+                        self.owner._settings_dialog.reject()
+
+    def test_settings_keep_support_page_size_and_status_only_on_restart(self):
+        self.owner.open_settings_dialog(page="support")
+        dialog = self.owner._settings_dialog
+        dialog.show()
+        QApplication.processEvents()
+        support_size = dialog.size()
+        for page in ("general", "restart", "data", "support", "restart"):
+            dialog.show_page(page)
+            QApplication.processEvents()
+            self.assertEqual(dialog.size(), support_size)
+            self.assertEqual(dialog.reset_timing_status_label.isVisible(),
+                             page == "restart" and bool(dialog.reset_timing_status_label.text()))
+        self.assertFalse(dialog.reset_hold_safety_margin_entry.isVisible())
+        dialog.advanced_reset_timing.set_expanded(True)
+        QApplication.processEvents()
+        self.assertTrue(dialog.reset_hold_safety_margin_entry.isVisible())
+        QApplication.processEvents()
+        self.assertEqual(dialog.size(), support_size)
+
+    def test_settings_navigation_replaces_title_and_frees_general_page_height(self) -> None:
+        self.owner.open_settings_dialog()
+        dialog = self.owner._settings_dialog
+        dialog.setStyleSheet(
+            (Path(__file__).resolve().parents[1] / "media" / "bonkscanner_theme.qss").read_text(
+                encoding="utf-8"
             )
+        )
+        dialog.resize(560, 720)
+        dialog.show()
+        QApplication.processEvents()
+
+        self.assertIsNone(dialog.findChild(QLabel, "dialogTitle"))
+        self.assertFalse(dialog.settings_header_tabs.isHidden())
+        self.assertTrue(dialog.settings_tabs.tabBar().isHidden())
+        self.assertEqual(
+            [
+                dialog.settings_header_tabs.tabText(index)
+                for index in range(dialog.settings_header_tabs.count())
+            ],
+            ["General", "Restart", "Data", "Support"],
+        )
+        dialog.settings_header_tabs.setCurrentIndex(0)
+        QApplication.processEvents()
+        self.assertIs(
+            dialog.settings_tabs.currentWidget(),
+            dialog.general_settings_page,
+        )
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(dialog.reset_hold_duration_entry))
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(dialog.reset_hold_safety_margin_entry))
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(dialog.stop_scanning_on_player_movement_var))
+        self.assertFalse(dialog.general_settings_page.isAncestorOf(dialog.reset_hold_duration_entry))
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(dialog.reset_timing_status_label))
+        self.assertEqual(dialog.save_btn.text(), "Save")
+        self.assertTrue(dialog.save_btn.isDefault())
+        self.assertTrue(dialog.cancel_btn.isVisible())
+        dialog.settings_header_tabs.setCurrentIndex(2)
+        QApplication.processEvents()
+        self.assertIs(
+            dialog.settings_tabs.currentWidget(),
+            dialog.data_storage_page,
+        )
+        dialog.settings_header_tabs.setCurrentIndex(3)
+        QApplication.processEvents()
+        self.assertIs(
+            dialog.settings_tabs.currentWidget(),
+            dialog.supporter_access_page,
+        )
+        dialog.settings_header_tabs.setCurrentIndex(0)
+        QApplication.processEvents()
+        self.assertIs(
+            dialog.settings_tabs.currentWidget(),
+            dialog.general_settings_page,
+        )
+        settings_scroll = dialog.findChild(QScrollArea, "SettingsScroll")
+        # Each page scrolls independently while the Save footer stays reachable.
+        self.assertFalse(settings_scroll.horizontalScrollBar().isVisible())
+        self.assertTrue(dialog.save_btn.isVisible())
+        self.assertTrue(dialog.cancel_btn.isVisible())
+
+    def test_migration_restart_saves_edits_before_closing(self) -> None:
+        self.owner.open_settings_dialog(page="data")
+        dialog = self.owner._settings_dialog
+        dialog._general_settings_dirty = True
+        with patch.object(dialog, "save", return_value=False), patch(
+            "ui.dialogs.QTimer.singleShot"
+        ) as schedule:
+            dialog._restart_for_data_migration()
+            schedule.assert_not_called()
+            self.assertFalse(getattr(self.owner, "_restart_requested", False))
+        with patch.object(dialog, "save", return_value=True) as save, patch(
+            "ui.dialogs.QTimer.singleShot"
+        ) as schedule:
+            dialog._restart_for_data_migration()
+            save.assert_called_once_with(close_dialog=False)
+            self.assertTrue(self.owner._restart_requested)
+            self.assertEqual(dialog.result(), QDialog.Accepted)
+            self.assertEqual(schedule.call_args.args, (0, self.owner.window.close))
+
+    def test_support_does_not_silently_discard_general_edits(self) -> None:
+        self.owner.open_settings_dialog()
+        dialog = self.owner._settings_dialog
+        dialog.show()
+        QApplication.processEvents()
+
+        dialog.hotkey_entry.textEdited.emit("f7")
+        dialog.settings_tabs.setCurrentWidget(dialog.supporter_access_page)
+        QApplication.processEvents()
+
+        self.assertEqual(dialog.save_btn.text(), "Save changes")
+        self.assertTrue(dialog.cancel_btn.isVisible())
+
+        dialog.reload_from_config()
+        self.assertEqual(dialog.save_btn.text(), "Done")
+        self.assertFalse(dialog.cancel_btn.isVisible())
 
 
 if __name__ == "__main__":

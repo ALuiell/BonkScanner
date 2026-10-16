@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import struct
 import unittest
+from dataclasses import replace
+from unittest.mock import Mock
 
 from app.map_marker_hotkeys import MapMarkerHotkeyController
 from app.map_marker_tracker import MapMarkerTracker
@@ -9,9 +11,15 @@ from core.map_markers import (
     MAP_MARKER_ACTION_BY_ID,
     MapMarkerSnapshot,
     MapViewport,
+    MerchantOffer,
+    MerchantStockCapture,
+    MinimapProjection,
+    WorldMapMarker,
     action_id_for_interactable,
     build_marker_palette,
     map_marker_screen_geometry,
+    minimap_marker_screen_geometry,
+    project_world_to_minimap,
     project_world_to_map,
     unproject_map_to_world,
 )
@@ -31,6 +39,9 @@ class FakeMarkerClient:
         self.active: dict[int, bool] = {}
         self.automatic_discovery_values: list[bool] = []
         self.automatic_sample_values: list[bool] = []
+        self.minimap_values: list[bool] = []
+        self.merchant_memory_values: list[bool] = []
+        self.merchant_sample_values: list[bool] = []
         self.active_checks: list[int] = []
         self.active_identity_checks: list[tuple[int, int | None, str | None]] = []
         self.closed = False
@@ -43,14 +54,22 @@ class FakeMarkerClient:
         display_scale: float = 1.0,
         automatic_discovery: bool = False,
         sample_automatic_discovery: bool = True,
+        minimap_enabled: bool = False,
+        merchant_memory_enabled: bool = False,
+        sample_merchant_memory: bool = True,
     ) -> MapMemoryFrame:
         _ = client_height, client_width, display_scale
         self.automatic_discovery_values.append(bool(automatic_discovery))
         self.automatic_sample_values.append(bool(sample_automatic_discovery))
+        self.minimap_values.append(bool(minimap_enabled))
+        self.merchant_memory_values.append(bool(merchant_memory_enabled))
+        self.merchant_sample_values.append(bool(sample_merchant_memory))
         frame = self.frames.pop(0) if len(self.frames) > 1 else self.frames[0]
         if isinstance(frame, Exception):
             raise frame
-        return frame
+        return replace(
+            frame, minimap_projection=frame.minimap_projection if minimap_enabled else None
+        )
 
     def activity_is_active(
         self,
@@ -85,6 +104,7 @@ class FakeLifecycleMemory:
         self.u8s: dict[int, int] = {}
         self.floats: dict[int, float] = {}
         self.blobs: dict[int, bytes] = {}
+        self.byte_reads: list[tuple[int, int]] = []
 
     def read_ptr(self, address: int) -> int:
         self.ptr_reads.append(address)
@@ -100,13 +120,60 @@ class FakeLifecycleMemory:
         return self.floats.get(address, 0.0)
 
     def read_bytes(self, address: int, size: int) -> bytes:
-        return self.blobs.get(address, b"\0" * size)
+        self.byte_reads.append((address, size))
+        if address in self.blobs:
+            return self.blobs[address]
+        result = bytearray(size)
+        for values, fmt in ((self.ptrs, "<Q"), (self.i32s, "<i"),
+                            (self.u8s, "<B"), (self.floats, "<f")):
+            width = struct.calcsize(fmt)
+            for start, value in values.items():
+                left, right = max(address, start), min(address + size, start + width)
+                if left < right:
+                    packed = struct.pack(fmt, value)
+                    result[left - address:right - address] = packed[left - start:right - start]
+        return bytes(result)
 
     def module_base_address(self, _module_name: str) -> int:
         return 0x100000
 
 
 class MapMarkerProjectionTests(unittest.TestCase):
+    def test_minimap_projection_rotates_and_hides_out_of_range_markers(self) -> None:
+        projection = MinimapProjection(
+            visible=True,
+            jammed=False,
+            content_rect=MapViewport(100.0, 200.0, 220.0, 220.0),
+            center_x=210.0,
+            center_y=310.0,
+            radius=110.0,
+            camera_world_x=10.0,
+            camera_world_z=20.0,
+            camera_right_x=0.0,
+            camera_right_z=1.0,
+            camera_up_x=-1.0,
+            camera_up_z=0.0,
+            orthographic_size=110.0,
+            aspect=1.0,
+        )
+
+        self.assertEqual(
+            project_world_to_minimap(10.0, 130.0, projection=projection),
+            (320.0, 310.0),
+        )
+        self.assertIsNone(
+            project_world_to_minimap(10.0, 131.0, projection=projection)
+        )
+        geometry = minimap_marker_screen_geometry(
+            10.0, 20.0, projection=projection, scale=1.5
+        )
+        self.assertEqual(geometry, (210.0, 310.0, 54.0))
+
+        jammed = replace(projection, jammed=True)
+        self.assertIsNone(
+            project_world_to_minimap(10.0, 20.0, projection=jammed)
+        )
+
     def test_marker_scale_uses_larger_48_pixel_baseline(self) -> None:
         viewport = MapViewport(0.0, 0.0, 600.0, 600.0)
         expected_sizes = {
@@ -296,6 +363,133 @@ class MapMarkerProjectionTests(unittest.TestCase):
 
 
 class MapMarkerTrackerTests(unittest.TestCase):
+    def test_microwave_counts_follow_each_object(self):
+        now = [10.0]
+        first = DetectedMapActivity(1, 123, "InteractableMicrowave", "microwave_white", 0, 0, 3)
+        second = replace(first, object_ptr=2, world_x=10, uses_remaining=1)
+        client = FakeMarkerClient([
+            self.frame(activity=first), self.frame(activity=second), self.frame(),
+        ])
+        counts = {1: 2, 2: 1}
+        client.last_microwave_uses = counts.get
+        tracker = MapMarkerTracker("game", client_factory=lambda _: client, clock=lambda: now[0], automatic_scan_interval=0)
+        options = dict(client_height=600, automatic_discovery=True)
+        self.assertEqual(tracker.tick(**options).markers[0].uses_remaining, 3)
+        snapshot = tracker.tick(**options)
+        self.assertEqual([m.uses_remaining for m in snapshot.markers], [2, 1])
+        counts[1] = 0
+        self.assertEqual([m.uses_remaining for m in tracker.tick(**options).markers], [0, 1])
+        client.active[1] = False
+        self.assertEqual(len(tracker.tick(**options).markers), 2)
+        now[0] += 0.4
+        self.assertEqual([m.object_ptr for m in tracker.tick(**options).markers], [2])
+        self.assertEqual(tracker.tick(**options).markers[0].uses_remaining, 1)
+        client.activity_is_active = Mock(side_effect=MemoryReadError("unavailable"))
+        self.assertIsNone(tracker.tick(**options).markers[0].uses_remaining)
+        client.frames = [self.frame(map_id=2)]
+        self.assertEqual(tracker.tick(**options).markers, ())
+
+    def test_microwave_counts_are_exposed_without_premium_option(self):
+        activity = DetectedMapActivity(1, 123, "InteractableMicrowave", "microwave_white", 0, 0, 3)
+        client = FakeMarkerClient([self.frame(activity=activity)])
+        tracker = MapMarkerTracker("game", client_factory=lambda _: client, automatic_scan_interval=0)
+        snapshot = tracker.tick(client_height=600, automatic_discovery=True)
+        self.assertEqual(snapshot.markers[0].uses_remaining, 3)
+        # A temporary reconnect wait preserves the last known count.
+        client.frames = [FullMapNotReadyError("waiting")]
+        self.assertEqual(
+            tracker.tick(client_height=600, automatic_discovery=True).markers[0].uses_remaining,
+            3,
+        )
+
+    def _scheduled_tracker(self):
+        projection = MinimapProjection(
+            True, False, MapViewport(0, 0, 220, 220), 110, 110, 110,
+            0, 0, 1, 0, 0, 1, 110, 1,
+        )
+        now = [0.0]
+        client = FakeMarkerClient([self.frame(open=False, minimap=projection)])
+        tracker = MapMarkerTracker("game", client_factory=lambda _: client, clock=lambda: now[0])
+        options = dict(client_height=600, minimap_enabled=True, automatic_discovery=True)
+        tracker.tick(**options)
+        for i in range(100):
+            ptr = i + 1
+            marker_id = str(ptr)
+            tracker._markers[marker_id] = WorldMapMarker(
+                marker_id, "moai", float(i if i < 5 else 200), 0, object_ptr=ptr
+            )
+            tracker._automatic_by_object[ptr] = marker_id
+            tracker._automatic_identity_by_object[ptr] = (0x123, "InteractableShrineMoai")
+        return tracker, client, now, options
+
+    def test_far_lifecycle_is_distributed_and_near_markers_stay_fast(self):
+        from collections import Counter
+        tracker, client, now, options = self._scheduled_tracker()
+        for tick in range(1, 11):
+            now[0] = tick / 10
+            before = len(client.active_checks)
+            tracker.tick(**options)
+            self.assertLessEqual(len(client.active_checks) - before, 24)
+        counts = Counter(client.active_checks)
+        self.assertEqual([counts[ptr] for ptr in range(1, 6)], [10] * 5)
+        self.assertEqual([counts[ptr] for ptr in range(6, 101)], [2] * 95)
+
+    def test_camera_approach_and_full_map_override_far_deadlines(self):
+        tracker, client, now, options = self._scheduled_tracker()
+        now[0] = .1
+        tracker.tick(**options)
+        self.assertNotIn(6, client.active_checks)
+        client.frames[0] = replace(client.frames[0], minimap_projection=replace(
+            client.frames[0].minimap_projection, camera_world_x=200.0
+        ))
+        now[0] = .2
+        client.active_checks.clear()
+        tracker.tick(**options)
+        self.assertIn(6, client.active_checks)
+        client.frames[0] = replace(client.frames[0], map_open=True, viewport=self.viewport)
+        now[0] = .3
+        client.active_checks.clear()
+        client.active[6] = False
+        snapshot = tracker.tick(**options)
+        self.assertEqual(len(client.active_checks), 100)
+        self.assertIn(6, tracker._completion_pending)
+        now[0] = .7
+        snapshot = tracker.tick(**options)
+        self.assertNotIn(6, tracker._lifecycle_schedule)
+        self.assertNotIn("6", {m.marker_id for m in snapshot.markers})
+
+    def test_selected_far_activity_and_missing_projection_are_checked_fast(self):
+        tracker, client, now, options = self._scheduled_tracker()
+        now[0] = .1
+        tracker.tick(**options)
+        client.frames[0] = replace(client.frames[0], current_activity=DetectedMapActivity(
+            6, 0x123, "InteractableShrineMoai", "moai", 200, 0
+        ))
+        now[0] = .2
+        client.active_checks.clear()
+        tracker.tick(**options)
+        self.assertIn(6, client.active_checks)
+        client.frames[0] = replace(client.frames[0], minimap_projection=None)
+        now[0] = .3
+        client.active_checks.clear()
+        tracker.tick(**options)
+        self.assertEqual(len(client.active_checks), 100)
+        client.frames[0] = replace(client.frames[0], map_id=2, current_activity=None)
+        now[0] = .4
+        tracker.tick(**options)
+        self.assertEqual(tracker._lifecycle_schedule, {})
+        tracker.close()
+        self.assertEqual(tracker._lifecycle_serial, 0)
+
+    def test_far_lifecycle_recovers_after_missed_ticks_without_starvation(self):
+        tracker, client, now, options = self._scheduled_tracker()
+        now[0] = .1
+        tracker.tick(**options)
+        now[0] = 2.01
+        client.active_checks.clear()
+        tracker.tick(**options)
+        self.assertEqual(set(client.active_checks), set(range(1, 101)))
+
     def test_close_clears_state_even_if_the_native_client_close_fails(self) -> None:
         client = FakeMarkerClient([])
         client.close = lambda: (_ for _ in ()).throw(OSError("stale handle"))
@@ -310,16 +504,128 @@ class MapMarkerTrackerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.viewport = MapViewport(0, 0, 600, 600)
 
-    def frame(self, *, map_id=1, activity=None, open=True) -> MapMemoryFrame:
+    def frame(
+        self, *, map_id=1, activity=None, stock=None, minimap=None, open=True
+    ) -> MapMemoryFrame:
         return MapMemoryFrame(
             map_id=map_id,
             map_open=open,
             world_size=600.0,
             viewport=self.viewport if open else None,
             current_activity=activity,
+            minimap_projection=minimap,
+            merchant_stock_capture=stock,
         )
 
+    @staticmethod
+    def stock(*, map_id: int = 1, object_ptr: int = 0x5150):
+        return MerchantStockCapture(
+            map_id=map_id,
+            merchant_object_ptr=object_ptr,
+            marker_id=f"auto:{object_ptr:X}",
+            merchant_rarity=1,
+            world_x=15.0,
+            world_z=-25.0,
+            items=(MerchantOffer(1, "Beer", "Beer", "UNCOMMON"),),
+            class_ptr=0xA100,
+        )
+
+    def test_visited_shady_stock_creates_only_that_marker_with_auto_off(self) -> None:
+        capture = self.stock()
+        client = FakeMarkerClient([self.frame(stock=capture)])
+        tracker = MapMarkerTracker(
+            "game",
+            client_factory=lambda _name: client,
+            automatic_scan_interval=0.0,
+        )
+
+        snapshot = tracker.tick(
+            client_height=600,
+            automatic_discovery=False,
+            merchant_memory_enabled=True,
+        )
+
+        self.assertEqual(len(snapshot.markers), 1)
+        self.assertEqual(snapshot.markers[0].action_id, "shady_guy_blue")
+        self.assertEqual(snapshot.merchant_stocks, (capture,))
+        self.assertEqual(client.automatic_discovery_values, [False])
+        self.assertEqual(client.merchant_memory_values, [True])
+
+        cleared = tracker.tick(client_height=600)
+        self.assertEqual(cleared.markers, ())
+        self.assertEqual(cleared.merchant_stocks, ())
+
+    def test_same_rarity_merchants_keep_separate_stock_and_can_refresh(self) -> None:
+        first = replace(self.stock(object_ptr=0x5150), merchant_rarity=0)
+        # Reproduce an older wrong capture of A's offers against B's identity.
+        second_wrong = replace(self.stock(object_ptr=0x6160), merchant_rarity=0)
+        second_correct = replace(second_wrong, items=(MerchantOffer(0, "Key", "Key", "COMMON"),))
+        client = FakeMarkerClient([
+            self.frame(stock=first), self.frame(stock=second_wrong),
+            self.frame(stock=second_correct),
+        ])
+        tracker = MapMarkerTracker("game", client_factory=lambda _name: client, automatic_scan_interval=0.0)
+        for _ in range(3):
+            snapshot = tracker.tick(client_height=600, merchant_memory_enabled=True)
+        stocks = {s.merchant_object_ptr: s.items for s in snapshot.merchant_stocks}
+        self.assertEqual(stocks, {0x5150: first.items, 0x6160: second_correct.items})
+        self.assertEqual(len(snapshot.markers), 2)
+        self.assertEqual({m.action_id for m in snapshot.markers}, {"shady_guy_white"})
+        self.assertEqual({m.object_ptr for m in snapshot.markers}, {0x5150, 0x6160})
+
+    def test_minimap_surface_is_forwarded_without_replacing_full_map_state(self) -> None:
+        projection = MinimapProjection(
+            True,
+            False,
+            MapViewport(10.0, 20.0, 200.0, 200.0),
+            110.0,
+            120.0,
+            100.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            100.0,
+            1.0,
+        )
+        client = FakeMarkerClient(
+            [self.frame(open=False, minimap=projection, stock=self.stock())]
+        )
+        tracker = MapMarkerTracker("game", client_factory=lambda _name: client)
+
+        first = tracker.tick(
+            client_height=600, minimap_enabled=True, merchant_memory_enabled=True
+        )
+        self.assertEqual(len(first.markers), 1)
+        self.assertIsNone(first.minimap_projection)
+        snapshot = tracker.tick(
+            client_height=600, minimap_enabled=True, merchant_memory_enabled=True
+        )
+
+        self.assertFalse(snapshot.map_open)
+        self.assertEqual(snapshot.minimap_projection, projection)
+        self.assertEqual(client.minimap_values, [False, True])
+
+    def test_empty_ledger_skips_minimap_but_keeps_discovery_and_manual_maps(self) -> None:
+        client = FakeMarkerClient([self.frame()])
+        tracker = MapMarkerTracker("game", client_factory=lambda _name: client)
+        options = dict(client_height=600, minimap_enabled=True, automatic_discovery=True)
+        for _ in range(2):
+            tracker.tick(**options)
+        self.assertEqual(client.minimap_values, [False, False])
+        self.assertEqual(client.automatic_discovery_values, [True, True])
+        self.assertTrue(tracker.snapshot.map_open)
+        self.assertTrue(tracker.place_manual_marker("moai", screen_x=300, screen_y=300))
+        tracker.tick(**options)
+        self.assertTrue(client.minimap_values[-1])
+        self.assertTrue(tracker.place_manual_marker("moai", screen_x=300, screen_y=300))
+        tracker.tick(**options)
+        self.assertFalse(client.minimap_values[-1])
+
     def test_automatic_marker_is_added_removed_and_reset_with_map(self) -> None:
+        now = [10.0]
         activity = DetectedMapActivity(
             object_ptr=0xABC,
             class_ptr=0x100,
@@ -335,6 +641,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
             "game",
             client_factory=lambda _name: client,
             automatic_scan_interval=0.0,
+            clock=lambda: now[0],
         )
 
         first = tracker.tick(client_height=600, automatic_discovery=True)
@@ -343,12 +650,16 @@ class MapMarkerTrackerTests(unittest.TestCase):
 
         client.active[activity.object_ptr] = False
         second = tracker.tick(client_height=600, automatic_discovery=True)
-        self.assertEqual(second.markers, ())
+        self.assertEqual(len(second.markers), 1)
+        client.frames = [self.frame()]
+        now[0] += 0.4
+        self.assertEqual(tracker.tick(client_height=600, automatic_discovery=True).markers, ())
 
         tracker.place_manual_marker(
             "boss_curse", screen_x=300, screen_y=300
         )
         self.assertEqual(len(tracker.snapshot.markers), 1)
+        client.frames = [self.frame(map_id=2)]
         third = tracker.tick(client_height=600, automatic_discovery=True)
         self.assertEqual(third.map_id, 2)
         self.assertEqual(third.markers, ())
@@ -492,7 +803,7 @@ class MapMarkerTrackerTests(unittest.TestCase):
 
         now[0] = 10.1
         removed = tracker.tick(client_height=600, automatic_discovery=True)
-        self.assertEqual(removed.markers, ())
+        self.assertEqual(len(removed.markers), 1)  # First inactive sample is provisional.
         self.assertEqual(client.active_checks, [activity.object_ptr])
         self.assertEqual(
             client.automatic_sample_values,
@@ -500,6 +811,8 @@ class MapMarkerTrackerTests(unittest.TestCase):
         )
         self.assertEqual(client.automatic_discovery_values, [True] * 5)
         self.assertAlmostEqual(tracker._next_automatic_scan_at, 10.2)
+        now[0] = 10.5
+        self.assertEqual(tracker.tick(client_height=600, automatic_discovery=True).markers, ())
 
     def test_reconnect_rehydrates_activity_identity_without_losing_marker(self) -> None:
         now = [10.0]
@@ -696,6 +1009,45 @@ class MapMarkerGestureTests(unittest.TestCase):
 
 
 class MapMarkerLifecycleTests(unittest.TestCase):
+    def test_microwave_count_reuses_lifecycle_sample_without_reads(self):
+        client, memory, obj = self.client("InteractableMicrowave")
+        memory.i32s[obj + client.MICROWAVE_USES_LEFT_OFFSET] = 3
+        self.assertTrue(client.activity_is_active(obj))
+        memory.read_i32 = Mock(side_effect=AssertionError("extra read"))
+        memory.read_u8 = Mock(side_effect=AssertionError("extra read"))
+        memory.read_bytes = Mock(side_effect=AssertionError("extra read"))
+        self.assertEqual(client.last_microwave_uses(obj), 3)
+        self.assertIsNone(client.last_microwave_uses(obj + 1))
+        with self.assertRaises(AssertionError):
+            client.activity_is_active(obj)
+        self.assertIsNone(client.last_microwave_uses(obj))
+
+    def test_microwave_discovery_includes_live_count(self):
+        client, memory, obj = self.client("InteractableMicrowave")
+        memory.i32s[obj + client.MICROWAVE_USES_LEFT_OFFSET] = 2
+        client._class_name_from_ptr = lambda _: "InteractableMicrowave"
+        client._component_transform = lambda _: 0x4000
+        client._transform_point = lambda *_: (12.0, 0.0, -34.0)
+        self.assertEqual(client._read_current_activity(obj).uses_remaining, 2)
+        memory.i32s[obj + client.MICROWAVE_USES_LEFT_OFFSET] = 0
+        memory.u8s[obj + client.MICROWAVE_HAS_ITEM_OFFSET] = 1
+        self.assertTrue(client.activity_is_active(obj))
+        self.assertEqual(client.last_microwave_uses(obj), 0)
+        memory.ptrs[obj] = 0xDEAD
+        self.assertFalse(client.activity_is_active(obj))
+        self.assertIsNone(client.last_microwave_uses(obj))
+
+    def test_lifecycle_batches_header_and_still_rejects_recycled_objects(self):
+        client, memory, obj = self.client("InteractableShadyGuy")
+        self.assertTrue(client.activity_is_active(obj))
+        self.assertEqual(memory.byte_reads, [(obj, 24)])
+        self.assertEqual(memory.ptr_reads, [])
+        memory.ptrs[obj] = 0xDEAD
+        self.assertFalse(client.activity_is_active(obj))
+        memory.ptrs[obj] = 0x2000
+        memory.ptrs[obj + client.MANAGED_NATIVE_OFFSET] = 0
+        self.assertFalse(client.activity_is_active(obj))
+
     def client(self, class_name: str, *, object_ptr: int = 0x1000):
         memory = FakeLifecycleMemory()
         class_ptr = 0x2000
@@ -790,16 +1142,22 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         self.assertEqual(virtual_key_for_token("a"), ord("A"))
 
         class FakeUser32:
-            pressed = {0x06, 0x11, ord("G"), 0x77}
+            pressed = {0x06, 0x09, 0x11, 0x1B, ord("G"), 0x77}
 
             def GetAsyncKeyState(self, virtual_key: int) -> int:
                 return 0x8000 if virtual_key in self.pressed else 0
 
-        input_state = WindowsMapMarkerInput(FakeUser32())
+        user32 = FakeUser32()
+        input_state = WindowsMapMarkerInput(user32)
         self.assertTrue(input_state.is_pressed("mouse5"))
         self.assertTrue(input_state.is_pressed("ctrl+g"))
         self.assertTrue(input_state.is_pressed("f8"))
+        self.assertTrue(input_state.is_map_surface_key_pressed())
         self.assertFalse(input_state.is_pressed("f9"))
+        user32.pressed.discard(0x09)
+        self.assertTrue(input_state.is_map_surface_key_pressed())
+        user32.pressed.discard(0x1B)
+        self.assertFalse(input_state.is_map_surface_key_pressed())
 
     def test_lazy_full_map_type_info_recovers_without_invalid_dereference(self) -> None:
         memory = FakeLifecycleMemory()
@@ -1083,10 +1441,10 @@ class MapMarkerLifecycleTests(unittest.TestCase):
             "<4f", -440.0, -445.0, 880.0, 890.0
         )
         client._resolve_pause_map_render_native_transform = lambda: native
-        client._transform_point_native = lambda _native, point: (
-            1280.0 + point[0] * (4.0 / 3.0),
-            680.0 + point[1] * (4.0 / 3.0),
-            0.0,
+        client._transform_points_native = lambda _native, points: tuple(
+            (1280.0 + point[0] * (4.0 / 3.0),
+             680.0 + point[1] * (4.0 / 3.0), 0.0)
+            for point in points
         )
         client._read_ui_screen_bounds = lambda _native: (
             0.0,
@@ -1226,6 +1584,580 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         self.assertIsNone(frame.current_activity)
         self.assertFalse(frame.map_open)
 
+    def test_map_seed_changes_the_runtime_map_identity(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        full_map = 0x700000
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600.0
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 0
+        client._resolve_full_map = lambda: full_map
+        client._resolve_player = lambda: 0x400000
+        client._resolve_stage_scope = lambda: (0x500000, 1)
+        seeds = iter((42, 43))
+        client._resolve_map_seed_safe = lambda: next(seeds)
+
+        first = client.poll(client_height=600)
+        second = client.poll(client_height=600)
+
+        self.assertEqual((first.map_seed, second.map_seed), (42, 43))
+        self.assertNotEqual(first.map_id, second.map_id)
+
+    def test_memory_client_skips_minimap_projection_while_a_full_map_is_open(
+        self,
+    ) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        full_map = 0x700000
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600.0
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 1
+        client._resolve_full_map = lambda: full_map
+        client._read_viewport = lambda *_args: MapViewport(20, 30, 600, 600)
+        client._resolve_player = lambda: 0x400000
+        client._resolve_stage_scope = lambda: (0x500000, 1)
+        client._read_minimap_projection = lambda *_args: (_ for _ in ()).throw(
+            AssertionError("minimap was sampled behind an open map")
+        )
+
+        frame = client.poll(
+            client_width=1920,
+            client_height=1080,
+            minimap_enabled=True,
+        )
+
+        self.assertTrue(frame.map_open)
+        self.assertIsNotNone(frame.viewport)
+        self.assertIsNone(frame.minimap_projection)
+
+    def test_memory_client_does_not_read_shady_ui_when_memory_is_off(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        full_map = 0x700000
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600.0
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 0
+        client._resolve_full_map = lambda: full_map
+        client._resolve_player = lambda: 0x400000
+        client._resolve_stage_scope = lambda: (0x500000, 1)
+        client._read_shady_stock_capture = lambda _map_id: (_ for _ in ()).throw(
+            AssertionError("Shady UI was read while merchant memory was disabled")
+        )
+
+        frame = client.poll(
+            client_height=600,
+            merchant_memory_enabled=False,
+        )
+
+        self.assertIsNone(frame.merchant_stock_capture)
+
+    def test_stale_currently_interacting_is_not_enough_to_read_cards(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        ui_type_info = 0x200000
+        ui_static = 0x210000
+        ui_manager = 0x220000
+        encounters = 0x230000
+        memory.ptrs[
+            client._module_base + client.UI_MANAGER_TYPE_INFO_OFFSET
+        ] = ui_type_info
+        memory.ptrs[ui_type_info + client.CLASS_STATIC_FIELDS_OFFSET] = ui_static
+        memory.ptrs[ui_static + client.UI_MANAGER_INSTANCE_OFFSET] = ui_manager
+        memory.ptrs[
+            ui_manager + client.UI_MANAGER_ENCOUNTER_WINDOWS_OFFSET
+        ] = encounters
+        memory.u8s[encounters + client.ENCOUNTER_IN_PROGRESS_OFFSET] = 0
+        client._is_live_component = lambda pointer, _class_name: bool(pointer)
+        client._read_shady_offer_cards = lambda _picker: (_ for _ in ()).throw(
+            AssertionError("Offer cards were read while the window was closed")
+        )
+
+        self.assertIsNone(client._read_shady_stock_capture(7))
+
+    def test_stable_visible_offer_cards_produce_stock_with_prices(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        merchant = 0x510000
+        levelup = 0x520000
+        picker = 0x530000
+        class_ptr = 0x540000
+        offers = (
+            MerchantOffer(1, "Beer", "Beer", "UNCOMMON"),
+            MerchantOffer(2, "SpikyShield", "Spiky Shield", "RARE"),
+        )
+        memory.ptrs[merchant + client.OBJECT_KLASS_OFFSET] = class_ptr
+        memory.i32s[merchant + client.SHADY_RARITY_OFFSET] = 2
+        client._read_shady_offer_gate = lambda: (merchant, levelup, picker)
+        client._read_shady_offer_cards = lambda candidate: (
+            offers if candidate == picker else ()
+        )
+        client.activity_is_active = lambda candidate: candidate == merchant
+        client._component_transform = lambda candidate: (
+            0x550000 if candidate == merchant else 0
+        )
+        client._transform_point = lambda _transform, _point: (12.5, 0.0, -40.0)
+        client._stage_ptr = 0x9000
+        client._stage_index = 1
+
+        self.assertIsNone(client._read_shady_stock_capture(77, map_seed=4242))
+        capture = client._read_shady_stock_capture(77, map_seed=4242)
+
+        self.assertEqual(capture.map_id, 77)
+        self.assertEqual(capture.merchant_object_ptr, merchant)
+        self.assertEqual(
+            capture.items,
+            tuple(replace(item, price=0) for item in offers),
+        )
+        self.assertEqual((capture.world_x, capture.world_z), (12.5, -40.0))
+        self.assertEqual(capture.game_process_identity, "module:100000")
+        self.assertEqual(
+            (capture.stage_ptr, capture.raw_stage_index, capture.map_seed),
+            (0x9000, 1, 4242),
+        )
+        self.assertEqual(
+            client._tracked_classes[merchant],
+            (class_ptr, "InteractableShadyGuy"),
+        )
+
+    def test_reused_picker_does_not_copy_first_merchants_cards_to_second(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        merchant_a, merchant_b, picker, levelup = 0x510000, 0x520000, 0x530000, 0x540000
+        for merchant in (merchant_a, merchant_b):
+            memory.ptrs[merchant + client.OBJECT_KLASS_OFFSET] = 0x550000
+            memory.i32s[merchant + client.SHADY_RARITY_OFFSET] = 0
+        first = (MerchantOffer(1, "Beer", "Beer", "UNCOMMON"),)
+        second = (MerchantOffer(0, "Key", "Key", "COMMON"),)
+        state = {"merchant": merchant_a, "offers": first}
+        client._read_shady_offer_gate = lambda: (
+            (state["merchant"], levelup, picker) if state["merchant"] else None
+        )
+        client._read_shady_offer_cards = lambda _picker: state["offers"]
+        client.activity_is_active = lambda _merchant: True
+        client._component_transform = lambda merchant: merchant
+        client._transform_point = lambda merchant, _point: (float(merchant), 0.0, 0.0)
+
+        self.assertIsNone(client._read_shady_stock_capture(7))
+        capture_a = client._read_shady_stock_capture(7)
+        self.assertEqual(capture_a.merchant_object_ptr, merchant_a)
+        self.assertEqual(capture_a.items, tuple(replace(item, price=0) for item in first))
+
+        # B is already the current merchant, but the reused UI still holds A's
+        # complete cards for one sample. Same-poll double reads cannot detect it.
+        state["merchant"] = merchant_b
+        self.assertIsNone(client._read_shady_stock_capture(7))
+        state["offers"] = second
+        self.assertIsNone(client._read_shady_stock_capture(7))
+        capture_b = client._read_shady_stock_capture(7)
+        self.assertEqual(capture_b.merchant_object_ptr, merchant_b)
+        self.assertEqual(capture_b.items, tuple(replace(item, price=0) for item in second))
+
+        # Closing the UI invalidates confirmation, even if the same shop opens.
+        state["merchant"] = None
+        self.assertIsNone(client._read_shady_stock_capture(7))
+        state["merchant"] = merchant_b
+        self.assertIsNone(client._read_shady_stock_capture(7))
+        self.assertEqual(
+            client._read_shady_stock_capture(7).items,
+            tuple(replace(item, price=0) for item in second),
+        )
+        # The same pointer tuple in another stage/run also starts unconfirmed.
+        self.assertIsNone(client._read_shady_stock_capture(8))
+
+    def test_shady_card_reader_requires_complete_known_item_array(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        picker = 0x610000
+        buttons = 0x620000
+        button_a = 0x630000
+        button_b = 0x640000
+        item_a = 0x650000
+        item_b = 0x660000
+        memory.ptrs[picker + client.UPGRADE_PICKER_BUTTONS_OFFSET] = buttons
+        memory.i32s[picker + client.UPGRADE_PICKER_COUNT_OFFSET] = 2
+        memory.i32s[buttons + client.ARRAY_LENGTH_OFFSET] = 8
+        memory.ptrs[buttons + client.ARRAY_DATA_OFFSET] = button_a
+        memory.ptrs[buttons + client.ARRAY_DATA_OFFSET + 8] = button_b
+        for button, item in ((button_a, item_a), (button_b, item_b)):
+            memory.u8s[button + client.UPGRADE_BUTTON_IS_ITEM_OFFSET] = 1
+            memory.ptrs[button + client.UPGRADE_BUTTON_ITEM_DATA_OFFSET] = item
+        memory.i32s[item_a + client.ITEM_DATA_ITEM_ID_OFFSET] = 0
+        memory.i32s[item_a + client.ITEM_DATA_RARITY_OFFSET] = 0
+        memory.i32s[item_b + client.ITEM_DATA_ITEM_ID_OFFSET] = 1
+        memory.i32s[item_b + client.ITEM_DATA_RARITY_OFFSET] = 1
+        client._is_live_component = lambda pointer, class_name: (
+            class_name == "UpgradeButton" and pointer in {button_a, button_b}
+        )
+        client._class_name = lambda pointer: (
+            "ItemData" if pointer in {item_a, item_b} else None
+        )
+
+        self.assertEqual(
+            client._read_shady_offer_cards(picker),
+            (
+                MerchantOffer(0, "Key", "Key", "COMMON"),
+                MerchantOffer(1, "Beer", "Beer", "UNCOMMON"),
+            ),
+        )
+
+        memory.i32s[item_b + client.ITEM_DATA_ITEM_ID_OFFSET] = 9999
+        with self.assertRaisesRegex(MemoryReadError, "metadata is invalid"):
+            client._read_shady_offer_cards(picker)
+
+    def test_moving_minimap_camera_keeps_basis_independent_of_translation(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        transform, native, access, matrices, parents = (
+            0x710000, 0x720000, 0x730000, 0x740000, 0x750000
+        )
+        memory.ptrs[transform + client.MANAGED_NATIVE_OFFSET] = native
+        memory.ptrs[native + client.NATIVE_TRANSFORM_ACCESS_OFFSET] = access
+        memory.i32s[native + client.NATIVE_TRANSFORM_INDEX_OFFSET] = 1
+        memory.ptrs[access + client.TRANSFORM_ACCESS_MATRICES_OFFSET] = matrices
+        memory.ptrs[access + client.TRANSFORM_ACCESS_PARENTS_OFFSET] = parents
+        memory.i32s[parents + 4] = 0
+        memory.i32s[parents] = -1
+        reads = []
+        original_read_bytes = memory.read_bytes
+
+        def moving_matrix(address, size):
+            if size != client.TRANSFORM_MATRIX_SIZE:
+                return original_read_bytes(address, size)
+            self.assertEqual(size, client.TRANSFORM_MATRIX_SIZE)
+            reads.append(address)
+            # Move both child and parent on every read, as the game can do
+            # between RPM calls. The camera looks down; its parent turns 90 deg.
+            half_root = 0.5 ** 0.5
+            rotation = (
+                (half_root, 0.0, 0.0, half_root)
+                if address == matrices + client.TRANSFORM_MATRIX_SIZE
+                else (0.0, half_root, 0.0, half_root)
+            )
+            return struct.pack(
+                '<12f', len(reads) * 0.25, 10.0, len(reads) * 0.5, 0.0,
+                *rotation, 1.0, 1.0, 1.0, 0.0,
+            )
+
+        memory.read_bytes = moving_matrix
+        origins = []
+        for _ in range(2):
+            origin, right, up = client._transform_points(
+                transform, ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
+            )
+            origins.append(origin)
+            self.assertAlmostEqual(right[0] - origin[0], 0.0, places=6)
+            self.assertAlmostEqual(right[2] - origin[2], -1.0, places=6)
+            self.assertAlmostEqual(up[0] - origin[0], 1.0, places=6)
+            self.assertAlmostEqual(up[2] - origin[2], 0.0, places=6)
+        self.assertNotEqual(origins[0], origins[1])
+        self.assertEqual(reads, [matrices + client.TRANSFORM_MATRIX_SIZE, matrices] * 2)
+
+    def _minimap_geometry_fixture(self):
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        player = 0x710000
+        script = 0x720000
+        camera = 0x730000
+        camera_native = 0x740000
+        camera_transform = 0x750000
+        memory.ptrs[player + client.PLAYER_MINIMAP_CAMERA_SCRIPT_OFFSET] = script
+        memory.ptrs[player + client.PLAYER_MINIMAP_CAMERA_OFFSET] = camera
+        memory.ptrs[script + client.MINIMAP_SCRIPT_CAMERA_OFFSET] = camera
+        memory.ptrs[camera + client.MANAGED_NATIVE_OFFSET] = camera_native
+        memory.floats[
+            camera_native + client.CAMERA_ORTHOGRAPHIC_SIZE_OFFSET
+        ] = 110.0
+        memory.floats[camera_native + client.CAMERA_PROJECTION_X_OFFSET] = 1.0 / 110.0
+        memory.floats[camera_native + client.CAMERA_PROJECTION_Y_OFFSET] = 1.0 / 110.0
+        client._class_name = lambda pointer: {
+            script: "MinimapCamera",
+            camera: "Camera",
+        }.get(pointer)
+        client._component_transform = lambda pointer: (
+            camera_transform if pointer == camera else 0
+        )
+
+        def transform_points(transform, points):
+            self.assertEqual(transform, camera_transform)
+            return tuple((100.0 + point[0], 50.0, 200.0 + point[1]) for point in points)
+
+        client._transform_points = transform_points
+        client._resolve_minimap_ui = lambda: 0x760000
+        client._resolve_minimap_native_transforms = lambda _ui: (
+            0x770000,
+            0x780000,
+        )
+        client._read_rect_transform_bounds = lambda _native: (
+            2184.115,
+            937.448,
+            2518.654,
+            1271.987,
+        )
+        client._read_ui_screen_bounds = lambda _native: (
+            0.0,
+            0.0,
+            2560.0,
+            1440.0,
+        )
+        client._read_hud_visible = lambda: True
+        client._read_minimap_jammed = lambda: False
+        memory.ptrs[client._module_base + client.MY_TIME_TYPE_INFO_OFFSET] = 0x790000
+        memory.ptrs[0x790000 + client.CLASS_STATIC_FIELDS_OFFSET] = 0x7A0000
+        return client, memory, player, camera_native
+
+    def test_pause_probe_hides_camera_and_resumes_within_50_ms(self) -> None:
+        client, memory, player, _ = self._minimap_geometry_fixture()
+        now = [0.0]
+        client._clock = lambda: now[0]
+        pause_address = 0x7A0000 + client.MY_TIME_PAUSED_OFFSET
+        pause_read = Mock(wraps=memory.read_u8)
+        memory.read_u8 = pause_read
+        camera = Mock(wraps=client._transform_points)
+        client._transform_points = camera
+        self.assertIsNotNone(client._read_minimap_projection(player, 2048, 1152, 1))
+
+        memory.u8s[pause_address] = 1
+        now[0] = 0.025
+        self.assertIsNotNone(client._read_minimap_projection(player, 2048, 1152, 1))
+        self.assertEqual(pause_read.call_count, 1)
+        camera.reset_mock()
+        hud = Mock(wraps=client._read_hud_visible)
+        client._read_hud_visible = hud
+        now[0] = 0.05
+        self.assertIsNone(client._read_minimap_projection(player, 2048, 1152, 1))
+        camera.assert_not_called()
+        hud.assert_not_called()
+        self.assertIsNone(client._minimap_viewport_cache)
+
+        memory.u8s[pause_address] = 0
+        now[0] = 0.075
+        self.assertIsNone(client._read_minimap_projection(player, 2048, 1152, 1))
+        self.assertEqual(pause_read.call_count, 2)
+        now[0] = 0.1
+        self.assertIsNotNone(client._read_minimap_projection(player, 2048, 1152, 1))
+        self.assertEqual(pause_read.call_count, 3)
+        self.assertEqual(
+            memory.ptr_reads.count(client._module_base + client.MY_TIME_TYPE_INFO_OFFSET),
+            1,
+        )
+
+    def test_pause_read_failure_hides_minimap_and_retries_without_backoff(self) -> None:
+        client, memory, player, _ = self._minimap_geometry_fixture()
+        client._clock = lambda: 0.0
+        client._full_map_ptr = full_map = 0x810000
+        client._resolve_full_map = lambda: full_map
+        client._resolve_player = lambda: player
+        client._resolve_stage_scope = lambda: (0x820000, 1)
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600
+        options = dict(client_width=2048, client_height=1152, minimap_enabled=True)
+        for failure in (MemoryReadError("pause read failed"), 2):
+            with self.subTest(failure=failure):
+                client._clear_minimap_cache()
+                memory.read_u8 = Mock(side_effect=[failure, 0])
+                frame = client.poll(**options)
+                self.assertIsNone(frame.minimap_projection)
+                self.assertIsNone(client._minimap_pause_cache)
+                self.assertEqual(client._my_time_static_fields, 0)
+                self.assertIsNotNone(client.poll(**options).minimap_projection)
+
+    def test_map_transition_refreshes_pause_without_waiting_for_probe_deadline(self) -> None:
+        client, memory, player, _ = self._minimap_geometry_fixture()
+        client._clock = lambda: 0.0
+        client._full_map_ptr = full_map = 0x810000
+        client._resolve_full_map = lambda: full_map
+        client._resolve_player = lambda: player
+        client._resolve_stage_scope = lambda: (0x820000, 1)
+        client._read_viewport = lambda *_args: MapViewport(0, 0, 600, 600)
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600
+        pause_address = 0x7A0000 + client.MY_TIME_PAUSED_OFFSET
+        memory.u8s[pause_address] = 1
+        options = dict(client_width=2048, client_height=1152, minimap_enabled=True)
+        self.assertIsNone(client.poll(**options).minimap_projection)
+        pause_read = Mock(wraps=memory.read_u8)
+        memory.read_u8 = pause_read
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 1
+        frame = client.poll(**options)
+        self.assertTrue(frame.map_open)
+        self.assertIsNotNone(frame.viewport)
+        pause_read.assert_not_called()
+        memory.u8s[pause_address] = 0
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 0
+        self.assertIsNotNone(client.poll(**options).minimap_projection)
+        pause_read.assert_called_once_with(pause_address)
+
+        # Disabling the minimap also does no pause reads and discards its cache.
+        client.poll(**dict(options, minimap_enabled=False))
+        pause_read.assert_called_once()
+        self.assertIsNone(client._minimap_pause_cache)
+
+    def test_minimap_geometry_uses_unity_to_client_to_qt_normalization(self) -> None:
+        client, _, player, _ = self._minimap_geometry_fixture()
+        projection = client._read_minimap_projection(
+            player,
+            client_width=2048,
+            client_height=1152,
+            display_scale=1.25,
+        )
+
+        self.assertAlmostEqual(projection.content_rect.left, 1397.8336, places=3)
+        self.assertAlmostEqual(projection.content_rect.top, 107.5283, places=3)
+        self.assertAlmostEqual(projection.content_rect.width, 214.1050, places=3)
+        self.assertAlmostEqual(projection.content_rect.height, 214.1050, places=3)
+        self.assertEqual(
+            (
+                projection.camera_world_x,
+                projection.camera_world_z,
+                projection.camera_right_x,
+                projection.camera_right_z,
+                projection.camera_up_x,
+                projection.camera_up_z,
+            ),
+            (100.0, 200.0, 1.0, 0.0, 0.0, 1.0),
+        )
+
+    def test_cached_minimap_layout_keeps_camera_motion_rotation_and_zoom_live(self) -> None:
+        client, memory, player, camera_native = self._minimap_geometry_fixture()
+        client._clock = lambda: 0.0
+        bounds = Mock(wraps=client._read_rect_transform_bounds)
+        client._read_rect_transform_bounds = bounds
+        first = client._read_minimap_projection(player, 2048, 1152, 1.0)
+        client._transform_points = Mock(return_value=(
+            (120.0, 50.0, 220.0), (120.0, 50.0, 221.0), (119.0, 50.0, 220.0)
+        ))
+        memory.floats[camera_native + client.CAMERA_ORTHOGRAPHIC_SIZE_OFFSET] = 80.0
+        memory.floats[camera_native + client.CAMERA_PROJECTION_X_OFFSET] = 1 / 80.0
+        memory.floats[camera_native + client.CAMERA_PROJECTION_Y_OFFSET] = 1 / 80.0
+        second = client._read_minimap_projection(player, 2048, 1152, 1.0)
+        self.assertEqual(bounds.call_count, 1)
+        self.assertEqual(first.content_rect, second.content_rect)
+        self.assertEqual((second.camera_world_x, second.camera_world_z), (120.0, 220.0))
+        self.assertEqual((second.camera_right_x, second.camera_right_z), (0.0, 1.0))
+        self.assertEqual((second.camera_up_x, second.camera_up_z), (-1.0, 0.0))
+        self.assertEqual(second.orthographic_size, 80.0)
+        client._transform_points.assert_called_once()
+
+    def test_minimap_layout_refreshes_on_deadline_resolution_dpi_and_identity(self) -> None:
+        client, _, player, _ = self._minimap_geometry_fixture()
+        now = [0.0]
+        client._clock = lambda: now[0]
+        bounds = Mock(wraps=client._read_rect_transform_bounds)
+        client._read_rect_transform_bounds = bounds
+        first = client._read_minimap_projection(player, 2048, 1152, 1.0)
+        now[0] = 0.199
+        client._read_minimap_projection(player, 2048, 1152, 1.0)
+        self.assertEqual(bounds.call_count, 1)
+        bounds.return_value = (1000.0, 100.0, 1200.0, 300.0)
+        now[0] = 0.201
+        moved = client._read_minimap_projection(player, 2048, 1152, 1.0)
+        self.assertEqual(bounds.call_count, 2)
+        self.assertNotEqual(moved.content_rect, first.content_rect)
+        for count, (width, height, dpi) in enumerate(
+            ((2560, 1152, 1.0), (2560, 1440, 1.0),
+             (2560, 1440, 1.25), (2560, 1440, 1.5)), start=3
+        ):
+            projection = client._read_minimap_projection(player, width, height, dpi)
+            self.assertEqual(bounds.call_count, count)
+            self.assertAlmostEqual(projection.content_rect.width, 200.0 * width / 2560 / dpi)
+            self.assertAlmostEqual(projection.content_rect.height, 200.0 * height / 1440 / dpi)
+        for identity in ((0x990000, 0x780000), (0x990000, 0xAA0000)):
+            count = bounds.call_count
+            client._resolve_minimap_native_transforms = lambda _ui: identity
+            client._read_minimap_projection(player, 2560, 1440, 1.5)
+            self.assertEqual(bounds.call_count, count + 1)
+
+    def test_hidden_or_jammed_minimap_skips_camera_and_refreshes_when_visible(self) -> None:
+        for hidden, jammed in ((True, False), (False, True)):
+            with self.subTest(hidden=hidden, jammed=jammed):
+                client, memory, player, _ = self._minimap_geometry_fixture()
+                client._clock = lambda: 0.0
+                bounds = Mock(wraps=client._read_rect_transform_bounds)
+                client._read_rect_transform_bounds = bounds
+                client._read_minimap_projection(player, 2048, 1152, 1.0)
+                camera = Mock(wraps=client._transform_points)
+                client._transform_points = camera
+                client._read_hud_visible = lambda: not hidden
+                client._read_minimap_jammed = Mock(return_value=jammed)
+                memory.ptr_reads.clear()
+                self.assertIsNone(client._read_minimap_projection(player, 2048, 1152, 1.0))
+                self.assertEqual(memory.ptr_reads, [])
+                camera.assert_not_called()
+                if hidden:
+                    client._read_minimap_jammed.assert_not_called()
+                self.assertIsNone(client._minimap_viewport_cache)
+                client._read_hud_visible = lambda: True
+                client._read_minimap_jammed = lambda: False
+                self.assertIsNotNone(client._read_minimap_projection(player, 2048, 1152, 1.0))
+                self.assertEqual(bounds.call_count, 2)
+
+    def test_minimap_cache_clears_on_map_visibility_scope_and_read_failure(self) -> None:
+        client, memory, player, _ = self._minimap_geometry_fixture()
+        client._clock = lambda: 0.0
+        bounds = Mock(wraps=client._read_rect_transform_bounds)
+        client._read_rect_transform_bounds = bounds
+        full_map = client._full_map_ptr = 0x810000
+        client._resolve_full_map = lambda: full_map
+        client._resolve_player = lambda: player
+        scope = [0x820000, 1]
+        client._resolve_stage_scope = lambda: tuple(scope)
+        client._read_viewport = lambda *_args: MapViewport(0, 0, 600, 600)
+        memory.floats[full_map + client.FULL_MAP_WORLD_SIZE_OFFSET] = 600.0
+        options = dict(client_width=2048, client_height=1152, minimap_enabled=True)
+        self.assertIsNotNone(client.poll(**options).minimap_projection)
+        # Tab/Escape hides the minimap and invalidates its layout immediately.
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 1
+        self.assertIsNone(client.poll(**options).minimap_projection)
+        self.assertIsNone(client._minimap_viewport_cache)
+        memory.i32s[full_map + client.FULL_MAP_OPEN_COUNT_OFFSET] = 0
+        self.assertIsNotNone(client.poll(**options).minimap_projection)
+        self.assertEqual(bounds.call_count, 2)
+        scope[1] = 2
+        client.poll(**options)
+        self.assertEqual(bounds.call_count, 3)
+        camera_address = player + client.PLAYER_MINIMAP_CAMERA_OFFSET
+        camera = memory.ptrs.pop(camera_address)
+        self.assertIsNone(client.poll(**options).minimap_projection)
+        self.assertIsNone(client._minimap_viewport_cache)
+        memory.ptrs[camera_address] = camera
+        self.assertIsNotNone(client.poll(**options).minimap_projection)
+        self.assertEqual(bounds.call_count, 4)
+        # A failed geometry refresh must not fall back to the previous rect.
+        client._clock = lambda: 1.0
+        bounds.side_effect = MemoryReadError("UI was replaced")
+        self.assertIsNone(client.poll(**options).minimap_projection)
+        self.assertIsNone(client._minimap_viewport_cache)
+        bounds.side_effect = None
+        self.assertIsNotNone(client.poll(**options).minimap_projection)
+        options["minimap_enabled"] = False
+        self.assertIsNone(client.poll(**options).minimap_projection)
+        self.assertIsNone(client._minimap_viewport_cache)
+
+    def test_rect_corners_share_one_sample_of_moving_transform_hierarchy(self) -> None:
+        memory = FakeLifecycleMemory()
+        client = MapMarkerMemoryClient(memory=memory)
+        native, access, matrices, parents = 0x710000, 0x720000, 0x730000, 0x740000
+        memory.ptrs[native + client.NATIVE_TRANSFORM_ACCESS_OFFSET] = access
+        memory.i32s[native + client.NATIVE_TRANSFORM_INDEX_OFFSET] = 1
+        memory.ptrs[access + client.TRANSFORM_ACCESS_MATRICES_OFFSET] = matrices
+        memory.ptrs[access + client.TRANSFORM_ACCESS_PARENTS_OFFSET] = parents
+        memory.i32s[parents + 4] = 0
+        memory.i32s[parents] = -1
+        matrix_reads = []
+        original_read_bytes = memory.read_bytes
+
+        def read_bytes(address, size):
+            if address == native + client.RECT_TRANSFORM_RECT_OFFSET:
+                return struct.pack("<4f", 0.0, 0.0, 200.0, 100.0)
+            if size != client.TRANSFORM_MATRIX_SIZE:
+                return original_read_bytes(address, size)
+            matrix_reads.append(address)
+            self.assertEqual(size, client.TRANSFORM_MATRIX_SIZE)
+            return struct.pack(
+                "<12f", float(len(matrix_reads)), 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0,
+            )
+
+        memory.read_bytes = read_bytes
+        left, bottom, right, top = client._read_rect_transform_bounds(native)
+        self.assertEqual((left, bottom, right, top), (3.0, 0.0, 203.0, 100.0))
+        self.assertEqual(matrix_reads, [matrices + client.TRANSFORM_MATRIX_SIZE, matrices])
+
     def test_stage_scope_uses_current_stage_pointer_and_index(self) -> None:
         memory = FakeLifecycleMemory()
         client = MapMarkerMemoryClient(memory=memory)
@@ -1247,6 +2179,307 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         ] = 0x630000
         memory.i32s[static_fields + client.MAP_CONTROLLER_INDEX_OFFSET] = 2
         self.assertEqual(client._resolve_stage_scope(), (0x630000, 2))
+
+
+class MapMarkerResilienceTests(unittest.TestCase):
+    """Exercise real poll/tick paths with controlled memory faults, not UI input."""
+
+    def setUp(self) -> None:
+        self.memory = FakeLifecycleMemory()
+        self.now = [10.0]
+        self.state = dict(seed=42, full_map=0x700000, player=0x400000,
+                          stage=0x500000, index=1, process="game:1")
+        self.object_ptr = 0x21000
+        self.detector = 0x420000
+        self.seed_address = 0x310000 + MapMarkerMemoryClient.MAP_GENERATION_MAP_SEED_OFFSET
+        self.memory.ptrs[0x100000 + MapMarkerMemoryClient.MAP_GENERATION_CONTROLLER_TYPE_INFO_OFFSET] = 0x300000
+        self.memory.ptrs[0x300000 + MapMarkerMemoryClient.CLASS_STATIC_FIELDS_OFFSET] = 0x310000
+        self.memory.ptrs[0x400000 + MapMarkerMemoryClient.PLAYER_INPUT_OFFSET] = 0x410000
+        self.memory.ptrs[0x410000 + MapMarkerMemoryClient.DETECT_INTERACTABLES_OFFSET] = self.detector
+        self.current_address = self.detector + MapMarkerMemoryClient.CURRENT_INTERACTABLE_OFFSET
+        self.memory.ptrs[self.current_address] = self.object_ptr
+        self.memory.ptrs[self.object_ptr] = 0xA000
+        self.memory.ptrs[self.object_ptr + MapMarkerMemoryClient.MANAGED_NATIVE_OFFSET] = 0x22000
+        self.memory.ptrs[0x5150] = 0xA100
+        self.memory.ptrs[0x5150 + MapMarkerMemoryClient.MANAGED_NATIVE_OFFSET] = 0x6000
+        self.memory.floats[0x700000 + MapMarkerMemoryClient.FULL_MAP_WORLD_SIZE_OFFSET] = 600.0
+        self.memory.i32s[0x700000 + MapMarkerMemoryClient.FULL_MAP_OPEN_COUNT_OFFSET] = 1
+        read_i32 = self.memory.read_i32
+
+        def read_seed(address):
+            if address == self.seed_address:
+                if self.state["seed"] is None:
+                    raise MemoryReadError("injected seed read failure")
+                return self.state["seed"]
+            return read_i32(address)
+
+        self.memory.read_i32 = read_seed
+        self.projection = MinimapProjection(
+            True, False, MapViewport(0, 0, 220, 220), 110, 110, 110,
+            0, 0, 1, 0, 0, 1, 110, 1,
+        )
+        self.client = self.make_client()
+        self.factory = Mock(return_value=self.client)
+        self.tracker = MapMarkerTracker(
+            "game", client_factory=self.factory, clock=lambda: self.now[0],
+            automatic_scan_interval=0.0,
+        )
+        self.options = dict(client_height=600, automatic_discovery=True,
+                            minimap_enabled=True, merchant_memory_enabled=True)
+
+    def make_client(self):
+        client = MapMarkerMemoryClient(memory=self.memory)
+        client._game_process_identity = self.state["process"]
+        client._full_map_ptr = self.state["full_map"]
+        client._resolve_full_map = lambda: self.state["full_map"]
+        client._resolve_player = lambda: self.state["player"]
+        client._resolve_stage_scope = lambda: (self.state["stage"], self.state["index"])
+        client._class_name_from_ptr = Mock(return_value="InteractableShrineMagnet")
+        client._component_transform = Mock(return_value=0x23000)
+        client._transform_point = Mock(return_value=(20.0, 0.0, -30.0))
+        client._read_viewport = Mock(return_value=MapViewport(0, 0, 600, 600))
+        client._read_minimap_projection = Mock(return_value=self.projection)
+        client._read_shady_stock_capture = Mock(return_value=None)
+        return client
+
+    def remember_markers(self):
+        frame = self.client.poll(client_height=600)
+        capture = replace(MapMarkerTrackerTests.stock(map_id=frame.map_id),
+                          map_seed=frame.map_seed)
+        self.client._read_shady_stock_capture.return_value = capture
+        self.tracker.tick(**self.options)
+        self.assertTrue(self.tracker.place_manual_marker(
+            "boss_curse", screen_x=500, screen_y=500,
+        ))
+        self.client._read_shady_stock_capture.return_value = None
+        # No automatic rediscovery may conceal an accidental ledger clear.
+        self.memory.ptrs[self.current_address] = 0
+        self.assertEqual(len(self.tracker.snapshot.markers), 3)
+        return self.tracker.snapshot
+
+    def test_seed_read_failures_preserve_all_markers_stock_and_public_identity(self):
+        before = self.remember_markers()
+        for seed in (None, None, 42, None, 42):
+            with self.subTest(seed=seed):
+                self.state["seed"] = seed
+                after = self.tracker.tick(**self.options)
+                self.assertEqual(after.markers, before.markers)
+                self.assertEqual(after.merchant_stocks, before.merchant_stocks)
+                self.assertEqual(after.map_id, before.map_id)
+                self.assertIs(self.tracker._client, self.client)
+        self.assertEqual(self.factory.call_count, 1)
+
+    def test_first_successful_seed_is_not_a_new_map_but_next_change_is(self):
+        self.state["seed"] = None
+        before = self.remember_markers()
+        self.state["seed"] = 42
+        after = self.tracker.tick(**self.options)
+        self.assertEqual(after.markers, before.markers)
+        self.assertEqual(len(after.merchant_stocks), 1)
+        self.assertEqual(after.merchant_stocks[0].map_id, after.map_id)
+        self.state["seed"] = 43
+        changed = self.tracker.tick(**self.options)
+        self.assertNotEqual(changed.map_id, after.map_id)
+        self.assertEqual(changed.markers, ())
+        self.assertEqual(changed.merchant_stocks, ())
+
+    def test_zero_and_negative_seeds_are_values_not_read_failures(self):
+        before = self.remember_markers()
+        self.state["seed"] = 0
+        changed = self.tracker.tick(**self.options)
+        self.assertNotEqual(changed.map_id, before.map_id)
+        self.assertEqual(changed.markers, ())
+        self.tracker.place_manual_marker("moai", screen_x=300, screen_y=300)
+        for seed in (None, 0, None):
+            self.state["seed"] = seed
+            self.assertEqual(len(self.tracker.tick(**self.options).markers), 1)
+        self.state["seed"] = -7
+        self.assertEqual(self.tracker.tick(**self.options).markers, ())
+
+    def test_each_structural_boundary_clears_even_when_seed_does_not_change(self):
+        for key in ("full_map", "player", "stage", "index", "process"):
+            with self.subTest(boundary=key):
+                self.setUp()
+                self.remember_markers()
+                if key == "process":
+                    self.client._game_process_identity = "game:2"
+                else:
+                    self.state[key] += 1
+                after = self.tracker.tick(**self.options)
+                self.assertEqual(after.markers, ())
+                self.assertEqual(after.merchant_stocks, ())
+
+    def test_new_scope_with_unknown_seed_clears_once_and_learns_new_seed(self):
+        self.remember_markers()
+        self.state.update(seed=None, stage=0x510000)
+        self.assertEqual(self.tracker.tick(**self.options).markers, ())
+        self.tracker.place_manual_marker("moai", screen_x=300, screen_y=300)
+        self.state["seed"] = 99
+        self.assertEqual(len(self.tracker.tick(**self.options).markers), 1)
+
+    def test_reconnect_with_unknown_seed_keeps_last_valid_seed_and_ledger(self):
+        before = self.remember_markers()
+        self.client._resolve_full_map = Mock(side_effect=MemoryReadError("disconnected"))
+        failed = self.tracker.tick(**self.options)
+        self.assertEqual(failed.markers, before.markers)
+        replacement = self.make_client()
+        self.factory.return_value = replacement
+        self.state["seed"] = None
+        self.now[0] += 1.1
+        recovered = self.tracker.tick(**self.options)
+        self.assertEqual(recovered.markers, before.markers)
+        self.assertEqual(recovered.map_id, before.map_id)
+        self.assertEqual(recovered.merchant_stocks, before.merchant_stocks)
+        self.assertEqual(self.factory.call_count, 2)
+        self.state["seed"] = 42
+        self.assertEqual(self.tracker.tick(**self.options).markers, before.markers)
+        self.state["seed"] = 43
+        self.assertEqual(self.tracker.tick(**self.options).markers, ())
+
+    def test_close_forgets_seed_and_scope(self):
+        self.remember_markers()
+        self.tracker.close()
+        self.state["seed"] = None
+        self.tracker.tick(**self.options)
+        self.tracker.place_manual_marker("moai", screen_x=300, screen_y=300)
+        self.state["seed"] = 99
+        self.assertEqual(len(self.tracker.tick(**self.options).markers), 1)
+
+    def test_stock_captured_during_seed_failure_uses_retained_map_id(self):
+        before = self.remember_markers()
+        self.state["seed"] = None
+        self.client._read_shady_stock_capture.side_effect = lambda map_id, **kw: replace(
+            before.merchant_stocks[0], map_id=map_id, map_seed=kw["map_seed"],
+        )
+        after = self.tracker.tick(**self.options)
+        self.assertEqual(after.markers, before.markers)
+        self.assertEqual(after.map_id, before.map_id)
+        self.assertEqual(after.merchant_stocks[0].map_id, before.map_id)
+        # Do not turn an unknown sample into confirmed analytics provenance.
+        self.assertIsNone(after.merchant_stocks[0].map_seed)
+
+    def test_seed_failure_does_not_accept_a_capture_from_another_map(self):
+        before = self.remember_markers()
+        self.state["seed"] = None
+        for wrong_id in (123, before.map_id):
+            with self.subTest(capture_id=wrong_id):
+                self.client._read_shady_stock_capture.return_value = MapMarkerTrackerTests.stock(
+                    map_id=wrong_id, object_ptr=0x9990,
+                )
+                after = self.tracker.tick(**self.options)
+                self.assertEqual(after.markers, before.markers)
+                self.assertEqual(after.merchant_stocks, before.merchant_stocks)
+
+    def test_discovery_memory_faults_keep_projection_and_other_markers(self):
+        for phase in ("detector", "current_pointer", "class", "transform"):
+            with self.subTest(phase=phase):
+                self.setUp()
+                before = self.remember_markers()
+                self.memory.i32s[0x700000 + self.client.FULL_MAP_OPEN_COUNT_OFFSET] = 0
+                self.memory.ptrs[self.current_address] = self.object_ptr
+                owner, name = {
+                    "detector": (self.client, "_resolve_detector"),
+                    "current_pointer": (self.memory, "read_ptr"),
+                    "class": (self.client, "_class_name_from_ptr"),
+                    "transform": (self.client, "_transform_point"),
+                }[phase]
+                original = getattr(owner, name)
+
+                def fail(*args):
+                    if phase == "current_pointer" and args[0] != self.current_address:
+                        return original(*args)
+                    raise MemoryReadError("injected discovery fault")
+
+                setattr(owner, name, fail)
+                after = self.tracker.tick(**self.options)
+                self.assertEqual(after.markers, before.markers)
+                self.assertEqual(after.merchant_stocks, before.merchant_stocks)
+                self.assertEqual(after.minimap_projection, self.projection)
+                self.assertIs(self.tracker._client, self.client)
+                self.assertEqual(self.client._detector_ptr, 0)
+                setattr(owner, name, original)
+                self.memory.ptrs[self.current_address] = self.object_ptr + 0x100
+                self.memory.ptrs[self.object_ptr + 0x100] = 0xA000
+                self.memory.ptrs[self.object_ptr + 0x100 + self.client.MANAGED_NATIVE_OFFSET] = 0x24000
+                recovered = self.tracker.tick(**self.options)
+                self.assertEqual(len(recovered.markers), 4)
+                self.assertEqual(self.factory.call_count, 1)
+
+    def test_discovery_programming_errors_are_not_swallowed_by_poll(self):
+        self.client._read_current_activity = Mock(side_effect=RuntimeError("bug"))
+        with self.assertRaisesRegex(RuntimeError, "bug"):
+            self.client.poll(client_height=600, automatic_discovery=True)
+
+    def test_invalid_done_preserves_marker_but_confirmed_done_removes_it(self):
+        before = self.remember_markers()
+        address = self.object_ptr + self.client.SHRINE_DONE_OFFSET
+        self.memory.u8s[address] = 2
+        self.assertEqual(self.tracker.tick(**self.options).markers, before.markers)
+        self.memory.u8s[address] = 0
+        self.assertEqual(self.tracker.tick(**self.options).markers, before.markers)
+        self.memory.u8s[address] = 1
+        after = self.tracker.tick(**self.options)
+        self.assertEqual(len(after.markers), 3)
+        self.now[0] += 0.4
+        after = self.tracker.tick(**self.options)
+        self.assertEqual(len(after.markers), 2)
+        self.assertNotIn(self.object_ptr, {m.object_ptr for m in after.markers})
+
+    def test_all_activity_done_flags_reject_invalid_bytes(self):
+        offsets = {
+            "InteractableShadyGuy": self.client.SHADY_DONE_OFFSET,
+            "InteractableEgg": self.client.EGG_DONE_OFFSET,
+            "InteractableCharacterFight": self.client.CHARACTER_FIGHT_DONE_OFFSET,
+        }
+        for name in sorted(self.client.ALLOWED_CLASSES - {"InteractableMicrowave"}):
+            offset = offsets.get(name, self.client.SHRINE_DONE_OFFSET)
+            for value in (2, 255):
+                with self.subTest(activity=name, value=value):
+                    self.client._tracked_classes[self.object_ptr] = (0xA000, name)
+                    self.memory.u8s[self.object_ptr + offset] = value
+                    with self.assertRaises(MemoryReadError):
+                        self.client.activity_is_active(self.object_ptr)
+                    self.memory.u8s[self.object_ptr + offset] = 0
+
+    def test_invalid_microwave_samples_hide_count_without_deleting_icon(self):
+        self.client._class_name_from_ptr.return_value = "InteractableMicrowave"
+        uses = self.object_ptr + self.client.MICROWAVE_USES_LEFT_OFFSET
+        cooking = self.object_ptr + self.client.MICROWAVE_IS_COOKING_OFFSET
+        item = self.object_ptr + self.client.MICROWAVE_HAS_ITEM_OFFSET
+        self.memory.i32s[uses] = 3
+        before = self.remember_markers()
+        marker_id = f"auto:{self.object_ptr:X}"
+        for address, value in ((uses, -1), (cooking, 2), (item, 255)):
+            with self.subTest(address=address):
+                self.memory.i32s[uses] = 3
+                self.memory.u8s[cooking] = self.memory.u8s[item] = 0
+                (self.memory.i32s if address == uses else self.memory.u8s)[address] = value
+                after = self.tracker.tick(**self.options)
+                self.assertEqual(len(after.markers), len(before.markers))
+                self.assertIsNone(next(m for m in after.markers if m.marker_id == marker_id).uses_remaining)
+        self.memory.i32s[uses] = 0
+        self.memory.u8s[cooking] = 0
+        self.memory.u8s[item] = 1
+        after = self.tracker.tick(**self.options)
+        self.assertEqual(next(m for m in after.markers if m.marker_id == marker_id).uses_remaining, 0)
+        self.memory.u8s[item] = 0
+        self.assertEqual(len(self.tracker.tick(**self.options).markers), 3)
+        self.now[0] += 0.4
+        self.assertEqual(len(self.tracker.tick(**self.options).markers), 2)
+
+    def test_projection_fault_hides_surface_without_erasing_ledger(self):
+        before = self.remember_markers()
+        self.memory.i32s[0x700000 + self.client.FULL_MAP_OPEN_COUNT_OFFSET] = 0
+        self.client._read_minimap_projection.side_effect = [
+            MemoryReadError("camera unavailable"), self.projection,
+        ]
+        hidden = self.tracker.tick(**self.options)
+        self.assertEqual(hidden.markers, before.markers)
+        self.assertIsNone(hidden.minimap_projection)
+        shown = self.tracker.tick(**self.options)
+        self.assertEqual(shown.markers, before.markers)
+        self.assertEqual(shown.minimap_projection, self.projection)
+        self.assertEqual(self.factory.call_count, 1)
 
 
 if __name__ == "__main__":

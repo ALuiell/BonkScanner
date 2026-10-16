@@ -24,8 +24,8 @@ from core.stats.formats import PlayerStatFormat
 from core.stats.formatters import format_player_stat_value
 from projections.timeline_axis import (
     AXIS_MODES,
+    AXIS_PROGRESS,
     AXIS_TIME,
-    build_axis_projection,
     snapshot_times,
 )
 from ui.timeline_visuals import (
@@ -140,6 +140,9 @@ class CompareRunsTimeline(QWidget):
         self._series_keys: tuple[str, ...] = ()
         self._cap_keys: tuple[str, ...] = ()
         self._shared_scales: dict[str, float] = {}
+        self._powerups = {"a": None, "b": None}
+        self._powerup_readouts = {}
+        self._powerup_header_rects = {}
         self._stage_deltas: dict[int, float | None] = {}
         self._position = 0.0
         self._common_duration = 1.0
@@ -220,6 +223,64 @@ class CompareRunsTimeline(QWidget):
         )
         self._reproject()
 
+    def set_prepared_lane(
+        self,
+        side: str,
+        vod,
+        model: scrubber_model.ScrubberModel,
+        *,
+        projection=None,
+        series_keys=(),
+        cap_keys=(),
+    ) -> None:
+        """Install one prepared lane without rebuilding the other lane's model."""
+        keys = tuple(dict.fromkeys(series_keys))
+        caps = tuple(dict.fromkeys(cap_keys))
+        snapshots = tuple(getattr(vod, "snapshots", ()) or ())
+        prepared_times = tuple(getattr(projection, "times", ()) or ())
+        times = (
+            prepared_times
+            if len(prepared_times) == len(snapshots)
+            else snapshot_times(snapshots)
+        )
+        lane = _Lane(snapshots, model, times, ())
+        if side == "a":
+            self._lane_a = lane
+        elif side == "b":
+            self._lane_b = lane
+        else:
+            raise ValueError(f"Unknown timeline lane: {side}")
+        self._series_keys = keys
+        self._cap_keys = caps
+        model_keys = tuple(dict.fromkeys(keys + caps))
+        self._shared_scales = shared_series_scales(
+            self._lane_a.model,
+            self._lane_b.model,
+            model_keys,
+            cap_keys=caps,
+        )
+        self._stage_deltas = stage_start_deltas(
+            self._lane_a.model,
+            self._lane_b.model,
+            self._lane_a.times,
+            self._lane_b.times,
+        )
+        self._reproject()
+
+    def clear_lane(self, side: str) -> None:
+        """Clear one side while preserving the other side's prepared model."""
+        self._powerups[side] = None
+        class _EmptyVod:
+            snapshots = ()
+
+        self.set_prepared_lane(
+            side,
+            _EmptyVod(),
+            scrubber_model.ScrubberModel(count=0),
+            series_keys=self._series_keys,
+            cap_keys=self._cap_keys,
+        )
+
     def set_cap_keys(self, cap_keys) -> None:
         """Which caps to draw, independent of which curves are plotted."""
         caps = tuple(dict.fromkeys(cap_keys))
@@ -256,6 +317,15 @@ class CompareRunsTimeline(QWidget):
         if emit:
             self.positionChanged.emit(value)
 
+    def set_powerups(self, side, projection) -> None:
+        if self._powerups[side] is projection:
+            return
+        self._powerups[side] = projection
+        self._reproject()
+        self._data_token += 1
+        self._cache_key = None
+        self.update()
+
     def nearest_indices(self, position: float | None = None) -> tuple[int | None, int | None]:
         position = self._position if position is None else max(0.0, min(1.0, float(position)))
         return self._nearest_index(self._lane_a, position), self._nearest_index(self._lane_b, position)
@@ -276,30 +346,31 @@ class CompareRunsTimeline(QWidget):
         common_duration = max(
             self._lane_a.times[-1] if self._lane_a.times else 0.0,
             self._lane_b.times[-1] if self._lane_b.times else 0.0,
+            *(projection.latest_axis for projection in self._powerups.values()
+              if projection is not None and scrubber_model.POWERUPS_SERIES in self._series_keys),
             1.0,
         )
         self._common_duration = common_duration
-        projection_a = build_axis_projection(
-            self._lane_a.snapshots,
-            mode=self._axis_mode,
-            common_duration=common_duration,
-        )
-        projection_b = build_axis_projection(
-            self._lane_b.snapshots,
-            mode=self._axis_mode,
-            common_duration=common_duration,
-        )
+        def positions(lane: _Lane) -> tuple[float, ...]:
+            if self._axis_mode == AXIS_PROGRESS:
+                denominator = max(len(lane.times) - 1, 1)
+                return tuple(index / denominator for index in range(len(lane.times)))
+            return tuple(
+                max(0.0, min(1.0, value / common_duration))
+                for value in lane.times
+            )
+
         self._lane_a = _Lane(
             self._lane_a.snapshots,
             self._lane_a.model,
-            projection_a.times,
-            projection_a.positions,
+            self._lane_a.times,
+            positions(self._lane_a),
         )
         self._lane_b = _Lane(
             self._lane_b.snapshots,
             self._lane_b.model,
-            projection_b.times,
-            projection_b.positions,
+            self._lane_b.times,
+            positions(self._lane_b),
         )
         self._data_token += 1
         self._cache_key = None
@@ -358,6 +429,12 @@ class CompareRunsTimeline(QWidget):
 
     def event(self, event) -> bool:
         if event.type() == QEvent.ToolTip:
+            for row in self._powerup_readouts.values():
+                if not row.isHidden():
+                    tooltip = row.tooltip_at(QPointF(event.pos()) - QPointF(row.pos()))
+                    if tooltip:
+                        QToolTip.showText(event.globalPos(), tooltip, self)
+                        return True
             for rect, text in self._marker_hits:
                 if rect.contains(QPointF(event.pos())):
                     QToolTip.showText(event.globalPos(), text, self)
@@ -371,15 +448,36 @@ class CompareRunsTimeline(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
+        self._place_powerup_readouts()
         self._ensure_static_layer()
         if self._static_layer is not None:
             painter.drawPixmap(0, 0, self._static_layer)
         self._paint_playhead(painter)
         painter.end()
 
+    def _powerup_lane_height(self):
+        return (8.0 if self._compact else 23.0) if scrubber_model.POWERUPS_SERIES in self._series_keys else 0.0
+
+    def _place_powerup_readouts(self):
+        from ui.powerup_timeline import place_powerup_readout
+        rects = self._lane_rects()
+        for side, lane, rect in zip(("a", "b"), (self._lane_a, self._lane_b), rects):
+            bands = lane.model.stages
+            caption = bands[0].label if bands else "STAGES NOT RECORDED"
+            if side == "b" and bands and not self._compact:
+                delta = self._stage_deltas.get(bands[0].stage_index)
+                if delta is not None:
+                    caption += f" · Δ{'+' if delta >= 0 else '−'}{abs(delta):.0f}s"
+            self._powerup_header_rects[side] = place_powerup_readout(
+                self._powerup_readouts.get(side), rect, caption,
+                self._small_font(bold=True),
+                caption_left=self._x(rect, lane.positions[bands[0].start])
+                if bands and lane.positions else rect.left())
+
     def _ensure_static_layer(self) -> None:
         dpr = max(1.0, float(self.devicePixelRatioF()))
-        key = (self._data_token, self.width(), self.height(), round(dpr, 2))
+        key = (self._data_token, self.width(), self.height(), round(dpr, 2),
+               tuple(self._powerup_header_rects.items()))
         if key == self._cache_key and self._static_layer is not None:
             return
         self._cache_key = key
@@ -417,9 +515,24 @@ class CompareRunsTimeline(QWidget):
             self._paint_stages(painter, lane, rect, stage_color, side)
             self._paint_caps(painter, lane, rect)
             self._paint_series(painter, lane, rect)
+            if scrubber_model.POWERUPS_SERIES in self._series_keys:
+                from ui.powerup_timeline import paint_powerups
+                from projections.timeline_axis import TimelineAxisProjection
+                plot = rect.adjusted(2.0, self._stage_label_height() + 3.0,
+                                     -2.0, -(self._marker_height() + 4.0))
+                projection = TimelineAxisProjection(lane.times, lane.positions,
+                                                    self._common_duration, self._axis_mode)
+                hits.extend(paint_powerups(painter, self._powerups[side.lower()], plot,
+                                          self._common_duration, axis_projection=projection,
+                                          lane_height=self._powerup_lane_height()))
             hits.extend(self._paint_markers(painter, lane, rect))
-            if self._axis_mode == AXIS_TIME and lane.positions and lane.positions[-1] < 0.999:
-                start = self._x(rect, lane.positions[-1])
+            powerups = self._powerups[side.lower()]
+            lane_end = max(lane.times[-1] if lane.times else 0.0,
+                           powerups.latest_axis if powerups is not None
+                           and scrubber_model.POWERUPS_SERIES in self._series_keys else 0.0)
+            end_position = min(1.0, lane_end / max(self._common_duration, 1.0))
+            if self._axis_mode == AXIS_TIME and lane.positions and end_position < 0.999:
+                start = self._x(rect, end_position)
                 painter.fillRect(
                     QRectF(start, rect.top(), rect.right() - start, rect.height()),
                     ENDED,
@@ -475,6 +588,7 @@ class CompareRunsTimeline(QWidget):
                 fill=fill,
                 text=text,
                 font=self._small_font(bold=True),
+                header_exclusion=self._powerup_header_rects.get(side.lower()),
             )
         if side == "B":
             stages_a = {
@@ -507,7 +621,7 @@ class CompareRunsTimeline(QWidget):
             2.0,
             self._stage_label_height() + 3.0,
             -2.0,
-            -(self._marker_height() + 4.0),
+            -(self._marker_height() + 4.0 + self._powerup_lane_height()),
         )
         if plot.width() <= 0.0 or plot.height() <= 0.0:
             return
@@ -548,7 +662,7 @@ class CompareRunsTimeline(QWidget):
             2.0,
             self._stage_label_height() + 3.0,
             -2.0,
-            -(self._marker_height() + 4.0),
+            -(self._marker_height() + 4.0 + self._powerup_lane_height()),
         )
         for key in self.drawable_cap_keys(lane):
             series = lane.model.series(key)

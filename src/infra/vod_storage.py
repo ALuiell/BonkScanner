@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 import json
 from math import isfinite
@@ -25,14 +25,18 @@ from core.settings import (
 )
 from core.json_safety import dumps_strict_json, loads_legacy_json
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
+from core.stats.weapon_tracker import WEAPON_TRACKER_METRIC_ORDER, calculate_weapon_tracker_row
 from core.vod_capture import VodCapturePayload
+from core.powerup_history import PowerupHistory, PowerupObservation
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, ChargeShrineSnapshot, ChargeShrineStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
+# 12 adds independent power-up observations on the effect and timeline clocks.
+# 11 records frozen effective weapon values alongside the weapon-side values.
 # 10 lets the final summary publish the completed automatic name and kill count.
 # 9 added character identity metadata and the generic character-passive frame.
 # Older recordings omit newer fields and keep their original metadata name.
-VOD_FORMAT_VERSION = 10
+VOD_FORMAT_VERSION = 12
 RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
 LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -162,6 +166,7 @@ class VodSnapshot:
     # where the truth is "we do not know".
     loot_actual: dict[str, int] | None = None
     loot_expected: dict[str, float] | None = None
+    effective_weapon_stats: tuple[dict[int, float], ...] | None = None
 
     @property
     def time_label(self) -> str:
@@ -197,6 +202,7 @@ class VodMetadata:
 class LoadedVod:
     metadata: VodMetadata
     snapshots: tuple[VodSnapshot, ...]
+    powerup_history: PowerupHistory | None = None
 
 
 @dataclass(frozen=True)
@@ -353,6 +359,11 @@ class VodRecorder:
         self._automatic_name_prefix = "Run"
         self._created_at: datetime | None = None
         self._max_mob_kills: int | None = None
+        self._run_seed: int | None = None
+        self._character_id: int | None = None
+        self._character_name: str | None = None
+        self._final_duration_seconds: int | None = None
+        self.powerup_history = PowerupHistory()
 
     @property
     def interval_seconds(self) -> int:
@@ -384,11 +395,16 @@ class VodRecorder:
         self._automatic_name_prefix = default_prefix
         self._created_at = created_at
         self._max_mob_kills = None
+        self._run_seed = seed
+        self._character_id = character_id
+        self._character_name = character_name
+        self._final_duration_seconds = None
         self.name = name or _automatic_vod_name(default_prefix, created_at)
         self.start_time = self.clock()
         self.last_snapshot_time = None
         self.snapshot_count = 0
         self.is_recording = False
+        self.powerup_history = PowerupHistory()
         try:
             self._file = self.path.open("w", encoding="utf-8")
             self._write_record(
@@ -423,16 +439,22 @@ class VodRecorder:
             self.snapshot_count = 0
             self._created_at = None
             self._max_mob_kills = None
+            self._run_seed = None
+            self._character_id = None
+            self._character_name = None
+            self._final_duration_seconds = None
             raise
         self.is_recording = True
         return self.path
 
     def stop(self) -> str:
         self.is_recording = False
+        self.powerup_history = replace(self.powerup_history, finalized=True)
         status = "kept"
         if self._file is not None:
             stop_error = None
             try:
+                self._final_duration_seconds = self.elapsed_seconds()
                 if (
                     self._uses_automatic_name
                     and self._created_at is not None
@@ -447,7 +469,7 @@ class VodRecorder:
                     {
                         "type": "summary",
                         "name": self.name,
-                        "duration_seconds": self.elapsed_seconds(),
+                        "duration_seconds": self._final_duration_seconds,
                         "snapshot_count": self.snapshot_count,
                         "mob_kills": self._max_mob_kills,
                     },
@@ -481,6 +503,27 @@ class VodRecorder:
             self._file = None
         self.is_recording = False
 
+    def observe_powerups(self, observation: PowerupObservation) -> PowerupHistory:
+        if not self.is_recording:
+            return self.powerup_history
+        observations = self.powerup_history.observations
+        if observations and observation.captured_at <= observations[-1].captured_at:
+            return self.powerup_history
+        previous = next((o for o in reversed(observations) if o.valid), None)
+        if previous is not None and observation.valid and (
+                (observation.run_id is not None and previous.run_id is not None
+                 and observation.run_id != previous.run_id)
+                or observation.my_time < previous.my_time
+                or observation.axis_time + .1 < previous.axis_time):
+            # Lifecycle will split the recording. Never attach a new run's
+            # fast sample to the old file while that transition is pending.
+            observation = PowerupObservation(observation.captured_at, None, None,
+                                             previous.run_id, False)
+        self.powerup_history = PowerupHistory(observations + (observation,))
+        # Small append-only observations; never copy full player-stat snapshots.
+        self._write_record(observation.to_record())
+        return self.powerup_history
+
     def elapsed_seconds(self) -> int:
         if self.start_time is None:
             return 0
@@ -492,6 +535,26 @@ class VodRecorder:
         if hours:
             return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         return f"{minutes:02d}:{seconds:02d}"
+
+    def current_metadata(self) -> VodMetadata:
+        """Return the recorder's current public identity without reading JSONL."""
+        if self.path is None or self._created_at is None:
+            raise RuntimeError("VOD recorder has not been started.")
+        return VodMetadata(
+            path=self.path.resolve(),
+            name=self.name,
+            created_at=self._created_at.isoformat(),
+            interval_seconds=self.interval_seconds,
+            duration_seconds=(
+                self._final_duration_seconds
+                if self._final_duration_seconds is not None and not self.is_recording
+                else self.elapsed_seconds()
+            ),
+            snapshot_count=self.snapshot_count,
+            run_seed=self._run_seed,
+            character_id=self._character_id,
+            character_name=self._character_name,
+        )
 
     def should_capture(self) -> bool:
         if not self.is_recording:
@@ -526,6 +589,7 @@ class VodRecorder:
             },
             items=payload.items,
             weapons=payload.weapons,
+            effective_weapon_stats=_capture_effective_weapon_stats(payload),
             tomes=payload.tomes,
             chaos_tome=payload.chaos_tome,
             shrines=payload.shrines,
@@ -608,17 +672,23 @@ def clear_vod_metadata_cache() -> None:
     _VOD_METADATA_CACHE.clear()
 
 
-def load_vod(path: Path) -> LoadedVod:
+def load_vod(
+    path: Path,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+) -> LoadedVod:
     metadata_record: dict[str, Any] | None = None
     summary_record: dict[str, Any] | None = None
     snapshots: list[VodSnapshot] = []
+    powerup_observations: list[PowerupObservation] = []
     # One string pool for the whole file, dropped when this returns -- the
     # strings it shares are then held by the snapshots that use them, not by it.
     # See `_record_to_snapshot`, which is where the sharing happens.
     pool: dict[str, str] = {}
 
     version = 1
-    for record in _iter_records(path):
+    for record in _iter_records(path, cancelled=cancelled, progress=progress):
         record_type = record.get("type")
         if record_type == "metadata":
             version = _vod_version(record)
@@ -627,12 +697,19 @@ def load_vod(path: Path) -> LoadedVod:
             summary_record = _normalize_vod_record(record, version)
         elif record_type == "snapshot":
             snapshots.append(_record_to_snapshot(_normalize_vod_record(record, version), pool))
+        elif record_type == "powerup_sample" and version >= 12:
+            observation = PowerupObservation.from_record(record)
+            if powerup_observations and observation.captured_at <= powerup_observations[-1].captured_at:
+                raise VodFormatError("Power-up observations must be chronological")
+            powerup_observations.append(observation)
 
     if metadata_record is None:
         raise ValueError(f"VOD metadata is missing in {path}")
 
     metadata = _metadata_from_records(path, metadata_record, summary_record, snapshots)
-    return LoadedVod(metadata=metadata, snapshots=tuple(snapshots))
+    return LoadedVod(metadata=metadata, snapshots=tuple(snapshots),
+                     powerup_history=(PowerupHistory(tuple(powerup_observations), summary_record is not None)
+                                      if version >= 12 else None))
 
 
 def load_vod_metadata(path: Path) -> VodMetadata:
@@ -777,7 +854,12 @@ def _loads_record(payload: str | bytes) -> dict[str, Any]:
     return record
 
 
-def _iter_records(path: Path):
+def _iter_records(
+    path: Path,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+):
     """Yield records, tolerating only an incomplete final write.
 
     A process can exit between writing a JSON object and its terminating
@@ -785,13 +867,20 @@ def _iter_records(path: Path):
     real corruption and must still fail loudly.
     """
     pending_line: bytes | None = None
+    total = max(0, path.stat().st_size)
+    consumed = 0
     with path.open("rb") as file:
         for line in file:
+            if cancelled is not None and cancelled():
+                raise InterruptedError("VOD load cancelled")
+            consumed += len(line)
             if not line.strip():
                 continue
             if pending_line is not None:
                 yield _loads_record(pending_line)
             pending_line = line
+            if progress is not None:
+                progress(consumed, total)
 
     if pending_line is None:
         return
@@ -800,6 +889,8 @@ def _iter_records(path: Path):
     except (UnicodeDecodeError, json.JSONDecodeError):
         if pending_line.endswith((b"\n", b"\r")):
             raise
+    if progress is not None:
+        progress(total, total)
 
 
 def _read_first_record(path: Path) -> dict[str, Any]:
@@ -888,6 +979,22 @@ def _metadata_from_records(
     )
 
 
+def _capture_effective_weapon_stats(
+    payload: VodCapturePayload,
+) -> tuple[dict[int, float], ...]:
+    """Freeze the calculated values from the same frame as the raw weapon stats."""
+    result: list[dict[int, float]] = []
+    for weapon in payload.weapons:
+        row = calculate_weapon_tracker_row(
+            weapon, payload.stats, WEAPON_TRACKER_METRIC_ORDER
+        )
+        result.append(
+            {metric.stat_id: metric.value for metric in row.metrics}
+            if row is not None else {}
+        )
+    return tuple(result)
+
+
 def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
     record = {
         "type": "snapshot",
@@ -911,6 +1018,11 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         "banishes": list(snapshot.banishes),
         "damage_sources": [_damage_source_to_record(source) for source in snapshot.damage_sources],
     }
+    if snapshot.effective_weapon_stats is not None:
+        record["effective_weapon_stats"] = [
+            {str(stat_id): value for stat_id, value in values.items()}
+            for values in snapshot.effective_weapon_stats
+        ]
     if snapshot.chests_per_minute_recorded or snapshot.chests_per_minute is not None:
         record["chests_per_minute"] = snapshot.chests_per_minute
     if snapshot.game_time_seconds is not None:
@@ -1011,6 +1123,9 @@ def _record_to_snapshot(record: dict[str, Any], pool: dict[str, str] | None = No
         },
         items=tuple(_shared_name(item, share) for item in record.get("items") or ()),
         weapons=tuple(_record_to_weapon(weapon, share) for weapon in record.get("weapons") or ()),
+        effective_weapon_stats=_record_to_effective_weapon_stats(
+            record.get("effective_weapon_stats"), len(record.get("weapons") or ())
+        ),
         tomes=tuple(_record_to_tome(tome, share) for tome in record.get("tomes") or ()),
         chaos_tome=_record_to_chaos_tome(record.get("chaos_tome")),
         shrines=_record_to_charge_shrines(record.get("shrines"), share),
@@ -1467,6 +1582,26 @@ def _record_to_weapon_stats(raw_stats: Any) -> dict[int, WeaponStatValue]:
             value_format=value_format,
         )
     return stats
+
+
+def _record_to_effective_weapon_stats(
+    raw_values: Any, weapon_count: int,
+) -> tuple[dict[int, float], ...] | None:
+    if not isinstance(raw_values, list) or len(raw_values) != weapon_count:
+        return None
+    result: list[dict[int, float]] = []
+    for raw_weapon in raw_values:
+        if not isinstance(raw_weapon, dict):
+            return None
+        values: dict[int, float] = {}
+        for raw_stat_id, raw_value in raw_weapon.items():
+            if not _is_int_like(raw_stat_id):
+                continue
+            value = _coerce_optional_float(raw_value)
+            if value is not None:
+                values[int(raw_stat_id)] = value
+        result.append(values)
+    return tuple(result)
 
 
 def _coerce_optional_float(value: Any) -> float | None:

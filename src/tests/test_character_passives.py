@@ -253,7 +253,7 @@ class GambaAdapterTests(unittest.TestCase):
         self.assertEqual(chaos.stats[0].rolls, 1)
         self.assertNotEqual(dice.effects[0].value, chaos.stats[0].value)
 
-    def test_simultaneous_numeric_collision_remains_partial(self) -> None:
+    def test_simultaneous_nearby_values_keep_dice_and_chaos_separate(self) -> None:
         tracker = LiveRunTracker()
         first_seven = tuple(
             _modifier(0xC000 + index, 5, gamba_roll_value(5, 1.0, index))
@@ -275,9 +275,11 @@ class GambaAdapterTests(unittest.TestCase):
             chaos_level=0,
             permanent_modifiers={5: first_seven},
         )
-        collision = _modifier(0xC100, 5, gamba_roll_value(5, 2.0, 7))
+        # This Dice grant is 0.0712668..., not the Chaos fingerprint 0.07.
+        # A millesimal tolerance used to turn it into a false source collision.
+        dice_only = _modifier(0xC100, 5, gamba_roll_value(5, 2.0, 7))
         chaos_only = _modifier(0xC200, 5, 0.07)
-        all_modifiers = first_seven + (collision, chaos_only)
+        all_modifiers = first_seven + (dice_only, chaos_only)
 
         tracker.update_permanent_sources(
             _reading(
@@ -293,8 +295,11 @@ class GambaAdapterTests(unittest.TestCase):
 
         dice = tracker.character_passive_snapshot()
         chaos = tracker.chaos_tome_snapshot()
-        self.assertEqual(dice.status, CharacterPassiveStatus.PARTIAL)
-        self.assertEqual(sum(effect.count for effect in dice.effects), 7)
+        self.assertEqual(dice.status, CharacterPassiveStatus.SUPPORTED)
+        self.assertEqual(sum(effect.count for effect in dice.effects), 8)
+        self.assertEqual(dice.ambiguous, 0)
+        self.assertAlmostEqual(dice.effects[0].value, sum(m.value for m in first_seven) + dice_only.value)
+        self.assertEqual(chaos.stats[0].rolls, 1)
         self.assertEqual(chaos.stats[0].value, chaos_only.value)
 
     def test_cold_recovery_matches_the_synchronous_shared_lane(self) -> None:

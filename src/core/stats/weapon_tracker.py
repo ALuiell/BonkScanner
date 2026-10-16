@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
 from math import isfinite
 from typing import Any, Iterable, Mapping
@@ -100,11 +101,12 @@ class WeaponTrackerMetric:
         return f"{kind} cap {format_weapon_tracker_value(self.key, self.cap.value)}{reached}"
 
     def overlay_value(self, show_caps: bool = False) -> str:
+        value = format_weapon_tracker_overlay_value(self.key, self.value)
         if not show_caps or self.cap.value is None:
-            return self.display_value
-        cap_value = format_weapon_tracker_value(self.key, self.cap.value)
+            return value
+        cap_value = format_weapon_tracker_overlay_value(self.key, self.cap.value)
         cap_label = "HC" if self.cap.kind == "hard" else "SC"
-        return f"{self.display_value} / {cap_value} ({cap_label})"
+        return f"{value} / {cap_value} ({cap_label})"
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +200,47 @@ def format_weapon_tracker_value(key: str, value: float) -> str:
     if spec.value_format is WeaponTrackerValueFormat.PERCENT:
         return f"{_format_number(value * 100.0)}%"
     return _format_number(value)
+
+
+def format_weapon_tracker_overlay_value(key: str, value: float) -> str:
+    """Keep at most three significant digits in the in-game and OBS widgets."""
+    value_format = WEAPON_TRACKER_METRICS[key].value_format
+    if value_format is WeaponTrackerValueFormat.INTEGER:
+        value = int(value)
+    elif value_format is WeaponTrackerValueFormat.PERCENT:
+        value *= 100.0
+
+    number = _format_compact_number(value)
+    if value_format is WeaponTrackerValueFormat.MULTIPLIER:
+        return f"×{number}"
+    if value_format is WeaponTrackerValueFormat.SECONDS:
+        return f"{number}s"
+    if value_format is WeaponTrackerValueFormat.PERCENT:
+        return f"{number}%"
+    return number
+
+
+def _format_compact_number(value: float) -> str:
+    if abs(value) < 0.005:
+        return "0"
+
+    number = Decimal(str(value))
+    place = Decimal(1).scaleb(number.copy_abs().adjusted() - 2)
+    rounded = number.quantize(place, rounding=ROUND_HALF_UP)
+    magnitude = rounded.copy_abs()
+    if magnitude >= Decimal("1e15"):
+        return format(rounded.normalize(), "E")
+
+    for exponent, suffix in ((12, "T"), (9, "B"), (6, "M"), (3, "K")):
+        if magnitude >= Decimal(1).scaleb(exponent):
+            number_text = format(rounded.scaleb(-exponent), "f")
+            break
+    else:
+        number_text = format(rounded, "f")
+        suffix = ""
+    if "." in number_text:
+        number_text = number_text.rstrip("0").rstrip(".")
+    return f"{number_text}{suffix}"
 
 
 def _calculate_metric_value(

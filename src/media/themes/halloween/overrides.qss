@@ -1,0 +1,44 @@
+/* Witching Hour: keep original geometry; only presentation is changed. */
+/* Layout hosts reveal the rounded surface beneath them instead of painting
+   rectangular insets behind labels and the Logs buffer counter. */
+.QWidget, QStackedWidget, QSplitter { background: transparent; }
+QWidget#templateListSurface, QScrollArea { background: transparent; }
+QTabWidget#mainTabs::pane { background-color: #1B1623; }
+QLabel, QCheckBox, QRadioButton { background: transparent; }
+QPushButton#primary, QPushButton#segment[role="go"][active="true"],
+QTabBar::tab:selected {
+    background-color: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #946BCF,stop:1 #8058BA);
+}
+QLabel#appTitle { color: #F0EBF7; }
+QPushButton#premiumAccessBadge {
+    color: #D6BDF2;
+    background-color: #261C34;
+    border-color: #745391;
+}
+QPushButton#premiumAccessBadge:hover {
+    color: #EAD9FF; background-color: #342344; border-color: #AD82D3;
+}
+QPushButton#premiumAccessBadge:pressed {
+    color: #EAD9FF; background-color: #20172C; border-color: #946BCF;
+}
+QFrame#headerBar { background: transparent; border-bottom-color: #393047; }
+QWidget#centralWidget, QWidget#centralContent { background-color: #15111C; }
+QFrame#appFooter { background-color: #130F1B; }
+QPushButton { background-color: #211A2D; border-color: #473B58; }
+QPushButton#ghost, QPushButton#logChip { background: transparent; }
+QPushButton#logChip:checked { background-color: #2B2138; }
+QPushButton#danger { background-color: #21151D; border-color: #673440; }
+QTabBar#SettingsHeaderTabs::tab:selected {
+    background-color: #362748; border-color: #8058BA; color: #F0EBF7;
+}
+QPushButton#iconBtn {
+    background-color: #211A2D; border-color: #473B58;
+}
+QPushButton#iconBtn:hover { background-color: #362748; border-color: #A17CD3; }
+QFrame#PremiumFeatureLocked {
+    background-color: #120F19; border-color: #393047;
+}
+/* Run/series identity must agree with the painted timeline in both themes. */
+QFrame#CompareRunsRunPlaque[side="A"] { border-left: 3px solid #38BDF8; }
+QLabel#CompareRunsRunBadge[side="A"] { color: #38BDF8; }
+QPushButton[timelineSlot="true"][accentRole="blue"] { border-left: 3px solid #38BDF8; }

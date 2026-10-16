@@ -44,6 +44,7 @@ def build_vod_capture(
     is_live_stats_tab_active: bool | Callable[[], bool] = True,
     clock: Callable[[], float] | None = None,
     read_character_identity: Callable[[], tuple[int, str] | None] | None = None,
+    active_recording_feed: Any = None,
     world: Any = None,
 ) -> tuple[VodCapture, Any]:
     """A real `VodCapture` with its eleven collaborators faked.
@@ -111,6 +112,7 @@ def build_vod_capture(
         log=lambda message, tag=None: world.log.append((message, tag)),
         reset_snapshot_buffer=lambda: world.snapshot_resets.append(True),
         read_character_identity=read_character_identity,
+        active_recording_feed=lambda: active_recording_feed,
         **({"clock": clock} if clock is not None else {}),
     )
     return service, world

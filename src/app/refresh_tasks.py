@@ -460,8 +460,15 @@ class RefreshTasks:
         refresh_required: Callable[[], bool],
         build_progression_service: Callable[[], Any] | None = None,
         permanent_source_recovery_job_factory: Callable[..., Any] | None = None,
+        roll_analytics_service: Callable[[], Any] = lambda: None,
+        roll_analytics_collection_active: Callable[[], bool] = lambda: False,
     ) -> None:
         self._memory = memory
+        self._roll_analytics_service = roll_analytics_service
+        self._roll_analytics_collection_active = roll_analytics_collection_active
+        self._roll_analytics_identity = None
+        self._terminal_roll_analytics_run = None
+        self._terminal_roll_analytics_attempt = None
         self._lifecycle = lifecycle
         self._view = view
         self._capture = capture
@@ -515,6 +522,26 @@ class RefreshTasks:
             and recorder is not None
             and recorder.is_recording
         )
+        if (self._lifecycle().completed_run and not terminal_recording
+                and self._roll_analytics_collection_active()):
+            run_key = getattr(self._tracker(), "run_id", None) or id(self._tracker())
+            if run_key != self._terminal_roll_analytics_run:
+                now = time.monotonic()
+                attempt = self._terminal_roll_analytics_attempt
+                if attempt is None or attempt[0] != run_key:
+                    attempt = self._terminal_roll_analytics_attempt = (run_key, now)
+                if now - attempt[1] < TERMINAL_PERMANENT_SOURCE_RECOVERY_GRACE_SECONDS:
+                    # Do not acknowledge a failed final read. Retry briefly,
+                    # preserving shrine pointer reservation before attribution.
+                    if (self._refresh_charge_shrines_task(context)
+                            and self._refresh_chaos_tome_task(context)):
+                        self._terminal_roll_analytics_run = run_key
+                else:
+                    self._terminal_roll_analytics_run = run_key
+            # Collection is independent of recordings, including completion
+            # of an already-started cold recovery after the run ends.
+            self._poll_completed_permanent_source_recovery()
+            self._publish_last_roll_analytics()
         if terminal_recording:
             # The lifecycle task runs before the normal fast-source tasks, and
             # `completed_run` disables their demand predicates. Run the terminal
@@ -532,6 +559,7 @@ class RefreshTasks:
             self._refresh_charge_shrines_task(context)
             self._refresh_chaos_tome_task(context)
             self._poll_completed_permanent_source_recovery()
+            self._publish_last_roll_analytics()
             self._publish_terminal_stage_summary()
             if self._should_defer_terminal_recording_stop():
                 self._player_stats_refresh_status_text = (
@@ -626,6 +654,8 @@ class RefreshTasks:
             )
             self._memory().record_memory_success()
             accepted = self._tracker().update_powerups(snapshot)
+            if self._is_vod_recording():
+                self._capture().observe_powerups(snapshot, getattr(self._tracker(), "run_id", None))
             # The tracker always updates; only the *repaint* is gated. The
             # Powerups card is painted from the snapshot's stats by
             # `display_player_stats`, and `refresh_powerups_card` repaints it
@@ -638,6 +668,8 @@ class RefreshTasks:
         except Exception as exc:
             self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("powerups", exc)
+            if self._is_vod_recording():
+                self._capture().observe_powerups(None, getattr(self._tracker(), "run_id", None))
             if not self._pinned():
                 self._view().refresh_powerups_card()
             return False
@@ -741,26 +773,11 @@ class RefreshTasks:
             update_fast_size(size)
 
     def _publish_item_cooldowns(self, context: RefreshTickContext) -> None:
-        """Timed-item cooldowns, from the same pass as the inventory.
+        """Publish the cooldown sample without changing inventory health.
 
-        Costs almost nothing on top of that pass: the dictionary walk is
-        already paid for and memoised, so this is two float reads for the item
-        plus one for ``MyTime.time``, whose static-field chain is cached --
-        ~12 us against the ~0.004 ms measured per ``ReadProcessMemory``. That
-        is why there is no demand-gating predicate for it and
-        ``_should_refresh_passive_items`` is left alone: the cost this feature
-        adds is below the threshold at which gating pays for itself.
-
-        **Swallows, and records no health**, matching ``_publish_fast_luck``
-        and ``_publish_fast_map_activity`` above. ``PASSIVE_ITEMS`` keeps a
-        single health owner; without this a torn cooldown float would be
-        reported as an inventory failure and would mark the whole feature
-        degraded. Cost is not what demand-gating protects -- failure surface is
-        -- and this is how that half is paid instead.
-
-        A failure clears the reading rather than leaving the previous one in
-        place, so the TTL retires it on schedule instead of a stale countdown
-        outliving the pass that produced it.
+        The reader diagnoses failures and rebuilds its own local caches. An
+        incomplete sample or exception does not extend the tracker's last-good
+        TTL, so a transient read has bounded grace rather than a plausible blank.
         """
         try:
             client = self._fast_task_client(context)
@@ -1185,6 +1202,10 @@ class RefreshTasks:
                         permanent_modifiers if chaos_level is not None else {}
                     ),
                 )
+            # Reuse the attributed snapshots; history collection has its own
+            # demand and does not depend on a visible tab or a recording.
+            self._record_roll_analytics(client, owner_stats, character_passive, context,
+                                        chaos_available=chaos_level is not None)
             # The card was painted only by the 10 s payload while this task
             # folded a new reading every tick, which is why `!chaos` in chat
             # could report a roll the app's own card had not shown yet. Same
@@ -1201,6 +1222,54 @@ class RefreshTasks:
             self._mark_fast_feature_failed("chaos_tome", exc)
             self._mark_fast_feature_failed("character_passive", exc)
             return False
+
+    def _record_roll_analytics(self, client, owner_stats, reading, context=None, *, chaos_available=True):
+        service = self._roll_analytics_service()
+        if service is None:
+            return
+        if not self._roll_analytics_collection_active():  # recheck Premium at publication
+            return
+        identity_reader = getattr(getattr(client, "memory", None), "process_identity", None)
+        if not callable(identity_reader) or reading is None:
+            return
+        try:
+            run_timer = None
+            metadata = context.metadata_for(RUN_TIMER) if context is not None else None
+            if metadata is not None and metadata.succeeded:
+                # Already read by the lifecycle/full/combat pass. Never make an
+                # additional game-memory read for analytics identity.
+                run_timer = context.get_or_create(RUN_TIMER, lambda: None)
+            self._roll_analytics_identity = (
+                identity_reader(), int(owner_stats), int(reading.passive_object_ptr),
+                getattr(self._tracker(), "run_id", None), run_timer, chaos_available,
+            )
+            self._publish_last_roll_analytics()
+        except Exception:
+            # Analytics must not invalidate the successful gameplay read.
+            return
+
+    def _publish_last_roll_analytics(self):
+        identity = self._roll_analytics_identity
+        if identity is None or not self._roll_analytics_collection_active():
+            return
+        tracker = self._tracker()
+        if identity[3] != getattr(tracker, "run_id", None):
+            return
+        passive = tracker.character_passive_snapshot()
+        if getattr(passive, "coverage", "") == "recovering_history":
+            # Recovery may retain an old Chaos snapshot while resolving the
+            # new character; do not save it under the new owner identity.
+            return
+        service = self._roll_analytics_service()
+        if service is not None:
+            service.observe(
+                process_identity=identity[0], owner_stats=identity[1], passive_ptr=identity[2],
+                # An unavailable read may retain the previous owner's Chaos
+                # snapshot. Only the source confirmed in this read may publish.
+                chaos=tracker.chaos_tome_snapshot() if identity[5] else None,
+                passive=passive,
+                run_id=identity[3] or "", run_timer=identity[4],
+            )
 
     def _advance_permanent_source_recovery(
         self,
@@ -1310,6 +1379,8 @@ class RefreshTasks:
     def _should_refresh_powerup_tracker(self) -> bool:
         if self._lifecycle().completed_run:
             return False
+        if self._is_vod_recording():
+            return True
         # The ``try``/``except`` is the guard now. It was always doing the real
         # work: an owner without the predicate raises ``AttributeError`` through
         # the injected callable and lands on exactly the branch the deleted
@@ -1389,7 +1460,7 @@ class RefreshTasks:
         return self._lifecycle().is_active_run() or self._refresh_required()
 
     def _should_refresh_passive_items(self) -> bool:
-        """Everything the full snapshot demands, plus the Luck widget.
+        """Everything the full snapshot demands, plus the fast-only widgets.
 
         The snapshot's own predicate was this task's predicate too, deliberately:
         it feeds the same tracked-item state recordings consume, so a demand
@@ -1401,11 +1472,17 @@ class RefreshTasks:
         `in_game_overlay_requires_player_stats_refresh`. Luck rides this task
         now, so the widget has to be able to demand *this* task; without the arm
         a user running the Luck widget alone outside an active run would get no
-        Luck read at all.
+        Luck read at all. Items Cooldown likewise keeps this lane demanded
+        during a missed activity probe, without forcing the full stat walk.
+        A confirmed completed run still closes that additional demand.
         """
         return (
             self._should_refresh_full_player_snapshot()
             or in_game_overlay_widget_enabled("luck_rarity")
+            or (
+                not self._lifecycle().completed_run
+                and in_game_overlay_widget_enabled("item_cooldowns")
+            )
             or self._build_progression_has_cap_demand()
         )
 
@@ -1419,6 +1496,8 @@ class RefreshTasks:
     def _should_refresh_chaos_tome(self) -> bool:
         if self._lifecycle().completed_run:
             return False
+        if self._roll_analytics_collection_active():
+            return True
         if self._tab_active() or self._is_vod_recording():
             return True
         return (
@@ -1429,6 +1508,10 @@ class RefreshTasks:
     def _should_refresh_charge_shrines(self) -> bool:
         if self._lifecycle().completed_run:
             return False
+        # Attribution still reserves ShrineLog pointers. Shrines are never
+        # persisted or shown in Roll Analytics.
+        if self._roll_analytics_collection_active():
+            return True
         if self._tab_active() or self._is_vod_recording():
             return True
         return self._twitch_command_refresh_active("shrines")

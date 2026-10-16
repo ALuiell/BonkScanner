@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>Clock</title>
+  <path fill="#001828" d="M12 2h8c1 0 2 1 2 2v2c0 1-1 2-2 2h-1v1h-6V8h-1c-1 0-2-1-2-2V4c0-1 1-2 2-2z"/>
+  <path fill="#C5C700" d="M14 6h4v3h-4z"/>
+  <path fill="#FCFF00" d="M12 4h8v2h-8zm2 3h4v2h-4z"/>
+  <path fill="#FEFF8A" d="M12 4h8v1h-8z"/>
+  <circle cx="16" cy="19" r="12" fill="#001828"/>
+  <circle cx="16" cy="19" r="10" fill="#0096FF"/>
+  <path fill="#5EBDFF" d="M16 9a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8z"/>
+  <circle cx="16" cy="19" r="8.5" fill="#E9E9E9"/>
+  <path fill="#FFF" d="M16 10.5a8.5 8.5 0 0 1 8.5 8.5 8.5 8.5 0 0 1-2.5 6L10 13a8.5 8.5 0 0 1 6-2.5z"/>
+  <g fill="#000">
+    <circle cx="16" cy="12.4" r="0.55"/>
+    <circle cx="20.7" cy="14.3" r="0.55"/>
+    <circle cx="22.6" cy="19" r="0.55"/>
+    <circle cx="20.7" cy="23.7" r="0.55"/>
+    <circle cx="16" cy="25.6" r="0.55"/>
+    <circle cx="11.3" cy="23.7" r="0.55"/>
+    <circle cx="9.4" cy="19" r="0.55"/>
+    <circle cx="11.3" cy="14.3" r="0.55"/>
+    <path d="M11.5 17h5.3v7.5h-1.6v-6h-3.7z"/>
+  </g>
+</svg>

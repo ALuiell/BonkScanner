@@ -144,7 +144,7 @@ def _tier_color(tier: str) -> str:
     }.get(tier, COLOR_MAP["DEFAULT"])
 
 
-def build_qt_app_stylesheet(checkmark_path: str) -> str:
+def build_qt_app_stylesheet(checkmark_path: str, *, theme: str = "original") -> str:
     legacy_stylesheet = (
 """
                 QWidget {
@@ -1166,7 +1166,12 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-family: "JetBrains Mono", Consolas, monospace;
             font-size: 12px;
             font-weight: 600;
+        }
+        QLabel#StatusLabel {
             padding-left: 10px;
+        }
+        QLabel#statusText {
+            padding: 0px;
         }
         QCheckBox::indicator:checked {
             image: url(__CHECKMARK_ICON__);
@@ -1531,7 +1536,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
     # and the uniform checkbox/spinner/transparency rules come last of all
     # so nothing upstream of them can leave a tab's controls looking
     # different from the rest.
-    return "\n".join(
+    original = "\n".join(
         (
             compatibility_stylesheet,
             base_stylesheet,
@@ -1542,3 +1547,6 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             transparency_stylesheet,
         )
     )
+    from ui.themes import theme_stylesheet
+
+    return theme_stylesheet(original, theme)

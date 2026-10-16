@@ -38,11 +38,19 @@ class SupporterAccessControllerTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.cache_path = Path(self.temp.name) / "access.json"
 
-    def response(self, *, active=True, status="active_subscription"):
+    def response(
+        self,
+        *,
+        active=True,
+        status="active_subscription",
+        features=None,
+    ):
+        if features is None:
+            features = ("native_hook",) if active else ()
         return AccessResponse(
             active=active,
             status=status,
-            features=("native_hook",) if active else (),
+            features=tuple(features),
             expires_at=self.now + timedelta(days=30) if active else None,
             next_change_at=self.now + timedelta(days=30) if active else None,
             checked_at=self.now,
@@ -69,6 +77,30 @@ class SupporterAccessControllerTests(unittest.TestCase):
             delete_key=lambda: self.credentials.__setitem__("key", ""),
         )
 
+    def test_remaining_access_uses_the_same_expiry_and_grace_as_the_gate(self):
+        from dataclasses import replace
+        from app.supporter_access import OFFLINE_GRACE, SupporterAccessState
+
+        controller = self.controller(FakeClient([]))
+        self.assertEqual(controller.premium_access_remaining_seconds(), 0.0)
+        state = SupporterAccessState(status="active_subscription", active=True,
+            online=True, checked_at=self.now, expires_at=self.now + timedelta(seconds=30))
+        controller._state = state
+        self.assertEqual(controller.premium_access_remaining_seconds(), 30.0)
+        self.assertTrue(controller.has_premium_access())
+        self.now += timedelta(seconds=30)
+        self.assertEqual(controller.premium_access_remaining_seconds(), 0.0)
+        self.assertFalse(controller.has_premium_access())
+        controller._state = replace(state, expires_at=None)
+        self.assertIsNone(controller.premium_access_remaining_seconds())
+        self.assertTrue(controller.has_premium_access())
+        controller._state = replace(state, online=False, expires_at=self.now + timedelta(days=3),
+            checked_at=self.now - OFFLINE_GRACE + timedelta(seconds=10))
+        self.assertEqual(controller.premium_access_remaining_seconds(), 10.0)
+        self.now += timedelta(seconds=10)
+        self.assertEqual(controller.premium_access_remaining_seconds(), 0.0)
+        self.assertFalse(controller.has_premium_access())
+
     def test_no_key_never_calls_the_service(self):
         client = FakeClient([])
         controller = self.controller(client)
@@ -90,6 +122,15 @@ class SupporterAccessControllerTests(unittest.TestCase):
         cache_text = self.cache_path.read_text(encoding="utf-8")
         self.assertNotIn(RAW_KEY, cache_text)
         self.assertIn("native_hook", cache_text)
+
+    def test_active_premium_unlocks_every_feature_without_assignments(self):
+        controller = self.controller(FakeClient([self.response(features=())]))
+
+        self.assertTrue(controller.activate(RAW_KEY))
+
+        self.assertTrue(controller.has_premium_access())
+        self.assertTrue(controller.has_feature("native_hook"))
+        self.assertTrue(controller.has_feature("map_enhancements"))
 
     def test_recent_cache_keeps_feature_during_network_failure(self):
         first = self.controller(FakeClient([self.response()]))

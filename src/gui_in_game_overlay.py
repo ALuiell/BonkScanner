@@ -28,9 +28,12 @@ from __future__ import annotations
 
 from collections import deque
 from concurrent.futures import Executor, Future, ThreadPoolExecutor, TimeoutError
+from dataclasses import replace
+import time
+import traceback
 from typing import Any, Callable
 
-from PySide6.QtCore import QPoint, QRect, QTimer
+from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
@@ -72,6 +75,7 @@ from gui_in_game_overlay_settings import (
     WeaponTrackerSettingsDialog,
     build_in_game_overlay_tab,
     refresh_in_game_overlay_hotkey_ui,
+    refresh_map_marker_settings_summary,
     update_in_game_overlay_status_ui,
 )
 from gui_in_game_overlay_window import InGameOverlayWindow
@@ -84,6 +88,28 @@ except Exception:
 
 def _build_map_marker_executor() -> ThreadPoolExecutor:
     return ThreadPoolExecutor(max_workers=1, thread_name_prefix="map-marker-reader")
+
+
+class _MapMarkerCompletion(QObject):
+    """Deliver worker completion on the owner's Qt thread, never inline."""
+
+    ready = Signal(object)
+
+    def __init__(self, callback) -> None:
+        super().__init__()
+        self._callback = callback
+        self.ready.connect(self._deliver, Qt.QueuedConnection)
+
+    def notify(self, future) -> None:
+        try:
+            self.ready.emit(future)
+        except RuntimeError:
+            # The Qt owner can already be gone during terminal shutdown.
+            pass
+
+    @Slot(object)
+    def _deliver(self, future) -> None:
+        self._callback(future)
 
 
 class InGameOverlay:
@@ -112,10 +138,19 @@ class InGameOverlay:
         map_marker_hotkey_controller_factory: Callable[[Any], Any] = MapMarkerHotkeyController,
         build_progression_snapshot: Callable[[], Any] = lambda: None,
         open_build_progression_settings: Callable[[], None] = lambda: None,
+        has_premium_access: Callable[[], bool] = lambda: False,
+        analytics_collection_enabled: Callable[[], bool] = lambda: False,
+        record_merchant_capture: Callable[[Any, Any], None] = lambda *_args: None,
+        open_support_settings: Callable[[], None] = lambda: None,
+        map_marker_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._tracker = tracker
         self._build_progression_snapshot = build_progression_snapshot
         self._open_build_progression_settings = open_build_progression_settings
+        self._has_premium_access = has_premium_access
+        self._analytics_collection_enabled = analytics_collection_enabled
+        self._record_merchant_capture = record_merchant_capture
+        self._open_support_settings = open_support_settings
         self._is_scanning = is_scanning
         self._is_recording = is_recording
         self._is_game_window_active = is_game_window_active
@@ -137,6 +172,11 @@ class InGameOverlay:
         self._map_marker_executor: Executor | None = None
         self._map_marker_future: Future[MapMarkerSnapshot] | None = None
         self._map_marker_future_generation = 0
+        # Presentation invalidation does not end the client's working session.
+        # Only Stop/close advances this epoch and makes its failures obsolete.
+        self._map_marker_worker_epoch = 0
+        self._map_marker_future_worker_epoch = 0
+        self._map_marker_future_is_poll = False
         self._map_marker_close_future: Future[Any] | None = None
         self._map_marker_generation = 0
         self._map_marker_pending_poll: dict[str, Any] | None = None
@@ -144,8 +184,19 @@ class InGameOverlay:
             tuple[str, float, float, float]
         ] = deque()
         self._map_marker_latest_snapshot = MapMarkerSnapshot()
+        self._map_marker_premium_access: bool | None = None
+        self._map_marker_surface_key_pressed = False
+        self._map_marker_cursor_position = None
+        self._map_marker_completion = _MapMarkerCompletion(self._on_map_marker_sample_ready)
         self._map_marker_worker_active = False
         self._map_marker_worker_shutdown = False
+        self._map_marker_clock = map_marker_clock
+        self._map_marker_failures = 0
+        self._map_marker_retry_at = 0.0
+        self._map_marker_next_error_log_at = 0.0
+        self._map_marker_reconnect_pending = False
+        self._map_marker_sample_serial = 0
+        self._map_marker_recovery_sample_serial = 0
         self._map_marker_input = map_marker_input_factory()
         self._map_marker_hotkeys = map_marker_hotkey_controller_factory(
             self._map_marker_input
@@ -189,6 +240,7 @@ class InGameOverlay:
         self.overlay_fast_timer.timeout.connect(self._overlay_fast_tick)
         self.overlay_fast_timer.setInterval(500)
         self.map_marker_timer = timer_factory()
+        self.map_marker_timer.setTimerType(Qt.PreciseTimer)
         self.map_marker_timer.timeout.connect(self._map_marker_tick)
         self.map_marker_timer.setInterval(25)
 
@@ -227,6 +279,7 @@ class InGameOverlay:
                 self.start_in_game_overlay()
 
             self._update_igo_status_ui()
+            self._sync_map_marker_runtime()
         except Exception as exc:
             if self.in_game_overlay_window is window:
                 self.in_game_overlay_window = None
@@ -258,19 +311,30 @@ class InGameOverlay:
         # One stale widget must not prevent the worker and hotkeys from being
         # released, so every independent cleanup step gets its own guard.
         cleanup_errors = []
-        for cleanup in (
+        analytics_active = bool(
+            not self._shutting_down
+            and self._analytics_collection_enabled()
+            and self._has_premium_access()
+        )
+        cleanups = [
             self.overlay_fast_timer.stop,
-            self.map_marker_timer.stop,
             (
                 self.in_game_overlay_window.hide
                 if self.in_game_overlay_window is not None
                 else None
             ),
-            lambda: self._stop_map_marker_worker(wait=False),
             self._map_marker_hotkeys.reset,
-            lambda: self._set_map_marker_snapshot(MapMarkerSnapshot()),
             lambda: self._set_map_marker_palette(None),
-        ):
+        ]
+        if not analytics_active:
+            cleanups.extend(
+                (
+                    self.map_marker_timer.stop,
+                    lambda: self._stop_map_marker_worker(wait=False),
+                    lambda: self._set_map_marker_snapshot(MapMarkerSnapshot()),
+                )
+            )
+        for cleanup in cleanups:
             if cleanup is None:
                 continue
             try:
@@ -287,6 +351,8 @@ class InGameOverlay:
                 + "; ".join(cleanup_errors),
                 tag="warning",
             )
+        if analytics_active:
+            self.map_marker_timer.start()
 
     def shutdown(self, deadline: ShutdownDeadline | None = None) -> tuple[str, ...]:
         """Permanently stop callbacks and dispose the parentless tool window."""
@@ -481,14 +547,19 @@ class InGameOverlay:
     # -- cadence -----------------------------------------------------------
 
     def _sync_map_marker_runtime(self) -> None:
-        enabled = bool(
+        overlay_enabled = bool(
             self._runtime_available()
             and config.IN_GAME_OVERLAY.get("enabled", False)
             and (config.IN_GAME_OVERLAY.get("map_markers", {}) or {}).get(
                 "enabled", False
             )
         )
-        if enabled:
+        analytics_enabled = bool(
+            self._runtime_available()
+            and self._analytics_collection_enabled()
+            and self._has_premium_access()
+        )
+        if overlay_enabled or analytics_enabled:
             self.map_marker_timer.start()
             return
         self.map_marker_timer.stop()
@@ -498,79 +569,180 @@ class InGameOverlay:
         self._set_map_marker_palette(None)
 
     def _map_marker_tick(self) -> bool:
-        # QDialog.exec() runs a nested event loop.  Updating a transparent
-        # top-level window while another GUI operation is only half-finished is
-        # unnecessary and makes lifetime/reentrancy bugs much harder to contain.
-        if (
-            not self._runtime_available()
-            or self._map_marker_tick_active
-            or QApplication.activeModalWidget() is not None
-        ):
+        # QDialog.exec() runs a nested event loop. Keep collecting map activity
+        # while a settings dialog is open, but leave the transparent window and
+        # manual input alone until the dialog closes.
+        if not self._runtime_available() or self._map_marker_tick_active:
             return False
 
+        if self._map_marker_clock() < self._map_marker_retry_at:
+            return False
+        background_only = QApplication.activeModalWidget() is not None
         self._map_marker_tick_active = True
         try:
-            return self._map_marker_tick_once()
+            result = self._map_marker_tick_once(background_only=background_only)
+            self._map_marker_update_succeeded()
+            return result
         except Exception as exc:
-            # Never let an exception escape a high-frequency Qt timeout.  It
-            # cannot catch a native abort, but it prevents a recoverable stale
-            # wrapper/read failure from being delivered repeatedly by Qt.
-            self.map_marker_timer.stop()
-            try:
-                self._stop_map_marker_worker(wait=False)
-            except Exception:
-                pass
-            try:
-                self._map_marker_hotkeys.reset()
-            except Exception:
-                pass
-            detail = f"{type(exc).__name__}: {exc}"
-            log_runtime_event("in_game_overlay.map_marker_tick.failed", error=detail)
-            self._log(
-                f"[!] Map Activity Markers stopped after an internal error: {detail}",
-                tag="warning",
-            )
+            self._fail_map_marker_update(exc)
             return False
         finally:
             self._map_marker_tick_active = False
 
-    def _map_marker_tick_once(self) -> bool:
-        window = self.in_game_overlay_window
-        if window is None:
-            return False
-        marker_cfg = config.IN_GAME_OVERLAY.get("map_markers", {}) or {}
-        if not (
-            config.IN_GAME_OVERLAY.get("enabled", False)
-            and marker_cfg.get("enabled", False)
+    def _fail_map_marker_update(self, exc: Exception) -> None:
+        # Stop/close destroy the run ledger; a recoverable callback must not.
+        # Keep the existing timer, with bounded backoff and one serialized worker.
+        now = self._map_marker_clock()
+        self._map_marker_failures += 1
+        delay = min(5.0, 0.5 * 2 ** min(self._map_marker_failures - 1, 4))
+        self._map_marker_retry_at = now + delay
+        self._map_marker_recovery_sample_serial = self._map_marker_sample_serial
+        published_count = len(self._map_marker_latest_snapshot.markers)
+        self._invalidate_map_marker_samples()
+        self._map_marker_pending_placements.clear()
+        for cleanup in (
+            lambda: self._map_marker_hotkeys.reset(),
+            lambda: self._set_map_marker_snapshot(MapMarkerSnapshot()),
+            lambda: self._set_map_marker_palette(None),
         ):
-            self._set_map_marker_snapshot(MapMarkerSnapshot())
-            return False
+            try:
+                cleanup()
+            except Exception:
+                pass
+        if self._map_marker_failures == 1 or now >= self._map_marker_next_error_log_at:
+            self._map_marker_next_error_log_at = now + 30.0
+            detail = f"{type(exc).__name__}: {exc}"
+            try:
+                log_runtime_event(
+                    "in_game_overlay.map_marker_tick.failed", error=detail,
+                    retry_seconds=delay, failures=self._map_marker_failures,
+                    published_markers=published_count,
+                    traceback="".join(traceback.format_exception(exc)),
+                )
+                self._log(
+                    f"[!] Map Activity Markers update failed; retrying in {delay:g}s "
+                    f"without clearing markers: {detail}", tag="warning",
+                )
+            except Exception:
+                pass
 
-        scale_reader = getattr(window, "devicePixelRatioF", None)
+    def _map_marker_update_succeeded(self) -> None:
+        # Require an accepted successful map poll plus a successful consumer.
+        # Fallbacks, manual edits and visibility alone cannot establish recovery.
+        if (not self._map_marker_failures
+                or not self._map_marker_latest_snapshot.map_read_succeeded
+                or self._map_marker_sample_serial <= self._map_marker_recovery_sample_serial):
+            return
+        failures = self._map_marker_failures
+        self._map_marker_failures = 0
+        self._map_marker_retry_at = 0.0
+        try:
+            log_runtime_event(
+                "in_game_overlay.map_marker_tick.recovered", failures=failures,
+                markers=len(self._map_marker_latest_snapshot.markers),
+            )
+            self._log("[+] Map Activity Markers updates recovered.", tag="info")
+        except Exception:
+            pass
+
+    def _map_marker_tick_once(self, *, background_only: bool = False) -> bool:
+        window = self.in_game_overlay_window
+        marker_cfg = config.IN_GAME_OVERLAY.get("map_markers", {}) or {}
+        overlay_enabled = bool(
+            window is not None
+            and config.IN_GAME_OVERLAY.get("enabled", False)
+            and marker_cfg.get("enabled", False)
+        )
+        premium_access = bool(self._has_premium_access())
+        analytics_enabled = bool(
+            premium_access and self._analytics_collection_enabled()
+        )
+        if not (overlay_enabled or analytics_enabled):
+            self._sync_map_marker_runtime()
+            if not background_only:
+                self._set_map_marker_snapshot(MapMarkerSnapshot())
+            return False
+        scale_reader = (
+            getattr(window, "devicePixelRatioF", None) if window is not None else None
+        )
         display_scale = float(scale_reader()) if callable(scale_reader) else 1.0
         display_scale = max(0.01, display_scale)
-        physical_geometry = self._in_game_overlay_physical_client_geometry()
+        physical_geometry = (
+            self._in_game_overlay_physical_client_geometry() if overlay_enabled else None
+        )
         if physical_geometry is not None:
             client_height = physical_geometry.height()
             client_width = physical_geometry.width()
         else:
-            height_reader = getattr(window, "height", None)
-            width_reader = getattr(window, "width", None)
+            height_reader = getattr(window, "height", None) if window is not None else None
+            width_reader = getattr(window, "width", None) if window is not None else None
             logical_height = int(height_reader()) if callable(height_reader) else 0
             logical_width = int(width_reader()) if callable(width_reader) else 0
             client_height = max(1, int(round(logical_height * display_scale)))
             client_width = max(1, int(round(logical_width * display_scale)))
+        key_reader = (
+            getattr(
+                self._map_marker_input,
+                "is_map_surface_key_pressed",
+                None,
+            )
+            if overlay_enabled
+            else None
+        )
+        surface_key_pressed = bool(callable(key_reader) and key_reader())
+        suppression_changed = surface_key_pressed != self._map_marker_surface_key_pressed
+        self._map_marker_surface_key_pressed = surface_key_pressed
+        if suppression_changed:
+            # Tab/Escape changes which game surface is visible. Reject a poll
+            # sampled on the other side of that transition. The worker samples
+            # the pause flag every 50 ms after Escape is released.
+            self._invalidate_map_marker_samples()
+            if not background_only:
+                self._set_map_marker_snapshot(MapMarkerSnapshot())
+
+        if self._map_marker_premium_access and not premium_access:
+            self._invalidate_map_marker_samples()
+        self._map_marker_premium_access = premium_access
+        minimap_enabled = bool(
+            overlay_enabled
+            and premium_access
+            and marker_cfg.get("minimap_enabled", True)
+            and not surface_key_pressed
+        )
+        merchant_memory_enabled = bool(
+            premium_access
+            and (
+                analytics_enabled
+                or (overlay_enabled and marker_cfg.get("merchant_memory_enabled", True))
+            )
+        )
         snapshot = self._request_map_marker_sample(
             client_height=client_height,
             client_width=client_width,
             display_scale=display_scale,
             automatic_discovery=bool(
-                marker_cfg.get("automatic_discovery", False)
+                overlay_enabled and marker_cfg.get("automatic_discovery", False)
             ),
+            minimap_enabled=minimap_enabled,
+            merchant_memory_enabled=merchant_memory_enabled,
+            map_surface_enabled=overlay_enabled,
         )
 
+        if analytics_enabled:
+            tracker = self._tracker()
+            runtime_snapshot = tracker.runtime_snapshot() if tracker is not None else None
+            for capture in snapshot.merchant_stocks:
+                self._record_merchant_capture(capture, runtime_snapshot)
+
+        if background_only:
+            return True
+
+        if not overlay_enabled or window is None:
+            self._set_map_marker_palette(None)
+            return True
+
         cursor_x, cursor_y = self._map_marker_input.cursor_position()
-        if snapshot.map_open and physical_geometry is not None:
+        if physical_geometry is not None:
             cursor_x = (cursor_x - physical_geometry.left()) / display_scale
             cursor_y = (cursor_y - physical_geometry.top()) / display_scale
         else:
@@ -603,15 +775,66 @@ class InGameOverlay:
             )
         self._set_map_marker_palette(gesture.palette)
 
+        self._map_marker_cursor_position = (float(cursor_x), float(cursor_y))
+        return self._publish_map_marker_snapshot(snapshot)
+
+    def _publish_map_marker_snapshot(self, snapshot: MapMarkerSnapshot) -> bool:
+        window = self.in_game_overlay_window
+        if window is None:
+            return False
         # The normal overlay cadence is 500 ms, longer than many deliberate
         # quick Tab checks.  The 25 ms marker path makes the click-through window
         # ready as soon as the game's own mapsOpen flag flips.
-        if snapshot.map_open and self._is_game_window_active(config.PROCESS_NAME):
+        minimap = snapshot.minimap_projection
+        surface_visible = bool(
+            snapshot.map_open
+            or (
+                minimap is not None
+                and minimap.visible
+                and not minimap.jammed
+                and snapshot.markers
+            )
+        )
+        if surface_visible and self._is_game_window_active(config.PROCESS_NAME):
             if not window.isVisible():
                 window.sync_geometry_to_target()
                 window.show()
-        self._set_map_marker_snapshot(snapshot)
-        return snapshot.map_open
+        self._set_map_marker_snapshot(
+            snapshot,
+            cursor_position=self._map_marker_cursor_position,
+        )
+        return surface_visible
+
+    def _on_map_marker_sample_ready(self, future) -> None:
+        # The timer remains the only source of polls (25 ms). Completion only
+        # publishes that poll's result, without reading memory or polling input.
+        if (
+            future is not self._map_marker_future
+            or self._map_marker_future_generation != self._map_marker_generation
+            or not self._runtime_available()
+            or self._map_marker_tick_active
+            or QApplication.activeModalWidget() is not None
+            or self._map_marker_clock() < self._map_marker_retry_at
+        ):
+            return
+        self._map_marker_tick_active = True
+        try:
+            cfg = config.IN_GAME_OVERLAY
+            markers = cfg.get("map_markers", {}) or {}
+            if not (
+                cfg.get("enabled", False)
+                and markers.get("enabled", False)
+                and markers.get("minimap_enabled", False)
+                and self._has_premium_access()
+            ):
+                return
+            self._collect_map_marker_future()
+            self._publish_map_marker_snapshot(self._map_marker_latest_snapshot)
+            self._map_marker_update_succeeded()
+        except Exception as exc:
+            self._fail_map_marker_update(exc)
+        finally:
+            self._map_marker_tick_active = False
 
     def _request_map_marker_sample(self, **kwargs) -> MapMarkerSnapshot:
         """Queue one latest-wins memory read and return without waiting for it."""
@@ -668,15 +891,31 @@ class InGameOverlay:
                 scale=scale,
             )
             self._map_marker_future_generation = self._map_marker_generation
+            self._map_marker_future_worker_epoch = self._map_marker_worker_epoch
+            self._map_marker_future_is_poll = False
             return
         request, self._map_marker_pending_poll = self._map_marker_pending_poll, None
         if request is None:
             return
         self._map_marker_future = executor.submit(
-            self._map_marker_tracker.tick,
+            self._sample_map_marker_in_worker,
+            recover=self._map_marker_reconnect_pending,
             **request,
         )
         self._map_marker_future_generation = self._map_marker_generation
+        self._map_marker_future_worker_epoch = self._map_marker_worker_epoch
+        self._map_marker_future_is_poll = True
+
+        self._map_marker_reconnect_pending = False
+        if request.get("minimap_enabled", False):
+            self._map_marker_future.add_done_callback(self._map_marker_completion.notify)
+
+    def _sample_map_marker_in_worker(self, *, recover: bool, **request) -> MapMarkerSnapshot:
+        if recover:
+            reconnect = getattr(self._map_marker_tracker, "recover", None)
+            if callable(reconnect):
+                reconnect()
+        return self._map_marker_tracker.tick(**request)
 
     def _place_map_marker_in_worker(
         self,
@@ -701,19 +940,54 @@ class InGameOverlay:
             return
         self._map_marker_future = None
         generation = self._map_marker_future_generation
+        worker_epoch = self._map_marker_future_worker_epoch
+        is_poll = self._map_marker_future_is_poll
+        self._map_marker_future_is_poll = False
         try:
             snapshot = future.result()
-        except Exception:
-            # A Stop invalidates the operation.  Its failure is stale too and
-            # must not disable a newly restarted marker runtime.
+        except Exception as exc:
+            if worker_epoch != self._map_marker_worker_epoch:
+                # A real Stop/close superseded this client's working session.
+                return
+            if not is_poll:
+                # A manual placement only changes the tracker's ledger. It does
+                # not read game memory, so its failure cannot condemn the client.
+                if generation == self._map_marker_generation:
+                    try:
+                        detail = f"{type(exc).__name__}: {exc}"
+                        log_runtime_event(
+                            "in_game_overlay.map_marker_placement.failed", error=detail,
+                        )
+                        self._log(
+                            f"[!] Map Activity Marker placement failed: {detail}",
+                            tag="warning",
+                        )
+                    except Exception:
+                        pass
+                return
+            # A UI failure or map-surface transition can invalidate publication
+            # while this very client is still in use. Preserve its reconnect
+            # request, but do not add another backoff for the discarded result.
+            self._map_marker_reconnect_pending = True
             if generation != self._map_marker_generation:
                 return
             raise
         if (
             generation == self._map_marker_generation
+            and worker_epoch == self._map_marker_worker_epoch
             and isinstance(snapshot, MapMarkerSnapshot)
         ):
+            if (
+                self._map_marker_surface_key_pressed
+                and snapshot.minimap_projection is not None
+            ):
+                # The key transition is known on the UI thread before the game
+                # memory sample necessarily reflects it. Never publish that
+                # transitional minimap projection.
+                snapshot = replace(snapshot, minimap_projection=None)
             self._map_marker_latest_snapshot = snapshot
+            if is_poll and snapshot.map_read_succeeded:
+                self._map_marker_sample_serial += 1
 
     def _collect_map_marker_close_future(self) -> None:
         future = self._map_marker_close_future
@@ -732,6 +1006,13 @@ class InGameOverlay:
         finally:
             self._map_marker_worker_active = False
 
+    def _invalidate_map_marker_samples(self) -> None:
+        """Reject cached and in-flight samples after their access context changes."""
+
+        self._map_marker_generation += 1
+        self._map_marker_pending_poll = None
+        self._map_marker_latest_snapshot = MapMarkerSnapshot()
+
     def _stop_map_marker_worker(
         self,
         *,
@@ -744,10 +1025,12 @@ class InGameOverlay:
         behind an in-flight memory read.  Interactive Stop therefore returns
         immediately, while terminal shutdown opts into draining both futures.
         """
-        self._map_marker_generation += 1
-        self._map_marker_pending_poll = None
+        self._map_marker_failures = 0
+        self._map_marker_retry_at = 0.0
+        self._map_marker_reconnect_pending = False
+        self._map_marker_worker_epoch += 1
+        self._invalidate_map_marker_samples()
         self._map_marker_pending_placements.clear()
-        self._map_marker_latest_snapshot = MapMarkerSnapshot()
 
         executor = self._map_marker_executor
         if (
@@ -815,7 +1098,12 @@ class InGameOverlay:
             executor.shutdown(wait=completed, cancel_futures=True)
         return completed
 
-    def _set_map_marker_snapshot(self, snapshot: MapMarkerSnapshot) -> None:
+    def _set_map_marker_snapshot(
+        self,
+        snapshot: MapMarkerSnapshot,
+        *,
+        cursor_position: tuple[float, float] | None = None,
+    ) -> None:
         window = self.in_game_overlay_window
         layer = getattr(window, "map_marker_layer", None) if window is not None else None
         setter = getattr(layer, "set_snapshot", None)
@@ -825,7 +1113,28 @@ class InGameOverlay:
                 snapshot,
                 scale=float(marker_cfg.get("scale", 1.0)),
                 style=str(marker_cfg.get("style", "modern")),
+                minimap_scale=float(marker_cfg.get("minimap_scale", 1.0)),
+                merchant_stock_display=str(
+                    marker_cfg.get("merchant_stock_display", "smart")
+                ),
+                cursor_position=cursor_position,
             )
+
+    def on_supporter_access_changed(self, *_args) -> None:
+        """Refresh Premium affordances and fail closed on entitlement loss."""
+
+        def apply_change() -> None:
+            if not self._runtime_available():
+                return
+            refresh_map_marker_settings_summary(self)
+            premium_access = bool(self._has_premium_access())
+            self._map_marker_premium_access = premium_access
+            if not premium_access:
+                self._invalidate_map_marker_samples()
+                self._set_map_marker_snapshot(MapMarkerSnapshot())
+            self._sync_map_marker_runtime()
+
+        self._schedule(apply_change)
 
     def _set_map_marker_palette(self, palette) -> None:
         window = self.in_game_overlay_window
@@ -1410,6 +1719,14 @@ class InGameOverlay:
         self._open_build_progression_settings()
 
 
+def _recording_indicator_active(app: Any) -> bool:
+    recorder = getattr(app, "player_stats_vod_recorder", None)
+    return bool(
+        (recorder is not None and recorder.is_recording)
+        or app.coordinator.vod_capture.is_recording_armed()
+    )
+
+
 def build_in_game_overlay(app: Any) -> InGameOverlay:
     """Wire the component to the app, one named port per measured owner.
 
@@ -1433,15 +1750,23 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
     whose sole caller was this function -- which is what the note above them
     said step 25 would do.
     """
-    return InGameOverlay(
+    overlay = InGameOverlay(
         tracker=lambda: getattr(app, "live_run_tracker", None),
         build_progression_snapshot=lambda: app.coordinator.build_progression_service.snapshot(),
         open_build_progression_settings=lambda: _open_build_progression_for_app(app),
-        is_scanning=lambda: app._scanner.is_scanning(),
-        is_recording=lambda: (
-            getattr(app, "player_stats_vod_recorder", None) is not None
-            and app.player_stats_vod_recorder.is_recording
+        has_premium_access=lambda: app.has_premium_access(),
+        analytics_collection_enabled=lambda: bool(
+            getattr(config, "MERCHANT_ANALYTICS_ENABLED", False)
+            and app.coordinator.merchant_analytics.collection_available()
         ),
+        record_merchant_capture=lambda capture, runtime_snapshot: (
+            app.coordinator.merchant_analytics.record_confirmed_capture(
+                capture, runtime_snapshot
+            )
+        ),
+        open_support_settings=lambda: app.open_settings_dialog(page="support"),
+        is_scanning=lambda: app._scanner.is_scanning(),
+        is_recording=lambda: _recording_indicator_active(app),
         is_game_window_active=lambda process_name: app._run_control.is_game_window_active(process_name),
         find_game_window=lambda process_name: app._run_control.find_game_window(process_name),
         schedule=lambda callback: app.after(0, callback),
@@ -1452,6 +1777,8 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
         log=lambda *args, **kwargs: app.log(*args, **kwargs),
         timer_factory=lambda: QTimer(app.window),
     )
+    app.supporter_access.add_listener(overlay.on_supporter_access_changed)
+    return overlay
 
 
 def _open_build_progression_for_app(app: Any) -> None:

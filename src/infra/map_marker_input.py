@@ -76,5 +76,12 @@ class WindowsMapMarkerInput:
             return (0, 0)
         return (int(point.x), int(point.y))
 
+    def is_map_surface_key_pressed(self) -> bool:
+        """Return whether Tab or Escape is changing the game's map surface."""
+
+        if self._user32 is None:
+            return False
+        return self._vk_pressed(0x09) or self._vk_pressed(0x1B)
+
     def _vk_pressed(self, virtual_key: int) -> bool:
         return bool(self._user32.GetAsyncKeyState(int(virtual_key)) & 0x8000)

@@ -83,7 +83,7 @@ class SessionStatsTabWidgetTests(unittest.TestCase):
             import os
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
             import src
-            from PySide6.QtWidgets import QApplication, QLabel
+            from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
             from ui.tabs.session_stats import SessionStatsTab
             from ui.styles import build_qt_app_stylesheet
 
@@ -137,6 +137,99 @@ class SessionStatsTabWidgetTests(unittest.TestCase):
             assert "18" in shown, shown          # seeds found
             assert "190" in shown, shown         # rerolls per seed
             assert "128,004" in shown, shown     # all-time rerolls
+            """
+        )
+
+    def test_rpm_peak_has_a_separate_label_and_pending_state(self) -> None:
+        self._run(
+            """
+            view.set_session_clock(elapsed_text="0:01:30", rpm=42.5)
+            settle()
+            assert "42.5" in texts(), texts()
+            assert "Max --" in texts(), texts()
+            view.set_peak_rpm(113.207547)
+            settle()
+            assert "Max 113.2" in texts(), texts()
+            assert "10 consecutive complete cycles" in view._peak_rpm_value.toolTip()
+            view.set_peak_rpm(None)
+            settle()
+            assert "Max --" in texts(), texts()
+            """
+        )
+
+    def test_merchant_collection_can_be_toggled_in_the_tab(self) -> None:
+        self._run(
+            """
+            toggled = []
+            view._on_toggle_merchant_analytics = lambda enabled: (
+                toggled.append(enabled) or enabled
+            )
+            view.set_merchant_analytics_status(
+                enabled=False, premium=True, session_recorded=0
+            )
+            checkbox = next(
+                widget for widget in root.findChildren(QCheckBox)
+                if widget.text() == "Collect Shady Guy analytics"
+            )
+            assert checkbox.isEnabled()
+            assert not checkbox.isChecked()
+            checkbox.click()
+            assert toggled == [True], toggled
+            assert checkbox.isChecked()
+
+            view.set_merchant_analytics_status(
+                enabled=False, premium=False, session_recorded=0
+            )
+            assert not checkbox.isEnabled()
+            assert not checkbox.isVisible()
+            assert view._merchant_analytics_locked.isVisible()
+            view.set_merchant_analytics_status(
+                enabled=True, premium=False, session_recorded=0
+            )
+            assert checkbox.isChecked()
+            assert not checkbox.isVisible()
+            assert toggled == [True], toggled
+            view.set_merchant_analytics_status(
+                enabled=True, premium=True, session_recorded=0
+            )
+            assert checkbox.isVisible()
+            assert checkbox.isEnabled()
+            assert checkbox.isChecked()
+            assert not view._merchant_analytics_locked.isVisible()
+            """
+        )
+
+    def test_access_revocation_refreshes_idle_session_stats(self) -> None:
+        self._run(
+            """
+            from types import SimpleNamespace
+            from unittest.mock import MagicMock
+            from gui_scanner import build_scanner
+
+            listeners, scheduled = [], []
+            access = {"premium": True}
+            owner = SimpleNamespace(
+                supporter_access=SimpleNamespace(add_listener=listeners.append),
+                after=lambda delay, callback: scheduled.append(callback),
+                _is_shutting_down=False,
+            )
+            scanner = build_scanner(owner, MagicMock(), MagicMock(), MagicMock())
+            scanner.refresh_stats_ui = lambda: view.set_merchant_analytics_status(
+                enabled=True, premium=access["premium"], session_recorded=0
+            )
+            scanner.refresh_stats_ui()
+            assert view._merchant_analytics_collect.isVisible()
+            access["premium"] = False
+            listeners[0](SimpleNamespace(active=False))
+            assert len(scheduled) == 1
+            scheduled.pop()()
+            settle()
+            assert not view._merchant_analytics_collect.isVisible()
+            assert view._merchant_analytics_locked.isVisible()
+            assert view._merchant_analytics_collect.isChecked()
+            owner._is_shutting_down = True
+            listeners[0](SimpleNamespace(active=False))
+            assert not scheduled
             """
         )
 

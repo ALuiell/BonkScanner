@@ -24,6 +24,7 @@ from ui.shared import UiInvoker, _AppWindow, resource_path
 from ui.dialogs.update_prompt import start_supporters_load, start_update_check
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
+from ui.themes import apply_theme
 from app.shutdown import (
     FORCED_SHUTDOWN_EXIT_CODE,
     ShutdownDeadline,
@@ -178,6 +179,7 @@ class MegabonkApp:
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
+        self.premium_access_badge = None
         # Every Twitch widget is gone from the shared namespace: step 23b made
         # `TwitchTab` an object with its own private widgets, built by
         # `gui_layout._build_twitch_tab`. Twenty-two names left, and
@@ -277,6 +279,13 @@ class MegabonkApp:
             sync_overlay_state=self.update_overlay_state_from_tracker,
             sync_in_game_kps=self.refresh_in_game_overlay_kps,
             refresh_session_tracked_items=self.refresh_session_tracked_item_stats_ui,
+            merchant_analytics_collection_active=lambda: bool(
+                getattr(config, "MERCHANT_ANALYTICS_ENABLED", False)
+                and self.has_premium_access()
+                and self.__dict__.get("runtime") is not None
+                and self.runtime.coordinator.merchant_analytics.collection_available()
+            ),
+            roll_analytics_collection_active=self.roll_analytics_collection_active,
             log=self.log,
             stop_hotkeys=lambda: self._run_control.stop_hotkeys(),
             stop_in_game_overlay=self.shutdown_in_game_overlay,
@@ -381,6 +390,7 @@ class MegabonkApp:
             # Restoring any earlier would come up with a rail of zero tiles.
             if config.LEFT_RAIL_COLLAPSED:
                 self._left_rail.collapse(restoring=True)
+            self.apply_visual_theme()
         except Exception as exc:
             log_runtime_event(
                 "application.construction.failed",
@@ -388,6 +398,9 @@ class MegabonkApp:
             )
             self.on_closing()
             raise
+
+    def apply_visual_theme(self) -> None:
+        apply_theme(self)
 
     def start(self) -> None:
         """Start background owners after construction has completed."""
@@ -413,8 +426,21 @@ class MegabonkApp:
         self.after(1500, self.deferred_update_check)
 
     def has_premium_feature(self, feature_code: str) -> bool:
-        """Single runtime gate for every optional supporter feature."""
+        """Backward-compatible named gate under the all-Premium policy."""
         return self.supporter_access.has_feature(feature_code)
+
+    def has_premium_access(self) -> bool:
+        """Single runtime gate shared by all Premium capabilities."""
+        return self.supporter_access.has_premium_access()
+
+    def roll_analytics_collection_active(self) -> bool:
+        runtime = self.__dict__.get("runtime")
+        if runtime is None:
+            return False
+        return runtime.coordinator.roll_analytics.set_collection_active(
+            bool(getattr(config, "ROLL_ANALYTICS_ENABLED", False))
+            and self.has_premium_access()
+        )
 
     @staticmethod
     def _require_runtime_port(name: str, value):
@@ -763,15 +789,19 @@ class MegabonkApp:
     # precisely the failure step 19 recorded for
     # `SettingsDialog.save -> refresh_player_stats_timeline_ui`. `master=self`
     # here still means the application.
-    def open_settings_dialog(self) -> None:
+    def open_settings_dialog(self, *, page: str | None = None) -> None:
         dialog = getattr(self, "_settings_dialog", None)
         if dialog is not None:
             try:
                 if dialog.isVisible():
+                    if page:
+                        dialog.show_page(page)
                     dialog.raise_()
                     dialog.activateWindow()
                     return
                 dialog.reload_from_config()
+                if page:
+                    dialog.show_page(page)
                 dialog.open()
                 return
             except Exception as exc:
@@ -789,6 +819,8 @@ class MegabonkApp:
         try:
             dialog = SettingsDialog(self.window, master=self)
             self._settings_dialog = dialog
+            if page:
+                dialog.show_page(page)
             dialog.destroyed.connect(
                 lambda *_args, expected=dialog: (
                     self._settings_dialog_destroyed(expected)
@@ -833,6 +865,13 @@ class MegabonkApp:
             pass
 
     def _show_auto_reroll_setup_guide(self) -> None:
+        if config.user_config.get("RESET_TIMING_SETUP_PENDING", False):
+            result = config.apply_recommended_reset_timing(
+                lambda: (self.is_game_running(), "")
+            )
+            if not result.success:
+                self.log("[!] Reset timing setup: " + result.reason +
+                         " Open Settings → Restart → Use recommended values.", tag="warning")
         if config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED or getattr(
             self,
             "_auto_reroll_setup_guide",
@@ -1012,6 +1051,9 @@ class MegabonkApp:
                 self.__dict__.get("_shutdown_errors", ())
             )
         self._is_shutting_down = True
+        appearance = getattr(self, "_appearance_runtime", None)
+        if appearance is not None:
+            appearance.dispose()
         deadline = ShutdownDeadline.after()
         log_runtime_event("application.shutdown.begin")
         report = self.runtime.shutdown(deadline)

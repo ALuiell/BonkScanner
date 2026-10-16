@@ -66,12 +66,20 @@ window) is a fact about the caller rather than a ``getattr`` that quietly went
 """
 from __future__ import annotations
 
+from pathlib import Path
 import threading
 
 from infra import vod_storage
 from typing import Callable, Sequence
 
 from app import config
+from app.active_recording_feed import (
+    DISCARDED,
+    FINALIZED,
+    FINALIZE_FAILED,
+    RECORDING,
+    ActiveRecordingState,
+)
 from app.settings import ConfigRecordingSettings
 from projections.recording_sort import normalize_recording_sort_mode
 
@@ -200,6 +208,7 @@ class VodLibrary:
         load_cached: Callable[[], Sequence] | None = None,
         refresh_index: Callable[[], Sequence] | None = None,
         schedule: Callable[[Callable[[], None]], None] | None = None,
+        active_recording_feed=None,
     ) -> None:
         self._settings = settings or ConfigRecordingSettings()
         if load_cached is None:
@@ -207,25 +216,71 @@ class VodLibrary:
         if refresh_index is None:
             refresh_index = lambda: _refresh_vod_metadata_index(self._settings)
         self._index = tuple(load_cached())
+        self._active_feed = active_recording_feed
+        self._active_state: ActiveRecordingState | None = None
+        self._feed_token: int | None = None
         self._refresh_index = refresh_index
         self._schedule = schedule
         self._refreshing = False
         self._refresh_generation = 0
         self._disposed = False
         self._thread = None
-        self._subscribers: list[tuple[Callable[[], None], Callable[[], None]]] = []
+        self._subscribers: list[
+            tuple[Callable[[], None], Callable[[], None], Callable[[], None] | None]
+        ] = []
         self._failure_listeners: list[Callable[[BaseException], None]] = []
+        if self._active_feed is not None:
+            self._feed_token = self._active_feed.subscribe(
+                self._on_active_state,
+                lambda callback: self._marshal(callback),
+            )
 
     @property
     def index(self) -> tuple:
         """The cached metadata, newest known state. Never ``None``."""
-        return self._index
+        state = self._active_state
+        if state is None or state.status == DISCARDED:
+            return self._index
+        result = list(self._index)
+        for index, metadata in enumerate(result):
+            if Path(metadata.path).resolve() == state.path:
+                result[index] = state.metadata
+                return tuple(result)
+        return (state.metadata, *result)
+
+    @property
+    def active_state(self) -> ActiveRecordingState | None:
+        return self._active_state
+
+    def state_for(self, path) -> ActiveRecordingState | None:
+        state = self._active_state
+        if state is not None and state.path == Path(path).resolve():
+            return state
+        return None
+
+    def is_active_path(self, path) -> bool:
+        """Whether storage mutations must be blocked for this in-memory path."""
+        state = self._active_state
+        return bool(
+            state is not None
+            and state.status in {RECORDING, FINALIZE_FAILED}
+            and state.path == Path(path).resolve()
+        )
+
+    def is_live_path(self, path) -> bool:
+        state = self._active_state
+        return bool(
+            state is not None
+            and state.status == RECORDING
+            and state.path == Path(path).resolve()
+        )
 
     def subscribe(
         self,
         *,
         invalidate: Callable[[], None],
         repaint: Callable[[], None],
+        live_repaint: Callable[[], None] | None = None,
         failed: Callable[[BaseException], None] | None = None,
     ) -> None:
         """Register one tab's reaction to the index changing.
@@ -235,7 +290,7 @@ class VodLibrary:
         because all subscribers are invalidated before any is repainted -- see
         the module header.
         """
-        self._subscribers.append((invalidate, repaint))
+        self._subscribers.append((invalidate, repaint, live_repaint))
         if failed is not None:
             self._failure_listeners.append(failed)
 
@@ -269,17 +324,27 @@ class VodLibrary:
                     if error is not None:
                         self._notify_failed(error)
                         return
+                    before = self.index
                     self._index = tuple(vods)
+                    state = self._active_state
+                    if state is not None and state.status == FINALIZED:
+                        if any(
+                            Path(vod.path).resolve() == state.path
+                            for vod in self._index
+                        ):
+                            self._active_state = None
+                    if self.index == before:
+                        return
                     subscribers = tuple(self._subscribers)
                     # Keep the two-phase contract even if one tab has already
                     # failed or been disposed: every cache is invalidated
                     # before any surviving view is repainted.
-                    for invalidate, _ in subscribers:
+                    for invalidate, _, _ in subscribers:
                         try:
                             invalidate()
                         except Exception as exc:  # noqa: BLE001 -- Qt boundary
                             callback_error = callback_error or exc
-                    for _, repaint in subscribers:
+                    for _, repaint, _ in subscribers:
                         try:
                             repaint()
                         except Exception as exc:  # noqa: BLE001 -- Qt boundary
@@ -324,6 +389,9 @@ class VodLibrary:
         else:
             self._disposed = True
             self._refresh_generation += 1
+            if self._feed_token is not None and self._active_feed is not None:
+                self._active_feed.unsubscribe(self._feed_token)
+                self._feed_token = None
             self._subscribers.clear()
             self._failure_listeners.clear()
             thread = self._thread
@@ -356,3 +424,21 @@ class VodLibrary:
                 # broken listener must not escape the invoker slot or prevent
                 # the remaining tabs from receiving future refreshes.
                 pass
+
+    def _on_active_state(self, state: ActiveRecordingState) -> None:
+        """Merge live metadata without asking storage to rescan the JSONL."""
+        if self._disposed:
+            return
+        before = self.index
+        self._active_state = None if state.status == DISCARDED else state
+        if self.index != before:
+            callback_error = None
+            for _invalidate, repaint, live_repaint in tuple(self._subscribers):
+                try:
+                    (live_repaint or repaint)()
+                except Exception as exc:  # noqa: BLE001 -- Qt boundary
+                    callback_error = callback_error or exc
+            if callback_error is not None:
+                self._notify_failed(callback_error)
+        if state.status in {FINALIZED, DISCARDED}:
+            self.ensure_refresh()
