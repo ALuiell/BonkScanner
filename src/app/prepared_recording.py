@@ -98,8 +98,12 @@ def load_and_prepare_recording(
 
     def on_bytes(done: int, total: int) -> None:
         nonlocal last_update
+        # The UI already says "Reading recording". Avoid a redundant 100% paint
+        # immediately before the preparation and rendering phase labels.
+        if done >= total:
+            return
         now = time.monotonic()
-        if done < total and now - last_update < 0.1:
+        if now - last_update < 0.25:
             return
         last_update = now
         if progress is not None:
@@ -112,8 +116,6 @@ def load_and_prepare_recording(
                 }
             )
 
-    if progress is not None:
-        progress({"phase": "Reading recording", "fraction": 0.0})
     vod = load_vod(path, cancelled=cancelled, progress=on_bytes)
     return prepare_loaded_recording(
         vod,

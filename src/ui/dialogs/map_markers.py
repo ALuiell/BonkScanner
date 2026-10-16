@@ -94,6 +94,13 @@ def _premium_map_option(checkbox, description, control, parent, *, locked=False)
     else:
         title.addWidget(checkbox)
     title.addStretch(1)
+    if locked:
+        icon = QLabel(option)
+        icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
+        title.addWidget(icon)
+        label = QLabel("Requires Premium", option)
+        label.setObjectName("PremiumFeatureLockedStatus")
+        title.addWidget(label)
     if control is not None and not locked:
         title.addWidget(control)
     column.addLayout(title)
@@ -105,18 +112,6 @@ def _premium_map_option(checkbox, description, control, parent, *, locked=False)
     column.addWidget(note)
     # Surplus height belongs below the copy, never between title and copy.
     column.addStretch(1)
-    if locked:
-        status = QHBoxLayout()
-        status.setContentsMargins(0, 8, 0, 0)
-        status.setSpacing(6)
-        icon = QLabel(option)
-        icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
-        status.addWidget(icon)
-        label = QLabel("Requires Premium", option)
-        label.setObjectName("PremiumFeatureLockedStatus")
-        status.addWidget(label)
-        status.addStretch(1)
-        column.addLayout(status)
     return option
 
 
