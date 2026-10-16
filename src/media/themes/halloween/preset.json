@@ -132,6 +132,10 @@
       "path": "assets/header-pumpkin.svg",
       "required": true
     },
+    "dark-moop-face": {
+      "path": "assets/dark-moop-face.png",
+      "required": true
+    },
     "support-spider": {
       "path": "assets/support-spider.svg",
       "required": true
@@ -149,7 +153,7 @@
     "footer_link_height": 44,
     "footer_height": 48,
     "forest_height": 86,
-    "forest_left_width": 240,
+    "forest_left_width": 278,
     "web_width": 108,
     "web_height": 148,
     "skeleton_max_width": 340,

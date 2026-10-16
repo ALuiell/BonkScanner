@@ -95,13 +95,13 @@ HEART_PASSIVE_FIRST_SCALE = 1.08
 HEART_PASSIVE_SECOND_SCALE = 1.04
 HEART_HOVER_SCALE = 1.09
 
-SUPPORT_REMINDER_INTERVAL_MS = 60 * 60 * 1000
+SUPPORT_REMINDER_INTERVAL_MS = 3 * 60 * 60 * 1000
 SUPPORT_REMINDER_RETRY_MS = 60 * 1000
 SUPPORT_REMINDER_ACTIVATION_DELAY_MS = 900
 SUPPORT_REMINDER_STARTUP_MIN_DELAY_MS = 4 * 1000
 SUPPORT_REMINDER_STARTUP_MAX_DELAY_MS = 4 * 1000
-SUPPORT_REMINDER_COOLDOWN_SECONDS = 30 * 60
-SUPPORT_REMINDER_LONG_INACTIVE_SECONDS = 20 * 60
+SUPPORT_REMINDER_COOLDOWN_SECONDS = 2 * 60 * 60
+SUPPORT_REMINDER_LONG_INACTIVE_SECONDS = 60 * 60
 SUPPORT_REMINDER_SLIDE_IN_MS = 320
 SUPPORT_REMINDER_SLIDE_OUT_MS = 260
 SUPPORT_REMINDER_BEAT_LEAD_IN_MS = 260
@@ -1152,13 +1152,12 @@ class _SupportReminder(QFrame):
         self._startup_timer.stop()
         self._activation_timer.start()
 
-    def _application_state_changed(self, state) -> None:
-        if state != Qt.ApplicationActive:
-            self._activation_timer.stop()
-            if self._inactive_since is None:
-                self._inactive_since = time.monotonic()
-            return
+    def _begin_inactivity(self) -> None:
+        self._activation_timer.stop()
+        if self._inactive_since is None:
+            self._inactive_since = time.monotonic()
 
+    def _end_inactivity(self) -> None:
         inactive_since = self._inactive_since
         self._inactive_since = None
         if inactive_since is not None:
@@ -1169,6 +1168,12 @@ class _SupportReminder(QFrame):
                 self._due = True
         self._schedule_activation_attempt()
 
+    def _application_state_changed(self, state) -> None:
+        if state != Qt.ApplicationActive:
+            self._begin_inactivity()
+            return
+        self._end_inactivity()
+
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 -- Qt's name
         event_type = event.type()
         if event_type in {QEvent.Resize, QEvent.LayoutRequest, QEvent.Show}:
@@ -1176,9 +1181,9 @@ class _SupportReminder(QFrame):
                 self._sync_geometry()
         if watched is self._host_window:
             if event_type == QEvent.WindowDeactivate:
-                self._activation_timer.stop()
+                self._begin_inactivity()
             elif event_type == QEvent.WindowActivate:
-                self._schedule_activation_attempt()
+                self._end_inactivity()
         return super().eventFilter(watched, event)
 
 

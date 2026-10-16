@@ -51,6 +51,54 @@ class _SvgDecoration(QWidget):
         return self.size()
 
 
+class MoopForest(_SvgDecoration):
+    """Reveal the face behind the same branches that receive reflected light."""
+
+    FACE_RECT = QRectF(150, 29, 62, 55)
+
+    def __init__(self, parent, *, package=None):
+        if package is None:
+            from ui.themes.package import read_package
+            package = read_package("halloween")
+        source = QPixmap(package.asset("dark-moop-face"))
+        if source.isNull():
+            raise ValueError("Invalid Dark Moop face image")
+        super().__init__("forest-left", parent, package=package)
+        self.face_source = source
+        self.face_raster = QPixmap()
+        self.face_key = None
+        self.face_opacity = 0.0
+
+    def set_face_level(self, level):
+        # The two pumpkin bursts drive this directly; there is no extra timer.
+        opacity = .62 * max(0.0, min(1.0, (level - .15) / .85)) ** 1.2
+        if abs(opacity - self.face_opacity) > .001:
+            self.face_opacity = opacity
+            if self.isVisible():
+                self.update(self.FACE_RECT.toAlignedRect())
+
+    def paintEvent(self, event):  # noqa: N802
+        if self.face_opacity > .003:
+            density = self.devicePixelRatioF()
+            key = (self.FACE_RECT.size(), density)
+            if key != self.face_key:
+                self.face_raster = QPixmap(max(1, round(self.FACE_RECT.width() * density)),
+                                           max(1, round(self.FACE_RECT.height() * density)))
+                self.face_raster.setDevicePixelRatio(density)
+                self.face_raster.fill(Qt.transparent)
+                cache = QPainter(self.face_raster)
+                cache.setRenderHint(QPainter.SmoothPixmapTransform)
+                cache.drawPixmap(QRectF(0, 0, self.FACE_RECT.width(), self.FACE_RECT.height()),
+                                 self.face_source, QRectF(self.face_source.rect()))
+                cache.end()
+                self.face_key = key
+            painter = QPainter(self)
+            painter.setOpacity(self.face_opacity)
+            painter.drawPixmap(self.FACE_RECT.topLeft(), self.face_raster)
+            painter.end()
+        super().paintEvent(event)
+
+
 class ThemeDecorations(QObject):
     def __init__(self, host, *, package=None) -> None:
         super().__init__(host.window)
@@ -80,7 +128,7 @@ class ThemeDecorations(QObject):
             rollback.callback(self.animation.dispose)
             # The artwork extends through the header's outer top margin. Parenting
             # it to headerBar would clip the branches 16 px below the window edge.
-            self.tree = _SvgDecoration("forest-left", self.header.parentWidget(), package=package)
+            self.tree = MoopForest(self.header.parentWidget(), package=package)
             rollback.callback(self.tree.deleteLater)
             self.tree.resize(round(package.parameter("forest_left_width")), round(package.parameter("forest_height")))
             self.small_tree = _SvgDecoration("forest-right", self.header.parentWidget(), package=package)
@@ -180,23 +228,25 @@ class ThemeDecorations(QObject):
         self.badge.setVisible(badge_visible)
         if badge_visible:
             center = self.header.width() // 2
-            x = max(left, min(center - self.badge.width() // 2, right - self.badge.width() - 8))
-            self.badge.move(x, max(0, (self.header.height() - 9 - self.badge.height()) // 2))
-            self.badge.raise_()
+            badge_x = max(left, min(center - self.badge.width() // 2, right - self.badge.width() - 8))
+            badge_y = max(0, (self.header.height() - 9 - self.badge.height()) // 2)
+            self.badge.move(self.header.mapTo(self.badge.parentWidget(), QPoint(badge_x, badge_y)))
         # header.svg's pill occupies x=40..206 inside the 246 px canvas.
-        # Use the transparent padding for branches while leaving an 8 px gap.
-        tree_right = self.badge.x() + 32
-        tree_visible = badge_visible and tree_right - left > 100
+        # Keep the forest at its native width in narrow windows. Its right
+        # branches can pass behind the translucent pill instead of shrinking or
+        # appearing only in the reflected-light layer.
+        tree_right = badge_x + 32 if badge_visible else left
+        tree_visible = badge_visible
         self.tree.setVisible(tree_visible)
         if tree_visible:
-            width = min(round(self.package.parameter("forest_left_width")), tree_right - left)
+            width = round(self.package.parameter("forest_left_width"))
             position = self.header.mapTo(self.tree.parentWidget(), QPoint(
-                left + (tree_right - left - width) // 2,
+                left + max(0, (tree_right - left - width) // 2),
                 self.header.height() - self.tree.height() - 1,
             ))
             self.tree.setGeometry(position.x(), position.y(), width, round(self.package.parameter("forest_height")))
             self.tree.raise_()
-        forest_left = self.badge.x() + 214
+        forest_left = badge_x + 214 if badge_visible else right
         forest_width = max(0, right - 8 - forest_left)
         small_visible = badge_visible and forest_width > 65
         self.small_tree.setVisible(small_visible)
@@ -208,6 +258,8 @@ class ThemeDecorations(QObject):
             ))
             self.small_tree.setGeometry(position.x(), position.y(), width, round(self.package.parameter("forest_height")))
             self.small_tree.raise_()
+        if badge_visible:
+            self.badge.raise_()
         self.bats.setVisible(self.bats.renderer.isValid() and self.right_tabs.width() >=
                              self.right_tabs.tabBar().sizeHint().width() + self.bats.width())
         web_visible = False

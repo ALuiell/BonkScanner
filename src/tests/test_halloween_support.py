@@ -211,6 +211,29 @@ class HalloweenSupportTests(unittest.TestCase):
             self.assertEqual(spider.art.raster.cacheKey(), cache_key)
         self.assertEqual(self.suppressed, [])
 
+    def test_plaque_text_raster_reuses_frames_and_refreshes_for_message_and_width(self):
+        spider = self.show_card()
+        self.assertFalse(spider.plaque.raster.isNull())
+        self.settle_at(spider, 2.0)
+        spider.plaque.grab()
+        original_key = spider.plaque.raster.cacheKey()
+
+        self.settle_at(spider, 2.5)
+        spider.plaque.grab()
+        self.assertEqual(spider.plaque.raster.cacheKey(), original_key)
+
+        spider.stop()
+        spider.start(thank_you=True)
+        self.settle_at(spider, 2.0)
+        spider.plaque.grab()
+        thank_you_key = spider.plaque.raster.cacheKey()
+        self.assertNotEqual(thank_you_key, original_key)
+
+        spider.plaque.resize(286, 124)
+        spider.plaque.grab()
+        self.assertEqual(spider.plaque.width(), 286)
+        self.assertNotEqual(spider.plaque.raster.cacheKey(), thank_you_key)
+
     def test_web_pulse_has_no_continuous_idle_timer_or_parallel_heartbeat(self):
         self.link.pulse_theme_icon()
         self.assertTrue(self.clock.timer.isActive())

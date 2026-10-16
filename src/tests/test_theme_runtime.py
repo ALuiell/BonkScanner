@@ -12,7 +12,8 @@ import unittest
 from unittest.mock import patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt
-from PySide6.QtGui import QPalette, QPixmap
+from PySide6.QtGui import QImage, QPainter, QPalette, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QTabWidget, QTextEdit, QVBoxLayout, QWidget
 import shiboken6
 
@@ -44,6 +45,21 @@ class ThemePackageTests(unittest.TestCase):
         self.assertEqual(original.provider, "none")
         self.assertEqual(halloween.provider, "halloween")
         self.assertTrue(all(halloween.asset(name) for name in halloween.preset["assets"]))
+
+    def test_left_forest_branch_tips_fit_inside_its_svg_canvas(self):
+        package = read_package("halloween")
+        renderer = QSvgRenderer(package.asset("forest-left"))
+        size = renderer.defaultSize()
+        self.assertEqual(size.width(), round(package.parameter("forest_left_width")))
+        image = QImage(size, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        renderer.render(painter)
+        painter.end()
+        rightmost_ink = max(x for x in range(size.width())
+                            if any(image.pixelColor(x, y).alpha() > 10 for y in range(size.height())))
+        self.assertGreater(rightmost_ink, size.width() - 20)
+        self.assertLess(rightmost_ink, size.width() - 2)
 
     def test_invalid_version_provider_resource_path_and_parameters_fall_back(self):
         base = copy.deepcopy(read_package("halloween").preset)
@@ -192,6 +208,33 @@ class AppearanceRuntimeTests(unittest.TestCase):
         decor = self.owner._theme_decorations
         self.choose("halloween")
         self.assertIs(self.owner._theme_decorations, decor)
+
+    def test_narrow_header_keeps_full_forest_behind_badge_during_flare(self):
+        self.choose("halloween")
+        self.window.resize(900, 750)
+        self.owner.rec_flag.move(650, 0)
+        flush(self.window)
+        decor = self.owner._theme_decorations
+        decor._refresh()
+        flush(self.window)
+
+        header = decor.header
+        status = header.findChild(QWidget, "headerStatusCluster")
+        tree_x = header.mapFrom(decor.tree.parentWidget(), decor.tree.pos()).x()
+        badge_x = header.mapFrom(decor.badge.parentWidget(), decor.badge.pos()).x()
+        self.assertTrue(decor.tree.isVisible())
+        self.assertEqual(decor.tree.width(), round(decor.package.parameter("forest_left_width")))
+        self.assertEqual(tree_x, status.geometry().right() + 16)
+        self.assertGreater(tree_x + decor.tree.width(), badge_x + 40)
+
+        parent = decor.tree.parentWidget()
+        self.assertIs(decor.badge.parentWidget(), parent)
+        self.assertLess(parent.children().index(decor.tree), parent.children().index(decor.badge))
+        decor.animation.timer.stop()
+        decor.animation.show_phase(.25)
+        flush(self.window)
+        self.assertTrue(decor.badge.light.isVisible())
+        self.assertLess(parent.children().index(decor.badge.light), parent.children().index(decor.badge))
 
     def test_package_parameters_drive_clocks_layout_and_presentation(self):
         from ui.themes.package import ThemePackage

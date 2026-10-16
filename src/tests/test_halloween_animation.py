@@ -11,7 +11,7 @@ from ui.footer import build_footer
 from ui.themes.contracts import HeaderArea, ThemeHost
 from src.tests.support.themes import FooterAppearance
 from ui.themes.providers.halloween_effects.animation import HalloweenAnimation, PAUSE_MS, flare_level
-from ui.themes.providers.halloween_effects.decorations import _SvgDecoration
+from ui.themes.providers.halloween_effects.decorations import MoopForest, _SvgDecoration
 from ui.themes.providers.halloween_effects.header import FireHeader
 
 qt = QApplication.instance() or QApplication([])
@@ -38,7 +38,7 @@ class HalloweenAnimationTests(unittest.TestCase):
         self.app = SimpleNamespace(has_premium_access=lambda: False)
         self.footer = build_footer(self.app)
         layout.addWidget(self.footer)
-        self.tree = _SvgDecoration('forest-left', self.window)
+        self.tree = MoopForest(self.window)
         self.tree.setGeometry(210, 0, 230, 86)
         self.small_tree = _SvgDecoration('forest-right', self.window)
         self.small_tree.setGeometry(690, 0, 180, 86)
@@ -84,6 +84,44 @@ class HalloweenAnimationTests(unittest.TestCase):
         self.assertEqual(self.badge.bank_builds, 1)
         self.assertEqual(self.provider.footer_icon.frames.builds, 1)
         self.assertEqual(self.badge.light.builds, 1)
+
+    def test_face_uses_only_the_two_existing_bursts_and_hides_with_header(self):
+        self.clock.timer.stop()
+        self.clock.show_phase(-1.0)
+        self.assertEqual(self.tree.face_opacity, 0)
+        self.clock.show_phase(.25)
+        self.assertAlmostEqual(self.tree.face_opacity, .62)
+        self.clock.show_phase(.6)
+        self.assertEqual(self.tree.face_opacity, 0)
+        self.clock.show_phase(.9)
+        self.assertGreater(self.tree.face_opacity, 0)
+        self.assertLess(self.tree.face_opacity, .62)
+        self.badge.hide()
+        self.assertEqual(self.tree.face_opacity, 0)
+        self.badge.show()
+        self.clock.show_phase(.25)
+        self.assertAlmostEqual(self.tree.face_opacity, .62)
+
+    def test_face_is_visible_through_gaps_but_never_paints_over_branches(self):
+        self.clock.timer.stop()
+        self.clock.show_phase(-1.0)
+        rest = self.tree.grab().toImage()
+        self.clock.show_phase(.25)
+        lit = self.tree.grab().toImage()
+        branches = self.tree._raster.toImage()
+        changed_gaps = 0
+        covered_branches = 0
+        rect = self.tree.FACE_RECT.toAlignedRect().intersected(self.tree.rect())
+        for y in range(rect.top(), rect.bottom() + 1):
+            for x in range(rect.left(), rect.right() + 1):
+                branch_alpha = branches.pixelColor(x, y).alpha()
+                if branch_alpha < 10 and rest.pixel(x, y) != lit.pixel(x, y):
+                    changed_gaps += 1
+                elif branch_alpha == 255:
+                    covered_branches += 1
+                    self.assertEqual(rest.pixel(x, y), lit.pixel(x, y))
+        self.assertGreater(changed_gaps, 100)
+        self.assertGreater(covered_branches, 100)
 
     def test_timer_sleeps_between_bursts_and_hover_restarts_every_consumer(self):
         self.clock.started -= 2

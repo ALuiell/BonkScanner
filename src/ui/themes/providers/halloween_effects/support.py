@@ -146,6 +146,8 @@ class _SpiderPlaque(QWidget):
             self.setAttribute(Qt.WA_NoSystemBackground)
             self.setStyleSheet("background:transparent;border:none;")
             self.resize(296, 124)
+            self.raster = QPixmap()
+            self.raster_key = None
             self.action = QPushButton("Support", self)
             self.action.setCursor(Qt.PointingHandCursor)
             self.action.setFocusPolicy(Qt.NoFocus)
@@ -170,10 +172,9 @@ class _SpiderPlaque(QWidget):
             ))
             self.hide()
 
-    def paintEvent(self, _event):  # noqa: N802
-        p = QPainter(self)
+    def _paint_static(self, p):
         p.setRenderHint(QPainter.Antialiasing)
-        p.translate(0, self.controller.plaque_offset)
+        p.setRenderHint(QPainter.TextAntialiasing)
         gradient = QLinearGradient(0, 0, 0, 124)
         gradient.setColorAt(0, self.controller.package.color("#302035"))
         gradient.setColorAt(1, self.controller.package.color("#1b1425"))
@@ -192,6 +193,28 @@ class _SpiderPlaque(QWidget):
             p.setFont(QFont("Segoe UI", size, weight))
             p.setPen(self.controller.package.color(color))
             p.drawText(rect, Qt.AlignVCenter, text)
+
+    def _ensure_raster(self):
+        # Glyph hinting at a new fractional Y on every frame makes the text
+        # shimmer. Rasterize the stationary card once at 2x display density.
+        density = self.devicePixelRatioF() * 2
+        key = (self.width(), self.height(), self.controller.thank_you, density)
+        if key != self.raster_key:
+            self.raster = QPixmap(max(1, round(self.width() * density)),
+                                  max(1, round(self.height() * density)))
+            self.raster.setDevicePixelRatio(density)
+            self.raster.fill(Qt.transparent)
+            cache = QPainter(self.raster)
+            self._paint_static(cache)
+            cache.end()
+            self.raster_key = key
+
+    def paintEvent(self, _event):  # noqa: N802
+        self._ensure_raster()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        p.drawPixmap(QRectF(0, self.controller.plaque_offset, self.width(), self.height()),
+                     self.raster, QRectF(self.raster.rect()))
         p.end()
 
 
@@ -257,6 +280,7 @@ class SpiderSupport(QObject):
         # Corner artwork stays cached inside Logs; these root overlays cover
         # only the pixels occupied by the moving spider and opaque plaque.
         self._render()
+        self.plaque._ensure_raster()
         self.art.show()
         self.art.raise_()
         self.plaque.raise_()
@@ -276,6 +300,7 @@ class SpiderSupport(QObject):
         self.stop()
         self.disposed = True
         self.art.raster = QPixmap()
+        self.plaque.raster = QPixmap()
         self.resources.close()
 
     def _tick(self):

@@ -1,5 +1,6 @@
 """Halloween entry point. Scene implementation lives in halloween_effects/."""
 from PySide6.QtCore import QPointF
+from PySide6.QtGui import QImageReader
 from PySide6.QtSvg import QSvgRenderer
 
 from ui.themes.contracts import AppearanceProvider, SupportContext
@@ -66,8 +67,13 @@ class HalloweenProvider(AppearanceProvider):
             if getattr(self.host, name) is None:
                 raise ValueError(f"Missing appearance host capability: {name}")
         for item in self.package.preset["assets"].values():
-            if item.get("required", True) and not QSvgRenderer(str(self.package.root / item["path"])).isValid():
-                raise ValueError("Invalid required Halloween SVG")
+            if not item.get("required", True):
+                continue
+            path = self.package.root / item["path"]
+            valid = (QSvgRenderer(str(path)).isValid() if path.suffix == ".svg"
+                     else QImageReader(str(path)).canRead())
+            if not valid:
+                raise ValueError("Invalid required Halloween image")
 
     def prepare(self):
         with self.resources:

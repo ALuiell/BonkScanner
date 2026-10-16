@@ -236,7 +236,7 @@ class FooterAnimationTests(unittest.TestCase):
         self.assertEqual(self.support.heartScale, 1.0)
         self.assertEqual(self.support.hoverProgress, 0.0)
 
-    def test_periodic_reminder_starts_with_a_fixed_one_hour_wait(self):
+    def test_periodic_reminder_starts_with_a_fixed_three_hour_wait(self):
         reminder = self.host.footer._reminder
 
         self.assertIsNotNone(reminder)
@@ -248,7 +248,7 @@ class FooterAnimationTests(unittest.TestCase):
         self.assertEqual(reminder._startup_timer.timerType(), Qt.PreciseTimer)
         self.assertEqual(reminder._activation_timer.timerType(), Qt.PreciseTimer)
         self.assertEqual(reminder._last_interval_ms, SUPPORT_REMINDER_INTERVAL_MS)
-        self.assertEqual(reminder._timer.interval(), 60 * 60 * 1000)
+        self.assertEqual(reminder._timer.interval(), 3 * 60 * 60 * 1000)
         self.assertEqual(reminder._action.objectName(), "supportReminderButton")
         self.assertIn("Updates are fueled", reminder._message.text())
         reminder._message.ensurePolished()
@@ -337,7 +337,7 @@ class FooterAnimationTests(unittest.TestCase):
         self.assertFalse(reminder._activation_timer.isActive())
         reminder.dismiss()
 
-    def test_shared_cooldown_delays_a_due_trigger_until_thirty_minutes(self):
+    def test_shared_cooldown_delays_a_due_trigger_until_two_hours(self):
         reminder = self.host.footer._reminder
         now = 50_000.0
         reminder._last_shown_at = now - 10 * 60
@@ -352,7 +352,7 @@ class FooterAnimationTests(unittest.TestCase):
         self.assertTrue(reminder._due)
         self.assertFalse(reminder.isVisible())
         self.assertTrue(reminder._timer.isActive())
-        self.assertEqual(reminder._timer.interval(), 20 * 60 * 1000)
+        self.assertEqual(reminder._timer.interval(), 110 * 60 * 1000)
 
         with (
             patch(
@@ -373,7 +373,7 @@ class FooterAnimationTests(unittest.TestCase):
             patch("ui.footer.time.time", return_value=1_000_000.0),
             patch("ui.footer.time.monotonic", return_value=5_600.0),
         ):
-            self.assertEqual(reminder._cooldown_remaining_ms(), 20 * 60 * 1000)
+            self.assertEqual(reminder._cooldown_remaining_ms(), 110 * 60 * 1000)
 
     def test_clock_rollback_is_rebased_once_instead_of_repeating_cooldown(self):
         reminder = self.host.footer._reminder
@@ -400,6 +400,7 @@ class FooterAnimationTests(unittest.TestCase):
 
     def test_return_after_long_inactivity_creates_an_independent_due_trigger(self):
         reminder = self.host.footer._reminder
+        self.assertEqual(SUPPORT_REMINDER_LONG_INACTIVE_SECONDS, 60 * 60)
         reminder._timer.stop()
         reminder._startup_timer.stop()
         reminder._due = False
@@ -416,6 +417,32 @@ class FooterAnimationTests(unittest.TestCase):
         self.assertFalse(reminder._timer.isActive())
         self.assertFalse(reminder._startup_timer.isActive())
 
+    def test_return_after_one_hour_still_respects_two_hour_repeat_cooldown(self):
+        reminder = self.host.footer._reminder
+        reminder._timer.stop()
+        reminder._startup_timer.stop()
+        reminder._last_shown_at = 1_000.0
+        reminder._last_shown_monotonic = 100.0
+
+        with patch("ui.footer.time.monotonic", side_effect=[100.0, 3_700.0]):
+            reminder._application_state_changed(Qt.ApplicationInactive)
+            reminder._application_state_changed(Qt.ApplicationActive)
+
+        with (
+            patch("ui.footer.time.monotonic", return_value=3_700.0),
+            patch.object(reminder, "_window_is_ready", return_value=True),
+        ):
+            self.assertFalse(reminder._play_if_due())
+        self.assertTrue(reminder._due)
+        self.assertEqual(reminder._timer.interval(), 60 * 60 * 1000)
+
+        with (
+            patch("ui.footer.time.monotonic", return_value=7_300.0),
+            patch.object(reminder, "_window_is_ready", return_value=True),
+        ):
+            self.assertTrue(reminder._play_if_due())
+        reminder.dismiss()
+
     def test_short_inactivity_does_not_create_a_reminder_trigger(self):
         reminder = self.host.footer._reminder
         reminder._timer.stop()
@@ -431,6 +458,22 @@ class FooterAnimationTests(unittest.TestCase):
 
         self.assertFalse(reminder._due)
         self.assertFalse(reminder._activation_timer.isActive())
+
+    def test_window_out_of_focus_for_one_hour_creates_a_due_trigger(self):
+        reminder = self.host.footer._reminder
+        reminder._timer.stop()
+        reminder._startup_timer.stop()
+        reminder._due = False
+
+        with patch(
+            "ui.footer.time.monotonic",
+            side_effect=[100.0, 100.0 + SUPPORT_REMINDER_LONG_INACTIVE_SECONDS],
+        ):
+            reminder.eventFilter(reminder._host_window, QEvent(QEvent.WindowDeactivate))
+            reminder.eventFilter(reminder._host_window, QEvent(QEvent.WindowActivate))
+
+        self.assertTrue(reminder._due)
+        self.assertTrue(reminder._activation_timer.isActive())
 
     def test_reminder_double_beat_moves_card_and_both_hearts_together(self):
         reminder = self.host.footer._reminder

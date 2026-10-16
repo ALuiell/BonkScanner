@@ -1,7 +1,7 @@
 """Halloween resource requirements, defaults and bounds; not engine policy."""
 HALLOWEEN_ASSETS = frozenset(("forest-left", "forest-right", "bats", "web",
     "skeleton-reclining", "hat", "premium-crown", "header-fire-base",
-    "header-pumpkin", "support-spider", "support-spider-thank-you"))
+    "header-pumpkin", "dark-moop-face", "support-spider", "support-spider-thank-you"))
 PARAMETERS = {
     "pulse_pause_ms": (100, 3600000), "pulse_frame_ms": (16, 100),
     "footer_icon_scale": (.2, 1), "footer_icon_slot": (32, 60),

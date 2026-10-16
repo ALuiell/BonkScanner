@@ -295,6 +295,9 @@ class ReflectedLight(QWidget):
         if self.level > .003:
             self.show()
             self.raise_()
+            badge = getattr(self.decorations, 'badge', None)
+            if badge is not None and badge.parentWidget() is self.parentWidget():
+                badge.raise_()
             self.update()
         elif was_visible:
             self.hide()
@@ -309,6 +312,9 @@ class ReflectedLight(QWidget):
         if self.isVisible() and event.type() == QEvent.ZOrderChange and not self._raising:
             self._raising = True
             self.raise_()
+            badge = getattr(self.decorations, 'badge', None)
+            if badge is not None and badge.parentWidget() is self.parentWidget():
+                badge.raise_()
             self._raising = False
         return False
 
@@ -327,11 +333,14 @@ class FireHeader(_SvgDecoration):
     def __init__(self, decorations, animation):
         self.animation = animation
         self.light = None
+        self.tree = decorations.tree
         package = getattr(decorations, 'package', None)
         if package is None:
             from ui.themes.package import read_package
             package = read_package('halloween')
-        super().__init__('header-fire-base', decorations.header, package=package)
+        # Share the forest's parent so the pill can stay in front of branches
+        # that extend into it when the header is narrow.
+        super().__init__('header-fire-base', decorations.header.parentWidget(), package=package)
         with ExitStack() as rollback:
             rollback.callback(self.deleteLater)
             rollback.callback(self.hide)
@@ -381,9 +390,12 @@ class FireHeader(_SvgDecoration):
         self.phase = phase
         if self.isVisible():
             self.prepare()
-            self.light.set_level(flare_level(phase))
+            level = flare_level(phase)
+            self.tree.set_face_level(level)
+            self.light.set_level(level)
             self.update(ICON_RECT)
         else:
+            self.tree.set_face_level(0)
             self.light.set_level(0)
 
     def refresh_scene(self):
@@ -397,6 +409,7 @@ class FireHeader(_SvgDecoration):
     def hideEvent(self, event):  # noqa: N802
         if self.light is not None and not QApplication.closingDown():
             self.light.set_level(0)
+            self.tree.set_face_level(0)
         super().hideEvent(event)
         if not QApplication.closingDown():
             self.animation.refresh()

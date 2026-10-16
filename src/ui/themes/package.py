@@ -85,9 +85,9 @@ def read_package(theme):
             raise ValueError("Invalid appearance resource")
         path = PurePosixPath(item["path"])
         if (path.is_absolute() or ".." in path.parts or ":" in item["path"]
-                or "\\" in item["path"] or path.suffix != ".svg"
+                or "\\" in item["path"] or path.suffix not in (".svg", ".png")
                 or not (root / path).resolve().is_relative_to(root.resolve())):
-            raise ValueError("Resource must be an SVG inside its package")
+            raise ValueError("Resource must be an SVG or PNG inside its package")
         if item.get("required", True) and not (root / path).is_file():
             raise ValueError("Missing required appearance resource")
     if not isinstance(preset.get("parameters", {}), dict):
