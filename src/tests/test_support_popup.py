@@ -777,7 +777,7 @@ class SupportersLoadTests(unittest.TestCase):
         update_prompt.start_supporters_load(None)
         update_prompt.start_supporters_load(object())
 
-    def test_load_refreshes_every_ten_minutes_without_duplicate_loops(self):
+    def test_load_refreshes_every_hour_without_duplicate_loops(self):
         class Footer:
             def __init__(self) -> None:
                 self.received = []
@@ -834,10 +834,7 @@ class SupportersLoadTests(unittest.TestCase):
             self.assertEqual(len(app.scheduled), 1)
 
             delay_ms, refresh = app.scheduled.pop()
-            self.assertEqual(
-                delay_ms,
-                update_prompt.SUPPORTERS_REFRESH_INTERVAL_MS,
-            )
+            self.assertEqual(delay_ms, 60 * 60 * 1000)
             second_worker = refresh()
             self.assertIs(second_worker, workers[1])
             self.assertEqual(loads, [1, 2])
@@ -870,17 +867,51 @@ class SupportersLoadTests(unittest.TestCase):
              patch.object(update_prompt, "load_supporters", side_effect=lambda report: report([])), \
              patch.object(update_prompt.time, "monotonic", return_value=1000) as clock:
             update_prompt.start_supporters_load(app)
-            self.assertIs(footer.refresh_supporters_if_stale(), worker)
+            self.assertIsNone(footer.refresh_supporters_if_stale())
             self.assertEqual(len(callbacks), 1)
             callbacks.pop()()
-            clock.return_value = 1299
+            clock.return_value = 2799
             self.assertIsNone(footer.refresh_supporters_if_stale())
-            clock.return_value = 1301
-            footer.refresh_supporters_if_stale()
-            footer.refresh_supporters_if_stale()
+            clock.return_value = 2800
+            self.assertIs(footer.refresh_supporters_if_stale(), worker)
+            self.assertIsNone(footer.refresh_supporters_if_stale())
             self.assertEqual(len(callbacks), 1)
             self.assertEqual(len(timers), 1)
             self.assertIsNone(update_prompt.start_supporters_load(app))
+
+    def test_popup_retries_failed_load_after_five_minutes(self):
+        from types import SimpleNamespace
+
+        received, callbacks, timers = [], [], []
+        footer = SimpleNamespace(set_supporters=received.append)
+        app = SimpleNamespace(
+            footer=footer,
+            after=lambda delay, callback: callback() if delay == 0 else timers.append(callback),
+        )
+        worker = SimpleNamespace(is_alive=lambda: True)
+        results = iter((SupporterDirectory(None), SupporterDirectory(("Recovered",))))
+
+        def start(_app, *, target, **kwargs):
+            callbacks.append(target)
+            return worker
+
+        with patch.object(update_prompt, "_start_registered_thread", side_effect=start), \
+             patch.object(update_prompt, "load_supporters", side_effect=lambda report: report(next(results))), \
+             patch.object(update_prompt.time, "monotonic", return_value=1000) as clock:
+            update_prompt.start_supporters_load(app)
+            callbacks.pop()()
+            self.assertEqual(received, [SupporterDirectory(None)])
+
+            clock.return_value = 1299
+            self.assertIsNone(footer.refresh_supporters_if_stale())
+            clock.return_value = 1300
+            self.assertIs(footer.refresh_supporters_if_stale(), worker)
+            callbacks.pop()()
+            self.assertEqual(received[-1], SupporterDirectory(("Recovered",)))
+
+            clock.return_value = 3099
+            self.assertIsNone(footer.refresh_supporters_if_stale())
+            self.assertEqual(len(timers), 1)
 
     def test_clean_supporters_rejects_a_payload_that_is_neither_shape(self):
         # What a mis-edited file looks like: an object without the key, a bare
