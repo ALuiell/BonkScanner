@@ -98,6 +98,41 @@ class _SpiderArt(QWidget):
         self.raster_density = None
         self.raster = QPixmap()
 
+    def _draw_gripping_legs(self, painter):
+        c = self.controller
+        climb = c.elapsed - c.thread_seconds
+        if 0 <= climb < c.climb_seconds:
+            phase = math.sin(climb * (2 * math.pi / 1.36))
+            blend = min(1.0, climb / .3, (c.climb_seconds - climb) / .4)
+            left_grip = .6 + (phase - .6) * blend
+            right_grip = -.3 + (-phase + .3) * blend
+        else:
+            left_grip, right_grip = .6, -.3
+
+        gradient = QLinearGradient(0, 0, 320, 280)
+        gradient.setColorAt(0, QColor("#73504b"))
+        gradient.setColorAt(.35, QColor("#332939"))
+        gradient.setColorAt(1, QColor("#180a28"))
+        for left, grip in ((True, left_grip), (False, right_grip)):
+            sx, elbow_x = (96, 54) if left else (224, 266)
+            tip_x = 154 if left else 166
+            tip_y = 4 + grip * 14
+            leg = QPainterPath(QPointF(sx, 133))
+            leg.lineTo(elbow_x, 79 - grip * 14 * .48)
+            leg.lineTo(101 if left else 219, 28 + grip * 3)
+            leg.lineTo(tip_x, tip_y)
+            painter.setPen(QPen(QColor("#080609"), 22, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.drawPath(leg)
+            painter.setPen(QPen(gradient, 14, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.drawPath(leg)
+            painter.setPen(QPen(QColor("#ec8844"), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.drawPath(leg)
+            claw = QPainterPath(QPointF(tip_x + (-4 if left else 4), tip_y - 6))
+            claw.lineTo(160, tip_y + 3)
+            claw.lineTo(tip_x + (-2 if left else 2), tip_y + 12)
+            painter.setPen(QPen(QColor("#1d1124"), 6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.drawPath(claw)
+
     def paintEvent(self, _event):  # noqa: N802
         c = self.controller
         p = QPainter(self)
@@ -126,6 +161,11 @@ class _SpiderArt(QWidget):
             p.save()
             p.translate(x, y)
             p.rotate(.65 * math.sin(c.elapsed * 1.7))
+            p.save()
+            p.translate(-90, -85)
+            p.scale(.5625, .5625)
+            self._draw_gripping_legs(p)
+            p.restore()
             p.setRenderHint(QPainter.SmoothPixmapTransform)
             p.drawPixmap(QRectF(-90, -85, 180, 157.5), self.raster, QRectF(self.raster.rect()))
             p.restore()
