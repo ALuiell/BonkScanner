@@ -331,6 +331,7 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
 .badge-kicker { margin: 0 0 8px; color: var(--blue); font-family: var(--font-geist-mono), monospace; font-size: 9px; font-weight: 800; letter-spacing: .12em; }
 .badge-callout h3 { margin: 0 0 7px; font-size: 18px; }
 .badge-callout > p:not(.badge-kicker) { max-width: 560px; margin: 0; color: #9aa6b4; font-size: 12.5px; line-height: 1.55; }
+.badge-callout > p:not(.badge-kicker) + p { margin-top: 10px; }
 .badge-callout a { display: inline-flex; margin-top: 15px; color: #7fd6f8; font-family: var(--font-geist-mono), monospace; font-size: 10px; font-weight: 800; letter-spacing: .09em; text-decoration: none; }
 .badge-callout a:hover { color: #b5e9ff; }
 
