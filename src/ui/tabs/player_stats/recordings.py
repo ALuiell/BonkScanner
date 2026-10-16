@@ -261,7 +261,9 @@ class _RecordingLibraryButton(QPushButton):
     def __init__(self, text: str) -> None:
         super().__init__(text)
         self.spinner = StagedLoadingSpinner(
-            object_name="RecordingDetailLoadingSpinner", parent=self
+            object_name="RecordingDetailLoadingSpinner",
+            animation_interval_ms=16,
+            parent=self,
         )
         self.spinner.setFixedSize(32, 32)
         self.spinner.hide()

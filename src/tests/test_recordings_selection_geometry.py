@@ -143,6 +143,14 @@ class RecordingSelectionGeometryTests(unittest.TestCase):
             # six-pixel layout spacing between that button and the heading.
             assert title.x() == view._select_btn.geometry().right() + 1 + 6
             assert view._detail_loading_spinner.parentWidget() is view._select_btn
+            spinner = view._detail_loading_spinner
+            assert spinner._timer.interval() == 16
+            assert spinner._timer.timerType() == Qt.PreciseTimer
+            spinner._angle = 0
+            spinner._last_advance_at = 100.0
+            with patch('ui.shared.time.perf_counter', return_value=100.03):
+                spinner._advance()
+            assert 13.9 < spinner._angle < 14.1, spinner._angle
             # Isolate native widget teardown, like test_recordings_layout.py.
             os._exit(0)
             """

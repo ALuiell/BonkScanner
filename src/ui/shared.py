@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 
 from core.template_conditions import (
     TEMPLATE_CONDITION_KEYS,
@@ -291,6 +292,7 @@ class StagedLoadingSpinner(QWidget):
         *,
         colors: tuple[str, ...] = ("#38BDF8",),
         object_name: str = "StagedLoadingSpinner",
+        animation_interval_ms: int = 30,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -302,23 +304,32 @@ class StagedLoadingSpinner(QWidget):
         self._colors = tuple(QColor(color) for color in colors) or (
             QColor("#38BDF8"),
         )
-        self._angle = 0
+        self._angle = 0.0
+        self._last_advance_at: float | None = None
         self._timer = QTimer(self)
-        self._timer.setInterval(30)
+        self._timer.setTimerType(Qt.PreciseTimer)
+        self._timer.setInterval(animation_interval_ms)
         self._timer.timeout.connect(self._advance)
 
     def _advance(self) -> None:
-        self._angle = (self._angle + 14) % 360
+        now = time.perf_counter()
+        previous = self._last_advance_at
+        self._last_advance_at = now
+        if previous is not None:
+            # Keep angular speed stable when the event loop delivers a frame late.
+            self._angle = (self._angle + (now - previous) * (14 / 0.03)) % 360
         self.update()
 
     def stop(self) -> None:
         """Stop repaint scheduling before the owning surface is retired."""
         self._timer.stop()
+        self._last_advance_at = None
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         timer = getattr(self, "_timer", None)
         if timer is not None:
+            self._last_advance_at = time.perf_counter()
             timer.start()
 
     def hideEvent(self, event) -> None:
