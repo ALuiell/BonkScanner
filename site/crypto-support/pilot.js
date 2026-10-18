@@ -19,12 +19,26 @@ document.addEventListener('visibilitychange', syncAnimationVisibility);
 syncAnimationVisibility();
 
 const radar = document.querySelector('.radar');
-// Decode the hero artwork before starting the scan. Two frames let the browser
-// paint the stationary radar and prepare its layers before the first rotation.
-Promise.allSettled([...radar.querySelectorAll('img')].map((image) => image.decode()))
-  .then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+async function startRadarWhenReady() {
+  const pageLoaded = document.readyState === 'complete'
+    ? Promise.resolve()
+    : new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
+  const artwork = [...document.querySelectorAll('.topbar img, .radar img')];
+  await Promise.allSettled([
+    pageLoaded,
+    document.fonts.ready,
+    ...artwork.map((image) => image.decode()),
+  ]);
+
+  // Allow the initial page paint to settle, even on high-refresh displays where
+  // two animation frames can be less than 10 ms. No animation exists yet.
+  await new Promise((resolve) => window.setTimeout(resolve, 250));
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    // Removing this class creates a fresh animation starting at zero.
     radar.classList.remove('radar-loading');
-  })));
+  }));
+}
+startRadarWhenReady();
 
 if ('IntersectionObserver' in window) {
   const radarObserver = new IntersectionObserver(([entry]) => {
