@@ -16,7 +16,7 @@
   <meta name="twitter:description" content="Crypto support and Premium access for BonkScanner">
   <meta name="twitter:image" content="https://aluiell.github.io/BonkScanner/og.png">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="pilot.css?v=17">
+  <link rel="stylesheet" href="pilot.css?v=20">
 </head>
 <body>
   <main class="site-shell">
@@ -31,13 +31,20 @@
 
     <section class="hero" id="top">
       <div class="radar" aria-hidden="true">
+        <span class="radar-ticks"></span>
+        <span class="radar-direction direction-n">N</span>
+        <span class="radar-direction direction-e">E</span>
+        <span class="radar-direction direction-s">S</span>
+        <span class="radar-direction direction-w">W</span>
         <span class="radar-ring ring-one"></span>
         <span class="radar-ring ring-two"></span>
         <span class="radar-sweep"></span>
-        <span class="radar-marker marker-magnet"><img src="markers/magnet.svg" width="25" height="25" alt=""></span>
-        <span class="radar-marker marker-curse"><img src="markers/boss_curse.svg" width="24" height="24" alt=""></span>
-        <span class="radar-marker marker-shop"><img src="markers/shady_guy.svg" width="23" height="23" alt=""></span>
-        <span class="radar-marker marker-microwave"><img src="markers/microwave.svg" width="23" height="23" alt=""></span>
+        <div class="radar-echoes">
+          <span class="radar-marker marker-magnet"><img src="markers/magnet_shrine.png" width="29" height="29" alt=""></span>
+          <span class="radar-marker marker-curse"><img src="markers/boss_curse.png" width="29" height="29" alt=""></span>
+          <span class="radar-marker marker-shop"><img src="markers/shady_guy_gold.png" width="29" height="29" alt=""></span>
+          <span class="radar-marker marker-microwave"><img src="markers/microwave_blue.png" width="29" height="29" alt=""></span>
+        </div>
         <img src="bonkscanner.png" width="112" height="88" alt="">
       </div>
 
@@ -61,7 +68,7 @@
       <div class="fuel-grid">
         <article class="fuel-card" style="--card-accent: #9a74ff">
           <div class="card-topline">
-            <span class="coin-mark violet">Ξ</span>
+            <span class="coin-mark violet" aria-hidden="true"><img src="coins/eth.svg" width="32" height="32" alt=""></span>
             <div class="coin-copy">
               <h3>Ethereum</h3>
               <p class="network-name">Ethereum</p>
@@ -73,14 +80,14 @@
           </div>
           <p class="network-warning"><span>!</span> Send ETH through Ethereum only.</p>
           <div class="card-actions">
-            <button class="copy-button" type="button" data-asset="ETH">COPY ADDRESS</button>
+            <button class="copy-button" type="button" data-asset="ETH"><span class="copy-label">COPY ADDRESS</span><svg class="copy-check" viewBox="0 0 24 24" width="23" height="23" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>
             <button class="qr-button" type="button" data-qr data-asset="Ethereum" data-network="Ethereum" data-qr-image="eth-ethereum-qr.svg" aria-label="Show Ethereum QR code">QR</button>
           </div>
         </article>
 
         <article class="fuel-card" style="--card-accent: #42d8b5">
           <div class="card-topline">
-            <span class="coin-mark mint">₮</span>
+            <span class="coin-mark mint" aria-hidden="true"><img src="coins/usdt.svg" width="32" height="32" alt=""></span>
             <div class="coin-copy">
               <h3>USDT</h3>
               <p class="network-name">TRON · TRC20</p>
@@ -92,14 +99,14 @@
           </div>
           <p class="network-warning"><span>!</span> Send USDT through TRON (TRC20) only.</p>
           <div class="card-actions">
-            <button class="copy-button" type="button" data-asset="USDT">COPY ADDRESS</button>
+            <button class="copy-button" type="button" data-asset="USDT"><span class="copy-label">COPY ADDRESS</span><svg class="copy-check" viewBox="0 0 24 24" width="23" height="23" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>
             <button class="qr-button" type="button" data-qr data-asset="USDT" data-network="TRON · TRC20" data-qr-image="usdt-tron-qr.svg" aria-label="Show USDT QR code">QR</button>
           </div>
         </article>
 
         <article class="fuel-card" style="--card-accent: #4d8cff">
           <div class="card-topline">
-            <span class="coin-mark blue">$</span>
+            <span class="coin-mark blue" aria-hidden="true"><img src="coins/usdc.svg" width="32" height="32" alt=""></span>
             <div class="coin-copy">
               <h3>USDC</h3>
               <p class="network-name">Solana</p>
@@ -111,14 +118,14 @@
           </div>
           <p class="network-warning"><span>!</span> Send USDC through Solana only.</p>
           <div class="card-actions">
-            <button class="copy-button" type="button" data-asset="USDC">COPY ADDRESS</button>
+            <button class="copy-button" type="button" data-asset="USDC"><span class="copy-label">COPY ADDRESS</span><svg class="copy-check" viewBox="0 0 24 24" width="23" height="23" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>
             <button class="qr-button" type="button" data-qr data-asset="USDC" data-network="Solana" data-qr-image="usdc-solana-qr.svg" aria-label="Show USDC QR code">QR</button>
           </div>
         </article>
 
         <article class="fuel-card" style="--card-accent: #f7931a">
           <div class="card-topline">
-            <span class="coin-mark amber">₿</span>
+            <span class="coin-mark amber" aria-hidden="true"><img src="coins/btc.svg" width="32" height="32" alt=""></span>
             <div class="coin-copy">
               <h3>Bitcoin</h3>
               <p class="network-name">Bitcoin · Native SegWit</p>
@@ -130,7 +137,7 @@
           </div>
           <p class="network-warning"><span>!</span> Send BTC through the Bitcoin network only.</p>
           <div class="card-actions">
-            <button class="copy-button" type="button" data-asset="BTC">COPY ADDRESS</button>
+            <button class="copy-button" type="button" data-asset="BTC"><span class="copy-label">COPY ADDRESS</span><svg class="copy-check" viewBox="0 0 24 24" width="23" height="23" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>
             <button class="qr-button" type="button" data-qr data-asset="Bitcoin" data-network="Bitcoin · Native SegWit" data-qr-image="btc-bitcoin-qr.svg" aria-label="Show Bitcoin QR code">QR</button>
           </div>
         </article>
@@ -150,9 +157,16 @@
         <aside class="badge-callout">
           <p class="badge-kicker">CLAIM SUPPORTER ACCESS</p>
           <h3>Crypto support and Premium</h3>
-          <p>Confirmed support of $5 or more (USD equivalent) gives 30 days of Premium per $5, prorated to whole days. I confirm the amount and send your key manually; Premium time starts when I send it.</p>
-          <p>If a Founder slot is open when your support is confirmed, you receive lifetime Premium. Check available slots in BonkScanner.</p>
-          <p>Send me the transaction hash and your BonkScanner display name on Discord, or message me on Patreon. Supporters remain in the in-app list and keep access to the Supporters Discord channel, where I may share previews and early builds.</p>
+          <p class="premium-summary">Confirmed support of <strong>$5 or more</strong> (USD equivalent) gives <strong>30 days of Premium per $5</strong>, prorated to whole days.</p>
+          <ol class="premium-steps">
+            <li><span class="premium-step-number">01</span><div><h4>Support</h4><p>Choose an asset and use the exact network shown above.</p></div></li>
+            <li><span class="premium-step-number">02</span><div><h4>Confirm</h4><p>Send me the transaction hash and your BonkScanner display name on Discord, or message me on Patreon.</p></div></li>
+            <li><span class="premium-step-number">03</span><div><h4>Receive your key</h4><p>I confirm the amount and send your key manually. Premium time starts when I send it.</p></div></li>
+          </ol>
+          <div class="premium-details">
+            <div><h4>Founder access</h4><p>If a Founder slot is open when your support is confirmed, you receive lifetime Premium. Check available slots in BonkScanner.</p></div>
+            <div><h4>Stay part of the community</h4><p>Supporters remain in the in-app list and keep access to the Supporters Discord channel, where I may share previews and early builds.</p></div>
+          </div>
           <a href="https://discord.gg/dYkcrMCJWM" target="_blank" rel="noreferrer">OPEN DISCORD ↗</a>
         </aside>
       </div>
@@ -169,7 +183,7 @@
   </main>
 
   <div class="toast" role="status" aria-live="polite" aria-atomic="true">
-    <strong>✓</strong> Address copied.
+    <strong aria-hidden="true">✓</strong><span class="toast-message">Address copied.</span>
   </div>
 
   <dialog class="qr-dialog live-channel" aria-labelledby="qr-title">
@@ -179,9 +193,9 @@
     <p class="modal-network">Ethereum</p>
     <img class="live-qr" src="eth-ethereum-qr.svg" width="184" height="184" alt="Ethereum receiving address QR code">
     <p class="modal-note">Scan with a wallet that supports the exact network shown above.</p>
-    <button class="modal-copy" type="button">COPY ADDRESS</button>
+    <button class="modal-copy" type="button"><span class="copy-label">COPY ADDRESS</span><svg class="copy-check" viewBox="0 0 24 24" width="23" height="23" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>
   </dialog>
 
-  <script src="pilot.js?v=16"></script>
+  <script src="pilot.js?v=19"></script>
 </body>
 </html>
