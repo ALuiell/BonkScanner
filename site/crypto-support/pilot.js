@@ -19,6 +19,13 @@ document.addEventListener('visibilitychange', syncAnimationVisibility);
 syncAnimationVisibility();
 
 const radar = document.querySelector('.radar');
+// Decode the hero artwork before starting the scan. Two frames let the browser
+// paint the stationary radar and prepare its layers before the first rotation.
+Promise.allSettled([...radar.querySelectorAll('img')].map((image) => image.decode()))
+  .then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    radar.classList.remove('radar-loading');
+  })));
+
 if ('IntersectionObserver' in window) {
   const radarObserver = new IntersectionObserver(([entry]) => {
     radar.classList.toggle('radar-paused', !entry.isIntersecting);

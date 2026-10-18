@@ -16,7 +16,8 @@
   <meta name="twitter:description" content="Crypto support and Premium access for BonkScanner">
   <meta name="twitter:image" content="https://aluiell.github.io/BonkScanner/og.png">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="pilot.css?v=20">
+  <link rel="stylesheet" href="pilot.css?v=21">
+  <noscript><style>.radar.radar-loading { animation-play-state: running; }</style></noscript>
 </head>
 <body>
   <main class="site-shell">
@@ -24,13 +25,13 @@
 
     <header class="topbar">
       <a class="brand" href="#top" aria-label="BonkScanner support home">
-        <img src="bonkscanner.png" width="44" height="35" alt="">
+        <img src="bonkscanner.webp" decoding="async" width="44" height="35" alt="">
         <span>BonkScanner</span>
       </a>
     </header>
 
     <section class="hero" id="top">
-      <div class="radar" aria-hidden="true">
+      <div class="radar radar-loading" aria-hidden="true">
         <span class="radar-ticks"></span>
         <span class="radar-direction direction-n">N</span>
         <span class="radar-direction direction-e">E</span>
@@ -40,12 +41,12 @@
         <span class="radar-ring ring-two"></span>
         <span class="radar-sweep"></span>
         <div class="radar-echoes">
-          <span class="radar-marker marker-magnet"><img src="markers/magnet_shrine.png" width="29" height="29" alt=""></span>
-          <span class="radar-marker marker-curse"><img src="markers/boss_curse.png" width="29" height="29" alt=""></span>
-          <span class="radar-marker marker-shop"><img src="markers/shady_guy_gold.png" width="29" height="29" alt=""></span>
-          <span class="radar-marker marker-microwave"><img src="markers/microwave_blue.png" width="29" height="29" alt=""></span>
+          <span class="radar-marker marker-magnet"><img src="markers/magnet_shrine.webp" decoding="async" width="29" height="29" alt=""></span>
+          <span class="radar-marker marker-curse"><img src="markers/boss_curse.webp" decoding="async" width="29" height="29" alt=""></span>
+          <span class="radar-marker marker-shop"><img src="markers/shady_guy_gold.webp" decoding="async" width="29" height="29" alt=""></span>
+          <span class="radar-marker marker-microwave"><img src="markers/microwave_blue.webp" decoding="async" width="29" height="29" alt=""></span>
         </div>
-        <img src="bonkscanner.png" width="112" height="88" alt="">
+        <img src="bonkscanner.webp" decoding="async" fetchpriority="high" width="112" height="88" alt="">
       </div>
 
       <p class="eyebrow"><span></span> DIRECT SUPPORT</p>
@@ -68,7 +69,7 @@
       <div class="fuel-grid">
         <article class="fuel-card" style="--card-accent: #9a74ff">
           <div class="card-topline">
-            <span class="coin-mark violet" aria-hidden="true"><img src="coins/eth.svg" width="32" height="32" alt=""></span>
+            <span class="coin-mark violet" aria-hidden="true"><img loading="lazy" decoding="async" src="coins/eth.svg" width="32" height="32" alt=""></span>
             <div class="coin-copy">
               <h3>Ethereum</h3>
               <p class="network-name">Ethereum</p>
@@ -87,7 +88,7 @@
 
         <article class="fuel-card" style="--card-accent: #42d8b5">
           <div class="card-topline">
-            <span class="coin-mark mint" aria-hidden="true"><img src="coins/usdt.svg" width="32" height="32" alt=""></span>
+            <span class="coin-mark mint" aria-hidden="true"><img loading="lazy" decoding="async" src="coins/usdt.svg" width="32" height="32" alt=""></span>
             <div class="coin-copy">
               <h3>USDT</h3>
               <p class="network-name">TRON · TRC20</p>
@@ -106,7 +107,7 @@
 
         <article class="fuel-card" style="--card-accent: #4d8cff">
           <div class="card-topline">
-            <span class="coin-mark blue" aria-hidden="true"><img src="coins/usdc.svg" width="32" height="32" alt=""></span>
+            <span class="coin-mark blue" aria-hidden="true"><img loading="lazy" decoding="async" src="coins/usdc.svg" width="32" height="32" alt=""></span>
             <div class="coin-copy">
               <h3>USDC</h3>
               <p class="network-name">Solana</p>
@@ -125,7 +126,7 @@
 
         <article class="fuel-card" style="--card-accent: #f7931a">
           <div class="card-topline">
-            <span class="coin-mark amber" aria-hidden="true"><img src="coins/btc.svg" width="32" height="32" alt=""></span>
+            <span class="coin-mark amber" aria-hidden="true"><img loading="lazy" decoding="async" src="coins/btc.svg" width="32" height="32" alt=""></span>
             <div class="coin-copy">
               <h3>Bitcoin</h3>
               <p class="network-name">Bitcoin · Native SegWit</p>
@@ -174,7 +175,7 @@
 
     <footer class="footer">
       <div class="brand footer-brand">
-        <img src="bonkscanner.png" width="38" height="30" alt="">
+        <img src="bonkscanner.webp" decoding="async" width="38" height="30" alt="">
         <span>BonkScanner</span>
       </div>
       <p>Optional support for continued BonkScanner development.</p>
@@ -191,11 +192,11 @@
     <p class="section-index modal-kicker">WALLET QR</p>
     <h2 id="qr-title">Ethereum</h2>
     <p class="modal-network">Ethereum</p>
-    <img class="live-qr" src="eth-ethereum-qr.svg" width="184" height="184" alt="Ethereum receiving address QR code">
+    <img class="live-qr" loading="lazy" decoding="async" src="eth-ethereum-qr.svg" width="184" height="184" alt="Ethereum receiving address QR code">
     <p class="modal-note">Scan with a wallet that supports the exact network shown above.</p>
     <button class="modal-copy" type="button"><span class="copy-label">COPY ADDRESS</span><svg class="copy-check" viewBox="0 0 24 24" width="23" height="23" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>
   </dialog>
 
-  <script src="pilot.js?v=19"></script>
+  <script src="pilot.js?v=20"></script>
 </body>
 </html>

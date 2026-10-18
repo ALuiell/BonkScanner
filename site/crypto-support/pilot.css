@@ -468,6 +468,7 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
 
 @keyframes radar-spin { to { --radar-angle: 360deg; } }
 .animations-paused .radar,
+.radar.radar-loading,
 .radar.radar-paused {
   animation-play-state: paused;
 }
