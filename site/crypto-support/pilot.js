@@ -19,30 +19,59 @@ document.addEventListener('visibilitychange', syncAnimationVisibility);
 syncAnimationVisibility();
 
 const radar = document.querySelector('.radar');
-async function startRadarWhenReady() {
-  const pageLoaded = document.readyState === 'complete'
-    ? Promise.resolve()
-    : new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
-  const artwork = [...document.querySelectorAll('.topbar img, .radar img')];
-  await Promise.allSettled([
-    pageLoaded,
-    document.fonts.ready,
-    ...artwork.map((image) => image.decode()),
-  ]);
+const pendingMarkers = new Set();
+let markerFrame = 0;
 
-  // Allow the initial page paint to settle, even on high-refresh displays where
-  // two animation frames can be less than 10 ms. No animation exists yet.
-  await new Promise((resolve) => window.setTimeout(resolve, 250));
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    // Removing this class creates a fresh animation starting at zero.
-    radar.classList.remove('radar-loading');
-  }));
+function scheduleMarkerReveal() {
+  if (!markerFrame && pendingMarkers.size && !document.hidden && !radar.classList.contains('radar-paused')) {
+    markerFrame = requestAnimationFrame(revealReadyMarkers);
+  }
 }
-startRadarWhenReady();
+
+function revealReadyMarkers() {
+  markerFrame = 0;
+  const style = getComputedStyle(radar);
+  const moving = style.animationName.includes('radar-spin');
+  const beamAngle = parseFloat(style.getPropertyValue('--radar-angle'));
+  const firstScan = parseFloat(style.getPropertyValue('--radar-revealed')) < 360;
+  const bounds = radar.getBoundingClientRect();
+
+  pendingMarkers.forEach((marker) => {
+    const box = marker.getBoundingClientRect();
+    const x = box.left + box.width / 2 - (bounds.left + bounds.width / 2);
+    const y = box.top + box.height / 2 - (bounds.top + bounds.height / 2);
+    const angle = (Math.atan2(x, -y) * 180 / Math.PI + 360) % 360;
+    // Include the surrounding glow when checking whether the whole marker is
+    // inside the transparent sector ahead of the beam (0..172.8 degrees).
+    const radius = Math.hypot(box.width / 2 + 16, box.height / 2 + 16);
+    const halfAngle = Math.asin(Math.min(1, radius / Math.hypot(x, y))) * 180 / Math.PI;
+    const ahead = (angle - beamAngle + 360) % 360;
+    const unscanned = firstScan && beamAngle < angle - halfAngle;
+    if (!moving || unscanned || (ahead > halfAngle && ahead < 172.8 - halfAngle)) {
+      marker.classList.add('marker-ready');
+      pendingMarkers.delete(marker);
+    }
+  });
+  // Only runs while decoded images are waiting for an invisible part of the
+  // sweep. Once armed, their pixel-by-pixel reveal and fade stay entirely CSS.
+  scheduleMarkerReveal();
+}
+
+radar.querySelectorAll('.radar-marker').forEach((marker) => {
+  marker.querySelector('img').decode().then(() => {
+    pendingMarkers.add(marker);
+    scheduleMarkerReveal();
+  }).catch(() => {
+    // A failed image stays hidden; the beam and the other detections continue.
+  });
+});
+document.addEventListener('visibilitychange', scheduleMarkerReveal);
+window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', scheduleMarkerReveal);
 
 if ('IntersectionObserver' in window) {
   const radarObserver = new IntersectionObserver(([entry]) => {
     radar.classList.toggle('radar-paused', !entry.isIntersecting);
+    scheduleMarkerReveal();
   });
   radarObserver.observe(radar);
 } else {
@@ -50,6 +79,7 @@ if ('IntersectionObserver' in window) {
     const bounds = radar.getBoundingClientRect();
     const viewportHeight = document.documentElement.clientHeight;
     radar.classList.toggle('radar-paused', bounds.bottom <= 0 || bounds.top >= viewportHeight);
+    scheduleMarkerReveal();
   };
 
   window.addEventListener('scroll', syncRadarVisibility, { passive: true });
