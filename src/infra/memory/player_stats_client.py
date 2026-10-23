@@ -716,7 +716,9 @@ class PlayerStatsClient:
             if not self.memory.read_ptr(dictionary + self.DICT_ENTRIES_OFFSET):
                 return False
             count = self.memory.read_i32(dictionary + self.DICT_COUNT_OFFSET)
-            if count <= 0:
+            # Reject impossible headers before selecting a route, so readable
+            # non-dictionary memory cannot block the valid fallback inventory.
+            if not 0 < count <= self.MAX_PASSIVE_ITEM_DICT_ENTRIES:
                 return False
             free_count = self.memory.read_i32(dictionary + self.DICT_FREE_COUNT_OFFSET)
             return 0 <= free_count < count
