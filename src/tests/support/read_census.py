@@ -35,7 +35,7 @@ SRC = REPO / "src"
 sys.path.insert(0, str(SRC))
 
 PLAYER_STATS_CLIENT_METHODS = [
-    "get_player_stats", "get_luck", "get_current_gold", "get_passive_items",
+    "get_player_stats", "get_luck", "get_display_stats", "get_current_gold", "get_passive_items",
     "get_passive_item_count", "get_expected_chest_inputs", "get_live_weapons",
     "get_live_tomes", "get_chaos_tome_level", "get_chaos_tracking_state",
     "get_permanent_stat_modifiers", "get_live_banishes", "get_run_timer",
@@ -131,7 +131,7 @@ _ENROLLABLE_ON_TICK_SOURCE_NAMES = (
     "STAGE_TIMER_CONTEXT", "MOB_KILLS", "PLAYER_LEVEL", "LIVE_WEAPONS",
     "LIVE_TOMES", "LIVE_BANISHES", "LIVE_DAMAGE_SOURCES", "DISABLED_ITEMS",
     "POWERUP_TRACKING_SNAPSHOT", "EXPECTED_CHEST_INPUTS",
-    "CHAOS_TRACKING_STATE", "CHEST_COUNTERS", "LUCK",
+    "CHAOS_TRACKING_STATE", "CHEST_COUNTERS", "LUCK", "DISPLAY_STATS",
     # GameDataClient
     "MAP_GENERATION_STATE", "RUNTIME_GAME_STATE", "RUNTIME_ACTIVITY_STATE",
     "MAP_ACTIVITY_VALUES",

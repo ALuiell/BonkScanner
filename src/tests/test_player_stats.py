@@ -746,6 +746,10 @@ class PlayerStatsClientTests(unittest.TestCase):
         # multiplier is held back until a second read agrees with it.
         self.assertEqual(third.powerup_multiplier_display, "1.5x")
         self.assertEqual(fourth.powerup_multiplier_display, "2x")
+        self.assertEqual(first.powerup_multiplier_captured_at, 100.0)
+        self.assertEqual(second.powerup_multiplier_captured_at, 100.0)
+        self.assertEqual(third.powerup_multiplier_captured_at, 100.0)
+        self.assertEqual(fourth.powerup_multiplier_captured_at, 106.5)
 
     def test_get_powerup_tracking_snapshot_ignores_a_one_frame_multiplier_dip(self) -> None:
         """A single bad multiplier read must never reach the duration maths.

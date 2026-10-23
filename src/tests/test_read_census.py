@@ -14,6 +14,8 @@ class ReadCensusRatchetTests(unittest.TestCase):
         self.assertEqual(census.direct_on_tick_client_reads(), [])
 
     def test_boundary_populations_are_derived_from_the_tree(self) -> None:
+        # 31 with the narrow Difficulty/XP display source. Luck retains its
+        # existing source and no per-consumer memory reads are introduced.
         # 30 with the Charge Shrine tracking source. It reuses the shared
         # passive-item sample for Wrench and does not need a stage-context read.
         # The previous 29 followed
@@ -32,7 +34,7 @@ class ReadCensusRatchetTests(unittest.TestCase):
         # proves it went in through the pass rather than around it.
         self.assertEqual(
             census.boundary_site_count([census.SRC / rel for rel in census.ON_TICK_FILES]),
-            30,
+            31,
         )
         # 4 since `reroll_map` stopped reading the map state and stats itself:
         # `wait_for_map_ready` hands the scan loop the stats it waited for, so

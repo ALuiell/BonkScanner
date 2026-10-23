@@ -95,6 +95,7 @@ from app.read_sources import (
     KPS_GROUP_SPAN_LIMIT_SECONDS,
     LIVE_BANISHES,
     LUCK,
+    DISPLAY_STATS,
     MOB_KILLS,
     PASSIVE_ITEMS,
     POWERUP_TRACKING_SNAPSHOT,
@@ -112,6 +113,7 @@ from core.tracker.snapshots import PowerupMapContext
 from core.tracker.live_run import build_permanent_source_recovery
 from core import run_summary
 from core.settings import FULL_PLAYER_SNAPSHOT_INTERVAL_SECONDS
+from core.stats.live import FAST_DISPLAY_STAT_LABELS
 from projections import formatting
 
 if TYPE_CHECKING:
@@ -654,6 +656,7 @@ class RefreshTasks:
             )
             self._memory().record_memory_success()
             accepted = self._tracker().update_powerups(snapshot)
+            self._publish_live_stats_view()
             if self._is_vod_recording():
                 self._capture().observe_powerups(snapshot, getattr(self._tracker(), "run_id", None))
             # The tracker always updates; only the *repaint* is gated. The
@@ -673,6 +676,28 @@ class RefreshTasks:
             if not self._pinned():
                 self._view().refresh_powerups_card()
             return False
+
+    def _publish_live_stats_view(self) -> None:
+        reader = getattr(self._tracker(), "live_stats", None)
+        writer = getattr(self._view(), "set_live_stats", None)
+        if self._tab_active() and not self._pinned() and callable(reader) and callable(writer):
+            writer(reader())
+        if self._widget_refresh_active("stats") or self._widget_refresh_active("luck_rarity"):
+            self._sync_overlay_state()
+
+    def _publish_fast_display_stats(self, context: RefreshTickContext) -> None:
+        # Luck keeps its existing single source and loot-attribution semantics.
+        try:
+            client = self._fast_task_client(context)
+            owner_stats = self._fast_task_owner_stats(context)
+            values = read_memory_source(
+                context, DISPLAY_STATS, lambda: client.get_display_stats(owner_stats)
+            )
+        except Exception:
+            values = {label: None for label in FAST_DISPLAY_STAT_LABELS if label != "Luck"}
+        publish = getattr(self._tracker(), "update_live_stats", None)
+        if callable(publish):
+            publish(values)
 
     def _refresh_expected_chest_inputs_task(self, context: RefreshTickContext) -> bool:
         try:
@@ -891,6 +916,7 @@ class RefreshTasks:
         starve them.
         """
         self._publish_fast_luck(context)
+        self._publish_fast_display_stats(context)
         self._publish_fast_banishes(context)
         self._publish_fast_size(context)
         self._publish_fast_map_activity(context)
@@ -954,6 +980,10 @@ class RefreshTasks:
             # (step_28_plan.md section 12.5: enrolling a site must not change
             # error policy).
             return False
+        finally:
+            # Publish after the whole loot pass so Luck Rarity's expectations
+            # and current values reach OBS together, even if inventory failed.
+            self._publish_live_stats_view()
 
     def _combat_group_span_seconds(self, context: RefreshTickContext) -> float | None:
         """The measured coherence window across the combat group's members.
@@ -1393,6 +1423,7 @@ class RefreshTasks:
         if (
             in_game_overlay_widget_enabled("powerups")
             or in_game_overlay_widget_enabled("event_timer")
+            or self._live_multiplier_requested()
         ):
             return True
         commands_cfg = config.TWITCH_BOT.get("commands", {})
@@ -1400,6 +1431,21 @@ class RefreshTasks:
             return bool(self._twitch_active() and commands_cfg.get("powerups", True))
         except Exception:
             return False
+
+    def _live_multiplier_requested(self) -> bool:
+        if in_game_overlay_widget_enabled("stats"):
+            selected = config.IN_GAME_OVERLAY.get("widgets", {}).get("stats", {}).get("selected_stats", ())
+            if "Powerup Multiplier" in selected:
+                return True
+        if self._widget_refresh_active("stats"):
+            widgets = config.OVERLAY.get("widgets", ())
+            if any(
+                widget.get("id") == "stats" and "Powerup Multiplier" in widget.get("selected_stats", ())
+                for widget in widgets if isinstance(widget, dict)
+            ):
+                return True
+        # Templates may reference any stat, including its short alias.
+        return self._twitch_command_refresh_active("stats")
 
     def _should_refresh_fast_kps(self, _now: float | None = None) -> bool:
         if self._lifecycle().completed_run:

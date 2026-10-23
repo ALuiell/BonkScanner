@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.tracker.snapshots import RunLifecycle, RuntimeStateSnapshot
+from core.stats.live import current_player_stats
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class InGameOverlayProjection:
     # consecutive successful reads over 26 s there. This is the only signal that
     # separates that state from a pause, which is byte-identical.
     run_completed: bool = False
+    stats: dict | None = None
 
 
 def project_in_game_overlay(runtime: RuntimeStateSnapshot) -> InGameOverlayProjection:
@@ -46,7 +48,12 @@ def project_in_game_overlay(runtime: RuntimeStateSnapshot) -> InGameOverlayProje
         is_graveyard=bool(context and context.is_graveyard),
         fast_stage_timer=runtime.fast_stage_timer,
         graveyard_main_map_events_active=runtime.graveyard_main_map_events_active,
-        luck=getattr(runtime, "luck", None),
+        luck=(
+            getattr(current_player_stats(runtime).get("Luck"), "value", None)
+            if getattr(runtime, "live_stats", None) is not None
+            else getattr(runtime, "luck", None)
+        ),
+        stats=current_player_stats(runtime),
         loot_stats=getattr(runtime, "loot_stats", None),
         item_cooldowns=getattr(runtime, "item_cooldowns", None),
         run_completed=getattr(runtime, "lifecycle", None) is RunLifecycle.COMPLETED,

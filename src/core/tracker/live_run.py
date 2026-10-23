@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field, replace
 import time
+from math import isfinite
 from typing import Any, Callable, Iterable
 from uuid import uuid4
 
@@ -37,6 +38,8 @@ from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
 )
+from core.stats.live import LIVE_STAT_TTL_SECONDS, LiveStatReading, merge_live_stats
+from core.stats.types import POWERUP_MULTIPLIER_CACHE_TTL_SECONDS
 from core.tracker import chaos, chests, combat, items, loot, passives, powerups, shrines
 from core.tracker.chaos import _ChaosTomeState
 from core.tracker.chests import _ChestState
@@ -162,6 +165,7 @@ class _RunState:
     # beside it rather than inside it because a failed Luck read must not
     # withhold the inventory, nor the reverse.
     fast_luck: FastLuck = field(default_factory=FastLuck)
+    live_stat_readings: dict[str, LiveStatReading] = field(default_factory=dict)
     fast_size: FastSize = field(default_factory=FastSize)
     # Published by that same pass. Holds the readings and the game clock they
     # were measured against as one object, because the countdown is their
@@ -292,6 +296,7 @@ class LiveRunTracker:
             "_pending_fast_stage_boundary", "_pending_fast_stage_awaiting_timer_reset",
             "_slow_stage_timer_reset_pending_from", "_fast_run_timer",
             "_fast_items", "_fast_luck", "_fast_size", "_fast_item_cooldowns",
+            "_live_stat_readings",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_second", "_ui_kps_value",
@@ -461,6 +466,7 @@ class LiveRunTracker:
             self._fast_run_timer = FastRunTimer()
             self._fast_items = FastItems()
             self._fast_luck = FastLuck()
+            self._live_stat_readings.clear()
             self._fast_size = FastSize()
             self._fast_item_cooldowns = FastItemCooldowns()
             self._cached_stage_summary = None
@@ -698,7 +704,43 @@ class LiveRunTracker:
             item_cooldowns=self._fresh_item_cooldowns_unlocked(),
             run_timer_seconds=self._fresh_fast_run_timer_unlocked(),
             mob_kills=max(observed_mob_kills) if observed_mob_kills else None,
+            live_stats=self._live_stats_unlocked(now),
         )
+
+    @with_lock
+    def live_stats(self) -> dict[str, Any]:
+        """Current values for live consumers, without copying the run history."""
+        return self._live_stats_unlocked(self.clock())
+
+    def _live_stats_unlocked(self, now: float) -> dict[str, Any]:
+        snapshot = self._latest_snapshot_unlocked()
+        readings = dict(self._live_stat_readings)
+        if self._fast_luck.luck is not None:
+            readings["Luck"] = LiveStatReading(
+                self._fast_luck.luck, self._fast_luck.captured_at, "luck"
+            )
+        run_timer = self._fresh_fast_run_timer_unlocked()
+        previous_time = getattr(snapshot, "game_time_seconds", None)
+        if self._lifecycle is RunLifecycle.COMPLETED or (
+            run_timer is not None and previous_time is not None
+            and run_timer + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS < previous_time
+        ):
+            readings = {}
+        return merge_live_stats(snapshot, readings, now=now)
+
+    @with_lock
+    def update_live_stats(
+        self, values: dict[str, float | None], *, source: str = "display_stats",
+        captured_at: float | None = None, ttl_seconds: float = LIVE_STAT_TTL_SECONDS,
+    ) -> None:
+        timestamp = self.clock() if captured_at is None else captured_at
+        for label, value in values.items():
+            if value is None or not isfinite(value):
+                self._live_stat_readings.pop(label, None)
+            else:
+                self._live_stat_readings[label] = LiveStatReading(
+                    float(value), timestamp, source, ttl_seconds
+                )
 
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
         if self._cached_stage_summary is None:
@@ -1355,6 +1397,20 @@ class LiveRunTracker:
         if map_context is not None:
             powerups.set_map_context(self._powerup_state, map_context, self.clock)
 
+        # The multiplier is useful even when an unrelated effects/timing read
+        # fails. Its physical timestamp prevents a cached poll from overriding
+        # a newer full stat sample.
+        multiplier = getattr(snapshot, "powerup_multiplier", None)
+        health = getattr(snapshot, "multiplier_health", None)
+        if health is not None and not (health.available and health.complete):
+            multiplier = None
+        self.update_live_stats(
+            {"Powerup Multiplier": multiplier},
+            source="powerups",
+            captured_at=getattr(snapshot, "powerup_multiplier_captured_at", None),
+            ttl_seconds=POWERUP_MULTIPLIER_CACHE_TTL_SECONDS + LIVE_STAT_TTL_SECONDS,
+        )
+
         failure_reason = powerups.check_health(snapshot)
         if failure_reason is not None:
             self._mark_feature_failure_unlocked("powerups", self.clock(), failure_reason)
@@ -1367,6 +1423,7 @@ class LiveRunTracker:
     @with_lock
     def clear_powerups(self) -> None:
         powerups.clear(self._powerup_state)
+        self._live_stat_readings.pop("Powerup Multiplier", None)
 
     @with_lock
     def powerups_snapshot(self) -> PowerupsSnapshot:
@@ -1550,6 +1607,7 @@ class LiveRunTracker:
         self._fast_run_timer = FastRunTimer()
         self._fast_items = FastItems()
         self._fast_luck = FastLuck()
+        self._live_stat_readings.clear()
         self._fast_item_cooldowns = FastItemCooldowns()
         self._pending_fast_stage_index = None
         self._pending_fast_stage_samples = 0

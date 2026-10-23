@@ -375,6 +375,9 @@ class RecordingPlayerStatsView:
     def set_stage_summary_rows(self, rows) -> None:
         self.stage_summary_rows.append(rows)
 
+    def set_live_stats(self, stats) -> None:
+        self.displays.append({"live_stats": stats})
+
     def refresh_powerups_card(self) -> None:
         self.powerups_refreshes += 1
 

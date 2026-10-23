@@ -529,6 +529,20 @@ class PlayerStatsClient:
                 self._cached_stats_entries = 0
         return None
 
+    def get_display_stats(self, owner_stats: int | None = None) -> dict[str, float | None]:
+        """Read just Difficulty and XP Gain; Luck already has its own source."""
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        values = {}
+        for label in ("Difficulty", "XP Gain"):
+            spec = PLAYER_STAT_SPEC_BY_LABEL[label]
+            try:
+                entries = self._resolve_stats_entries_cached(owner_stats)
+                values[label] = self.memory.read_float(entries + spec.offset)
+            except MemoryReadError:
+                self._cached_stats_entries = 0
+                values[label] = None
+        return values
+
     def get_current_gold(self, owner_stats: int | None = None) -> int:
         owner_stats = owner_stats or self._resolve_owner_stats()
         try:
@@ -2167,6 +2181,7 @@ class PlayerStatsClient:
             status_effects_health=status_effects_result.health,
             timing_health=timing_health,
             multiplier_health=multiplier_health,
+            powerup_multiplier_captured_at=self._cached_powerup_multiplier_read_at,
         )
 
     def get_active_status_effects(

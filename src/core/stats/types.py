@@ -227,6 +227,8 @@ class PowerupTrackingSnapshot:
     status_effects_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
     timing_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
     multiplier_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
+    # Time of the confirmed physical read, not the poll returning its cache.
+    powerup_multiplier_captured_at: float | None = None
 
 
 @dataclass(frozen=True)

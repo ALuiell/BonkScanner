@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+from core.stats.live import current_player_stats
 from core.stats.weapon_tracker import WEAPON_TRACKER_METRIC_ORDER, calculate_weapon_tracker_rows
 
 from core.luck_rarity import (
@@ -117,6 +118,8 @@ def format_luck(
     """
     loot = getattr(runtime, "loot_stats", None)
     luck = getattr(runtime, "luck", None)
+    if getattr(runtime, "live_stats", None) is not None:
+        luck = getattr(current_player_stats(runtime).get("Luck"), "value", None)
     if luck is None:
         snapshot = getattr(runtime, "latest_snapshot", None)
         stats = getattr(snapshot, "stats", None) if snapshot is not None else None

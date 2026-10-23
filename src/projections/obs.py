@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from core import run_summary
+from core.stats.live import current_player_stats
 from core.tracker.snapshots import RuntimeStateSnapshot
 from core.build_progression import BuildProgressionSnapshot
 from projections.build_progression import build_progression_payload
@@ -108,7 +109,7 @@ def build_overlay_state_from_snapshot(
     data["canvas_width"] = _coerce_int(overlay_config.get("canvas_width"), default=1920) or 1920
     data["canvas_height"] = _coerce_int(overlay_config.get("canvas_height"), default=1080) or 1080
     data["style"] = dict(overlay_config.get("style") or {})
-    data["stats"] = _snapshot_stats(snapshot, widgets)
+    data["stats"] = _snapshot_stats(snapshot, widgets, stats=current_player_stats(runtime))
     data["weapon_tracker"] = weapon_tracker_payload(snapshot)
     data["banishes"] = _snapshot_banishes(snapshot, widgets)
     data["luck_rarity"] = _snapshot_luck_rarity(runtime, widgets)
@@ -187,7 +188,11 @@ def _snapshot_luck_rarity(
     """
     widget = widgets.get("luck_rarity") or {}
     loot = getattr(runtime, "loot_stats", None)
-    probabilities = calculate_luck_rarity_probabilities(getattr(runtime, "luck", None))
+    luck = (
+        getattr(current_player_stats(runtime).get("Luck"), "value", None)
+        if getattr(runtime, "live_stats", None) is not None else getattr(runtime, "luck", None)
+    )
+    probabilities = calculate_luck_rarity_probabilities(luck)
     actual = getattr(loot, "actual", None) or {}
     expected = getattr(loot, "expected", None) or {}
     available = bool(getattr(loot, "available", False))
@@ -282,10 +287,10 @@ def _overlay_item_rarity_counts(item_rarities: dict[str, Any]) -> list[dict[str,
     return counts
 
 
-def _snapshot_stats(snapshot: Any, widgets: dict[str, Any]) -> list[dict[str, str]]:
+def _snapshot_stats(snapshot: Any, widgets: dict[str, Any], *, stats=None) -> list[dict[str, str]]:
     if snapshot is None:
         return []
-    stats = getattr(snapshot, "stats", {}) or {}
+    stats = stats if stats is not None else getattr(snapshot, "stats", {}) or {}
     if not isinstance(stats, dict):
         return []
     widget = widgets.get("stats") or {}

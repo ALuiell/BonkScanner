@@ -583,6 +583,19 @@ class LiveStatsTab:
         """
         self._items_section.update(items)
 
+    def _set_stat_values(self, stats) -> None:
+        for label, stat in stats.items():
+            for rows in (self._stat_value_rows, self._compact_stat_value_rows):
+                value_label = rows.get(label)
+                if value_label is not None:
+                    _set_text(value_label, stat.display_value)
+
+    def set_live_stats(self, stats) -> None:
+        """Update current values alone; the caller guards a pinned timeline."""
+        self._set_stat_values(stats)
+        _set_text(self._powerups_duration_label, self.format_live_powerups(stats))
+        self._update_live_loot_rarity_summary(self._live_run_tracker(), stats)
+
     def _reset_live_player_stats_ui(self, status_text: str, *, items_text: str = "--") -> None:
         _set_text(self._status_label, status_text)
         for label in self._stat_value_rows.values():
@@ -649,16 +662,15 @@ class LiveStatsTab:
         player_level: int | None = None,
         new_items_text: str | None = None,
         stage_summary_rows: list[dict[str, str]] | None = None,
+        live: bool = True,
     ):
         if status_text:
             _set_text(self._status_label, status_text)
-        for label, stat in stats.items():
-            value_label = self._stat_value_rows.get(label)
-            if value_label is not None:
-                _set_text(value_label, stat.display_value)
-            compact_value_label = self._compact_stat_value_rows.get(label)
-            if compact_value_label is not None:
-                _set_text(compact_value_label, stat.display_value)
+        if live:
+            reader = getattr(self._live_run_tracker(), "live_stats", None)
+            if callable(reader):
+                stats = {**stats, **reader()}
+        self._set_stat_values(stats)
         self._items_section.update(items, items_text=items_text)
         _set_text(
             self._chests_per_minute_label,
@@ -689,7 +701,7 @@ class LiveStatsTab:
         get_chest_stats = getattr(tracker, "get_chest_stats", None)
         if callable(get_chest_stats):
             self._update_live_chest_summary(get_chest_stats())
-        self._update_live_loot_rarity_summary(tracker, stats)
+        self._update_live_loot_rarity_summary(tracker, stats, live=live)
         if new_items_text is not None:
             _set_text(self._new_items_label, new_items_text)
         else:
@@ -745,6 +757,7 @@ class LiveStatsTab:
         self.display_player_stats(
             snapshot.stats,
             snapshot.items,
+            live=live_capture,
             weapons=getattr(snapshot, "weapons", ()),
             include_weapon_globals=live_capture,
             tomes=getattr(snapshot, "tomes", ()),
@@ -991,7 +1004,7 @@ class LiveStatsTab:
                 expected_status=getattr(chest_stats, "expected_status", None),
             )
 
-    def _update_live_loot_rarity_summary(self, tracker, stats) -> None:
+    def _update_live_loot_rarity_summary(self, tracker, stats, *, live=True) -> None:
         """Repaint the rarity card from the tracker's own summary.
 
         Luck comes from the fast lane when there is a fresh reading and from
@@ -1004,6 +1017,12 @@ class LiveStatsTab:
             return
         get_loot_stats = getattr(tracker, "get_loot_stats", None)
         loot_stats = get_loot_stats() if callable(get_loot_stats) else None
+        # Real live callers already carry the shared current values. Keep the
+        # legacy accessor fallback for lightweight views without that boundary.
+        if not live or callable(getattr(tracker, "live_stats", None)):
+            luck_value = getattr((stats or {}).get("Luck"), "value", None)
+            set_loot_rarity_card_values(labels, luck_value, loot_stats)
+            return
         fast_luck = getattr(tracker, "fast_luck", None)
         luck_value = fast_luck() if callable(fast_luck) else None
         if luck_value is None and isinstance(stats, dict):

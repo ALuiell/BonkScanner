@@ -39,7 +39,7 @@ class ViewPortRoutingTests(unittest.TestCase):
             operations = _operations(protocol)
             self.assertFalse(union & operations)
             union |= operations
-        self.assertEqual(len(union), 19)
+        self.assertEqual(len(union), 20)
 
     def test_production_has_no_owner_based_service_resolvers(self) -> None:
         found = []

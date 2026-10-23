@@ -673,10 +673,12 @@ def build_stats_overlay_html(
     stage_timer_seconds: float,
     stage_time_seconds: float,
     is_graveyard: bool,
+    *,
+    live_stats: dict | None = None,
 ) -> str:
     if snapshot is None:
         return ""
-    stats = getattr(snapshot, "stats", {}) or {}
+    stats = live_stats if live_stats is not None else getattr(snapshot, "stats", {}) or {}
     if not isinstance(stats, dict):
         return ""
     rows = _build_in_game_stats_rows(

@@ -1274,13 +1274,8 @@ class InGameOverlay:
 
         if cfg["widgets"].get("stats", {}).get("enabled", False):
             selected_stats = cfg["widgets"]["stats"].get("selected_stats", ["Damage", "Difficulty", "XP Gain", "Luck"])
-            # The *stats* here are the 10 s snapshot's and cannot be fresher,
-            # but the stage index and stage timer are not decoration: they pick
-            # the Difficulty and XP Gain caps inside `_build_in_game_stats_rows`.
-            # Read against `latest_snapshot` they switched up to a snapshot late,
-            # while the Event Timer beside them had already moved on the fast
-            # context computed directly above. Caps now follow the same clock
-            # the widget next to them does.
+            # Both stat values and cap context follow their live sources;
+            # the retained snapshot remains untouched for history consumers.
             html = build_stats_overlay_html(
                 latest_snapshot,
                 selected_stats,
@@ -1288,6 +1283,7 @@ class InGameOverlay:
                 active_stage_timer_seconds,
                 active_stage_time_seconds,
                 is_graveyard,
+                live_stats=projection.stats,
             )
             widgets["stats"].set_text(html)
 
