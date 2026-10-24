@@ -138,6 +138,183 @@ class FakeLifecycleMemory:
         return 0x100000
 
 
+class UiTransformHierarchyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.memory = FakeLifecycleMemory()
+        self.client = MapMarkerMemoryClient(memory=self.memory)
+        self.access = 0x730000
+        self.parents = 0x740000
+        self.natives = 0x750000
+        self.counts = 0x780000
+        self.root = 0x760000
+        self.native = 0x720000
+        self.memory.i32s[self.access + self.client.TRANSFORM_ACCESS_CAPACITY_OFFSET] = 4538
+        # A freed slot is NOT an array bound or a count of live transforms.
+        self.memory.i32s[self.access + self.client.TRANSFORM_ACCESS_FIRST_FREE_OFFSET] = 384
+        self.memory.ptrs[self.access + self.client.TRANSFORM_ACCESS_SUBTREE_COUNTS_OFFSET] = self.counts
+        self.memory.ptrs[self.access + self.client.TRANSFORM_ACCESS_PARENTS_OFFSET] = self.parents
+        self.memory.ptrs[self.access + self.client.TRANSFORM_ACCESS_NATIVE_TRANSFORMS_OFFSET] = self.natives
+        self.add_node(0, self.root, -1)
+        self.add_node(1564, self.native, 0)
+        self.set_live_indices((0, 1564))
+
+    def set_live_indices(self, indices: tuple[int, ...]) -> None:
+        links = 0x7C0000
+        self.memory.ptrs[self.access + self.client.TRANSFORM_ACCESS_NEXT_INDICES_OFFSET] = links
+        self.memory.i32s[self.counts] = len(indices)
+        for position, index in enumerate(indices):
+            self.memory.i32s[links + index * 4] = indices[position + 1] if position + 1 < len(indices) else -1
+
+    def add_node(self, index: int, native: int, parent: int) -> None:
+        self.memory.ptrs[native + self.client.NATIVE_TRANSFORM_ACCESS_OFFSET] = self.access
+        self.memory.i32s[native + self.client.NATIVE_TRANSFORM_INDEX_OFFSET] = index
+        self.memory.ptrs[self.natives + index * 8] = native
+        self.memory.i32s[self.parents + index * 4] = parent
+
+    def test_root_uses_sparse_live_slots_when_free_head_is_384(self) -> None:
+        self.assertEqual(self.client._root_native_transform(self.native), self.root)
+
+    def test_pause_map_search_reaches_live_descendants_beyond_384(self) -> None:
+        pause_root, render = 0x790000, 0x7A0000
+        self.add_node(2229, pause_root, 0)
+        self.add_node(2230, render, 2229)
+        self.set_live_indices((0, 1564, 2229, 2230))
+        self.client._native_transform_name = lambda native: "MapRender" if native == render else "Other"
+        self.assertEqual(
+            self.client._find_descendant_native_transform(pause_root, "MapRender"), render
+        )
+
+    def test_unused_capacity_is_not_accepted_as_live_transform_count(self) -> None:
+        self.set_live_indices((0,))
+        with self.assertRaisesRegex(MemoryReadError, "membership is invalid"):
+            self.client._root_native_transform(self.native)
+
+    def test_missing_or_corrupt_authoritative_count_fails_closed(self) -> None:
+        for count in (0, -1, 4539, self.client.MAX_NATIVE_TRANSFORMS + 1):
+            with self.subTest(count=count):
+                self.memory.i32s[self.counts] = count
+                with self.assertRaisesRegex(MemoryReadError, "count is invalid"):
+                    self.client._root_native_transform(self.native)
+        self.memory.ptrs[self.access + self.client.TRANSFORM_ACCESS_SUBTREE_COUNTS_OFFSET] = 0
+        with self.assertRaisesRegex(MemoryReadError, "subtree counts are unavailable"):
+            self.client._root_native_transform(self.native)
+
+    def test_recycled_native_slot_is_rejected(self) -> None:
+        self.memory.ptrs[self.natives + 1564 * 8] = 0x7B0000
+        with self.assertRaisesRegex(MemoryReadError, "slot identity changed"):
+            self.client._root_native_transform(self.native)
+
+    def test_root_from_another_hierarchy_is_rejected(self) -> None:
+        self.memory.ptrs[self.root + self.client.NATIVE_TRANSFORM_ACCESS_OFFSET] = 0x7B0000
+        with self.assertRaisesRegex(MemoryReadError, "slot identity changed"):
+            self.client._root_native_transform(self.native)
+
+    def test_root_slot_recycled_during_final_resample_is_retried(self) -> None:
+        replacement = 0x7D0000
+        self.memory.ptrs[replacement + self.client.NATIVE_TRANSFORM_ACCESS_OFFSET] = self.access
+        self.memory.i32s[replacement + self.client.NATIVE_TRANSFORM_INDEX_OFFSET] = 0
+        check = self.client._check_ui_transform_hierarchy
+        replaced = False
+
+        def resample(native, hierarchy):
+            nonlocal replaced
+            check(native, hierarchy)
+            if not replaced:
+                self.memory.ptrs[self.natives] = replacement
+                replaced = True
+
+        self.client._check_ui_transform_hierarchy = resample
+        self.assertEqual(self.client._root_native_transform(self.native), replacement)
+
+    def test_parent_outside_live_count_is_rejected_even_within_capacity(self) -> None:
+        self.memory.i32s[self.parents + 1564 * 4] = 3000
+        with self.assertRaisesRegex(MemoryReadError, "parent index is invalid"):
+            self.client._root_native_transform(self.native)
+
+    def test_parent_cycle_is_bounded(self) -> None:
+        self.memory.i32s[self.parents + 1564 * 4] = 1564
+        with self.assertRaisesRegex(MemoryReadError, "safe depth"):
+            self.client._root_native_transform(self.native)
+
+    def test_nonzero_slot_cannot_replace_the_hierarchy_root(self) -> None:
+        self.memory.i32s[self.parents + 1564 * 4] = -1
+        with self.assertRaisesRegex(MemoryReadError, "root index is invalid"):
+            self.client._root_native_transform(self.native)
+
+    def test_live_slot_cycle_and_capacity_overrun_are_rejected(self) -> None:
+        links = self.memory.ptrs[self.access + self.client.TRANSFORM_ACCESS_NEXT_INDICES_OFFSET]
+        for invalid_link in (0, 4538, -2):
+            with self.subTest(link=invalid_link):
+                self.memory.i32s[links] = invalid_link
+                with self.assertRaisesRegex(MemoryReadError, "live-slot list is invalid"):
+                    self.client._root_native_transform(self.native)
+
+    def test_full_hierarchy_has_no_free_head_and_last_slot_is_valid(self) -> None:
+        self.memory.i32s[self.access + self.client.TRANSFORM_ACCESS_CAPACITY_OFFSET] = 2
+        self.memory.i32s[self.access + self.client.TRANSFORM_ACCESS_FIRST_FREE_OFFSET] = -1
+        self.add_node(1, self.native, 0)
+        self.set_live_indices((0, 1))
+        self.assertEqual(self.client._root_native_transform(self.native), self.root)
+
+    def test_hierarchy_resize_during_sample_retries_with_fresh_state(self) -> None:
+        read = self.memory.read_i32
+        changed = False
+
+        def resize(address: int) -> int:
+            nonlocal changed
+            result = read(address)
+            if address == self.parents + 1564 * 4 and not changed:
+                self.add_node(2229, 0x790000, 0)
+                self.set_live_indices((0, 1564, 2229))
+                changed = True
+            return result
+
+        self.memory.read_i32 = resize
+        self.assertEqual(self.client._root_native_transform(self.native), self.root)
+        self.assertTrue(changed)
+
+    def test_descendant_search_does_not_choose_same_name_outside_subtree(self) -> None:
+        pause_root, sibling = 0x790000, 0x7A0000
+        self.add_node(2229, pause_root, 0)
+        self.add_node(2230, sibling, 0)
+        self.set_live_indices((0, 1564, 2229, 2230))
+        self.client._native_transform_name = lambda native: "MapRender" if native == sibling else "Other"
+        with self.assertRaisesRegex(MemoryReadError, "not available"):
+            self.client._find_descendant_native_transform(pause_root, "MapRender")
+
+    def test_descendant_reparent_during_name_read_is_rejected(self) -> None:
+        pause_root, render = 0x790000, 0x7A0000
+        self.add_node(2229, pause_root, 0)
+        self.add_node(2230, render, 2229)
+        self.set_live_indices((0, 1564, 2229, 2230))
+
+        def name(native: int) -> str:
+            if native == render:
+                self.memory.i32s[self.parents + 2230 * 4] = 0
+                return "MapRender"
+            return "Other"
+
+        self.client._native_transform_name = name
+        with self.assertRaisesRegex(MemoryReadError, "not available"):
+            self.client._find_descendant_native_transform(pause_root, "MapRender")
+
+    def test_descendant_slot_recycled_during_name_read_is_rejected(self) -> None:
+        pause_root, render = 0x790000, 0x7A0000
+        self.add_node(2229, pause_root, 0)
+        self.add_node(2230, render, 2229)
+        self.set_live_indices((0, 1564, 2229, 2230))
+
+        def name(native: int) -> str:
+            if native == render:
+                self.memory.ptrs[self.natives + 2230 * 8] = 0
+                return "MapRender"
+            return "Other"
+
+        self.client._native_transform_name = name
+        with self.assertRaisesRegex(MemoryReadError, "not available"):
+            self.client._find_descendant_native_transform(pause_root, "MapRender")
+
+
 class MapMarkerProjectionTests(unittest.TestCase):
     def test_minimap_projection_rotates_and_hides_out_of_range_markers(self) -> None:
         projection = MinimapProjection(
@@ -1472,7 +1649,16 @@ class MapMarkerLifecycleTests(unittest.TestCase):
 
         memory.ptrs[native + client.NATIVE_TRANSFORM_ACCESS_OFFSET] = access
         memory.i32s[native + client.NATIVE_TRANSFORM_INDEX_OFFSET] = 2
-        memory.ptrs[access + client.TRANSFORM_ACCESS_COUNTS_OFFSET] = (3 << 32) | 3
+        memory.i32s[access + client.TRANSFORM_ACCESS_CAPACITY_OFFSET] = 3
+        memory.i32s[access + client.TRANSFORM_ACCESS_FIRST_FREE_OFFSET] = -1
+        subtree_counts = 0x780000
+        memory.ptrs[access + client.TRANSFORM_ACCESS_SUBTREE_COUNTS_OFFSET] = subtree_counts
+        memory.i32s[subtree_counts] = 3
+        next_indices = 0x790000
+        memory.ptrs[access + client.TRANSFORM_ACCESS_NEXT_INDICES_OFFSET] = next_indices
+        memory.i32s[next_indices] = 1
+        memory.i32s[next_indices + 4] = 2
+        memory.i32s[next_indices + 8] = -1
         memory.ptrs[access + client.TRANSFORM_ACCESS_PARENTS_OFFSET] = parents
         memory.ptrs[
             access + client.TRANSFORM_ACCESS_NATIVE_TRANSFORMS_OFFSET
@@ -1483,6 +1669,8 @@ class MapMarkerLifecycleTests(unittest.TestCase):
         memory.ptrs[native_transforms] = root_native
         memory.ptrs[native_transforms + 8] = middle_native
         memory.ptrs[native_transforms + 16] = native
+        memory.ptrs[root_native + client.NATIVE_TRANSFORM_ACCESS_OFFSET] = access
+        memory.i32s[root_native + client.NATIVE_TRANSFORM_INDEX_OFFSET] = 0
 
         self.assertEqual(client._root_native_transform(native), root_native)
 

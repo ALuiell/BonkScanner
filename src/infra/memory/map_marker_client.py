@@ -33,6 +33,20 @@ class MapScopeNotReadyError(FullMapNotReadyError):
 
 
 @dataclass(frozen=True, slots=True)
+class _UiTransformHierarchy:
+    access: int
+    index: int
+    capacity: int
+    count: int
+    parents: int
+    native_transforms: int
+    subtree_counts: int
+    first_free: int
+    next_indices: int
+    live_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ActivityRead:
     """One lifecycle sample. Identity loss is distinct from completion."""
 
@@ -195,8 +209,12 @@ class MapMarkerMemoryClient:
     NATIVE_TRANSFORM_INDEX_OFFSET = 0x30
     TRANSFORM_ACCESS_MATRICES_OFFSET = 0x18
     TRANSFORM_ACCESS_PARENTS_OFFSET = 0x20
-    TRANSFORM_ACCESS_COUNTS_OFFSET = 0x10
+    TRANSFORM_ACCESS_CAPACITY_OFFSET = 0x10
+    TRANSFORM_ACCESS_FIRST_FREE_OFFSET = 0x14
+    TRANSFORM_ACCESS_SUBTREE_COUNTS_OFFSET = 0x28
     TRANSFORM_ACCESS_NATIVE_TRANSFORMS_OFFSET = 0x30
+    TRANSFORM_ACCESS_NEXT_INDICES_OFFSET = 0x70
+    UI_HIERARCHY_READ_ATTEMPTS = 3
     TRANSFORM_MATRIX_SIZE = 0x30
     RECT_TRANSFORM_RECT_OFFSET = 0xA8
     MAX_TRANSFORM_DEPTH = 128
@@ -1402,17 +1420,57 @@ class MapMarkerMemoryClient:
         )
 
     def _root_native_transform(self, native: int) -> int:
-        access = self.memory.read_ptr(native + self.NATIVE_TRANSFORM_ACCESS_OFFSET)
-        index = self.memory.read_i32(native + self.NATIVE_TRANSFORM_INDEX_OFFSET)
-        packed_counts = self.memory.read_ptr(
-            access + self.TRANSFORM_ACCESS_COUNTS_OFFSET
+        for attempt in range(self.UI_HIERARCHY_READ_ATTEMPTS):
+            try:
+                hierarchy = self._read_ui_transform_hierarchy(native)
+                live_indices = set(hierarchy.live_indices)
+                root_index = hierarchy.index
+                for _ in range(self.MAX_TRANSFORM_DEPTH):
+                    parent = self.memory.read_i32(hierarchy.parents + root_index * 4)
+                    if parent == -1:
+                        if root_index != 0:
+                            raise MemoryReadError("UI Transform root index is invalid.")
+                        break
+                    if parent not in live_indices:
+                        raise MemoryReadError(f"UI Transform parent index is invalid: {parent}.")
+                    root_index = parent
+                else:
+                    raise MemoryReadError("UI Transform hierarchy exceeded safe depth.")
+                root_native = self.memory.read_ptr(
+                    hierarchy.native_transforms + root_index * self.OBJECT_POINTER_SIZE
+                )
+                self._check_ui_transform_slot(root_native, hierarchy, root_index)
+                self._check_ui_transform_hierarchy(native, hierarchy)
+                self._check_ui_transform_slot(root_native, hierarchy, root_index)
+                return root_native
+            except MemoryReadError:
+                if attempt + 1 == self.UI_HIERARCHY_READ_ATTEMPTS:
+                    raise
+
+    def _read_ui_transform_hierarchy(self, native: int) -> _UiTransformHierarchy:
+        access, index = struct.unpack(
+            "<Qi", self.memory.read_bytes(native + self.NATIVE_TRANSFORM_ACCESS_OFFSET, 12)
         )
-        capacity = packed_counts & 0xFFFFFFFF
-        count = (packed_counts >> 32) & 0xFFFFFFFF
-        if not (0 <= index < count <= capacity <= self.MAX_NATIVE_TRANSFORMS):
+        if not access:
+            raise MemoryReadError("UI Transform hierarchy is unavailable.")
+        capacity = self.memory.read_i32(access + self.TRANSFORM_ACCESS_CAPACITY_OFFSET)
+        first_free = self.memory.read_i32(access + self.TRANSFORM_ACCESS_FIRST_FREE_OFFSET)
+        subtree_counts = self.memory.read_ptr(
+            access + self.TRANSFORM_ACCESS_SUBTREE_COUNTS_OFFSET
+        )
+        if not subtree_counts:
+            raise MemoryReadError("UI Transform subtree counts are unavailable.")
+        # Unity 2023.2.22 internal_getHierarchyCount_Injected reads the root's
+        # subtree count through hierarchy+0x28. The word at +0x14 is the FREE
+        # list head, not a count: freeing slot 384 must not hide slots 1564/2229.
+        # Live slots are sparse, so even the real count is not an index bound.
+        count = self.memory.read_i32(subtree_counts)
+        if not (0 <= index < capacity <= self.MAX_NATIVE_TRANSFORMS
+                and 0 < count <= capacity
+                and (first_free == -1 or 0 <= first_free < capacity)):
             raise MemoryReadError(
                 "UI TransformAccess count is invalid: "
-                f"index={index}, count={count}, capacity={capacity}."
+                f"index={index}, count={count}, capacity={capacity}, first_free={first_free}."
             )
         parents = self.memory.read_ptr(
             access + self.TRANSFORM_ACCESS_PARENTS_OFFSET
@@ -1422,28 +1480,52 @@ class MapMarkerMemoryClient:
         )
         if not parents or not native_transforms:
             raise MemoryReadError("UI Transform hierarchy is unavailable.")
-
-        root_index = index
-        depth = 0
-        while True:
-            if depth >= self.MAX_TRANSFORM_DEPTH:
-                raise MemoryReadError("UI Transform hierarchy exceeded safe depth.")
-            parent = self.memory.read_i32(parents + root_index * 4)
-            if parent == -1:
-                break
-            if not 0 <= parent < count:
-                raise MemoryReadError(
-                    f"UI Transform parent index is invalid: {parent}."
-                )
-            root_index = parent
-            depth += 1
-
-        root_native = self.memory.read_ptr(
-            native_transforms + root_index * self.OBJECT_POINTER_SIZE
+        next_indices = self.memory.read_ptr(access + self.TRANSFORM_ACCESS_NEXT_INDICES_OFFSET)
+        if not next_indices:
+            raise MemoryReadError("UI Transform live-slot list is unavailable.")
+        links = struct.unpack(
+            f"<{capacity}i", self.memory.read_bytes(next_indices, capacity * 4)
         )
-        if not root_native:
-            raise MemoryReadError("UI root RectTransform is unavailable.")
-        return root_native
+        # +0x70 links both the live traversal (rooted at slot zero) and the
+        # separate free list (rooted at first_free). Only walk the live list;
+        # unused native/parent slots can contain arbitrary old allocations.
+        live = []
+        seen = set()
+        slot = 0
+        for _ in range(count):
+            if not 0 <= slot < capacity or slot in seen or slot == first_free:
+                raise MemoryReadError("UI Transform live-slot list is invalid.")
+            live.append(slot)
+            seen.add(slot)
+            slot = links[slot]
+        if slot != -1 or index not in seen or (first_free == -1) != (count == capacity):
+            raise MemoryReadError("UI Transform live-slot membership is invalid.")
+        hierarchy = _UiTransformHierarchy(
+            access, index, capacity, count, parents, native_transforms, subtree_counts,
+            first_free, next_indices, tuple(live),
+        )
+        self._check_ui_transform_slot(native, hierarchy, index)
+        return hierarchy
+
+    def _check_ui_transform_slot(
+        self, native: int, hierarchy: _UiTransformHierarchy, index: int,
+    ) -> None:
+        if not native:
+            raise MemoryReadError("UI Transform native object is unavailable.")
+        access, actual_index = struct.unpack(
+            "<Qi", self.memory.read_bytes(native + self.NATIVE_TRANSFORM_ACCESS_OFFSET, 12)
+        )
+        if (access != hierarchy.access or actual_index != index
+                or self.memory.read_ptr(
+                    hierarchy.native_transforms + index * self.OBJECT_POINTER_SIZE
+                ) != native):
+            raise MemoryReadError("UI Transform slot identity changed.")
+
+    def _check_ui_transform_hierarchy(
+        self, native: int, hierarchy: _UiTransformHierarchy,
+    ) -> None:
+        if self._read_ui_transform_hierarchy(native) != hierarchy:
+            raise MemoryReadError("UI Transform hierarchy changed during sampling.")
 
     @staticmethod
     def _map_viewport_to_qt(
@@ -1560,49 +1642,47 @@ class MapMarkerMemoryClient:
         root_native: int,
         expected_name: str,
     ) -> int:
-        access = self.memory.read_ptr(
-            root_native + self.NATIVE_TRANSFORM_ACCESS_OFFSET
-        )
-        root_index = self.memory.read_i32(
-            root_native + self.NATIVE_TRANSFORM_INDEX_OFFSET
-        )
-        packed_counts = self.memory.read_ptr(
-            access + self.TRANSFORM_ACCESS_COUNTS_OFFSET
-        )
-        capacity = packed_counts & 0xFFFFFFFF
-        count = (packed_counts >> 32) & 0xFFFFFFFF
-        if not (
-            0 <= root_index < count <= capacity <= self.MAX_NATIVE_TRANSFORMS
-        ):
-            raise MemoryReadError(
-                "Pause Map TransformAccess count is invalid: "
-                f"root={root_index}, count={count}, capacity={capacity}."
-            )
-
-        parents = self.memory.read_ptr(
-            access + self.TRANSFORM_ACCESS_PARENTS_OFFSET
-        )
-        native_transforms = self.memory.read_ptr(
-            access + self.TRANSFORM_ACCESS_NATIVE_TRANSFORMS_OFFSET
-        )
-        for index in range(count):
-            native_transform = self.memory.read_ptr(
-                native_transforms + index * self.OBJECT_POINTER_SIZE
-            )
-            if not native_transform:
-                continue
-            if self._native_transform_name(native_transform) != expected_name:
-                continue
-            parent = index
-            depth = 0
-            while parent >= 0 and depth < self.MAX_TRANSFORM_DEPTH:
-                if parent == root_index:
-                    return native_transform
-                parent = self.memory.read_i32(parents + parent * 4)
-                depth += 1
-        raise MemoryReadError(
-            f"Pause Map descendant '{expected_name}' is not available."
-        )
+        for attempt in range(self.UI_HIERARCHY_READ_ATTEMPTS):
+            try:
+                hierarchy = self._read_ui_transform_hierarchy(root_native)
+                live_indices = set(hierarchy.live_indices)
+                parents = struct.unpack(
+                    f"<{hierarchy.capacity}i",
+                    self.memory.read_bytes(hierarchy.parents, hierarchy.capacity * 4),
+                )
+                natives = struct.unpack(
+                    f"<{hierarchy.capacity}Q",
+                    self.memory.read_bytes(hierarchy.native_transforms, hierarchy.capacity * 8),
+                )
+                for index in hierarchy.live_indices:
+                    native_transform = natives[index]
+                    if not native_transform:
+                        continue
+                    parent = index
+                    for _ in range(self.MAX_TRANSFORM_DEPTH):
+                        if parent == hierarchy.index:
+                            self._check_ui_transform_slot(native_transform, hierarchy, index)
+                            if self._native_transform_name(native_transform) == expected_name:
+                                # A reparent inside the same hierarchy need not
+                                # change its count, slot identities or live order.
+                                ancestor = index
+                                while ancestor != hierarchy.index:
+                                    if self.memory.read_i32(hierarchy.parents + ancestor * 4) != parents[ancestor]:
+                                        raise MemoryReadError("UI Transform ancestry changed during sampling.")
+                                    ancestor = parents[ancestor]
+                                self._check_ui_transform_hierarchy(root_native, hierarchy)
+                                self._check_ui_transform_slot(native_transform, hierarchy, index)
+                                return native_transform
+                            break
+                        if parent not in live_indices:
+                            break
+                        parent = parents[parent]
+                raise MemoryReadError(
+                    f"Pause Map descendant '{expected_name}' is not available."
+                )
+            except MemoryReadError:
+                if attempt + 1 == self.UI_HIERARCHY_READ_ATTEMPTS:
+                    raise
 
     def _transform_point(
         self, transform: int, local_point: tuple[float, float, float]
