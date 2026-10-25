@@ -83,11 +83,11 @@ class SharedDataPageTests(unittest.TestCase):
                     migration.assert_not_called()
             connect.assert_not_called()
 
-    def test_source_keeps_previous_caption_and_no_migration_controls(self) -> None:
+    def test_source_shows_runtime_caption_and_no_migration_controls(self) -> None:
         page, _ = self.page(self.context("source"))
         self.assertEqual(
             page.mode_label.text(),
-            "Source run: data stays in the repository root. Installed-build migration rules are ignored.",
+            "Source run: data stays in the runtime folder inside the repository. Installed-build migration rules are ignored.",
         )
         self.assertTrue(page.migration_card.isHidden())
         self.assert_public_page(page)

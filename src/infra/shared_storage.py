@@ -88,6 +88,12 @@ def selected_shared_context(installation: Path, *, source_run: bool) -> StorageC
         return None
     marker = installation / SOURCE_MARKER
     if source_run:
+        from infra.source_runtime import runtime_directory
+
+        runtime_marker = runtime_directory(installation) / SOURCE_MARKER
+        storage._reject_linked_destination(installation, runtime_marker)
+        if runtime_marker.exists():
+            marker = runtime_marker
         if not marker.exists() and not marker.is_symlink():
             return None
         storage._reject_linked_destination(installation, marker)
@@ -206,7 +212,10 @@ def request_shared_folder(destination: str | Path) -> MigrationActionResult:
         storage._write_state(recommended, state)
         try:
             if not storage.is_frozen_build():
-                marker = context.installation_dir / SOURCE_MARKER
+                from infra.source_runtime import runtime_directory
+
+                marker = runtime_directory(context.installation_dir) / SOURCE_MARKER
+                storage._ensure_writable(marker.parent)
                 storage._reject_linked_destination(context.installation_dir, marker)
                 storage._write_journal(marker, {"shared_profile": 1})
         except Exception:

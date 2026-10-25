@@ -171,7 +171,7 @@ class DataStoragePage(QWidget):
 
         if context.mode == "source":
             mode_text = (
-                "Source run: data stays in the repository root. Installed-build "
+                "Source run: data stays in the runtime folder inside the repository. Installed-build "
                 "migration rules are ignored."
             )
         elif context.mode == "legacy":

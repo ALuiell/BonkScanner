@@ -79,11 +79,11 @@ class DataStoragePageTests(unittest.TestCase):
         finally:
             confirm.close()
 
-    def test_source_mode_shows_project_path_without_migration_controls(self) -> None:
+    def test_source_mode_shows_runtime_path_without_migration_controls(self) -> None:
         context = StorageContext(
             mode="source",
             installation_dir=self.root,
-            data_dir=self.root,
+            data_dir=self.root / "runtime",
             recommended_dir=None,
             installation_key=None,
         )
@@ -91,7 +91,7 @@ class DataStoragePageTests(unittest.TestCase):
         try:
             page.show()
             QApplication.processEvents()
-            self.assertEqual(page.current_path_label.text(), str(self.root))
+            self.assertEqual(page.current_path_label.text(), str(self.root / "runtime"))
             self.assertTrue(
                 page.current_path_label.textInteractionFlags()
                 & Qt.TextSelectableByMouse

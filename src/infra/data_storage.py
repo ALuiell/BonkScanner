@@ -1,7 +1,7 @@
 """Select and migrate BonkScanner's writable application data directory.
 
 Source checkouts remain portable unless explicitly connected to shared data.
-Unlinked checkouts keep their data in the repository root. Frozen
+Unlinked checkouts keep their data in runtime/ below the repository root. Frozen
 builds default to one shared LocalAppData directory unless the executable
 directory already contains a legacy profile. A selected installed-build path
 is saved in LocalAppData so it survives restarts.
@@ -1003,13 +1003,19 @@ def initialize_storage(*, acquire_active_lock: bool = True) -> StorageContext:
         installation = installation_directory()
         from infra.shared_storage import selected_shared_context
         shared = selected_shared_context(installation, source_run=not is_frozen_build())
+        if not is_frozen_build():
+            from infra.source_runtime import prepare_source_runtime
+
+            runtime = prepare_source_runtime(
+                installation, shared_data=shared.data_dir if shared is not None else None
+            )
         if shared is not None:
             context = shared
         elif not is_frozen_build():
             context = StorageContext(
                 mode="source",
                 installation_dir=installation,
-                data_dir=installation,
+                data_dir=runtime,
                 recommended_dir=None,
                 installation_key=None,
             )

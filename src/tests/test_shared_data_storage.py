@@ -19,6 +19,7 @@ class SharedDataStorageTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.install = self.root / "source-regular"
         self.install.mkdir()
+        self.runtime = self.install / "runtime"
         self.anchor = self.root / "local" / "BonkScanner"
         self.folder = self.root / "profile"
         self.folder.mkdir()
@@ -49,7 +50,7 @@ class SharedDataStorageTests(unittest.TestCase):
         (self.anchor / storage.STATE_FILE_NAME).write_text("corrupt", encoding="utf-8")
         with patch.object(storage, "recommended_data_directory", side_effect=AssertionError("must stay private")):
             context = storage.initialize_storage(acquire_active_lock=False)
-        self.assertEqual(context.data_dir, self.install)
+        self.assertEqual(context.data_dir, self.runtime)
         self.assertEqual(context.mode, "source")
 
     def test_connect_uses_existing_library_without_overwriting_either_config(self):
@@ -57,15 +58,17 @@ class SharedDataStorageTests(unittest.TestCase):
         existing = (self.folder / "config.json").read_bytes()
         (self.install / "merchant_history.jsonl").write_text('{"v":1}\n', encoding="utf-8")
         self.connect()
-        self.assertEqual(storage.storage_context().data_dir, self.install)
+        self.assertEqual(storage.storage_context().data_dir, self.runtime)
         context = self.restart()
         self.assertEqual(context.mode, "shared")
         self.assertEqual(context.data_dir, self.folder)
         self.assertTrue(context.can_migrate)
         self.assertEqual((self.folder / "config.json").read_bytes(), existing)
-        self.assertEqual((self.install / "config.json").read_bytes(), old)
+        self.assertEqual((self.runtime / "config.json").read_bytes(), old)
         self.assertFalse((self.folder / "merchant_history.jsonl").exists())
-        self.assertTrue((self.install / "merchant_history.jsonl").exists())
+        self.assertTrue((self.runtime / "merchant_history.jsonl").exists())
+        self.assertTrue((self.runtime / shared.SOURCE_MARKER).is_file())
+        self.assertFalse((self.install / shared.SOURCE_MARKER).exists())
 
     def test_advanced_copies_its_legacy_config_under_a_different_name(self):
         with patch.multiple(edition, EDITION="advanced", CONFIG_FILE_NAME="config_advanced.json"):
@@ -89,7 +92,7 @@ class SharedDataStorageTests(unittest.TestCase):
     def test_advanced_source_upgrade_keeps_the_original_file(self):
         with patch.multiple(edition, EDITION="advanced", CONFIG_FILE_NAME="config_advanced.json"):
             storage.initialize_storage()
-        self.assertEqual((self.install / "config_advanced.json").read_bytes(), (self.install / "config.json").read_bytes())
+        self.assertEqual((self.runtime / "config_advanced.json").read_bytes(), (self.runtime / "config.json").read_bytes())
 
     def test_live_shared_folder_rejects_another_writer(self):
         self.connect()
@@ -117,7 +120,7 @@ class SharedDataStorageTests(unittest.TestCase):
         empty = self.root / "empty"
         empty.mkdir()
         self.assertFalse(shared.request_shared_folder(empty).success)
-        nested = self.install / "nested"
+        nested = self.runtime / "nested"
         nested.mkdir()
         (nested / "config.json").write_text("{}", encoding="utf-8")
         self.assertFalse(shared.request_shared_folder(nested).success)
@@ -137,7 +140,7 @@ class SharedDataStorageTests(unittest.TestCase):
     def test_test_runner_can_ignore_a_real_source_selection(self):
         self.connect()
         with patch.dict(os.environ, {shared.IGNORE_SHARED_ENV: "1"}):
-            self.assertEqual(self.restart().data_dir, self.install)
+            self.assertEqual(self.restart().data_dir, self.runtime)
 
     def test_another_profile_cannot_silently_replace_the_shared_selection(self):
         self.connect()
@@ -149,6 +152,7 @@ class SharedDataStorageTests(unittest.TestCase):
         self.assertEqual(self.restart().data_dir, self.folder)
 
     def test_source_marker_failure_rolls_back_the_registration(self):
+        storage.initialize_storage()
         with patch.object(storage, "_write_journal", side_effect=OSError("marker denied")):
             result = shared.request_shared_folder(self.folder)
         self.assertFalse(result.success)
@@ -157,9 +161,10 @@ class SharedDataStorageTests(unittest.TestCase):
         self.assertFalse((self.install / shared.SOURCE_MARKER).exists())
 
     def test_current_folder_can_become_shared_without_copying_over_itself(self):
-        self.folder = self.install
+        storage.initialize_storage()
+        self.folder = self.runtime
         self.connect()
-        self.assertEqual(self.restart().data_dir, self.install)
+        self.assertEqual(self.restart().data_dir, self.runtime)
         self.assertEqual(storage.storage_context().mode, "shared")
 
     def test_shared_move_copies_both_configs_and_all_members_follow(self):

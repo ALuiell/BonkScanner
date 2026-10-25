@@ -263,6 +263,16 @@ You can also launch it manually after setup:
 `start.bat` creates the virtual environment, upgrades pip, and installs runtime
 dependencies from [`src/requirements.txt`](src/requirements.txt).
 
+Source runs create a Git-ignored `runtime/` folder inside the checkout for
+settings, histories, recordings, caches, and logs. Existing root-level runtime
+files move there automatically on startup; if `runtime/` already has a profile,
+the old profile is kept together under `runtime/legacy-backup/`. An interrupted
+move resumes on the next launch. Project files such as `supporters.json` and
+`THIRD_PARTY_NOTICES.md` stay in the repository root.
+
+An explicitly selected shared data folder remains active; only its local
+selection marker moves into `runtime/`. Windows EXE storage behavior is unchanged.
+
 <details>
 <summary><strong>Manual PowerShell setup</strong></summary>
 
