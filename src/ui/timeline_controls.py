@@ -381,7 +381,7 @@ def build_timeline_powerups_checkbox(shared, on_changed):
 
     checkbox = QCheckBox("Powerups")
     checkbox.setObjectName("TimelineCapToggle")
-    checkbox.setToolTip("Show powerup activity lanes and observed uptime")
+    checkbox.setToolTip("Show powerup activity lanes, observed pickup counts and uptime")
     checkbox.setChecked(shared.powerups_enabled)
     checkbox.toggled.connect(on_changed)
     return checkbox

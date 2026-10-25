@@ -45,6 +45,56 @@ def history_until(end=20):
 
 
 class PowerupProjectionTests(unittest.TestCase):
+    def test_pickup_counts_include_repeats_without_counting_every_poll(self):
+        projection = PowerupProjection(history_until())
+        self.assertEqual(projection.counts(1)[1], 0)
+        self.assertEqual(projection.counts(2)[1], 1)
+        self.assertEqual(projection.counts(5.99)[1], 1)
+        self.assertEqual(projection.counts(6)[1], 2)
+        self.assertEqual(projection.counts(20), {1: 2, 2: 0, 3: 1, 4: 0})
+        self.assertEqual(projection.counts(4, 8), {1: 1, 2: 0, 3: 1, 4: 0})
+        self.assertEqual(projection.counts(8, 4), projection.counts(4, 8))
+        self.assertEqual(projection.counts(2, 6)[1], 1)
+        self.assertTrue(all(value == 0 for value in projection.counts(6, 6).values()))
+        self.assertIn('Observed pickups: 2', projection.tooltip(1, 20))
+
+    def test_new_pickup_has_raw_start_but_extension_waits_for_its_poll(self):
+        samples = (observation(0), observation(1, ((1, .25, 10),)),
+                   observation(2, ((1, .25, 20),)),
+                   observation(3, ((1, 2.5, 30),)))
+        projection = PowerupProjection(PowerupHistory(samples))
+        for capture, count in ((.24, 0), (.25, 1), (1.99, 1), (2, 2), (2.49, 2), (2.5, 3)):
+            self.assertEqual(projection.counts(capture)[1], count)
+
+    def test_pickup_counts_survive_pause_gaps_and_late_start_without_duplicates(self):
+        samples = (observation(0, ((1, 50, 200),), my=100, axis=60),
+                   observation(1, ((1, 50, 200),), my=101, axis=61),
+                   observation(60, ((1, 50, 200),), my=101, axis=61),
+                   observation(61, valid=False),
+                   observation(62, ((1, 50, 200),), my=103, axis=63),
+                   observation(70, ((1, 50, 250),), my=110, axis=70))
+        projection = PowerupProjection(PowerupHistory(samples))
+        self.assertEqual(projection.counts(-1)[1], 0)
+        self.assertEqual(projection.counts(0)[1], 1)
+        self.assertEqual(projection.counts(62)[1], 1)
+        self.assertEqual(projection.counts(69)[1], 1)
+        self.assertEqual(projection.counts(70)[1], 2)
+        self.assertFalse(projection.complete(70))
+
+    def test_pickup_counts_reset_identity_on_new_run_or_effect_clock_epoch(self):
+        samples = (observation(0, ((4, 0, 20),), my=10, axis=0),
+                   observation(1, ((4, 0, 20),), my=11, axis=0, run='other'),
+                   observation(2, ((4, 0, 20),), my=1, axis=0, run='other'))
+        projection = PowerupProjection(PowerupHistory(samples))
+        self.assertEqual(projection.counts(2)[4], 3)
+
+    def test_expiry_and_reappearance_do_not_count_an_unchanged_record_twice(self):
+        samples = (observation(0, ((1, 0, 1),)), observation(1),
+                   observation(2, ((1, 0, 1),)), observation(3, ((1, 2.5, 10),)))
+        projection = PowerupProjection(PowerupHistory(samples))
+        self.assertEqual(projection.counts(2)[1], 1)
+        self.assertEqual(projection.counts(3)[1], 2)
+
     def test_cumulative_and_reversed_segment_clip_each_effect(self):
         projection = PowerupProjection(history_until())
         self.assertEqual(projection.totals(4)[1], 2)
@@ -73,9 +123,13 @@ class PowerupProjectionTests(unittest.TestCase):
             self.assertEqual(updated.coverage, full.coverage)
             for capture in (0, 4, 8, 12, 20):
                 self.assertEqual(updated.totals(capture), full.totals(capture))
+                self.assertEqual(updated.counts(capture), full.counts(capture))
+                self.assertEqual(updated.counts(capture, 6), full.counts(capture, 6))
                 self.assertEqual(updated.active(capture), full.active(capture))
             if previous is not None:
                 self.assertEqual(len(previous.observations), count - 1)
+                self.assertEqual(previous.counts(20), PowerupProjection(
+                    PowerupHistory(history.observations[:count - 1])).counts(20))
             previous = updated
 
     def test_finalization_closes_observed_intervals_but_preserves_known_expiry(self):
@@ -203,6 +257,7 @@ class PowerupStorageTests(unittest.TestCase):
             self.assertEqual(load_vod_metadata(path).snapshot_count, 1)
             self.assertEqual(loaded.powerup_history.observations, history_until(3).observations)
             self.assertTrue(loaded.powerup_history.finalized)
+            self.assertEqual(PowerupProjection(loaded.powerup_history).counts(3)[1], 1)
             prepared = prepare_loaded_recording(loaded, series_keys=("@powerups", "Difficulty"))
             renamed, vod = replace_prepared_metadata(prepared, loaded, loaded.metadata)
             self.assertIs(vod.powerup_history, loaded.powerup_history)

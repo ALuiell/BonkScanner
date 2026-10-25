@@ -68,7 +68,8 @@ tabs.show()
 app.processEvents()
 assert recordings._powerup_row.isVisible()
 assert recordings._powerup_row.entries[0][3]
-assert recordings._powerup_row.entries[0][2] == '0:08'
+assert recordings._powerup_row.entries[0][2] == '×1 · 0:08'
+assert 'Observed pickups: 1' in recordings._powerup_row.entries[0][4]
 assert len(recordings._powerup_row.entries) == 4
 assert recordings._powerup_row.parentWidget() is recordings._scrubber
 assert recordings._powerup_row.geometry().bottom() < recordings._scrubber._plot_rect().top()
@@ -89,7 +90,8 @@ old_plot = recordings._scrubber._plot_rect()
 old_path = recordings._scrubber._cached_paths[0][0]
 recordings.set_vod_compare_start(2)
 assert 'A–B 00:04' in recordings._powerup_row.entries[0][4]
-assert recordings._powerup_row.entries[0][2] == '0:06'
+assert recordings._powerup_row.entries[0][2] == '×0 · 0:06'
+assert 'Observed pickups: 0' in recordings._powerup_row.entries[0][4]
 recordings.clear_vod_compare_start()
 slots.set_powerups_enabled(False)
 recordings._scrubber.grab()
@@ -115,6 +117,7 @@ app.processEvents()
 compare._timeline.grab()
 assert not compare._powerup_rows['a'].isHidden()
 assert compare._powerup_rows['a'].entries[0][3]
+assert compare._powerup_rows['a'].entries[0][2] == '×1 · 0:08'
 assert compare._powerup_rows['b'].note == 'No data'
 assert all(entry[2] == '—' for entry in compare._powerup_rows['b'].entries)
 compare._set_timeline_compact(True)
@@ -163,7 +166,7 @@ recordings._scrubber.set_powerups(prepared.powerups)
 recordings._powerup_row.set_state(prepared.powerups, 18, axis_a=18)
 recordings._powerup_row.grab()
 assert not recordings._powerup_row.entries[0][3]
-assert recordings._powerup_row.entries[0][2] == '0:13'
+assert recordings._powerup_row.entries[0][2] == '×1 · 0:13'
 icon_rect, icon_tooltip = recordings._powerup_row._hits[0]
 assert 'Rage' in recordings._scrubber._marker_tooltip_at(icon_rect.center().toPoint() + recordings._powerup_row.pos())
 
@@ -271,9 +274,11 @@ recordings._submit_live_state(latest_state)
 assert recordings._scrubber._live_position == 1.0
 assert 'LIVE' in recordings._position_label.text()
 assert recordings._powerup_row.entries[0][3]
+assert recordings._powerup_row.entries[0][2] == '×2 · 0:13'
 recordings.on_scrub_index_changed(len(snapshots) - 1)
 assert recordings._scrubber._live_position is None
 assert not recordings._powerup_row.entries[0][3]
+assert recordings._powerup_row.entries[0][2] == '×1 · 0:13'
 assert not recordings._live_follow
 
 compare._library = live_library
@@ -285,6 +290,7 @@ compare._vod_a = compare._prepared_sides['a'].vod
 compare._submit_compare_live_state('a', latest_state)
 assert abs(compare._timeline.position - 1.0) < 1e-9
 assert compare._powerup_rows['a'].entries[0][3]
+assert compare._powerup_rows['a'].entries[0][2] == '×2 · 0:13'
 assert compare._powerup_rows['b'].note == 'No data'
 assert all(entry[2] == '—' for entry in compare._powerup_rows['b'].entries)
 print('Qt power-up viewers OK')

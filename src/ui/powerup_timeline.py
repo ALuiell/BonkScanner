@@ -137,12 +137,14 @@ class PowerupTimelineRow(QWidget):
                   *, axis_a=0.0, axis_b=None):
         available = projection.history is not None and bool(projection.observations)
         totals = projection.totals(capture_a, capture_b) if available else {}
+        counts = projection.counts(capture_a, capture_b) if available else {}
         active = {effect.effect_id: effect for effect in projection.active(capture_a)} if available else {}
         selected = set(active) if capture_b is None else {key for key, value in totals.items() if value > 0}
         entries = []
         for effect_id, name, asset, color, level in POWERUPS:
             seconds = totals.get(effect_id)
-            label = "—" if seconds is None else f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
+            label = ("—" if seconds is None else
+                     f"×{counts[effect_id]} · {int(seconds) // 60}:{int(seconds) % 60:02d}")
             tooltip = projection.tooltip(effect_id, capture_a, capture_b) if available else "Power-up data unavailable"
             if available:
                 if capture_b is None:

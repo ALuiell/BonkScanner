@@ -119,6 +119,56 @@ class PowerupProjection:
         added_valid = tuple(o for o in self.observations[offset:] if o.valid)
         self._valid_observations = ((previous._valid_observations if previous is not None else ()) + added_valid)
         self._my_times = (previous._my_times if previous is not None else ()) + tuple(o.my_time for o in added_valid)
+        self._prepare_pickups(offset, previous)
+
+    def _prepare_pickups(self, offset, previous):
+        # Use the same raw fields as the live widget: a new added time or an
+        # increased expiry is evidence of a pickup, even while already active.
+        # Retain signatures across missing reads so reconnecting does not count
+        # an unchanged buff twice. Copy all state: live revisions are immutable.
+        signatures = dict(previous._pickup_signatures) if previous is not None else {}
+        last_valid = previous._pickup_last_valid if previous is not None else None
+        added = {effect_id: [] for effect_id, *_ in POWERUPS}
+        for index in range(offset, len(self.observations)):
+            current = self.observations[index]
+            if not current.valid:
+                continue
+            if last_valid is not None and (
+                    current.my_time < last_valid.my_time
+                    or (current.run_id is not None and last_valid.run_id is not None
+                        and current.run_id != last_valid.run_id)):
+                signatures.clear()
+            prior = self.observations[index - 1] if index else None
+            for effect in current.effects:
+                if effect.effect_id not in added:
+                    continue
+                old = signatures.get(effect.effect_id)
+                if old is None or effect.added != old.added or effect.expires > old.expires:
+                    capture = current.captured_at
+                    if (prior is not None and self._continuous(prior, current)
+                            and current.my_time > prior.my_time
+                            and (old is None or effect.added != old.added)
+                            and prior.my_time <= effect.added <= current.my_time):
+                        fraction = (effect.added - prior.my_time) / (current.my_time - prior.my_time)
+                        capture = prior.captured_at + fraction * (current.captured_at - prior.captured_at)
+                    # Extension timing is only known at the poll that saw it.
+                    # Late-start and recovered effects are counted there too;
+                    # do not invent a pickup time in an unobserved section.
+                    added[effect.effect_id].append(capture)
+                signatures[effect.effect_id] = effect
+            last_valid = current
+        self._pickup_signatures = signatures
+        self._pickup_last_valid = last_valid
+        self._pickup_times = {
+            effect_id: (previous._pickup_times[effect_id] if previous is not None else ()) + tuple(times)
+            for effect_id, times in added.items()
+        }
+
+    def counts(self, capture_a, capture_b=None):
+        """Observed pickups through A, or in (low, high] for an A–B range."""
+        low, high = (float("-inf"), capture_a) if capture_b is None else sorted((capture_a, capture_b))
+        return {effect_id: bisect_right(times, high) - bisect_right(times, low)
+                for effect_id, times in self._pickup_times.items()}
 
     @staticmethod
     def _continuous(previous, current):
@@ -229,7 +279,10 @@ class PowerupProjection:
         name = next(p[1] for p in POWERUPS if p[0] == effect_id)
         total = self.totals(capture_a, capture_b)[effect_id]
         low, high = (float("-inf"), capture_a) if capture_b is None else sorted((capture_a, capture_b))
-        lines = [f"{name} · {duration_label(total)}"]
+        count = self.counts(capture_a, capture_b)[effect_id]
+        lines = [f"{name} · {duration_label(total)}", f"Observed pickups: {count}"]
+        lines.append("Repeat pickups count when expiry increases; several pickups between polls may count as one.")
+        lines.append("Pickups with unknown timing count at first observation; A–B excludes its earlier endpoint.")
         for span in self.intervals:
             if span.effect_id == effect_id and span.end_capture > low and span.start_capture < high:
                 first = self.axis_at_capture(max(low, span.start_capture))
