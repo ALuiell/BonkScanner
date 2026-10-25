@@ -15,6 +15,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 import src
 from pathlib import Path
 from dataclasses import replace
+from unittest.mock import patch
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtWidgets import QApplication, QTabWidget, QLabel, QWidget
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QImage, QPainter
@@ -98,6 +99,10 @@ recordings._scrubber.grab()
 assert recordings._scrubber._plot_rect().height() == old_plot.height() + 23
 assert recordings._scrubber._plot_rect().top() == old_plot.top()
 assert not recordings._powerup_row.isVisible()
+with patch.object(recordings._powerup_row, 'set_state', side_effect=AssertionError('hidden readout rendered')):
+    with patch('ui.tabs.player_stats.recordings.build_axis_projection',
+               side_effect=AssertionError('unchanged axis rebuilt')):
+        recordings._refresh_powerup_timeline(6)
 slots.set_powerups_enabled(True)
 
 compare = CompareRunsTab(tabview=tabs, vod_library=library, is_active=lambda: True,
@@ -122,6 +127,8 @@ assert compare._powerup_rows['b'].note == 'No data'
 assert all(entry[2] == '—' for entry in compare._powerup_rows['b'].entries)
 compare._set_timeline_compact(True)
 assert compare._powerup_rows['a'].isHidden()
+with patch.object(compare._powerup_rows['a'], 'set_state', side_effect=AssertionError('compact readout rendered')):
+    compare._refresh_powerup_timeline_rows()
 # Compact retains numeric curves even with all four activity lanes enabled.
 from unittest.mock import patch
 import ui.tabs.compare_runs.timeline as timeline_module

@@ -77,7 +77,7 @@ from projections.item_sort import ITEM_SORT_RARITY_DESC
 from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
 from projections.timeline_axis import SnapshotTimeIndex
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
-from ui.recording_library import RecordingLibraryRow, recording_search_text
+from ui.recording_library import recording_search_text, sync_recording_rows
 from ui.shared import (
     FullWidthTabWidget,
     LabeledSwitch,
@@ -400,6 +400,7 @@ class CompareRunsTab:
         self._index_a = None
         self._index_b = None
         self._list_signature = None
+        self._list_refresh_pending = False
         self._chooser_expanded = False
         self._guided_selection_active = False
         self._stats_config_expanded = False
@@ -527,8 +528,11 @@ class CompareRunsTab:
             )
 
     def refresh_compare_runs_list(self, *, refresh_index: bool = True):
-        """Refresh both chooser lists synchronously after the initial build."""
+        """Reuse chooser rows after the initial staged build."""
         if self._disposed:
+            return
+        if self._tab is not None and not self._tab.is_built:
+            self._list_refresh_pending = True
             return
         if self._is_active():
             for side in ("a", "b"):
@@ -585,6 +589,8 @@ class CompareRunsTab:
         if (
             getattr(self._library, "active_state", None) is not None
             and set(existing_paths) == set(by_path)
+            and self._list_signature is not None
+            and self._list_signature[0] == self._compare_runs_sort_mode()
         ):
             vods = [by_path[path] for path in existing_paths]
         selected_a = self._vod_a.metadata.path if self._vod_a is not None else None
@@ -668,8 +674,7 @@ class CompareRunsTab:
             RECORDING_SORT_CONFIG_KEY,
             normalize_recording_sort_mode(self._compare_runs_sort_mode()),
         )
-        self._list_signature = None
-        self.refresh_compare_runs_list()
+        self.refresh_compare_runs_list(refresh_index=False)
 
     def _save_compare_run_config_value(self, label: str, key: str, value) -> bool:
         """Persist one preference without leaking an exception through Qt."""
@@ -727,46 +732,22 @@ class CompareRunsTab:
         *,
         batch_size: int,
     ):
-        list_frame.blockSignals(True)
-        list_frame.clear()
         side = "a" if list_frame is self._run_a_list_frame else "b"
-        self._list_items[side].clear()
-        self._list_rows[side].clear()
-        if not vods:
-            item = QListWidgetItem("No saved recordings")
-            item.setFlags(Qt.NoItemFlags)
-            list_frame.addItem(item)
-            list_frame.blockSignals(False)
-            return
-
-        selected_row = None
         longest_seconds = max(
             (max(0, int(getattr(vod, "duration_seconds", 0) or 0)) for vod in vods),
             default=0,
         )
         self._list_longest_seconds = longest_seconds
-        for row, vod in enumerate(vods):
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, str(vod.path))
-            item.setData(_RECORDING_SEARCH_ROLE, recording_search_text(vod))
-            widget = RecordingLibraryRow(vod, longest_seconds=longest_seconds)
-            widget.set_metadata(
-                vod,
-                longest_seconds=longest_seconds,
-                live=self._is_live_path(vod.path),
-            )
-            item.setSizeHint(widget.sizeHint())
-            list_frame.addItem(item)
-            list_frame.setItemWidget(item, widget)
-            self._list_items[side][str(vod.path)] = item
-            self._list_rows[side][str(vod.path)] = widget
-            if selected_path == vod.path:
-                selected_row = row
-            if batch_size and (row + 1) % batch_size == 0:
-                yield None
-        if selected_row is not None:
-            list_frame.setCurrentRow(selected_row)
-        list_frame.blockSignals(False)
+        yield from sync_recording_rows(
+            list_frame, vods, self._list_items[side], self._list_rows[side],
+            longest_seconds=longest_seconds, is_live=self._is_live_path,
+            batch_size=batch_size, search_role=_RECORDING_SEARCH_ROLE,
+        )
+        selected = self._list_items[side].get(str(selected_path))
+        if selected is not None:
+            blocked = list_frame.blockSignals(True)
+            list_frame.setCurrentItem(selected)
+            list_frame.blockSignals(blocked)
 
     def _filter_compare_run_list(self, side: str) -> None:
         list_frame = self._compare_run_widget(side, "list_frame")
@@ -777,7 +758,9 @@ class CompareRunsTab:
         for row in range(list_frame.count()):
             item = list_frame.item(row)
             searchable = str(item.data(_RECORDING_SEARCH_ROLE) or item.text()).casefold()
-            item.setHidden(bool(needle and needle not in searchable))
+            hidden = bool(needle and needle not in searchable)
+            if item.isHidden() != hidden:
+                item.setHidden(hidden)
 
     def _on_compare_run_selection_changed(self, side: str, current: QListWidgetItem | None):
         if current is None:
@@ -893,6 +876,7 @@ class CompareRunsTab:
                 cap_keys=cap_keys,
                 cancelled=cancel_event.is_set,
                 progress=publish_progress,
+                load_recording=getattr(self._library, "load_recording", None),
             )
 
         if callable(self._schedule):
@@ -1331,6 +1315,8 @@ class CompareRunsTab:
                 projection = PowerupProjection(getattr(vod, "powerup_history", None))
             if self._timeline is not None:
                 self._timeline.set_powerups(side, projection)
+            if not enabled or self._timeline_compact:
+                continue
             snapshot = self._compare_run_snapshot(side)
             if snapshot is None:
                 row.set_state(projection, 0.0)
@@ -2815,7 +2801,11 @@ class CompareRunsTab:
         self._list_signature = None
         # Each recording renders twice, once per chooser side. Batch the rows so
         # a large library cannot freeze the A/B loading ring for the whole pass.
-        yield from self._refresh_compare_runs_list_steps(batch_size=8)
+        while True:
+            self._list_refresh_pending = False
+            yield from self._refresh_compare_runs_list_steps(batch_size=8)
+            if not self._list_refresh_pending:
+                break
         self.refresh_compare_runs_ui()
 
     def _build_run_plaque(self, side: str):
@@ -2961,6 +2951,7 @@ class CompareRunsTab:
         the page carries no delta sign of its own.
         """
         page, _content, layout = self._new_scroll_page()
+        self._detail_tabs.addTab(page, "Overview")
         self._luck_loot_view = CompareRunsLuckLootView()
         layout.addWidget(self._luck_loot_view)
         yield None
@@ -2980,7 +2971,6 @@ class CompareRunsTab:
         self._snapshot_comparison_table = None
         self._run_a_summary_label = None
         self._run_b_summary_label = None
-        self._detail_tabs.addTab(page, "Overview")
 
     def _jump_to_page(self, title: str) -> None:
         """Hub tiles name their target, so a reordered tab bar cannot mis-jump."""

@@ -16,14 +16,16 @@ POWERUPS = (
 MAX_OBSERVATION_GAP = 1.5
 
 
-@dataclass(frozen=True)
+# A long recording contains tens of thousands of these immutable values.
+# Avoid a separate attribute dictionary for every observation and effect.
+@dataclass(frozen=True, slots=True)
 class RecordedEffect:
     effect_id: int
     added: float
     expires: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PowerupObservation:
     captured_at: float
     my_time: float | None

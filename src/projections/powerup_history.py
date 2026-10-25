@@ -17,7 +17,7 @@ def duration_label(seconds: float) -> str:
     return f"{minutes}m {seconds:02d}s"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EffectSpan:
     effect_id: int
     start_capture: float

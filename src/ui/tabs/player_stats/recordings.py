@@ -93,7 +93,7 @@ from projections.item_sort import ITEM_SORT_RARITY_DESC
 from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
 from projections.timeline_axis import AXIS_TIME, build_axis_projection
 from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
-from ui.recording_library import RecordingLibraryRow
+from ui.recording_library import sync_recording_rows
 from ui.tabs.player_stats.metrics import (
     LIVE_STATS_VALUE_WIDTH,
     RECORDINGS_LIST_MAX_WIDTH,
@@ -403,6 +403,10 @@ class _StageChapterCard(QFrame):
     def set_state(
         self, *, has_data: bool, is_current: bool, is_anchor: bool
     ) -> None:
+        state = (bool(has_data), bool(is_current), bool(is_anchor))
+        if state == getattr(self, "_chapter_state", None):
+            return
+        self._chapter_state = state
         self.setProperty("hasData", bool(has_data))
         self.setProperty("current", bool(is_current))
         self.setProperty("rangeAnchor", bool(is_anchor))
@@ -515,6 +519,7 @@ class RecordingsTab:
         # write per frame for a value only the next launch reads.
         self._library_width_throttle = UiUpdateThrottle(500)
         self._list_signature = None
+        self._list_refresh_pending = False
         self._load_generation = 0
         self._load_in_progress = False
         self._loading_path: Path | None = None
@@ -597,6 +602,13 @@ class RecordingsTab:
             )
 
     def refresh_vods_list(self, *, refresh_index: bool = True):
+        if self._tab is not None and not self._tab.is_built:
+            self._list_refresh_pending = True
+            return
+        for _step in self._refresh_vods_list_steps(refresh_index=refresh_index):
+            pass
+
+    def _refresh_vods_list_steps(self, *, refresh_index: bool = True, batch_size: int = 0):
         if self._disposed:
             return
         if self._list_frame is None:
@@ -626,13 +638,9 @@ class RecordingsTab:
                 )
                 return
         selected_path = self._loaded_vod.metadata.path if self._loaded_vod is not None else None
-        query = _read_text(self._search_entry).strip().casefold() if self._search_entry else ""
         sort_mode = self._recordings_sort_mode()
-        # The sort mode is part of the signature, not just an input to the
-        # paint below. Changing the order changes neither the selection, the
-        # query nor the set of recordings, so without it here the early return
-        # swallows the repaint and the combo box does nothing at all -- with no
-        # error to say why.
+        # Search only hides existing rows. Sort order and membership describe
+        # the widget tree; metadata changes are applied to those rows in place.
         if refresh_index:
             self._library.ensure_refresh()
 
@@ -642,7 +650,7 @@ class RecordingsTab:
         if refresh_index or self._list_signature is None:
             self._refresh_library_footer(vods)
 
-        matches = sort_recordings(filter_recordings(vods, query), sort_mode)
+        matches = sort_recordings(vods, sort_mode)
         existing_paths = tuple(
             str(self._list_frame.item(row).data(Qt.UserRole) or "")
             for row in range(self._list_frame.count())
@@ -652,9 +660,11 @@ class RecordingsTab:
         if (
             getattr(self._library, "active_state", None) is not None
             and set(existing_paths) == set(match_by_path)
+            and self._list_signature is not None
+            and self._list_signature[0] == sort_mode
         ):
             matches = [match_by_path[path] for path in existing_paths]
-        signature = (query, sort_mode, tuple(str(vod.path) for vod in matches))
+        signature = (sort_mode, tuple(str(vod.path) for vod in matches))
         longest_seconds = max((vod.duration_seconds for vod in vods), default=0)
         self._list_longest_seconds = longest_seconds
 
@@ -674,43 +684,48 @@ class RecordingsTab:
                     self._list_frame.blockSignals(True)
                     self._list_frame.setCurrentItem(item)
                     self._list_frame.blockSignals(False)
+            self._filter_recordings_list()
             return
 
-        self._list_frame.blockSignals(True)
-        self._list_frame.clear()
-        self._list_items_by_path.clear()
-        self._list_rows_by_path.clear()
-        if not matches:
-            item = QListWidgetItem(
-                "No recordings match this search" if query else "No saved recordings"
-            )
-            item.setFlags(Qt.NoItemFlags)
-            self._list_frame.addItem(item)
-            self._list_frame.blockSignals(False)
-            self._list_signature = signature
-            return
-
-        selected_row = None
-        for row, vod in enumerate(matches):
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, str(vod.path))
-            widget = RecordingLibraryRow(vod, longest_seconds=longest_seconds)
-            widget.set_metadata(
-                vod,
-                longest_seconds=longest_seconds,
-                live=self._is_live_path(vod.path),
-            )
-            item.setSizeHint(widget.sizeHint())
-            self._list_frame.addItem(item)
-            self._list_frame.setItemWidget(item, widget)
-            self._list_items_by_path[str(vod.path)] = item
-            self._list_rows_by_path[str(vod.path)] = widget
-            if selected_path == vod.path:
-                selected_row = row
-        if selected_row is not None:
-            self._list_frame.setCurrentRow(selected_row)
-        self._list_frame.blockSignals(False)
+        yield from sync_recording_rows(
+            self._list_frame, matches, self._list_items_by_path,
+            self._list_rows_by_path, longest_seconds=longest_seconds,
+            is_live=self._is_live_path, batch_size=batch_size,
+        )
+        item = self._list_items_by_path.get(str(selected_path))
+        if item is not None:
+            blocked = self._list_frame.blockSignals(True)
+            self._list_frame.setCurrentItem(item)
+            self._list_frame.blockSignals(blocked)
         self._list_signature = signature
+        self._filter_recordings_list()
+
+    def _filter_recordings_list(self) -> None:
+        if self._list_frame is None:
+            return
+        query = _read_text(self._search_entry).strip().casefold() if self._search_entry else ""
+        visible = 0
+        for key, item in self._list_items_by_path.items():
+            name = self._list_rows_by_path[key].metadata.name
+            hidden = bool(query and query not in name.casefold())
+            if item.isHidden() != hidden:
+                item.setHidden(hidden)
+            visible += not hidden
+        # The disabled placeholder has no path and never participates in search.
+        placeholder = next(
+            (self._list_frame.item(row)
+             for row in range(self._list_frame.count())
+             if not self._list_frame.item(row).data(Qt.UserRole)),
+            None,
+        )
+        if not visible:
+            if placeholder is None:
+                placeholder = QListWidgetItem()
+                placeholder.setFlags(Qt.NoItemFlags)
+                self._list_frame.addItem(placeholder)
+            placeholder.setText("No recordings match this search" if query else "No saved recordings")
+        elif placeholder is not None:
+            self._list_frame.takeItem(self._list_frame.row(placeholder))
 
     def _refresh_library_footer(self, vods) -> None:
         """Refresh the library totals and availability of its cleanup action."""
@@ -742,16 +757,14 @@ class RecordingsTab:
         return normalize_recording_sort_mode(combo.currentData())
 
     def on_recordings_search_changed(self, _text: str = "") -> None:
-        self._list_signature = None
-        self.refresh_vods_list()
+        self._filter_recordings_list()
 
     def on_recordings_sort_changed(self, _index: int = 0) -> None:
         self._save_recording_preference(
             "recording sort order",
             lambda: set_recording_sort_mode(self._recordings_sort_mode()),
         )
-        self._list_signature = None
-        self.refresh_vods_list()
+        self.refresh_vods_list(refresh_index=False)
 
     def _save_recording_preference(self, label: str, writer) -> bool:
         """Keep config I/O failures inside their Qt signal/timer boundary."""
@@ -1045,6 +1058,7 @@ class RecordingsTab:
                 cap_keys=cap_keys,
                 cancelled=cancel_event.is_set,
                 progress=publish_progress,
+                load_recording=getattr(self._library, "load_recording", None),
             )
 
         if callable(self._schedule):
@@ -1538,14 +1552,20 @@ class RecordingsTab:
                       f'<span style="color:#8A94A3;">{formatting.format_elapsed_time(axis)}</span>')
         pin = self._compare_start_index
         other = vod.snapshots[pin] if pin is not None and 0 <= pin < len(vod.snapshots) else None
-        row.set_state(projection, capture, other.captured_at if other is not None else None,
-                      axis_a=axis, axis_b=formatting._snapshot_compare_time(other) if other is not None else None)
+        if enabled:
+            row.set_state(projection, capture, other.captured_at if other is not None else None,
+                          axis_a=axis, axis_b=formatting._snapshot_compare_time(other) if other is not None else None)
         if self._scrubber is not None:
             self._scrubber.set_powerups(projection)
             # The fast tail extends the same time axis without adding a stat snapshot.
             if prepared is not None:
                 duration = max(prepared.axis_projection.duration, projection.latest_axis if enabled else 0.0)
-                self._scrubber.set_projection(build_axis_projection(vod.snapshots, common_duration=duration))
+                # Most playhead moves do not change the axis. Reuse the
+                # background-prepared projection instead of rescanning the run.
+                axis_projection = prepared.axis_projection
+                if duration != axis_projection.duration:
+                    axis_projection = build_axis_projection(vod.snapshots, common_duration=duration)
+                self._scrubber.set_projection(axis_projection)
                 self._scrubber.set_live_position(axis / max(duration, 1.0) if live_tail else None)
 
     def _position_text(self, index: int) -> str:
@@ -2554,6 +2574,16 @@ class RecordingsTab:
         recordings_main_layout = QVBoxLayout(recordings_main)
         recordings_main_layout.setContentsMargins(0, 0, 0, 0)
         recordings_main_layout.setSpacing(14)
+        # Attach the scroll shell before filling it. Reparenting a complete
+        # Stats tree makes Qt polish all its descendants in a single frame.
+        recordings_main_scroll = QScrollArea()
+        recordings_main_scroll.setObjectName("RecordingsMainScroll")
+        recordings_main_scroll.setWidgetResizable(True)
+        recordings_main_scroll.setFrameShape(QFrame.NoFrame)
+        recordings_main_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        recordings_main_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        recordings_main_scroll.setWidget(recordings_main)
+        recordings_page_layout.addWidget(recordings_main_scroll, 0, 0)
 
         vod_items_group = QGroupBox("Items")
         vod_items_group.setObjectName("LiveStatsItems")
@@ -2746,8 +2776,10 @@ class RecordingsTab:
         self._detail_tabs = FullWidthTabWidget()
         self._detail_tabs.setObjectName("subTabs")
         self._detail_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        recordings_main_layout.addWidget(self._detail_tabs)
         vod_stats_tab = QWidget()
         vod_stats_tab_layout = QVBoxLayout(vod_stats_tab)
+        self._detail_tabs.addTab(vod_stats_tab, "Stats")
         # In the tab bar's corner rather than a row of its own inside the Stats
         # page: one checkbox was costing a full-width strip above the grid, on
         # a tab where vertical space is what the stat cards are competing for.
@@ -2850,6 +2882,7 @@ class RecordingsTab:
 
         vod_loot_tab = QWidget()
         vod_loot_tab_layout = QVBoxLayout(vod_loot_tab)
+        self._detail_tabs.addTab(vod_loot_tab, "Loot")
         vod_loot_scroll, _vod_loot_scroll_content, vod_loot_scroll_layout = (
             _make_scroll_section()
         )
@@ -2966,10 +2999,6 @@ class RecordingsTab:
         self._detail_tabs.currentChanged.connect(
             lambda _index: self._on_detail_tab_changed()
         )
-        self._detail_tabs.addTab(vod_stats_tab, "Stats")
-        yield None
-        self._detail_tabs.addTab(vod_loot_tab, "Loot")
-        yield None
         self._detail_tabs.addTab(vod_weapons_tab, "Weapons")
         self._detail_tabs.addTab(vod_tomes_tab, "Tomes")
         yield None
@@ -2980,7 +3009,6 @@ class RecordingsTab:
         self._detail_tabs.addTab(vod_damage_sources_tab, "Damage Sources")
         yield None
         self._detail_tabs.setMinimumHeight(self._detail_tabs.sizeHint().height())
-        recordings_main_layout.addWidget(self._detail_tabs)
         yield None
         vod_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_loot_tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -2996,16 +3024,6 @@ class RecordingsTab:
         # scrubber is the thing everything below is read against, and a
         # navigation control that scrolls off the top stops being one. The
         # Items panel already scrolls inside itself.
-        recordings_main_scroll = QScrollArea()
-        recordings_main_scroll.setObjectName("RecordingsMainScroll")
-        recordings_main_scroll.setWidgetResizable(True)
-        recordings_main_scroll.setFrameShape(QFrame.NoFrame)
-        recordings_main_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        recordings_main_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        recordings_main_scroll.setWidget(recordings_main)
-        yield None
-        recordings_page_layout.addWidget(recordings_main_scroll, 0, 0)
-        yield None
         recordings_page_layout.addWidget(vod_items_group, 0, 1)
         recordings_page_layout.setColumnStretch(0, 3)
         recordings_page_layout.setColumnStretch(1, 1)
@@ -3113,4 +3131,8 @@ class RecordingsTab:
         # the signature says "painted" only because it starts as `None`. A tab
         # opened for the first time must find its library, not an empty column.
         self._list_signature = None
-        self.refresh_vods_list()
+        while True:
+            self._list_refresh_pending = False
+            yield from self._refresh_vods_list_steps(batch_size=8)
+            if not self._list_refresh_pending:
+                break

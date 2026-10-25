@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -244,6 +245,19 @@ class PowerupProjectionTests(unittest.TestCase):
 
 
 class PowerupStorageTests(unittest.TestCase):
+    def test_loading_shares_repeated_run_id_text_without_changing_observations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'pooled.jsonl'
+            samples = tuple(observation(i, run='same-run-identifier-' * 3) for i in range(3))
+            path.write_text(
+                '{"type":"metadata","version":12,"name":"Pooled"}\n'
+                + '\n'.join(json.dumps(sample.to_record()) for sample in samples) + '\n',
+                encoding='utf-8',
+            )
+            loaded = load_vod(path).powerup_history.observations
+            self.assertEqual(loaded, samples)
+            self.assertTrue(all(sample.run_id is loaded[0].run_id for sample in loaded))
+
     def test_roundtrip_does_not_change_snapshot_count_and_rename_keeps_history(self):
         with tempfile.TemporaryDirectory() as directory:
             recorder = VodRecorder(vods_dir=Path(directory), clock=lambda: 100)
