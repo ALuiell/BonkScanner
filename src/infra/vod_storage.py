@@ -386,6 +386,8 @@ class VodRecorder:
     ) -> Path:
         if self.is_recording or self._file is not None:
             raise RuntimeError("VOD recorder is already active.")
+        from infra.data_storage import require_profile_write
+        require_profile_write(self.vods_dir)
         self.vods_dir.mkdir(parents=True, exist_ok=True)
         created_at = datetime.now().replace(microsecond=0)
         file_stem = created_at.strftime("%Y-%m-%d_%H-%M-%S")
@@ -775,6 +777,8 @@ def load_vod_metadata(path: Path) -> VodMetadata:
 
 
 def rename_vod(path: Path, new_name: str) -> VodMetadata:
+    from infra.data_storage import require_profile_write
+    require_profile_write(path)
     new_name = new_name.strip()
     if not new_name:
         raise ValueError("VOD name cannot be empty.")
@@ -801,6 +805,8 @@ def rename_vod(path: Path, new_name: str) -> VodMetadata:
 
 
 def delete_vod(path: Path) -> None:
+    from infra.data_storage import require_profile_write
+    require_profile_write(path)
     path.unlink(missing_ok=True)
     clear_vod_metadata_cache()
 

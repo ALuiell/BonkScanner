@@ -93,7 +93,8 @@ class MegabonkApp:
         # reused for a widget in the next dialog.
         self._settings_dialog = None
 
-        self.setWindowTitle(f"BonkScanner v{CURRENT_VERSION}")
+        suffix = " — Read-only profile" if config.profile_read_only_reason() else ""
+        self.setWindowTitle(f"BonkScanner v{CURRENT_VERSION}{suffix}")
         self.resize(1320, 830)
         # Keep the comfortable desktop size as the default, but let users on
         # portrait displays (especially with OS scaling) shrink the window far
@@ -865,6 +866,8 @@ class MegabonkApp:
             pass
 
     def _show_auto_reroll_setup_guide(self) -> None:
+        if config.profile_read_only_reason():
+            return
         if config.user_config.get("RESET_TIMING_SETUP_PENDING", False):
             result = config.apply_recommended_reset_timing(
                 lambda: (self.is_game_running(), "")

@@ -17,6 +17,7 @@ from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication, QLabel
 
 from app import config
+from app.config_repository import ConfigRepository
 from ui.dialogs import GameResetTimeNoticeDialog, SettingsDialog
 
 
@@ -34,7 +35,8 @@ class ResetTimingSyncTests(unittest.TestCase):
         self.running = False
         self.stack.enter_context(patch.object(config, "get_game_config_path", return_value=str(self.game_path)))
         self.stack.enter_context(patch.object(config, "config_path", str(self.scanner_path)))
-        self.stack.enter_context(patch.object(config, "_repository", None))
+        self.repository = ConfigRepository(self.scanner_path)
+        self.stack.enter_context(patch.object(config, "_repository", self.repository))
         self.stack.enter_context(patch.object(config, "user_config", deepcopy(config.user_config)))
         for name in (
             "HOTKEY", "RESET_HOTKEY", "PLAYER_STATS_RECORD_HOTKEY", "IN_GAME_OVERLAY_EDIT_HOTKEY",
@@ -57,6 +59,7 @@ class ResetTimingSyncTests(unittest.TestCase):
         config.RESET_HOLD_SAFETY_MARGIN = margin
         config.user_config.update(RESET_HOLD_DURATION=hold, RESET_HOLD_SAFETY_MARGIN=margin)
         self.scanner_path.write_text(json.dumps(config.user_config), encoding="utf-8")
+        self.repository.load()
         master = SimpleNamespace(is_game_running=lambda: self.running)
         dialog = SettingsDialog(None, master=master)
         self.notice = self.stack.enter_context(patch.object(SettingsDialog, "_show_game_reset_notice"))

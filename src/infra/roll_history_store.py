@@ -13,6 +13,7 @@ import threading
 from core.roll_analytics import ROLL_SOURCES, ROLL_STAT_IDS, aggregate_roll_counts
 from infra.merchant_history_store import _ProcessFileLock
 from infra.paths import application_path
+from infra.data_storage import profile_write_error, require_profile_write
 
 
 def validate_roll_history(payload) -> None:
@@ -58,7 +59,7 @@ class RollHistoryStore:
                       "checkpoints": {}, "lifetimes": {}}
         self.error = None
         self._file_lock = _ProcessFileLock(self.path.with_suffix(".json.lock"))
-        self.writable = self._file_lock.acquire()
+        self.writable = not profile_write_error(self.path) and self._file_lock.acquire()
         if not self.writable:
             self.error = "Roll history is read-only: open in another instance or inaccessible."
         if self.path.exists():
@@ -142,6 +143,7 @@ class RollHistoryStore:
 
     @staticmethod
     def _atomic_write(payload, path):
+        require_profile_write(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         name = None
         try:

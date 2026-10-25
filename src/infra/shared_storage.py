@@ -145,6 +145,8 @@ def request_shared_folder(destination: str | Path) -> MigrationActionResult:
     """Connect on next launch, preserving both configs and all old library files."""
     from infra import data_storage as storage
     context = storage.storage_context()
+    if context.read_only:
+        return storage.MigrationActionResult(False, "unavailable", context.read_only_reason)
     state_lock = None
     acquired = []
     try:

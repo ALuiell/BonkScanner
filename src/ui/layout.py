@@ -266,6 +266,11 @@ def build_layout(app):
     content_layout.setSpacing(14)
 
     _build_header(app, content_layout)
+    if reason := config.profile_read_only_reason():
+        notice = QLabel(f"Read-only profile · {reason}")
+        notice.setObjectName("dialogHint")
+        notice.setWordWrap(True)
+        content_layout.addWidget(notice)
 
     splitter = QSplitter(Qt.Horizontal)
     splitter.setChildrenCollapsible(False)

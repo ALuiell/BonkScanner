@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from infra.paths import application_path
+from infra.data_storage import profile_write_error
 
 
 _MAX_CACHE_BYTES = 64 * 1024
@@ -55,6 +56,8 @@ def read_access_cache(path: Path | None = None) -> dict | None:
 
 def write_access_cache(payload: dict, path: Path | None = None) -> None:
     target = Path(path or default_cache_path())
+    if profile_write_error(target):
+        return
     target.parent.mkdir(parents=True, exist_ok=True)
     rendered = json.dumps(payload, ensure_ascii=True, separators=(",", ":")) + "\n"
     if len(rendered.encode("utf-8")) > _MAX_CACHE_BYTES:
@@ -80,6 +83,8 @@ def delete_access_cache(path: Path | None = None) -> None:
         if fallback is not None:
             targets.append(fallback)
     for target in targets:
+        if profile_write_error(target):
+            continue
         try:
             target.unlink(missing_ok=True)
         except OSError:

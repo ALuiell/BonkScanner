@@ -58,6 +58,8 @@ class ConfigRecordingSettings:
             return migrated
 
     def write_metadata_index(self, payload: dict[str, Any]) -> None:
+        if not self._index_repository.loaded_successfully:
+            self._index_repository.load()
         result = self._index_repository.commit(deepcopy(payload))
         if not result.success:
             raise OSError(result.reason)

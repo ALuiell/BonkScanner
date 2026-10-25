@@ -41,6 +41,7 @@ class WeaponIntegrationTests(unittest.TestCase):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = ConfigRepository(Path(self.temp.name) / "config.json")
+        self.repo.load()
         for key, value in (
             ("OVERLAY", config.normalize_overlay_config({})),
             ("IN_GAME_OVERLAY", config.normalize_in_game_overlay_config({})),

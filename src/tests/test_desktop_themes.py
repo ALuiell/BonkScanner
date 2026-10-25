@@ -30,6 +30,7 @@ class DesktopThemeTests(unittest.TestCase):
             self.assertEqual(selected_theme(), "halloween")
             with tempfile.TemporaryDirectory() as folder:
                 repository = ConfigRepository(Path(folder) / "config.json")
+                repository.load()
                 self.assertTrue(repository.commit({THEME_CONFIG_KEY: "original"}).success)
                 config.user_config.update(repository.load().snapshot)
                 self.assertEqual(selected_theme(), "original")

@@ -33,7 +33,7 @@ STATE_FILE_NAME = ".storage-state.json"
 STATE_LOCK_NAME = ".storage-state.lock"
 DATA_LOCK_NAME = ".bonkscanner-data.lock"
 
-PROFILE_FILES = CONFIG_FILE_NAMES + (
+PROFILE_FILES = CONFIG_FILE_NAMES + tuple(name + ".bak" for name in CONFIG_FILE_NAMES) + (
     "merchant_history.jsonl",
     "roll_history.json",
     "vod_metadata_index.json",
@@ -62,10 +62,12 @@ class StorageContext:
     legacy_cleanup_message: str = ""
     previous_dir: Path | None = None
     pending_target: Path | None = None
+    read_only: bool = False
+    read_only_reason: str = ""
 
     @property
     def can_migrate(self) -> bool:
-        return self.mode != "source" and self.recommended_dir is not None
+        return not self.read_only and self.mode != "source" and self.recommended_dir is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +81,7 @@ class _ProcessFileLock:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._file = None
+        self._acquired = False
 
     def acquire(self) -> bool:
         try:
@@ -97,6 +100,7 @@ class _ProcessFileLock:
                 import fcntl
 
                 fcntl.flock(self._file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._acquired = True
             return True
         except (OSError, IOError):
             self.release()
@@ -108,7 +112,9 @@ class _ProcessFileLock:
         if stream is None:
             return
         try:
-            if os.name == "nt":
+            if not self._acquired:
+                pass
+            elif os.name == "nt":
                 import msvcrt
 
                 stream.seek(0)
@@ -119,6 +125,7 @@ class _ProcessFileLock:
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
         except (OSError, IOError):
             pass
+        self._acquired = False
         try:
             stream.close()
         except OSError:
@@ -933,10 +940,24 @@ def _load_selected_context(installation: Path, recommended: Path, key: str) -> S
     _ensure_writable(recommended)
     state_lock = _ProcessFileLock(recommended / STATE_LOCK_NAME)
     if not state_lock.acquire():
-        raise StorageError("BonkScanner storage state is being changed by another instance.")
+        # State is published atomically. A simultaneous launch can read its
+        # last complete version, but may not recover or migrate anything.
+        state = _load_state(recommended)
+        _guard_other_installation_journals(recommended, state, key)
+        selected = _context_from_state(installation, recommended, key, state)
+        return replace(selected, read_only=True, read_only_reason=PROFILE_IN_USE)
     try:
         state = _load_state(recommended)
         _guard_other_installation_journals(recommended, state, key)
+        selected = _context_from_state(installation, recommended, key, state)
+        # A second reader must not run migration/recovery or alter its state.
+        if selected.data_dir.is_dir() and (
+            _active_lock is None or _normalized_path(_active_lock.path.parent) != _normalized_path(selected.data_dir)
+        ):
+            probe = _ProcessFileLock(selected.data_dir / DATA_LOCK_NAME)
+            if not probe.acquire():
+                return replace(selected, read_only=True, read_only_reason=PROFILE_IN_USE)
+            probe.release()
         entry = _entry_for(state, installation, key)
         migration = entry.get("migration") if entry else None
         journal_target = (
@@ -990,12 +1011,13 @@ def initialize_storage(*, acquire_active_lock: bool = True) -> StorageContext:
     global _context, _active_lock
     with _context_lock:
         if _context is not None:
+            if _context.read_only:
+                return _context
             if acquire_active_lock and _active_lock is None:
                 active_lock = _ProcessFileLock(_context.data_dir / DATA_LOCK_NAME)
                 if not active_lock.acquire():
-                    raise StorageError(
-                        f"Another BonkScanner instance is already using {_context.data_dir}."
-                    )
+                    _context = replace(_context, read_only=True, read_only_reason=PROFILE_IN_USE)
+                    return _context
                 _active_lock = active_lock
             if acquire_active_lock:
                 _prepare_config_for_bootstrap(_context.data_dir)
@@ -1030,15 +1052,15 @@ def initialize_storage(*, acquire_active_lock: bool = True) -> StorageContext:
             raise StorageError(
                 f"The selected data folder is missing or has no BonkScanner profile: {context.data_dir}"
             )
-        _ensure_writable(context.data_dir)
-        if acquire_active_lock:
+        if not context.read_only:
+            _ensure_writable(context.data_dir)
+        if acquire_active_lock and not context.read_only:
             active_lock = _ProcessFileLock(context.data_dir / DATA_LOCK_NAME)
             if not active_lock.acquire():
-                raise StorageError(
-                    f"Another BonkScanner instance is already using {context.data_dir}."
-                )
-            _active_lock = active_lock
-        if acquire_active_lock:
+                context = replace(context, read_only=True, read_only_reason=PROFILE_IN_USE)
+            else:
+                _active_lock = active_lock
+        if acquire_active_lock and not context.read_only:
             _prepare_config_for_bootstrap(context.data_dir)
         _context = context
         return context
@@ -1055,8 +1077,67 @@ def active_data_directory() -> Path:
     return storage_context().data_dir
 
 
+PROFILE_IN_USE = "Another BonkScanner is using this profile. Changes apply to this window only."
+
+
+def profile_read_only_reason() -> str:
+    context = _context
+    if context is not None and context.read_only:
+        return context.read_only_reason or "Changes apply to this window only."
+    return ""
+
+
+def mark_profile_read_only(reason: str) -> None:
+    """Latch this session in read-only mode; never promote a stale reader."""
+    global _context
+    with _context_lock:
+        if _context is not None:
+            _context = replace(_context, read_only=True, read_only_reason=reason)
+
+
+def profile_write_error(path: str | Path) -> str:
+    """Protect managed data even when a caller bypasses the GUI bootstrap."""
+    context = _context
+    target = Path(path).absolute()
+    roots = (target, target.resolve())
+    managed = context is not None and any(
+        _normalized_path(candidate) == _normalized_path(context.data_dir)
+        or _normalized_path(candidate).startswith(_normalized_path(context.data_dir) + os.sep)
+        for candidate in roots
+    )
+    if not managed:
+        # An explicitly addressed profile is protected even if this checkout
+        # selected a different folder (for example in a test or helper script).
+        if any((parent / DATA_LOCK_NAME).is_file() for parent in (target, *target.parents)):
+            return "Open this data folder through BonkScanner before saving changes."
+        return ""
+    if context.read_only:
+        return context.read_only_reason or "This profile is open read-only."
+    if _active_lock is None or _normalized_path(_active_lock.path.parent) != _normalized_path(context.data_dir):
+        return "Load the profile through BonkScanner before saving changes."
+    return ""
+
+
+def require_profile_write(path: str | Path) -> None:
+    reason = profile_write_error(path)
+    if reason:
+        raise PermissionError(reason)
+
+
+def owns_profile_lock(path: str | Path) -> bool:
+    """Whether this process can also clean temporary files in this profile."""
+    context = _context
+    if context is None or _active_lock is None or profile_write_error(path):
+        return False
+    target = _normalized_path(Path(path).absolute())
+    root = _normalized_path(context.data_dir)
+    return target == root or target.startswith(root + os.sep)
+
+
 def migration_status() -> StorageContext:
     context = storage_context()
+    if context.read_only:
+        return context
     if context.mode == "shared":
         from infra.shared_storage import shared_status
         return shared_status(context)
@@ -1130,6 +1211,8 @@ def request_migration(destination: str | Path | None = None) -> MigrationActionR
 
 def cancel_migration() -> MigrationActionResult:
     context = storage_context()
+    if context.read_only:
+        return MigrationActionResult(False, "unavailable", context.read_only_reason)
     if not context.can_migrate or context.recommended_dir is None:
         return MigrationActionResult(False, "unavailable", "There is no pending migration.")
     state_lock = _ProcessFileLock(context.recommended_dir / STATE_LOCK_NAME)
@@ -1159,6 +1242,8 @@ def cancel_migration() -> MigrationActionResult:
 def remove_legacy_data() -> MigrationActionResult:
     """Remove only known files from the last successfully migrated source."""
     context = migration_status()
+    if context.read_only:
+        return MigrationActionResult(False, "unavailable", context.read_only_reason)
     if (
         context.mode != "local"
         or context.migration_status != "success"

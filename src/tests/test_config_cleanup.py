@@ -5,12 +5,14 @@ import json
 import tempfile
 import threading
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 import src
 
 from app import config
+from app.config_repository import ConfigRepository
 
 
 class GameResetTimeConfigTests(unittest.TestCase):
@@ -82,6 +84,13 @@ class GameResetTimeConfigTests(unittest.TestCase):
 
 
 class VerifiedSettingsSaveTests(unittest.TestCase):
+    @contextmanager
+    def loaded_config(self, path):
+        repository = ConfigRepository(path)
+        repository.load()
+        with patch.object(config, "config_path", str(path)), patch.object(config, "_repository", repository):
+            yield
+
     def test_scanner_only_save_keeps_game_file_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             scanner_path = os.path.join(temp_dir, "scanner.json")
@@ -93,7 +102,7 @@ class VerifiedSettingsSaveTests(unittest.TestCase):
                 json.dump({"cfGameSettings": {"quick_reset_time": 0.01}}, handle)
             game_bytes = Path(game_path).read_bytes()
 
-            with patch.object(config, "config_path", scanner_path), patch.object(
+            with self.loaded_config(scanner_path), patch.object(
                 config, "user_config", previous
             ), patch.object(config, "get_game_config_path", return_value=game_path):
                 result = config.save_settings_with_game_reset(
@@ -165,7 +174,7 @@ class VerifiedSettingsSaveTests(unittest.TestCase):
             with open(game_path, "w", encoding="utf-8") as handle:
                 json.dump({"cfGameSettings": {"quick_reset_time": 0.05}}, handle)
 
-            with patch.object(config, "config_path", scanner_path):
+            with self.loaded_config(scanner_path):
                 with patch.object(config, "user_config", previous):
                     with patch.object(config, "get_game_config_path", return_value=game_path):
                         result = config.save_settings_with_game_reset(

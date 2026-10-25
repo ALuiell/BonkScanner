@@ -180,6 +180,8 @@ class DataStoragePage(QWidget):
             mode_text = "BonkScanner is using the recommended per-user data folder."
         else:
             mode_text = "BonkScanner is using a folder you selected."
+        if context.read_only:
+            mode_text = "Read-only profile. " + context.read_only_reason
         self.mode_label.setText(mode_text)
 
         show_migration = context.can_migrate
@@ -244,7 +246,7 @@ class DataStoragePage(QWidget):
         )
         self.old_folder_button.setVisible(show_old)
         self.remove_old_data_button.setVisible(
-            show_old
+            show_old and not context.read_only
             and context.mode == "local"
             and context.migration_status == "success"
             and legacy_data_exists(legacy)

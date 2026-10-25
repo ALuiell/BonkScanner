@@ -133,6 +133,8 @@ def _promote(path: Path) -> Path | None:
         return None
     try:
         directory = _logs_directory()
+        from infra.data_storage import require_profile_write
+        require_profile_write(directory)
         directory.mkdir(parents=True, exist_ok=True)
         destination = _unique_crash_path(directory)
         os.replace(path, destination)
@@ -277,6 +279,8 @@ def _promote_current() -> Path | None:
     # pending journal is dealt with on the next launch.
     try:
         directory = _logs_directory()
+        from infra.data_storage import require_profile_write
+        require_profile_write(directory)
         directory.mkdir(parents=True, exist_ok=True)
         destination = _unique_crash_path(directory)
         shutil.copyfile(path, destination)

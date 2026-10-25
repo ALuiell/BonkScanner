@@ -491,6 +491,8 @@ def read_game_quick_reset_time() -> GameConfigReadResult:
 
 
 def save_game_config(data: dict) -> bool:
+    if profile_read_only_reason():
+        return False
     try:
         game_config_path = get_game_config_path()
         if not game_config_path:
@@ -630,7 +632,7 @@ CONFIG_FILE_EXISTED_AT_STARTUP = False
 def load_config():
     with config_lock:
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, "r", encoding="utf-8-sig") as f:
                 loaded = load_legacy_json(f)
                 return loaded if isinstance(loaded, dict) else {}
         except Exception:
@@ -660,26 +662,12 @@ def save_config(cfg_dict) -> ConfigSaveResult:
         if not result.success and cfg_dict is user_config:
             _restore_runtime_snapshot(repository.snapshot())
         return ConfigSaveResult(result.success, result.reason)
-    with config_lock:
-        try:
-            payload = dumps_strict_json(cfg_dict, indent=4)
-            _atomic_write_text(
-                config_path,
-                payload,
-            )
-            with open(config_path, "r", encoding="utf-8") as file:
-                saved_payload = file.read()
-            if saved_payload != payload:
-                return ConfigSaveResult(
-                    False,
-                    "BonkScanner wrote config.json, but its contents could not be verified.",
-                )
-            return ConfigSaveResult(True)
-        except Exception as exc:
-            return ConfigSaveResult(
-                False,
-                f"BonkScanner could not save config.json: {exc}",
-            )
+    return ConfigSaveResult(False, "Load the configuration before saving it.")
+
+
+def profile_read_only_reason() -> str:
+    from infra.data_storage import profile_read_only_reason as storage_reason
+    return storage_reason() or (_repository.read_only_reason if _repository is not None else "")
 
 
 def _restore_runtime_snapshot(snapshot: dict) -> None:
@@ -742,6 +730,11 @@ def save_settings_with_game_reset(
         previous_scanner_config = deepcopy(user_config)
         candidate_config = deepcopy(user_config)
         candidate_config.update(deepcopy(settings_updates))
+        if profile_read_only_reason():
+            result = save_config(candidate_config)
+            if result.success:
+                user_config.update(deepcopy(settings_updates))
+            return SettingsSaveResult(result.success, result.reason)
         verified_game_value = None
         if verify_game_floor:
             game_read = read_game_quick_reset_time()
@@ -2040,7 +2033,8 @@ def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
         "CHAOS_TOME_TRACKER_INTERVAL_MS",
     ):
         user_config.pop(obsolete_key, None)
-    cleanup_legacy_native_hook_cache(saved_native_hook_path)
+    if not profile_read_only_reason():
+        cleanup_legacy_native_hook_cache(saved_native_hook_path)
 
 
 def initialize_config(
@@ -2048,7 +2042,7 @@ def initialize_config(
 ) -> ConfigLoadResult:
     """Load, migrate and publish config explicitly during process bootstrap."""
 
-    global _repository, config_lock, CONFIG_FILE_EXISTED_AT_STARTUP, config_path
+    global _repository, config_lock, CONFIG_FILE_EXISTED_AT_STARTUP, config_path, AUTO_START_RECORDING
     repository = repository or ConfigRepository(config_path)
     result = repository.load()
     _repository = repository
@@ -2056,6 +2050,22 @@ def initialize_config(
     config_path = str(repository.path)
     CONFIG_FILE_EXISTED_AT_STARTUP = result.existed
     with config_lock:
+        if result.error:
+            from infra.data_storage import mark_profile_read_only
+            repository.read_only_reason = "The configuration could not be loaded. Existing files were kept; changes apply to this window only."
+            # Only the active profile owns this process-wide capability.
+            if os.path.normcase(str(repository.path.parent)) == os.path.normcase(application_path):
+                mark_profile_read_only(repository.read_only_reason)
         _apply_loaded_config(result.snapshot, config_existed=result.existed)
-        save_config(user_config)
+        if profile_read_only_reason():
+            # Do not repeatedly attempt automatic recordings in a reader.
+            AUTO_START_RECORDING = False
+        if not result.error and not profile_read_only_reason():
+            saved = save_config(user_config)
+            if not saved.success:
+                repository.read_only_reason = "The configuration cannot be saved. Changes apply to this window only."
+                AUTO_START_RECORDING = False
+                if os.path.normcase(str(repository.path.parent)) == os.path.normcase(application_path):
+                    from infra.data_storage import mark_profile_read_only
+                    mark_profile_read_only(repository.read_only_reason)
     return result
