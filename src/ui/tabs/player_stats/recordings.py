@@ -3058,8 +3058,9 @@ class RecordingsTab:
 
         self._list_frame = QListWidget()
         self._list_frame.setObjectName("RecordingsList")
-        self._list_frame.setMinimumWidth(RECORDINGS_LIST_MIN_WIDTH)
-        self._list_frame.setMaximumWidth(RECORDINGS_LIST_MAX_WIDTH)
+        # The drawer owns the width limits. Repeating its minimum here makes
+        # the list wider than the space left after the group box's insets,
+        # clipping its right border when the splitter narrows the drawer.
         self._list_frame.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._list_frame.currentItemChanged.connect(self._on_vod_selection_changed)
         chooser_layout.addWidget(self._list_frame, 1)

@@ -49,6 +49,10 @@ from __future__ import annotations
 import ast
 import importlib
 import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
@@ -107,17 +111,40 @@ def _deferred_imports() -> list[tuple[str, int, str, tuple[str, ...]]]:
     return found
 
 
+def _from_import_resolves(module: str, name: str) -> bool:
+    """Resolve attributes and package submodules as Python's from-import does."""
+    imported = importlib.import_module(module)
+    if hasattr(imported, name):
+        return True
+    if not hasattr(imported, "__path__"):
+        return False
+    candidate = f"{module}.{name}"
+    try:
+        importlib.import_module(candidate)
+    except ModuleNotFoundError as exc:
+        if exc.name == candidate:
+            return False
+        # A present submodule with a broken dependency must still fail.
+        raise
+    return True
+
+
 class DeferredImportTests(unittest.TestCase):
     def test_every_deferred_local_import_resolves(self) -> None:
         broken: list[str] = []
         for rel, line, module, names in _deferred_imports():
             try:
-                imported = importlib.import_module(module)
+                importlib.import_module(module)
             except Exception as exc:  # noqa: BLE001 -- the finding
                 broken.append(f"src/{rel}:{line}: cannot import {module} ({exc})")
                 continue
             for name in names:
-                if not hasattr(imported, name):
+                try:
+                    resolves = _from_import_resolves(module, name)
+                except Exception as exc:
+                    broken.append(f"src/{rel}:{line}: cannot import {module}.{name} ({exc})")
+                    continue
+                if not resolves:
                     broken.append(f"src/{rel}:{line}: {module} has no {name!r}")
 
         self.assertEqual(
@@ -129,6 +156,36 @@ class DeferredImportTests(unittest.TestCase):
             "`live_stats.build()` imported, and the app crashed on startup with "
             "every check green:\n  " + "\n  ".join(broken),
         )
+
+    def test_package_submodules_resolve_in_a_fresh_interpreter(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "deferred_import_fixture"
+            package.mkdir()
+            (package / "__init__.py").write_text("value = 42\n", encoding="utf-8")
+            (package / "settings.py").write_text("enabled = True\n", encoding="utf-8")
+            (package / "broken.py").write_text("import missing_deferred_dependency\n", encoding="utf-8")
+            script = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from test_deferred_imports import _from_import_resolves
+import deferred_import_fixture as package
+assert not hasattr(package, 'settings')
+assert _from_import_resolves('deferred_import_fixture', 'settings')
+assert _from_import_resolves('deferred_import_fixture', 'value')
+assert not _from_import_resolves('deferred_import_fixture', 'missing')
+try:
+    _from_import_resolves('deferred_import_fixture', 'broken')
+except ModuleNotFoundError as exc:
+    assert exc.name == 'missing_deferred_dependency'
+else:
+    raise AssertionError('A broken submodule dependency was hidden')
+"""
+            completed = subprocess.run(
+                [sys.executable, "-c", script, directory], capture_output=True, text=True,
+                timeout=30,
+                env={**os.environ, "PYTHONPATH": os.pathsep.join([SRC_ROOT, os.path.dirname(__file__)])},
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
     def test_the_scan_actually_finds_the_deferred_imports(self) -> None:
         """Step 13's guard: a scan that finds nothing passes trivially."""

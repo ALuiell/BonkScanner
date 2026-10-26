@@ -227,6 +227,15 @@ class InGameOverlay:
         self.igo_map_markers_scale_spin = None
         self.igo_map_markers_summary = None
         self.igo_map_markers_settings_btn = None
+        # Optional controls installed by the widget-settings builder.
+        self.igo_luck_bar_cb = None
+        self.igo_luck_expected_cb = None
+        self.igo_luck_layout_combo = None
+        self.igo_event_warning_spin = None
+        self.igo_build_max_rows_spin = None
+        self.igo_build_completed_cb = None
+        self.igo_weapon_tracker_layout_combo = None
+        self.igo_weapon_tracker_caps_cb = None
 
         self.in_game_overlay_window: InGameOverlayWindow | None = None
         self._shutting_down = False

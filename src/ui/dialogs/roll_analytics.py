@@ -281,6 +281,9 @@ class RollAnalyticsWindow(QDialog):
             rows.sort(key=difference, reverse=order == "high_delta")
         half = (len(rows) + 1) // 2
         table = self._table
+        # Resolve stylesheet fonts before the first show; later source changes
+        # must not be needed to make large counters fit their columns.
+        table.ensurePolished()
         table.setUpdatesEnabled(False)
         try:
             for column in (2, 8):
@@ -315,7 +318,7 @@ class RollAnalyticsWindow(QDialog):
                                     (7, 58), (8, 58), (9, 72), (10, 55)):
                 header = table.horizontalHeader()
                 heading = header.fontMetrics().horizontalAdvance(table.horizontalHeaderItem(column).text()) + 16
-                content = max((QFontMetrics(table.item(index, column).font()).horizontalAdvance(
+                content = max((QFontMetrics(table.item(index, column).font().resolve(table.font())).horizontalAdvance(
                     table.item(index, column).text()) for index in range(half)), default=0)
                 table.setColumnWidth(column, max(minimum, heading, content + 18))
         finally:

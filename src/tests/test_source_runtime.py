@@ -174,7 +174,15 @@ class SourceRuntimeTests(unittest.TestCase):
         try:
             self.runtime.symlink_to(outside, target_is_directory=True)
         except OSError:
-            self.skipTest("Creating symlinks is unavailable")
+            if os.name != "nt":
+                self.skipTest("Creating directory links is unavailable")
+            # A Windows junction exercises the same reparse-point rejection
+            # without requiring the symbolic-link privilege or Developer Mode.
+            import _winapi
+            try:
+                _winapi.CreateJunction(str(outside), str(self.runtime))
+            except OSError:
+                self.skipTest("Creating directory links is unavailable")
         with self.assertRaises(storage.StorageError):
             self.initialize()
         self.assertEqual(list(outside.iterdir()), [])
