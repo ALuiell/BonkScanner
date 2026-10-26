@@ -70,6 +70,8 @@ app.processEvents()
 assert recordings._powerup_row.isVisible()
 assert recordings._powerup_row.entries[0][3]
 assert recordings._powerup_row.entries[0][2] == '×1 · 0:08'
+assert recordings._powerup_row.entries[3][2] == '×0+ · 0:01'
+assert 'confirmed minimum' in recordings._powerup_row.entries[3][4]
 assert 'Observed pickups: 1' in recordings._powerup_row.entries[0][4]
 assert len(recordings._powerup_row.entries) == 4
 assert recordings._powerup_row.parentWidget() is recordings._scrubber

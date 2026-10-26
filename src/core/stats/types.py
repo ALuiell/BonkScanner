@@ -229,6 +229,9 @@ class PowerupTrackingSnapshot:
     multiplier_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
     # Time of the confirmed physical read, not the poll returning its cache.
     powerup_multiplier_captured_at: float | None = None
+    # Optional recording evidence. Missing reads must never imply zero stock.
+    za_warudo_count: int | None = None
+    powerups_used: int | None = None
 
 
 @dataclass(frozen=True)

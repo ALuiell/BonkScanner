@@ -77,7 +77,7 @@ unguarded call sites (``_should_refresh_expected_chest_inputs`` and
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable
@@ -658,7 +658,14 @@ class RefreshTasks:
             accepted = self._tracker().update_powerups(snapshot)
             self._publish_live_stats_view()
             if self._is_vod_recording():
-                self._capture().observe_powerups(snapshot, getattr(self._tracker(), "run_id", None))
+                recording_snapshot = snapshot
+                try:
+                    warudo, pickups = client.get_powerup_pickup_sources(owner_stats)
+                    recording_snapshot = replace(snapshot, za_warudo_count=warudo, powerups_used=pickups)
+                except Exception:
+                    # Source evidence is optional; preserve healthy effect time.
+                    pass
+                self._capture().observe_powerups(recording_snapshot, getattr(self._tracker(), "run_id", None))
             # The tracker always updates; only the *repaint* is gated. The
             # Powerups card is painted from the snapshot's stats by
             # `display_player_stats`, and `refresh_powerups_card` repaints it

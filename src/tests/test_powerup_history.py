@@ -87,7 +87,8 @@ class PowerupProjectionTests(unittest.TestCase):
                    observation(1, ((4, 0, 20),), my=11, axis=0, run='other'),
                    observation(2, ((4, 0, 20),), my=1, axis=0, run='other'))
         projection = PowerupProjection(PowerupHistory(samples))
-        self.assertEqual(projection.counts(2)[4], 3)
+        self.assertEqual(projection.counts(2)[4], 0)
+        self.assertEqual(projection.unattributed_clock_events(2), 3)
 
     def test_expiry_and_reappearance_do_not_count_an_unchanged_record_twice(self):
         samples = (observation(0, ((1, 0, 1),)), observation(1),

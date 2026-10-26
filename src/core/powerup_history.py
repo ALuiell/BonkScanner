@@ -33,12 +33,17 @@ class PowerupObservation:
     run_id: str | None
     valid: bool
     effects: tuple[RecordedEffect, ...] = ()
+    za_warudo_count: int | None = None
+    powerups_used: int | None = None
 
     def to_record(self) -> dict:
-        return dict(type="powerup_sample", captured_at=self.captured_at,
+        record = dict(type="powerup_sample", captured_at=self.captured_at,
                     my_time=self.my_time, axis_time=self.axis_time,
                     run_id=self.run_id, valid=self.valid,
                     effects=[[e.effect_id, e.added, e.expires] for e in self.effects])
+        if self.za_warudo_count is not None and self.powerups_used is not None:
+            record["pickup_sources"] = [self.za_warudo_count, self.powerups_used]
+        return record
 
     @classmethod
     def from_record(cls, record: dict) -> "PowerupObservation":
@@ -59,7 +64,14 @@ class PowerupObservation:
             effects.append(RecordedEffect(effect_id, float(added), float(expires)))
         if valid and (my_time is None or axis_time is None):
             raise ValueError("Missing power-up clocks")
-        return cls(captured, my_time, axis_time, record.get("run_id"), valid, tuple(effects))
+        sources = record.get("pickup_sources")
+        if sources is not None and (
+                not isinstance(sources, (list, tuple)) or len(sources) != 2
+                or any(type(value) is not int or not 0 <= value <= 2**24 for value in sources)):
+            raise ValueError("Invalid power-up pickup sources")
+        warudo, pickups = sources if sources is not None else (None, None)
+        return cls(captured, my_time, axis_time, record.get("run_id"), valid, tuple(effects),
+                   warudo, pickups)
 
 
 @dataclass(frozen=True)
@@ -87,4 +99,6 @@ def observation_from_snapshot(snapshot, run_id, *, captured_at: float) -> Poweru
                 break
             effects.append(RecordedEffect(effect.effect_id, effect.added_time, effect.expiration_time))
     return PowerupObservation(captured_at, my_time if valid else None,
-                             axis_time if valid else None, run_id, bool(valid), tuple(effects) if valid else ())
+                             axis_time if valid else None, run_id, bool(valid), tuple(effects) if valid else (),
+                             getattr(snapshot, "za_warudo_count", None) if valid else None,
+                             getattr(snapshot, "powerups_used", None) if valid else None)
