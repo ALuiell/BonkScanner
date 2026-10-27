@@ -1,0 +1,19 @@
+{
+  "common.settings": "Settings",
+  "common.help": "Help",
+  "common.save": "Save",
+  "common.cancel": "Cancel",
+  "common.done": "Done",
+  "common.save_changes": "Save changes",
+  "settings.general": "General",
+  "settings.restart": "Restart",
+  "settings.data": "Data",
+  "settings.support": "Support",
+  "settings.interface": "Interface",
+  "settings.language": "Language:",
+  "settings.language_hint": "Applied when you save Settings.",
+  "settings.language_scope": "Some parts of the interface are still in English.",
+  "settings.save_hint": "Save all changes made in this Settings window.",
+  "scanner.start": "Start",
+  "scanner.stop": "Stop"
+}

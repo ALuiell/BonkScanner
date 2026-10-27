@@ -1,0 +1,19 @@
+{
+  "common.settings": "Ajustes",
+  "common.help": "Ayuda",
+  "common.save": "Guardar",
+  "common.cancel": "Cancelar",
+  "common.done": "Listo",
+  "common.save_changes": "Guardar cambios",
+  "settings.general": "General",
+  "settings.restart": "Reinicio",
+  "settings.data": "Datos",
+  "settings.support": "Apoyo",
+  "settings.interface": "Interfaz",
+  "settings.language": "Idioma:",
+  "settings.language_hint": "Se aplica al guardar los ajustes.",
+  "settings.language_scope": "Algunas partes de la interfaz siguen en inglés.",
+  "settings.save_hint": "Guardar todos los cambios de esta ventana de ajustes.",
+  "scanner.start": "Iniciar",
+  "scanner.stop": "Detener"
+}

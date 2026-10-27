@@ -66,6 +66,7 @@ from ui.dialogs import (
 )
 
 from app import config
+from ui.localization import bind_text
 
 
 def _is_tab_active(tabview, label: str) -> bool:
@@ -1264,13 +1265,13 @@ def _build_header_controls(app, controls):
     app.settings_btn = QPushButton("")
     app.settings_btn.setObjectName("iconBtn")
     _apply_button_icon(app.settings_btn, "media/settings_icon.png", 20)
-    app.settings_btn.setToolTip("Settings")
+    bind_text(app.settings_btn, "common.settings", method="setToolTip")
     app.settings_btn.clicked.connect(app.open_settings_dialog)
 
     app.help_btn = QPushButton("")
     app.help_btn.setObjectName("iconBtn")
     _apply_button_icon(app.help_btn, "media/help_icon.svg", 20)
-    app.help_btn.setToolTip("Help")
+    bind_text(app.help_btn, "common.help", method="setToolTip")
     app.help_btn.clicked.connect(app.open_help_dialog)
 
     controls.addWidget(app.help_btn)

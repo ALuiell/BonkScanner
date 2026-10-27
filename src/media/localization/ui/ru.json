@@ -1,0 +1,19 @@
+{
+  "common.settings": "Настройки",
+  "common.help": "Справка",
+  "common.save": "Сохранить",
+  "common.cancel": "Отмена",
+  "common.done": "Готово",
+  "common.save_changes": "Сохранить изменения",
+  "settings.general": "Общие",
+  "settings.restart": "Перезапуск",
+  "settings.data": "Данные",
+  "settings.support": "Поддержка",
+  "settings.interface": "Интерфейс",
+  "settings.language": "Язык:",
+  "settings.language_hint": "Применяется после сохранения настроек.",
+  "settings.language_scope": "Некоторые части интерфейса пока остаются на английском.",
+  "settings.save_hint": "Сохранить все изменения в этом окне настроек.",
+  "scanner.start": "Запустить",
+  "scanner.stop": "Остановить"
+}

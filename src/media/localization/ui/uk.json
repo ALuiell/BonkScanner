@@ -1,0 +1,19 @@
+{
+  "common.settings": "Налаштування",
+  "common.help": "Довідка",
+  "common.save": "Зберегти",
+  "common.cancel": "Скасувати",
+  "common.done": "Готово",
+  "common.save_changes": "Зберегти зміни",
+  "settings.general": "Загальні",
+  "settings.restart": "Перезапуск",
+  "settings.data": "Дані",
+  "settings.support": "Підтримка",
+  "settings.interface": "Інтерфейс",
+  "settings.language": "Мова:",
+  "settings.language_hint": "Застосовується після збереження налаштувань.",
+  "settings.language_scope": "Деякі частини інтерфейсу поки залишаються англійською.",
+  "settings.save_hint": "Зберегти всі зміни в цьому вікні налаштувань.",
+  "scanner.start": "Запустити",
+  "scanner.stop": "Зупинити"
+}

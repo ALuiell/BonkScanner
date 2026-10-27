@@ -1,0 +1,5896 @@
+{
+  "locale": "fr",
+  "schema_version": 1,
+  "tables": {
+    "AchievementsCharacters": {
+      "collection_guid": "282ef2cf13fbea545b5b678ecf6f6636",
+      "entries": {
+        "Amog": {
+          "id": "3758902310207488",
+          "smart": true,
+          "text": "Empoisonne {value} ennemis avec {moldy_cheese}"
+        },
+        "Athena": {
+          "id": "3758882047524864",
+          "smart": true,
+          "text": "Amène le {thorns_tome} au niveau {value}"
+        },
+        "Bandit": {
+          "id": "3758906001195008",
+          "smart": true,
+          "text": "Trouve et vaincs {bandit} dans {desert}"
+        },
+        "Birdo": {
+          "id": "3758890226417664",
+          "smart": true,
+          "text": "Tue {value} ennemis avec l’arme {tornado} en étant emporté par une tornade sur {desert}."
+        },
+        "Bush": {
+          "id": "3758907108491264",
+          "smart": true,
+          "text": "Trouve et vaincs {bush} dans {forest}"
+        },
+        "CL4NK": {
+          "id": "3758851462660096",
+          "smart": true,
+          "text": "Termine {forest} {tier} 1"
+        },
+        "Calcium": {
+          "id": "533179006976",
+          "smart": true,
+          "text": "Tue {value} squelettes"
+        },
+        "Dicehead": {
+          "id": "3758904776458240",
+          "smart": true,
+          "text": "Termine {value} {quests}"
+        },
+        "Megachad": {
+          "id": "3758847406768128",
+          "smart": true,
+          "text": "Amène le {damage_tome} au niveau {value}"
+        },
+        "Monke": {
+          "id": "3758887076495360",
+          "smart": true,
+          "text": "Trouve et libère {monke} dans {forest}"
+        },
+        "Ninja": {
+          "id": "3758901068693504",
+          "smart": true,
+          "text": "Termine {desert} {tier} 1"
+        },
+        "Noelle": {
+          "id": "3758894005485568",
+          "smart": true,
+          "text": "Utilise un {microwave} pour dupliquer {ice_crystal} {value} fois d’affilée"
+        },
+        "Ogre": {
+          "id": "3758878843076608",
+          "smart": true,
+          "text": "Tue {value} gobelins"
+        },
+        "Roberto": {
+          "id": "42499543764434944",
+          "smart": true,
+          "text": "Tuer {enemy1}"
+        },
+        "Robinette": {
+          "id": "3758855422083072",
+          "smart": true,
+          "text": "Termine {forest} {tier} 2"
+        },
+        "Sir Chadwell": {
+          "id": "3758903568498688",
+          "smart": true,
+          "text": "Termine {forest} {tier} 3"
+        },
+        "Spaceman": {
+          "id": "3758898321424384",
+          "smart": true,
+          "text": "Monte {attraction_tome} et {xp_tome} tous deux au niveau {value} dans une partie"
+        },
+        "Tony McZoom": {
+          "id": "3758884346003456",
+          "smart": true,
+          "text": "Bats {value} minibosses en tant que {calcium}"
+        },
+        "Vlad": {
+          "id": "3758896127803392",
+          "smart": true,
+          "text": "Termine {desert} {tier} 2"
+        }
+      }
+    },
+    "AchievementsGeneral": {
+      "collection_guid": "d4fe887e34072a44db65df4cb0f4ec7d",
+      "entries": {
+        "AcheivementQuests": {
+          "id": "7249505744453632",
+          "smart": true,
+          "text": "Achève {value} {quests}"
+        },
+        "AchievementBoombox_DESC": {
+          "id": "6933270091661312",
+          "smart": true,
+          "text": "Trouve et active tous les boombox dans {forest}"
+        },
+        "AchievementHugWall_DESC": {
+          "id": "6601609701359616",
+          "smart": true,
+          "text": "Évite les dégâts de chute {value} fois en te collant aux murs"
+        },
+        "AchievementHugWall_NAME": {
+          "id": "363196448768",
+          "smart": false,
+          "text": "AmoureuxDesMurs"
+        },
+        "AchievementToggler_DESC": {
+          "id": "6993160164212736",
+          "smart": true,
+          "text": "Achète {value} déblocages"
+        },
+        "AchievementTomes1_NAME": {
+          "id": "14861800175697920",
+          "smart": false,
+          "text": "Emplacement de grimoire"
+        },
+        "AchievementWeapons1_NAME": {
+          "id": "14861726259478528",
+          "smart": false,
+          "text": "Emplacement d'Arme"
+        },
+        "ChallengesCompletions_NAME": {
+          "id": "8123430540017664",
+          "smart": true,
+          "text": "Défis"
+        }
+      }
+    },
+    "AchievementsHats": {
+      "collection_guid": "dda7e2080ef4217419e474d528fe9f25",
+      "entries": {
+        "A_HatCheese": {
+          "id": "7544965788893184",
+          "smart": true,
+          "text": "En tant que {character}, bats le boss final de niveau {tier} 3 avec {value} {item1} et 1 {item2} dans ton inventaire"
+        },
+        "A_HatClown": {
+          "id": "7545009581621248",
+          "smart": true,
+          "text": "Avec {character}, élimine {value} ennemis avec {item1}."
+        },
+        "A_HatCrown": {
+          "id": "7544989893558272",
+          "smart": true,
+          "text": "Obtiens une étoile dorée sur tous les personnages ({rank_level} 100)."
+        },
+        "A_HatFrog": {
+          "id": "7544996621221888",
+          "smart": true,
+          "text": "Trouve les grenouilles dans {map} {stage} {value}"
+        },
+        "A_HatGlasses": {
+          "id": "7544957190569984",
+          "smart": true,
+          "text": "Avec {character}, termine le combat final sur {map} en moins de {value} secondes."
+        },
+        "A_HatHeadset": {
+          "id": "7545953262272512",
+          "smart": true,
+          "text": "Avec {character}, termine {map} {stage} 1 avec au moins {value} sanctuaires {shrine_name} activés."
+        },
+        "A_HatKevin": {
+          "id": "7544961410039808",
+          "smart": true,
+          "text": "Fais-toi frapper par {item1} {value} fois."
+        },
+        "A_HatMedieval": {
+          "id": "7545001058795520",
+          "smart": true,
+          "text": "En tant que {character}, bats le boss final de {map} 3 en utilisant {weapon1}, {weapon2}, {weapon3} et {weapon4}"
+        },
+        "A_HatMicrowave": {
+          "id": "7544944737681408",
+          "smart": true,
+          "text": "Fais exploser {value} micro-ondes"
+        },
+        "A_HatPilot": {
+          "id": "7545005437648896",
+          "smart": true,
+          "text": "Avec {character}, élimine {value} ennemis avec {weapon1} en plein vol."
+        },
+        "A_HatPot": {
+          "id": "7544959392579584",
+          "smart": true,
+          "text": "Avec {character}, obtenez {value}x {item_name} en une seule partie."
+        },
+        "A_HatShady": {
+          "id": "7544947694665728",
+          "smart": true,
+          "text": "Achète {value} objets auprès d’un {shady_guy} {rarity}."
+        },
+        "A_HatSheriff": {
+          "id": "7545007031484416",
+          "smart": true,
+          "text": "Jako {character} zabij libovolného bosse nebo minibosse za méně než {value} sekundu."
+        },
+        "A_HatTophat": {
+          "id": "7545002438721536",
+          "smart": true,
+          "text": "Obtiens {value} éliminations sur {map} en une seule partie."
+        },
+        "A_HatWizard": {
+          "id": "7544992535969792",
+          "smart": true,
+          "text": "Avec {character}, amène {weapon1}, {weapon2} et {weapon3} au niveau {value}."
+        },
+        "A_SantaHat": {
+          "id": "11059462144",
+          "smart": true,
+          "text": "Ouvre le cadeau caché sur {map}."
+        }
+      }
+    },
+    "AchievementsItems": {
+      "collection_guid": "83105fbaad8f2e34e993f5f1aed4de52",
+      "entries": {
+        "Anvil": {
+          "id": "63616949813248",
+          "smart": true,
+          "text": "Termine {value} {challenges}"
+        },
+        "Battery": {
+          "id": "5505866137600",
+          "smart": true,
+          "text": "Améliore {cooldown_tome} au Niveau {value}"
+        },
+        "BloodyCleaver": {
+          "id": "63619940352000",
+          "smart": true,
+          "text": "Atteins le niveau {value} en tant que {vlad}"
+        },
+        "Bob": {
+          "id": "58263528931328",
+          "smart": true,
+          "text": "Survis à la {final_swarm} pendant {value} minutes"
+        },
+        "BobsLight": {
+          "id": "41394730939056128",
+          "smart": true,
+          "text": "Tuez {enemy} sur {graveyard} avec un coup fatal infligé par une lampe."
+        },
+        "BossBuster": {
+          "id": "5421472546816",
+          "smart": true,
+          "text": "Vaincs un {stage_boss} en moins de {value} secondes"
+        },
+        "BrassKnuckles": {
+          "id": "35438793457664",
+          "smart": true,
+          "text": "Tue {value} ennemis avec {sword}"
+        },
+        "Cactus": {
+          "id": "5309094559744",
+          "smart": true,
+          "text": "Élimine {value} ennemis cactus avec les dégâts de {thorns_stat}"
+        },
+        "Chonkplate": {
+          "id": "63831748509696",
+          "smart": true,
+          "text": "Atteins {maxhp_stat} à {value}"
+        },
+        "CursedDoll": {
+          "id": "4801701216256",
+          "smart": true,
+          "text": "Mourir {value} fois"
+        },
+        "DemonicBlade": {
+          "id": "36273657085952",
+          "smart": true,
+          "text": "Soigne-toi de {value} HP avec {lifesteal_stat}"
+        },
+        "DemonicBlood": {
+          "id": "36144342499328",
+          "smart": true,
+          "text": "Augmente {max_hp} avec {blood_magic} {value} fois"
+        },
+        "DemonicSoul": {
+          "id": "58499580166144",
+          "smart": true,
+          "text": "Atteins le niveau {value} en tant que {Calcium}"
+        },
+        "Dragonfire": {
+          "id": "63617616707584",
+          "smart": true,
+          "text": "Tue {value} ennemis avec des dégâts de feu"
+        },
+        "EagleClaw": {
+          "id": "58500272226304",
+          "smart": true,
+          "text": "Tue {value} ennemis en tant que {Birdo}"
+        },
+        "EchoShard": {
+          "id": "36412828286976",
+          "smart": true,
+          "text": "Améliore {xp_tome} au niveau {value}"
+        },
+        "EnergyCore": {
+          "id": "63618220687360",
+          "smart": true,
+          "text": "Vaincs {final_boss} {value} fois"
+        },
+        "ForbiddenJuice": {
+          "id": "5225225256960",
+          "smart": true,
+          "text": "Faire {value} coups critiques"
+        },
+        "GamerGoggles": {
+          "id": "58268042002432",
+          "smart": true,
+          "text": "Bats un {stage_boss} avec moins de {value}% de vie"
+        },
+        "GasMask": {
+          "id": "58267446411264",
+          "smart": true,
+          "text": "Tue {value} ennemis avec {Amog}"
+        },
+        "Ghost": {
+          "id": "5063153156096",
+          "smart": true,
+          "text": "Survis à la {final_swarm} pendant {value} secondes"
+        },
+        "GoldenSneakers": {
+          "id": "36359271219200",
+          "smart": true,
+          "text": "Casse {value} pots"
+        },
+        "GrandmasTonic": {
+          "id": "58266288783360",
+          "smart": true,
+          "text": "Tue {value} ennemis avec {sniper_rifle}"
+        },
+        "HolyBook": {
+          "id": "63620544331776",
+          "smart": true,
+          "text": "Tue le premier {stage_boss} sans te prendre un seul dégât dans ce run"
+        },
+        "IceCrystal": {
+          "id": "6127159545561088",
+          "smart": true,
+          "text": "Obtiens {value} éliminations avec {frostwalker}"
+        },
+        "IdleJuice": {
+          "id": "34640084729856",
+          "smart": true,
+          "text": "Tue {value} ennemis sans bouger"
+        },
+        "JoesDagger": {
+          "id": "63621181865984",
+          "smart": true,
+          "text": "Tue {value} ennemis avec {dexecutioner}"
+        },
+        "Kevin": {
+          "id": "35200678625280",
+          "smart": true,
+          "text": "Récupère {value} {leeching_crystal} en une partie"
+        },
+        "Key": {
+          "id": "5177695404032",
+          "smart": true,
+          "text": "Acheter {value} coffres"
+        },
+        "LeechingCrystal": {
+          "id": "34309435162624",
+          "smart": true,
+          "text": "Améliore {regen_tome} au niveau {value}"
+        },
+        "LightningOrb": {
+          "id": "63621743902720",
+          "smart": true,
+          "text": "Tue {value} ennemis avec des dégâts de foudre"
+        },
+        "OldMask": {
+          "id": "30481347721166848",
+          "smart": true,
+          "text": "Trouvé sur {graveyard_map}"
+        },
+        "PotSteel": {
+          "id": "41049915613380608",
+          "smart": true,
+          "text": "Ouvre tous les coffres et pots dans la première crypte sur {mapName}."
+        },
+        "Pumpkin": {
+          "id": "41665177144393728",
+          "smart": true,
+          "text": "Avec {character}, casse toutes les citrouilles sur {map}."
+        },
+        "QuinsMask": {
+          "id": "12354450302828544",
+          "smart": true,
+          "text": "Vaincre {stage_boss} avec {athena}, en portant le coup final avec {aegis}"
+        },
+        "ShatteredKnowledge": {
+          "id": "58264959188992",
+          "smart": true,
+          "text": "Améliore {attraction_tome} au niveau {value}"
+        },
+        "Skuleg": {
+          "id": "4958987616256",
+          "smart": true,
+          "text": "Obtiens {value}% de {difficulty_stat}"
+        },
+        "SluttyCannon": {
+          "id": "58265592528896",
+          "smart": true,
+          "text": "Tue {value} ennemis avec {slutty_rockets}"
+        },
+        "Snek": {
+          "id": "36908488864169984",
+          "smart": true,
+          "text": "Trouvé dans la crypte de {graveyard_map}"
+        },
+        "SoulHarvester": {
+          "id": "63615414697984",
+          "smart": true,
+          "text": "Survis à la {final_swarm} pendant {value} minutes"
+        },
+        "SpeedBoi": {
+          "id": "63831090003968",
+          "smart": true,
+          "text": "Termine un niveau avec au moins {value} {cursed_shrine} activé"
+        },
+        "SuckyMagnet": {
+          "id": "63832381849600",
+          "smart": true,
+          "text": "Termine chaque {charge_shrine} sur la carte"
+        },
+        "TacticalGlasses": {
+          "id": "4860673130496",
+          "smart": true,
+          "text": "Bats un {miniboss} en {value} secondes"
+        },
+        "ToxicBarrel": {
+          "id": "58264304877568",
+          "smart": true,
+          "text": "Tue {value} ennemis avec des dégâts de {poison}"
+        },
+        "TurboSkates": {
+          "id": "58261716992000",
+          "smart": true,
+          "text": "Améliore {cooldown_tome} et {agility_tome} au niveau {value} en une partie"
+        },
+        "TurboSocks": {
+          "id": "8521908224",
+          "smart": true,
+          "text": "Améliore {agility_tome} au Niveau {value}"
+        },
+        "WizardsHat": {
+          "id": "44545105384833024",
+          "smart": true,
+          "text": "Avec {character}, utilisez {item} pour améliorer n’importe quelle arme au-delà du niveau max 40."
+        }
+      }
+    },
+    "AchievementsMaps": {
+      "collection_guid": "5005e1a83defff6448e0e2608922e4a2",
+      "entries": {
+        "Desert": {
+          "id": "4702618634027008",
+          "smart": true,
+          "text": "Téléporte-toi au 2ème niveau dans {forest} {tier} 2 en tant que {clank}"
+        },
+        "Graveyard": {
+          "id": "43114793366847488",
+          "smart": true,
+          "text": "En tant que {calcium} sur {desertMap} {tierName} 2, invoque et vaincs le boss mort-vivant."
+        }
+      }
+    },
+    "AchievementsSkins": {
+      "collection_guid": "f8457358c0b3be24f9819433f8e78ec3",
+      "entries": {
+        "SKIN_CRYPT": {
+          "id": "38733847322558464",
+          "smart": true,
+          "text": "Termine la première crypte sur {map} en moins de {value} secondes avec {character}."
+        },
+        "SKIN_FINAL_BOSS": {
+          "id": "50540445696",
+          "smart": true,
+          "text": "Démonte un {final_boss} de niveau {tier} 3 avec {character}"
+        },
+        "SKIN_GOLD": {
+          "id": "55573610496",
+          "smart": true,
+          "text": "Amène {character} au {rank} {value}"
+        },
+        "SKIN_KEVIN": {
+          "id": "54932877731725312",
+          "smart": true,
+          "text": "En tant que {character}, bats le boss final de {map} 3 en moins de {value} secondes en portant {hat_name}"
+        },
+        "SKIN_KILLS": {
+          "id": "9377546240",
+          "smart": true,
+          "text": "Élimine {value} ennemis en jouant {character}"
+        },
+        "SKIN_LEVEL": {
+          "id": "48296493056",
+          "smart": true,
+          "text": "Atteins le niveau {value} en une partie avec {character}"
+        },
+        "SKIN_SPEEDRUN": {
+          "id": "52708900864",
+          "smart": true,
+          "text": "Bats le premier {stage_boss} en moins de {value} minutes en étant {character}"
+        }
+      }
+    },
+    "AchievementsTomes": {
+      "collection_guid": "430d9a580e6a8c541b2ada470fd6a8ed",
+      "entries": {
+        "ArmorTome": {
+          "id": "85923594240",
+          "smart": true,
+          "text": "Tue {value} ennemis en tant que {sir_oofie}"
+        },
+        "AttractionTome": {
+          "id": "82186469376",
+          "smart": true,
+          "text": "Utilise {shrine_succ} {value} fois"
+        },
+        "BloodTome": {
+          "id": "79963488256",
+          "smart": true,
+          "text": "Élimine {value} ennemis"
+        },
+        "ChaosTome": {
+          "id": "95914426368",
+          "smart": true,
+          "text": "Charge tous les {charge_shrine} lors d'un run {tier} 3 sur les 3 stages sans quitter la zone de charge"
+        },
+        "DifficultyTome": {
+          "id": "99240509440",
+          "smart": true,
+          "text": "Bats le {stage_boss} en moins de {value} minutes"
+        },
+        "DurationTome": {
+          "id": "18756009984",
+          "smart": true,
+          "text": "Améliore {axe} au niveau {value}"
+        },
+        "LuckTome": {
+          "id": "91351023616",
+          "smart": true,
+          "text": "{value}% de chance de loot en tuant un ennemi"
+        },
+        "QuantityTome": {
+          "id": "2516011057152",
+          "smart": true,
+          "text": "Tire {value} projectiles"
+        },
+        "ThornsTome": {
+          "id": "88104632320",
+          "smart": true,
+          "text": "Bloque {value} attaques avec {aegis}"
+        },
+        "XpTome": {
+          "id": "93662085120",
+          "smart": true,
+          "text": "Casse {value} pots en une seule partie"
+        }
+      }
+    },
+    "AchievementsWeapons": {
+      "collection_guid": "484ef3b7ce92e004cb8907bd76f0f7d8",
+      "entries": {
+        "Aegis": {
+          "id": "3638733751582720",
+          "smart": true,
+          "text": "Bloc {value} dégâts avec {armor_stat} en tant que {sir_oofie}"
+        },
+        "Aura": {
+          "id": "594365513728",
+          "smart": true,
+          "text": "Ne subis aucun dégât pendant {value} minutes"
+        },
+        "Axe": {
+          "id": "3638810691895296",
+          "smart": true,
+          "text": "Tue {value} ennemis avec {sword}"
+        },
+        "Banana": {
+          "id": "3638808401805312",
+          "smart": true,
+          "text": "Trouve la banane cachée"
+        },
+        "BloodMagic": {
+          "id": "3638834515542016",
+          "smart": true,
+          "text": "Atteins le niveau {value} avec {bloody_tome}"
+        },
+        "CorruptedSword": {
+          "id": "3639213588348928",
+          "smart": true,
+          "text": "Obtiens {difficulty_tome} au niveau {value} en moins de 10 minutes"
+        },
+        "DarkHole": {
+          "id": "3638835715112960",
+          "smart": true,
+          "text": "Atteins le niveau {value} avec {knockback_tome}"
+        },
+        "Dexecutioner": {
+          "id": "3638831965405184",
+          "smart": true,
+          "text": "Tue {value} ennemis avec le {sword}"
+        },
+        "Dice": {
+          "id": "3638838114254848",
+          "smart": true,
+          "text": "Atteins le niveau {value} avec {luck_tome}"
+        },
+        "DragonsBreath": {
+          "id": "3638839393517568",
+          "smart": true,
+          "text": "Tue {value} {wisp} en tant que {fox} dans {desert}"
+        },
+        "Frostwalker": {
+          "id": "3638825590063104",
+          "smart": true,
+          "text": "Gèle {value} ennemis avec le {ice_cube}"
+        },
+        "HeroSword": {
+          "id": "3638841717161984",
+          "smart": true,
+          "text": "Bats un {stage_boss} sans ramasser d'objets, de bonus ni utiliser de sanctuaires"
+        },
+        "Katana": {
+          "id": "3638833194336256",
+          "smart": true,
+          "text": "{value}% de chances de trouver en cassant une {tumbleweed} au {desert} {tier} 1"
+        },
+        "Mines": {
+          "id": "3638828786122752",
+          "smart": true,
+          "text": "Tue {value} ennemis avec {slutty_rockets}"
+        },
+        "PoisonFlask": {
+          "id": "3638836910489600",
+          "smart": true,
+          "text": "Tue {scorpionussy} {miniboss} dans {desert} {value} fois"
+        },
+        "Revolver": {
+          "id": "3638802051629056",
+          "smart": true,
+          "text": "Tue {value} ennemis"
+        },
+        "Scythe": {
+          "id": "42504814414921728",
+          "smart": true,
+          "text": "Tue {enemy1} sur {graveyard}"
+        },
+        "Shotgun": {
+          "id": "3638817985789952",
+          "smart": true,
+          "text": "{value}% de chance de trouver en détruisant un {tumbleweed} au {desert} {tier} 2"
+        },
+        "SluttyRockets": {
+          "id": "3638814991056896",
+          "smart": true,
+          "text": "Tue {value} ennemis en tant que {clank}"
+        },
+        "SniperRifle": {
+          "id": "3638812965208064",
+          "smart": true,
+          "text": "Atteins le niveau {value} avec {precision_tome}"
+        },
+        "SpaceNoodle": {
+          "id": "3638840500813824",
+          "smart": true,
+          "text": "Complète {desert} {tier} 2 en tant que {tony}"
+        },
+        "Tornado": {
+          "id": "3638822821822464",
+          "smart": true,
+          "text": "Charge un {charge_shrine} lors d'une tempête de sable dans {desert}"
+        },
+        "WirelessDaggers": {
+          "id": "3638820410097664",
+          "smart": true,
+          "text": "Atteins le niveau {value} avec {lightning_staff}"
+        }
+      }
+    },
+    "Challenges": {
+      "collection_guid": "125078c51835c6443a6952dc2d0e18d4",
+      "entries": {
+        "afk_gaming_DESC": {
+          "id": "146023358464",
+          "smart": false,
+          "text": "Pas de mouvement ni de saut permis ! Assieds-toi, relaxe... et prépare-toi à crever plein de fois."
+        },
+        "afk_gaming_name": {
+          "id": "71368941568",
+          "smart": false,
+          "text": "AFK Gaming"
+        },
+        "blind_DESC": {
+          "id": "20704905072345088",
+          "smart": false,
+          "text": "Le brouillard est si épais que tu vois que dalle"
+        },
+        "blind_NAME": {
+          "id": "20704851536248832",
+          "smart": false,
+          "text": "Aveugle"
+        },
+        "chonk_mode_DESC": {
+          "id": "20710595039985664",
+          "smart": false,
+          "text": "Les ennemis sont ééénormes"
+        },
+        "chonk_mode_NAME": {
+          "id": "20704669104996352",
+          "smart": false,
+          "text": "Mode Golgotha"
+        },
+        "crypt1_NAME": {
+          "id": "59466348772851712",
+          "smart": false,
+          "text": "Évasion de crypte"
+        },
+        "crypt2_NAME": {
+          "id": "59466350085668864",
+          "smart": false,
+          "text": "Évasion de crypte+"
+        },
+        "crypt3_NAME": {
+          "id": "59467566047952896",
+          "smart": false,
+          "text": "Évasion de crypte++"
+        },
+        "crypt4_NAME": {
+          "id": "59467567952166912",
+          "smart": false,
+          "text": "Évasion de crypte+++"
+        },
+        "crypt_DESC\n": {
+          "id": "59467627314151424",
+          "smart": true,
+          "text": "Tu n’as que {value} secondes pour t’échapper !"
+        },
+        "fragile_DESC": {
+          "id": "20703260141813760",
+          "smart": false,
+          "text": "Meurs dès que tu prends des dégâts ou touches un ennemi."
+        },
+        "fragile_NAME": {
+          "id": "20703257126109184",
+          "smart": false,
+          "text": "Fragile"
+        },
+        "hard_NAME": {
+          "id": "20705383797620736",
+          "smart": false,
+          "text": "oh non"
+        },
+        "harder_NAME": {
+          "id": "20705385504702464",
+          "smart": false,
+          "text": "oh putain"
+        },
+        "hardest_NAME": {
+          "id": "20705386414866432",
+          "smart": false,
+          "text": "c’est quoi ce bordel"
+        },
+        "hyper_DESC": {
+          "id": "21001806472675328",
+          "smart": false,
+          "text": "Faut speeder"
+        },
+        "hyper_NAME": {
+          "id": "21000850305581056",
+          "smart": false,
+          "text": "Hyper"
+        },
+        "impossible_DESC": {
+          "id": "20704558501199872",
+          "smart": false,
+          "text": "Pas d’armes autorisées. Ce défi est carrément impossible."
+        },
+        "impossible_NAME": {
+          "id": "20704556223692800",
+          "smart": false,
+          "text": "Impossible"
+        },
+        "inverted_DESC": {
+          "id": "20705018280804352",
+          "smart": false,
+          "text": "Mon clavier est branché dans le mauvais trou ?"
+        },
+        "inverted_NAME": {
+          "id": "20704939255922688",
+          "smart": false,
+          "text": "Contrôles Bizarres"
+        },
+        "lava_DESC": {
+          "id": "21021765064065024",
+          "smart": false,
+          "text": "La lave recouvre périodiquement la plupart de la carte."
+        },
+        "lava_NAME": {
+          "id": "21021763679944704",
+          "smart": false,
+          "text": "Le Sol c'est de la Lave"
+        },
+        "lootGoblin_DESC": {
+          "id": "60044962149040128",
+          "smart": false,
+          "text": "Impossible de gagner de l’XP ou de monter de niveau."
+        },
+        "lootGoblin_NAME": {
+          "id": "60044961066909696",
+          "smart": false,
+          "text": "Gobelin du butin"
+        },
+        "minimalist_DESC": {
+          "id": "59835990863380480",
+          "smart": false,
+          "text": "Un seul emplacement d’arme et de grimoire. Aucun objet autorisé."
+        },
+        "minimalist_NAME": {
+          "id": "59835989739307008",
+          "smart": false,
+          "text": "Minimaliste"
+        },
+        "no_items_DESC": {
+          "id": "20704279680647168",
+          "smart": false,
+          "text": "Pas d'objets permis, compte seulement sur tes armes et tomes !"
+        },
+        "no_items_NAME": {
+          "id": "20704273271750656",
+          "smart": false,
+          "text": "Bâtons et pierres"
+        },
+        "pacifist_DESC": {
+          "id": "20704443615019008",
+          "smart": false,
+          "text": "Ne blesse aucun ennemi. Tout dégât infligé entraînera une partie de sudoku."
+        },
+        "pacifist_NAME": {
+          "id": "20704440309907456",
+          "smart": false,
+          "text": "Pacifique"
+        },
+        "smol_DESC": {
+          "id": "20705171003801600",
+          "smart": false,
+          "text": "T'es un p'tit boudin avec de grands rêves"
+        },
+        "smol_NAME": {
+          "id": "20705168688545792",
+          "smart": false,
+          "text": "Petit Boudin"
+        },
+        "speedrunner_DESC": {
+          "id": "22150476291244032",
+          "smart": true,
+          "text": "T'as juste {value} minutes pour gagner !"
+        },
+        "speedrunner_NAME": {
+          "id": "22150474810654720",
+          "smart": false,
+          "text": "Speedrunner"
+        },
+        "speedrunner_extreme_NAME": {
+          "id": "22150535674200064",
+          "smart": false,
+          "text": "Speedrunner+"
+        },
+        "swarm_DESC": {
+          "id": "20710667559501824",
+          "smart": false,
+          "text": "Plein d'ennemis !"
+        },
+        "swarm_NAME": {
+          "id": "20705323160567808",
+          "smart": false,
+          "text": "Essaim"
+        },
+        "turbo_DESC": {
+          "id": "20910448294625280",
+          "smart": false,
+          "text": "Choppe un max d'objets avant que les ennemis ne deviennent trop balèzes !"
+        },
+        "turbo_NAME": {
+          "id": "20910446734344192",
+          "smart": false,
+          "text": "Mode Turbo"
+        }
+      }
+    },
+    "ChallengesUi": {
+      "collection_guid": "e4c05aab6b0feff4b8ce07137db7c4e9",
+      "entries": {
+        "CHALLENGES_HEADER": {
+          "id": "6814408704",
+          "smart": true,
+          "text": "Défis Niveau {tier}"
+        },
+        "CHALLENGES_LEADERBOARD_NOTE": {
+          "id": "8487600627712",
+          "smart": false,
+          "text": "Les défis ne sont pas envoyés aux classements en ligne."
+        },
+        "REQUIREMENT": {
+          "id": "24002582677684224",
+          "smart": true,
+          "text": "Termine plus de défis pour déverrouiller !\\n{value} / {target_value}"
+        },
+        "REQUIREMENT_PRE": {
+          "id": "59787623135313920",
+          "smart": true,
+          "text": "Requiert : « {prerequisite} »"
+        },
+        "REWARD": {
+          "id": "22771343908012032",
+          "smart": true,
+          "text": "{reward_icon} {value} (Permanent)"
+        },
+        "STAGES": {
+          "id": "15160163672064",
+          "smart": true,
+          "text": "Niveaux : {numStages}"
+        },
+        "SUGGESTION": {
+          "id": "169918308352",
+          "smart": true,
+          "text": "Défi proposé par : {name}"
+        },
+        "WIN_CONDITION_BOSS": {
+          "id": "20745721778143232",
+          "smart": false,
+          "text": "Éclate tous les boss"
+        },
+        "WIN_CONDITION_CRYPT": {
+          "id": "59510230415966208",
+          "smart": false,
+          "text": "Échappe-toi de la première crypte"
+        },
+        "WIN_CONDITION_SURVIVE": {
+          "id": "20745779609206784",
+          "smart": false,
+          "text": "Atteins l'essaim final"
+        }
+      }
+    },
+    "Characters": {
+      "collection_guid": "f6c7c849792e6a64b8ab3a2e40469b2e",
+      "entries": {
+        "ATHENA_DESCRIPTION": {
+          "id": "2522230792192",
+          "smart": false,
+          "text": "Capitaine America mais commandé sur Temu (avec promo)"
+        },
+        "ATHENA_NAME": {
+          "id": "2487837499392",
+          "smart": false,
+          "text": "Athéna"
+        },
+        "BANDIT_DESC": {
+          "id": "2568280055808",
+          "smart": false,
+          "text": "Un pote rusé avec une épée bien aiguisée"
+        },
+        "BANDIT_NAME": {
+          "id": "2565239185408",
+          "smart": false,
+          "text": "Bandit"
+        },
+        "BIRDO_DESC": {
+          "id": "14407441293312",
+          "smart": false,
+          "text": "Les lunettes, c’est pour ta sécurité, pas la sienne."
+        },
+        "BIRDO_NAME": {
+          "id": "14406220750848",
+          "smart": false,
+          "text": "Birdo"
+        },
+        "BUSH_DESC": {
+          "id": "2689608687616",
+          "smart": false,
+          "text": "Juste un buisson normal, y’a rien à voir ici."
+        },
+        "BUSH_NAME": {
+          "id": "2685133365248",
+          "smart": false,
+          "text": "Buisson"
+        },
+        "CALCIUM_DESC": {
+          "id": "2807925809152",
+          "smart": false,
+          "text": "Un mort vivant qui déchire avec ses figures de malade."
+        },
+        "CALCIUM_NAME": {
+          "id": "2804318707712",
+          "smart": false,
+          "text": "Calcium"
+        },
+        "CHADWELL_DESC": {
+          "id": "12037844410433536",
+          "smart": false,
+          "text": "Le copain de la femme de Sir Oofie. Lui a acheté une nouvelle armure et le laisse veiller après 20h30. Un type sympa !"
+        },
+        "CHADWELL_NAME": {
+          "id": "12037842271338496",
+          "smart": false,
+          "text": "Sir Chadwell"
+        },
+        "CL4NK_DESC": {
+          "id": "19688397185024",
+          "smart": false,
+          "text": "Je sais pas comment on prononce son nom."
+        },
+        "CL4NK_NAME": {
+          "id": "19667685711872",
+          "smart": false,
+          "text": "CL4NK"
+        },
+        "DICEHEAD_DESC": {
+          "id": "9503795133415424",
+          "smart": false,
+          "text": "Son chiffre fétiche c'est le 7. Qui va lui annoncer la mauvaise nouvelle ?"
+        },
+        "DICEHEAD_NAME": {
+          "id": "9503794055479296",
+          "smart": false,
+          "text": "Tête-de-dé"
+        },
+        "FOX_DESC": {
+          "id": "2891753168896",
+          "smart": false,
+          "text": "Vif sur ses pattes et chanceux à en faire râler plus d’un."
+        },
+        "FOX_NAME": {
+          "id": "2887793745920",
+          "smart": false,
+          "text": "Renard"
+        },
+        "HAZMAT_DESC": {
+          "id": "5442140577595392",
+          "smart": false,
+          "text": "Personne ne connaît son vrai nom. Tout le monde a juste commencé à l'appeler Amog, et il n'a jamais corrigé."
+        },
+        "HAZMAT_NAME": {
+          "id": "5442138539163648",
+          "smart": false,
+          "text": "Amog"
+        },
+        "JIMMY_DESC": {
+          "id": "2988041805824",
+          "smart": false,
+          "text": "Tony n'a pas choisi l'hoverboard - c'est l'hoverboard qui l'a choisi !"
+        },
+        "JIMMY_NAME": {
+          "id": "2985613303808",
+          "smart": false,
+          "text": "Tony McFusée"
+        },
+        "KNIGHT_DESC": {
+          "id": "3527295082496",
+          "smart": false,
+          "text": "Il est lent, mais son armure le rend bien costaud."
+        },
+        "KNIGHT_NAME": {
+          "id": "3526166814720",
+          "smart": false,
+          "text": "Sir Oofie"
+        },
+        "MEGACHAD_DESC": {
+          "id": "3640088305664",
+          "smart": false,
+          "text": "Il se trimballe la mâchoire la plus parfaite et puissante."
+        },
+        "MEGACHAD_NAME": {
+          "id": "3638968426496",
+          "smart": false,
+          "text": "Megachad"
+        },
+        "MONKE_DESC": {
+          "id": "3712721068032",
+          "smart": false,
+          "text": "Personne sait d'où viennent ses lunettes. Personne n’ose demander."
+        },
+        "MONKE_NAME": {
+          "id": "3711223701504",
+          "smart": false,
+          "text": "Monke"
+        },
+        "NINJA_DESC": {
+          "id": "6882292743143424",
+          "smart": false,
+          "text": "Vif comme l'éclair et insaisissable. Les impôts ? Il a oublié depuis 2014. C'est un fouineur !"
+        },
+        "NINJA_NAME": {
+          "id": "6882290591465472",
+          "smart": false,
+          "text": "Ninja"
+        },
+        "NOELLE_DESC": {
+          "id": "4508766412800",
+          "smart": false,
+          "text": "La commu Megabonk sur Discord m’a forcé à créer ce perso"
+        },
+        "NOELLE_NAME": {
+          "id": "4507256463360",
+          "smart": false,
+          "text": "Noëlle"
+        },
+        "OGRE_DESC": {
+          "id": "5174742196224",
+          "smart": false,
+          "text": "Gros et costaud, avec l'intelligence d'une chaussette mouillée."
+        },
+        "OGRE_NAME": {
+          "id": "5173664260096",
+          "smart": false,
+          "text": "Ogre"
+        },
+        "ROBERTO_DESC": {
+          "id": "43054555372584960",
+          "smart": false,
+          "text": "Il dit qu'il flotte. Les scientifiques enquêtent encore."
+        },
+        "ROBERTO_NAME": {
+          "id": "43054552025530368",
+          "smart": false,
+          "text": "Roberto"
+        },
+        "ROBINETTE_DESC": {
+          "id": "6517481512960",
+          "smart": false,
+          "text": "Vole aux pauvres, donne aux riches."
+        },
+        "ROBINETTE_NAME": {
+          "id": "6516210638848",
+          "smart": false,
+          "text": "Robinette"
+        },
+        "SPACEMAN_DESC": {
+          "id": "6274306618294272",
+          "smart": false,
+          "text": "Le cosmonaute est banni de 7 planètes et de la plupart des boutiques souvenirs de la NASA."
+        },
+        "SPACEMAN_NAME": {
+          "id": "6274304529530880",
+          "smart": false,
+          "text": "Cosmonaute"
+        },
+        "VLAD_DESC": {
+          "id": "10162425415467008",
+          "smart": false,
+          "text": "Il a l'air méchant mais en fait c'est vraiment un type sympa. Il dit toujours bonjour à l'épicerie. Un gars cool."
+        },
+        "VLAD_NAME": {
+          "id": "10162423796465664",
+          "smart": false,
+          "text": "Vlad"
+        }
+      }
+    },
+    "DamageSources": {
+      "collection_guid": "45654df526fe4b346a726287ce3bfe6e",
+      "entries": {
+        "Bloodmark": {
+          "id": "13890537886187520",
+          "smart": false,
+          "text": "Marque de Sang"
+        },
+        "Bullseye": {
+          "id": "60932544714113024",
+          "smart": false,
+          "text": "Dans le Mille"
+        },
+        "Burn": {
+          "id": "89865822208",
+          "smart": false,
+          "text": "Brûlure"
+        },
+        "Echo": {
+          "id": "174402019328",
+          "smart": false,
+          "text": "Écho"
+        },
+        "Execute": {
+          "id": "15634613388050432",
+          "smart": false,
+          "text": "Exécution"
+        },
+        "Flex": {
+          "id": "20903075840",
+          "smart": false,
+          "text": "Flexion"
+        },
+        "Poison": {
+          "id": "49030078464",
+          "smart": false,
+          "text": "Poison"
+        },
+        "Shadowstep": {
+          "id": "59493666253832192",
+          "smart": false,
+          "text": "Ombre Pas"
+        },
+        "Thorns": {
+          "id": "11893710848",
+          "smart": false,
+          "text": "Épines"
+        },
+        "Zap": {
+          "id": "22617221091164160",
+          "smart": false,
+          "text": "Zap"
+        }
+      }
+    },
+    "DynamicWindows": {
+      "collection_guid": "d44eb4f7c6283c1409fe4e32992d4fdd",
+      "entries": {
+        "CHESTSKIPWARNING": {
+          "id": "58701114172899328",
+          "smart": false,
+          "text": "Remarque : Vous ne pouvez pas bannir d’objets si vous passez l’animation du coffre."
+        },
+        "EXIT_GAME": {
+          "id": "21333970045239296",
+          "smart": false,
+          "text": "Quitter le jeu ?"
+        },
+        "EXIT_RUN": {
+          "id": "1736432132096",
+          "smart": false,
+          "text": "T'es sûr(e) de vouloir quitter et retourner au menu ?"
+        },
+        "RESET_SAVE_FILE": {
+          "id": "2230173016064",
+          "smart": false,
+          "text": "T'es vraiment prêt(e) à tout réinitialiser ?"
+        },
+        "RESTART": {
+          "id": "1486761992192",
+          "smart": false,
+          "text": "Voulez-vous recommencer ?"
+        },
+        "SYNC_ACH_HEADER": {
+          "id": "64811551847219200",
+          "smart": false,
+          "text": "Synchroniser la progression"
+        },
+        "SYNC_ACH_PROMPT": {
+          "id": "64811571916963840",
+          "smart": false,
+          "text": "Voulez-vous utiliser vos succès Steam pour récupérer une progression perdue ? Cela synchronisera votre jeu avec vos succès Steam."
+        }
+      }
+    },
+    "Enemies": {
+      "collection_guid": "a3cd284a4994a7f48bdaadd191214032",
+      "entries": {
+        "ArmoredSkeleton": {
+          "id": "3938034884608",
+          "smart": false,
+          "text": "Squelette Blindé"
+        },
+        "ArmoredSkeletonDusty": {
+          "id": "4398623989760",
+          "smart": false,
+          "text": "Squelette Blindé Poussiéreux"
+        },
+        "Bee": {
+          "id": "7454539358208",
+          "smart": false,
+          "text": "Abeille"
+        },
+        "BoomerSpider": {
+          "id": "7431982391296",
+          "smart": false,
+          "text": "Araignée Boomeuse"
+        },
+        "CactusShooter": {
+          "id": "15007937431994368",
+          "smart": false,
+          "text": "Tire-Cactus"
+        },
+        "CalciumDad": {
+          "id": "57440319535448064",
+          "smart": false,
+          "text": "Roi squelette"
+        },
+        "Ent1": {
+          "id": "7389221462016",
+          "smart": false,
+          "text": "Petite Écorce"
+        },
+        "Ent2": {
+          "id": "7409513504768",
+          "smart": false,
+          "text": "Chadbois"
+        },
+        "Ent3": {
+          "id": "7423182741504",
+          "smart": false,
+          "text": "Écorce Vader"
+        },
+        "Ghost": {
+          "id": "7304806899712",
+          "smart": false,
+          "text": "Fantôme"
+        },
+        "GhostGrave1": {
+          "id": "54118234046201856",
+          "smart": false,
+          "text": "Jeff"
+        },
+        "GhostGrave2": {
+          "id": "54119284975206400",
+          "smart": false,
+          "text": "Mike"
+        },
+        "GhostGrave3": {
+          "id": "54119325286662144",
+          "smart": false,
+          "text": "Ted"
+        },
+        "GhostGrave4": {
+          "id": "54119326750474240",
+          "smart": false,
+          "text": "Gary"
+        },
+        "GhostInvincible": {
+          "id": "51150267259944960",
+          "smart": false,
+          "text": "Steve le flippant"
+        },
+        "GhostKing": {
+          "id": "49706903801036800",
+          "smart": false,
+          "text": "Big Bob"
+        },
+        "GhostPurple": {
+          "id": "58140036527423488",
+          "smart": false,
+          "text": "Fantôme violet"
+        },
+        "GhostRed": {
+          "id": "58140096325615616",
+          "smart": false,
+          "text": "Fantôme rouge"
+        },
+        "Ghostham": {
+          "id": "54819067645788160",
+          "smart": false,
+          "text": "Ghostham le Mort"
+        },
+        "Ghoul": {
+          "id": "3974709878784",
+          "smart": false,
+          "text": "Goule"
+        },
+        "Goblin": {
+          "id": "4128913465344",
+          "smart": false,
+          "text": "Gobelin"
+        },
+        "GoblinStrong": {
+          "id": "4157971603456",
+          "smart": false,
+          "text": "Gobelin Costaud"
+        },
+        "GolbinTank": {
+          "id": "4229799059456",
+          "smart": false,
+          "text": "Char Gobelin"
+        },
+        "GoldenSkeleton": {
+          "id": "594281209856",
+          "smart": false,
+          "text": "Squelette Doré"
+        },
+        "Golem": {
+          "id": "7441717370880",
+          "smart": false,
+          "text": "Golem"
+        },
+        "GreaterGhost": {
+          "id": "7334636789760",
+          "smart": false,
+          "text": "Fantôme noir"
+        },
+        "MinibossGolem": {
+          "id": "4267090616320",
+          "smart": false,
+          "text": "Golem de Pierre"
+        },
+        "MinibossGolemSand": {
+          "id": "15007693176700928",
+          "smart": false,
+          "text": "Golem de Sable"
+        },
+        "MinibossPig": {
+          "id": "4001406623744",
+          "smart": false,
+          "text": "Baconator le Terrible"
+        },
+        "MinibossScorpion": {
+          "id": "15007866476953600",
+          "smart": false,
+          "text": "Giga Scorpion"
+        },
+        "Mummy": {
+          "id": "4086580355072",
+          "smart": false,
+          "text": "Momie"
+        },
+        "MummyAncient": {
+          "id": "15008070651478016",
+          "smart": false,
+          "text": "Momie Ancienne"
+        },
+        "MummyTank": {
+          "id": "15008016997941248",
+          "smart": false,
+          "text": "Tank Momie"
+        },
+        "Pharaoh1": {
+          "id": "15008138800529408",
+          "smart": false,
+          "text": "Ptit' Anubis"
+        },
+        "Pharaoh2": {
+          "id": "15008140008488960",
+          "smart": false,
+          "text": "Anubro"
+        },
+        "Pharaoh3": {
+          "id": "15008140679577600",
+          "smart": false,
+          "text": "Grand Juge Anubis"
+        },
+        "Scorpion": {
+          "id": "15007809996455936",
+          "smart": false,
+          "text": "Scorpion"
+        },
+        "ScorpionMedium": {
+          "id": "15007976862646272",
+          "smart": false,
+          "text": "Scorpion Costaud"
+        },
+        "Skeleton": {
+          "id": "566766575616",
+          "smart": false,
+          "text": "Squelette"
+        },
+        "SkeletonDusty": {
+          "id": "4364792733696",
+          "smart": false,
+          "text": "Squelette Poussiéreux"
+        },
+        "Slime": {
+          "id": "4109535780864",
+          "smart": false,
+          "text": "Slime"
+        },
+        "Tumblebone": {
+          "id": "15008106424696832",
+          "smart": false,
+          "text": "Tumblebone"
+        },
+        "Wisp": {
+          "id": "15007921246175232",
+          "smart": false,
+          "text": "Fantasmouche"
+        },
+        "XpSkeleton": {
+          "id": "3902114865152",
+          "smart": false,
+          "text": "Squelette XP"
+        },
+        "Zombie": {
+          "id": "48625562158235648",
+          "smart": false,
+          "text": "Zombie"
+        }
+      }
+    },
+    "Game_HUD": {
+      "collection_guid": "adae2dacc81bb784b9b9b9ecdda3c5d0",
+      "entries": {
+        "ALERT_BOSS": {
+          "id": "237371105280",
+          "smart": false,
+          "text": "Boss en approche !"
+        },
+        "ALERT_FINAL_SWARM": {
+          "id": "588438544384",
+          "smart": false,
+          "text": "Dernier essaim en approche !"
+        },
+        "ALERT_SWARM": {
+          "id": "575486533632",
+          "smart": false,
+          "text": "Essaim en approche !"
+        },
+        "ALERT_TIME_UP": {
+          "id": "49927497947676672",
+          "smart": false,
+          "text": "Temps écoulé !"
+        },
+        "CHALLENGE_COMPLETED": {
+          "id": "56157383925760",
+          "smart": false,
+          "text": "Défi réussi !"
+        },
+        "FINAL_SWARM": {
+          "id": "16595682113748992",
+          "smart": false,
+          "text": "Portail du Boss"
+        },
+        "LEVEL": {
+          "id": "145574567936",
+          "smart": true,
+          "text": "LVL {level}"
+        },
+        "OBJECTIVE_DEFEAT_BOSS": {
+          "id": "262395514298368",
+          "smart": false,
+          "text": "Casse la tête du Boss"
+        },
+        "OBJECTIVE_DEFEAT_BOSS_FINAL": {
+          "id": "262638976868352",
+          "smart": false,
+          "text": "Explose le Boss final"
+        },
+        "OBJECTIVE_ENTER_PORTAL": {
+          "id": "262459607457792",
+          "smart": false,
+          "text": "Entre dans le Portail"
+        },
+        "OBJECTIVE_FIND_BOSS": {
+          "id": "262338014584832",
+          "smart": false,
+          "text": "Trouve le portail du Boss"
+        },
+        "OBJECTIVE_GRAVEYARD_CRYPT_KEYS": {
+          "id": "46702870547005440",
+          "smart": true,
+          "text": "Trouve les clés de crypte {current} / {target}"
+        },
+        "OBJECTIVE_GRAVEYARD_ESCAPE_CRYPT": {
+          "id": "51774279489028096",
+          "smart": false,
+          "text": "Trouve la sortie"
+        },
+        "OBJECTIVE_GRAVEYARD_FIND_CRYPT": {
+          "id": "48884332268486656",
+          "smart": false,
+          "text": "Trouve la crypte"
+        },
+        "OBJECTIVE_SURVIVE": {
+          "id": "262437713190912",
+          "smart": false,
+          "text": "Survis…"
+        }
+      }
+    },
+    "Game_Interactables": {
+      "collection_guid": "39ec8d9f750a44f419ee4c7b7688a80e",
+      "entries": {
+        "BANANARANG": {
+          "id": "328890818560",
+          "smart": false,
+          "text": "Attrape la banane brillante"
+        },
+        "BOOMBOX_INTERACT": {
+          "id": "20729263719317504",
+          "smart": false,
+          "text": "Fais péter le son"
+        },
+        "BREAK_EGG": {
+          "id": "70284600893538304",
+          "smart": false,
+          "text": "Casser l’œuf"
+        },
+        "BREAK_POT": {
+          "id": "233172606976",
+          "smart": false,
+          "text": "Casse le pot"
+        },
+        "BREAK_PUMPKIN": {
+          "id": "44271664756817920",
+          "smart": false,
+          "text": "Casse la citrouille !"
+        },
+        "BREAK_TUMBLEWEED": {
+          "id": "10864125864443904",
+          "smart": false,
+          "text": "Casse le tumbleweed"
+        },
+        "CHARGE_SHRINE_NAME": {
+          "id": "16305348158816256",
+          "smart": false,
+          "text": "Sanctuaire de Recharge"
+        },
+        "CRYPT_FAILED": {
+          "id": "48875948920143872",
+          "smart": false,
+          "text": "Ça ne s’ouvre pas..."
+        },
+        "CRYPT_OPEN": {
+          "id": "48875947376640000",
+          "smart": false,
+          "text": "Ouvre la crypte"
+        },
+        "DISTURB_GRAVE": {
+          "id": "44310102994452480",
+          "smart": false,
+          "text": "Dérange la tombe"
+        },
+        "ENTER_PORTAL": {
+          "id": "2057841647616",
+          "smart": false,
+          "text": "Entre dans le portail"
+        },
+        "FINAL_BOSS": {
+          "id": "640930258944",
+          "smart": false,
+          "text": "Affronte le boss final"
+        },
+        "FINAL_PORTAL": {
+          "id": "2464471031808",
+          "smart": false,
+          "text": "Pars"
+        },
+        "LEAVE": {
+          "id": "52235039939887104",
+          "smart": false,
+          "text": "Quitter"
+        },
+        "MICROWAVE_INSTRUCTIONS_1": {
+          "id": "108906825883648",
+          "smart": false,
+          "text": "Choisis un objet à cloner."
+        },
+        "MICROWAVE_INSTRUCTIONS_2": {
+          "id": "108965088960512",
+          "smart": false,
+          "text": "Cela utilise un objet aléatoire de la même catégorie."
+        },
+        "MICROWAVE_NAME": {
+          "id": "102210636324864",
+          "smart": false,
+          "text": "Micro-ondes"
+        },
+        "MICROWAVE_TAKE": {
+          "id": "902474473472",
+          "smart": true,
+          "text": "Prends {item}"
+        },
+        "MICROWAVE_USE": {
+          "id": "876520120320",
+          "smart": false,
+          "text": "Utilise le micro-ondes"
+        },
+        "OPEN_CAGE": {
+          "id": "17746737476272128",
+          "smart": false,
+          "text": "Ouvre la cage"
+        },
+        "OPEN_COFFIN": {
+          "id": "45614483622723584",
+          "smart": false,
+          "text": "Ouvrir le cercueil"
+        },
+        "OPEN_GIFT": {
+          "id": "61274484441743360",
+          "smart": false,
+          "text": "Ouvrir le cadeau"
+        },
+        "QUEST_BUSH": {
+          "id": "18058737481809920",
+          "smart": false,
+          "text": "Secoue le buisson mystérieux"
+        },
+        "QUEST_STATUE": {
+          "id": "18058864309174272",
+          "smart": false,
+          "text": "Touche la statue"
+        },
+        "SHADY_GUY_INTERACT": {
+          "id": "2561594335232",
+          "smart": false,
+          "text": "Parle au type louche"
+        },
+        "SHADY_GUY_LEAVE": {
+          "id": "2620230705152",
+          "smart": false,
+          "text": "Merci, abruti"
+        },
+        "SHADY_GUY_NAME": {
+          "id": "68839462061244416",
+          "smart": false,
+          "text": "Type louche"
+        },
+        "SHRINE_BALANCE": {
+          "id": "2943762538496",
+          "smart": false,
+          "text": "Sanctuaire de l'Équilibre"
+        },
+        "SHRINE_CHALLENGE": {
+          "id": "3076302544896",
+          "smart": false,
+          "text": "Relève le défi !"
+        },
+        "SHRINE_CURSED": {
+          "id": "18499026583420928",
+          "smart": false,
+          "text": "Malédiction du Boss"
+        },
+        "SHRINE_GREED_NAME": {
+          "id": "25306747039252480",
+          "smart": false,
+          "text": "Sanctuaire de la Cupidité"
+        },
+        "SHRINE_MAGNET": {
+          "id": "3221341577216",
+          "smart": false,
+          "text": "Sanctuaire Succ"
+        },
+        "SHRINE_MOAI": {
+          "id": "3366309306368",
+          "smart": false,
+          "text": "Consulte le Moaï"
+        },
+        "SPAWN_BOSS": {
+          "id": "598844612608",
+          "smart": false,
+          "text": "Fais apparaître le boss"
+        },
+        "SUCC_SHRINE_NAME": {
+          "id": "16305293611892736",
+          "smart": false,
+          "text": "Sanctuaire Succ"
+        },
+        "TUMBLEWEED_NAME": {
+          "id": "16307420941910016",
+          "smart": false,
+          "text": "Tumbleweed"
+        }
+      }
+    },
+    "Game_Moai": {
+      "collection_guid": "8a7ba2a02505558438bdc85bfef80a46",
+      "entries": {
+        "MOAI_0_0": {
+          "id": "8114642944",
+          "smart": false,
+          "text": "Le Moai détourne le regard avec une désapprobation silencieuse."
+        },
+        "MOAI_0_1": {
+          "id": "57334800384",
+          "smart": false,
+          "text": "Le Moai murmure un seul mot : 'Aïe.'"
+        },
+        "MOAI_0_2": {
+          "id": "65270423552",
+          "smart": false,
+          "text": "Le Moai tousse maladroitement et évite le contact visuel."
+        },
+        "MOAI_1_0": {
+          "id": "79816269824",
+          "smart": false,
+          "text": "Le Moai te juge... et te trouve moyennement acceptable."
+        },
+        "MOAI_1_1": {
+          "id": "107351875584",
+          "smart": false,
+          "text": "Le Moai murmure un seul mot : 'Bof.'"
+        },
+        "MOAI_1_2": {
+          "id": "110858313728",
+          "smart": false,
+          "text": "Le Moai hausse les épaules. Un jugement juste et équilibré."
+        },
+        "MOAI_2_0": {
+          "id": "157616414720",
+          "smart": false,
+          "text": "Le Moai hoche la tête avec approbation. Un honneur rare."
+        },
+        "MOAI_2_1": {
+          "id": "160179134464",
+          "smart": false,
+          "text": "Le Moai murmure un seul mot : 'Chouette.'"
+        },
+        "MOAI_2_2": {
+          "id": "163081592832",
+          "smart": false,
+          "text": "Le Moai commence à faire du beatbox. Brièvement."
+        },
+        "MOAI_3_0": {
+          "id": "224461037568",
+          "smart": false,
+          "text": "Le Moai fait un saut périlleux. Personne ne te croira jamais."
+        },
+        "MOAI_3_1": {
+          "id": "227740983296",
+          "smart": false,
+          "text": "Le Moai murmure un seul mot : 'Stylé'."
+        },
+        "MOAI_3_2": {
+          "id": "231004151808",
+          "smart": false,
+          "text": "Le Moai te fait un pouce en l'air. Tu ne savais même pas qu'il avait des pouces."
+        }
+      }
+    },
+    "Game_PauseUi": {
+      "collection_guid": "93ebdab9eb1646f4cb1a57bd5e3c9c57",
+      "entries": {
+        "EXIT_TO_MENU": {
+          "id": "1391313877180416",
+          "smart": false,
+          "text": "Retour au Menu"
+        },
+        "MAP": {
+          "id": "38739902622466048",
+          "smart": false,
+          "text": "Carte"
+        },
+        "PAUSED": {
+          "id": "4612399104",
+          "smart": false,
+          "text": "En Pause"
+        },
+        "RESTART": {
+          "id": "967192584192",
+          "smart": false,
+          "text": "Recommencer"
+        },
+        "RESUME": {
+          "id": "1390512396017664",
+          "smart": false,
+          "text": "Reprendre"
+        },
+        "SHRINE_LOGS": {
+          "id": "1392122610294784",
+          "smart": false,
+          "text": "Archives du Sanctuaire"
+        }
+      }
+    },
+    "Game_RoundOver": {
+      "collection_guid": "1fd7fbaa81ebf414daec3ff0e33d982f",
+      "entries": {
+        "DEATH_TEXT": {
+          "id": "6856351744",
+          "smart": true,
+          "text": "T'es cramé{newline}ptet un souci de skill ?"
+        },
+        "RECORD_KILLS": {
+          "id": "173450159955968",
+          "smart": true,
+          "text": "{kills} victimes"
+        },
+        "RECORD_NEW": {
+          "id": "173345767923712",
+          "smart": false,
+          "text": "NOUVEAU RECORD"
+        },
+        "RECORD_PERCENTILE": {
+          "id": "173567650799616",
+          "smart": true,
+          "text": "Top {percentile}% des joueurs"
+        },
+        "RECORD_RANKING": {
+          "id": "173467704729600",
+          "smart": true,
+          "text": "#{rank} Mondial"
+        },
+        "STATS_DAMAGE": {
+          "id": "177755860475904",
+          "smart": false,
+          "text": "Dégâts"
+        },
+        "STATS_DAMAGE_SOURCE": {
+          "id": "177964535488512",
+          "smart": false,
+          "text": "Origine"
+        },
+        "STATS_SUMMARY": {
+          "id": "177697538678784",
+          "smart": false,
+          "text": "Résumé"
+        },
+        "SUMMARY_GOLD": {
+          "id": "181081519923200",
+          "smart": false,
+          "text": "Or Gagné"
+        },
+        "SUMMARY_KILLS": {
+          "id": "180687569920000",
+          "smart": false,
+          "text": "Frags"
+        },
+        "SUMMARY_LEVEL": {
+          "id": "181037488119808",
+          "smart": false,
+          "text": "LVL"
+        },
+        "SUMMARY_TIME": {
+          "id": "180895024390144",
+          "smart": false,
+          "text": "Temps En Vie"
+        },
+        "VICTORY_COMPLETED": {
+          "id": "176936297668608",
+          "smart": false,
+          "text": "Terminé"
+        },
+        "VICTORY_SILVER": {
+          "id": "177146872700928",
+          "smart": false,
+          "text": "Argent obtenu"
+        }
+      }
+    },
+    "Game_ScoreUi": {
+      "collection_guid": "7faf944dcaf56774081924d97ac21cf0",
+      "entries": {
+        "HASTE_DESC": {
+          "id": "3728558759936",
+          "smart": false,
+          "text": "faut foncer"
+        },
+        "HASTE_NAME": {
+          "id": "3672191508480",
+          "smart": false,
+          "text": "Vitesse"
+        },
+        "MAGNET_DESC": {
+          "id": "3757658841088",
+          "smart": false,
+          "text": "aspire tout l'xp"
+        },
+        "MAGNET_NAME": {
+          "id": "3739765940224",
+          "smart": false,
+          "text": "Magnet"
+        },
+        "NUKE_DESC": {
+          "id": "4154557440000",
+          "smart": false,
+          "text": "boum!"
+        },
+        "NUKE_NAME": {
+          "id": "4140582019072",
+          "smart": false,
+          "text": "Nucléaire"
+        },
+        "POPUP_PYLON": {
+          "id": "2413497655296",
+          "smart": false,
+          "text": "Pylône arrêté!"
+        },
+        "POPUP_SHRINE": {
+          "id": "2555764252672",
+          "smart": false,
+          "text": "Shrine chargée!"
+        },
+        "RAGE_DESC": {
+          "id": "3823379390464",
+          "smart": false,
+          "text": "vitesse d'attaque et dégâts"
+        },
+        "RAGE_NAME": {
+          "id": "3806266630144",
+          "smart": false,
+          "text": "Rage"
+        },
+        "SHIELD_DESC": {
+          "id": "3852982788096",
+          "smart": false,
+          "text": "protégez-vous"
+        },
+        "SHIELD_NAME": {
+          "id": "3833131147264",
+          "smart": false,
+          "text": "Bouclier"
+        },
+        "STONKS_DESC": {
+          "id": "3880417730560",
+          "smart": false,
+          "text": "l'heure de faire de l'argent"
+        },
+        "STONKS_NAME": {
+          "id": "3862965231616",
+          "smart": false,
+          "text": "Stonks"
+        },
+        "TIME_DESC": {
+          "id": "3932552929280",
+          "smart": false,
+          "text": "arrête le temps"
+        },
+        "TIME_NAME": {
+          "id": "3898792976384",
+          "smart": false,
+          "text": "Horloge"
+        }
+      }
+    },
+    "Game_ShadyGuy": {
+      "collection_guid": "4172c7d810d4b67429ee2ee90f7f63e7",
+      "entries": {
+        "SHADY_GUY_0": {
+          "id": "49826996224",
+          "smart": false,
+          "text": "Pas de remboursements, pas de tickets, pas de témoins."
+        },
+        "SHADY_GUY_1": {
+          "id": "202143145984",
+          "smart": false,
+          "text": "T'as des sous ? J'ai des... trucs pas du tout volés."
+        },
+        "SHADY_GUY_10": {
+          "id": "456225693696",
+          "smart": false,
+          "text": "Il sent le sucre brûlé et un p'tit peu l'ozone."
+        },
+        "SHADY_GUY_11": {
+          "id": "487045439488",
+          "smart": false,
+          "text": "Le Type Louche sort un jeu de cartes, les mélange, et en mange une. Il refuse d’expliquer."
+        },
+        "SHADY_GUY_12": {
+          "id": "556817686528",
+          "smart": false,
+          "text": "Tu sens que si tu lui parles d'impôts, il s'évaporera sur-le-champ."
+        },
+        "SHADY_GUY_13": {
+          "id": "582478438400",
+          "smart": false,
+          "text": "Il s'approche et murmure : \"T'as de beaux yeux.\""
+        },
+        "SHADY_GUY_2": {
+          "id": "235265564672",
+          "smart": false,
+          "text": "Entre nous... mes affaires battent les Moaïs à plates coutures."
+        },
+        "SHADY_GUY_3": {
+          "id": "260825653248",
+          "smart": false,
+          "text": "Plus tu achètes, moins je me traîne. Un p'tit coup de main ?"
+        },
+        "SHADY_GUY_4": {
+          "id": "282938023936",
+          "smart": false,
+          "text": "Confiance aveugle. Je suis pas fiable du tout."
+        },
+        "SHADY_GUY_5": {
+          "id": "314324000768",
+          "smart": false,
+          "text": "Hé, dis rien aux Moaïs, d'accord ?"
+        },
+        "SHADY_GUY_6": {
+          "id": "341373067264",
+          "smart": false,
+          "text": "Tu sens ça ? Ça sent la bonne affaire."
+        },
+        "SHADY_GUY_7": {
+          "id": "348960563200",
+          "smart": false,
+          "text": "J'ai pas besoin de tous ces doigts. Prends-en un."
+        },
+        "SHADY_GUY_8": {
+          "id": "370913550336",
+          "smart": false,
+          "text": "Tous les objets sont étrangement chauds, comme s'il venait juste de les sortir de sous son manteau."
+        },
+        "SHADY_GUY_9": {
+          "id": "432494321664",
+          "smart": false,
+          "text": "Tu clignes des yeux. Quand tu les rouvres, il s'est rapproché."
+        }
+      }
+    },
+    "Game_Ui": {
+      "collection_guid": "08f8bce21f8587543946404546b7007c",
+      "entries": {
+        "BALANCE_SHRINE_TEXT": {
+          "id": "328058807230464",
+          "smart": false,
+          "text": "Le sanctuaire te balance une option équilibrée :"
+        },
+        "CHEST_OPEN": {
+          "id": "303830817021952",
+          "smart": false,
+          "text": "Ouvre"
+        },
+        "ENCOUNTER_BANISH": {
+          "id": "305183157100544",
+          "smart": false,
+          "text": "Fous-le dehors"
+        },
+        "ENCOUNTER_LEAVE": {
+          "id": "305088785260544",
+          "smart": false,
+          "text": "Partir"
+        },
+        "ENCOUNTER_REFRESH": {
+          "id": "305560313110528",
+          "smart": false,
+          "text": "Rafraîchis"
+        },
+        "ENCOUNTER_SKIP": {
+          "id": "310397859766272",
+          "smart": false,
+          "text": "Passer"
+        },
+        "ENCOUNTER_TAKE": {
+          "id": "305144254930944",
+          "smart": false,
+          "text": "Prends"
+        },
+        "HEADER_LEVELUP": {
+          "id": "310538767409152",
+          "smart": false,
+          "text": "Améliorations proposées"
+        },
+        "HEADER_MOAI": {
+          "id": "310574586765312",
+          "smart": false,
+          "text": "Objets à prendre"
+        },
+        "HEADER_SHADY": {
+          "id": "310599391879168",
+          "smart": false,
+          "text": "Boutique du mec louche"
+        },
+        "IGNORE_OFFERS": {
+          "id": "319750042001408",
+          "smart": false,
+          "text": "Ignorer les offres"
+        },
+        "INVENTORY": {
+          "id": "244802925600768",
+          "smart": false,
+          "text": "Inventaire"
+        },
+        "PLAYER_STATS": {
+          "id": "268909415211008",
+          "smart": false,
+          "text": "Stats"
+        },
+        "SHRINE_BALANCE_DESC": {
+          "id": "318991497928704",
+          "smart": false,
+          "text": "Le sanctuaire te propose une offre super équilibrée !"
+        },
+        "SHRINE_CHARGE_DESC": {
+          "id": "318971763728384",
+          "smart": false,
+          "text": "Le sanctuaire te file une récompense !"
+        },
+        "SHRINE_CHARGE_NAME": {
+          "id": "319185828421632",
+          "smart": false,
+          "text": "Sanctuaire de Charge"
+        },
+        "SHRINE_CHARGE_UPGRADE": {
+          "id": "379218125627392",
+          "smart": true,
+          "text": "Choppe {upgrade}"
+        }
+      }
+    },
+    "Hats": {
+      "collection_guid": "b8b39aa77d1e7f548a07b86a16e97afc",
+      "entries": {
+        "CHEESYHAT_DESC": {
+          "id": "7245843550732288",
+          "smart": false,
+          "text": "Fromage moisi, mon bien-aimé"
+        },
+        "CHEESYHAT_NAME": {
+          "id": "7245842602819584",
+          "smart": false,
+          "text": "Chapeau au fromage"
+        },
+        "CLOWN_DESC": {
+          "id": "7246732856426496",
+          "smart": false,
+          "text": "Ça te va parfaitement"
+        },
+        "CLOWN_NAME": {
+          "id": "7246731765907456",
+          "smart": false,
+          "text": "Clown"
+        },
+        "CROWN_DESC": {
+          "id": "7246009607421952",
+          "smart": false,
+          "text": "L’intérieur est gravé : « va toucher de l’herbe »"
+        },
+        "CROWN_NAME": {
+          "id": "7246008894390272",
+          "smart": false,
+          "text": "Couronne"
+        },
+        "FROG1_DESC": {
+          "id": "7246273915682816",
+          "smart": false,
+          "text": "Tu as gagné sa confiance et son amitié (il est putain de mort)"
+        },
+        "FROG1_NAME": {
+          "id": "7246165195128832",
+          "smart": false,
+          "text": "Grenouille verte"
+        },
+        "FROG2_NAME": {
+          "id": "7246285135446016",
+          "smart": false,
+          "text": "Grenouille bleue"
+        },
+        "FROG3_NAME": {
+          "id": "7246286838333440",
+          "smart": false,
+          "text": "Grenouille rouge"
+        },
+        "HEADPOT_DESC": {
+          "id": "7245508790747136",
+          "smart": false,
+          "text": "Gardera ta tête en sécurité (c’est de l’inox)"
+        },
+        "HEADPOT_NAME": {
+          "id": "7245507834445824",
+          "smart": false,
+          "text": "Marmite sur la tête (inox)"
+        },
+        "HEADSET_DESC": {
+          "id": "7246770030542848",
+          "smart": false,
+          "text": "miaou"
+        },
+        "HEADSET_NAME": {
+          "id": "7246768835166208",
+          "smart": false,
+          "text": "Casque"
+        },
+        "IRONHELM_DESC": {
+          "id": "7246379838636032",
+          "smart": false,
+          "text": "Très inconfortable et rouillé (pas en inox)"
+        },
+        "IRONHELM_NAME": {
+          "id": "7246376000847872",
+          "smart": false,
+          "text": "Heaume en fer"
+        },
+        "KEVINHAT_DESC": {
+          "id": "7245600415318016",
+          "smart": false,
+          "text": "Kevin te déteste toujours"
+        },
+        "KEVINHAT_NAME": {
+          "id": "7245598926340096",
+          "smart": false,
+          "text": "Chapeau Kevin"
+        },
+        "MAGICHAT_DESC": {
+          "id": "7246102184099840",
+          "smart": false,
+          "text": "Ça te fait te sentir plus intelligent (tu ne l’es pas)"
+        },
+        "MAGICHAT_NAME": {
+          "id": "7246101651423232",
+          "smart": false,
+          "text": "Chapeau magique"
+        },
+        "MICROWAVE_DESC": {
+          "id": "7243633479680000",
+          "smart": false,
+          "text": "Ne mets pas ta tête dedans"
+        },
+        "MICROWAVE_NAME": {
+          "id": "7243630422032384",
+          "smart": false,
+          "text": "Micro-ondes"
+        },
+        "PILOT_DESC": {
+          "id": "7246624043597824",
+          "smart": false,
+          "text": "Ce casque te rend extrêmement aérodynamique, probablement"
+        },
+        "PILOT_NAME": {
+          "id": "7246577071587328",
+          "smart": false,
+          "text": "Casque de pilote"
+        },
+        "SANTA_DESC": {
+          "id": "147567280128",
+          "smart": false,
+          "text": "Ho ho ho ! Ça ne fait rien, mais ça a plutôt la classe."
+        },
+        "SANTA_NAME": {
+          "id": "12124815360",
+          "smart": false,
+          "text": "Bonnet de Noël"
+        },
+        "SHADYBLACK_DESC": {
+          "id": "7243681097613312",
+          "smart": false,
+          "text": "Preuve que tu es un habitué"
+        },
+        "SHADYBLACK_NAME": {
+          "id": "7243674789380096",
+          "smart": false,
+          "text": "Chapeau louche (noir)"
+        },
+        "SHADYBLUE_NAME": {
+          "id": "7245045777334272",
+          "smart": false,
+          "text": "Chapeau louche (bleu)"
+        },
+        "SHADYGOLD_NAME": {
+          "id": "7245124626055168",
+          "smart": false,
+          "text": "Chapeau louche (doré)"
+        },
+        "SHADYPINK_NAME": {
+          "id": "7245051791966208",
+          "smart": false,
+          "text": "Chapeau louche (rose)"
+        },
+        "SHERIFF_DESC": {
+          "id": "7246680096276480",
+          "smart": false,
+          "text": "À porter de préférence à midi pile"
+        },
+        "SHERIFF_NAME": {
+          "id": "7246678951231488",
+          "smart": false,
+          "text": "Chapeau de shérif"
+        },
+        "SUNGLASSES_DESC": {
+          "id": "7245157597478912",
+          "smart": false,
+          "text": "Très stylé. Parfait pour éviter le regard."
+        },
+        "SUNGLASSES_NAME": {
+          "id": "7245156846698496",
+          "smart": false,
+          "text": "Lunettes de soleil"
+        },
+        "TOPHAT2_DESC": {
+          "id": "7246491583283200",
+          "smart": false,
+          "text": "Ce chapeau n’est pas un peu trop long..?"
+        },
+        "TOPHAT2_NAME": {
+          "id": "7246489293193216",
+          "smart": false,
+          "text": "Haut-de-forme très long"
+        },
+        "TOPHAT_DESC": {
+          "id": "7246446620344320",
+          "smart": false,
+          "text": "Un grand chapeau noir"
+        },
+        "TOPHAT_NAME": {
+          "id": "7246445966032896",
+          "smart": false,
+          "text": "Haut-de-forme"
+        }
+      }
+    },
+    "ItemUtility": {
+      "collection_guid": "3477d57b2808d554f88d1924747864de",
+      "entries": {
+        "ITEM_DESC_STAT_INCREASE": {
+          "id": "6949044224",
+          "smart": true,
+          "text": "Augmente {stat1} de {value1}"
+        },
+        "ITEM_DESC_STAT_TRADEOFF": {
+          "id": "44527099445248",
+          "smart": true,
+          "text": "{value1} {stat1} mais en perdant {value2} {stat2}."
+        }
+      }
+    },
+    "ItemsBlue": {
+      "collection_guid": "1d3c3ebe9352cd44ba2737b37ee1e528",
+      "entries": {
+        "Backpack_DESC": {
+          "id": "2347068686336",
+          "smart": true,
+          "text": "{value1} {stat1} pour toutes les armes"
+        },
+        "Backpack_NAME": {
+          "id": "523674714112",
+          "smart": false,
+          "text": "Sac à dos"
+        },
+        "Beacon_DESC": {
+          "id": "7989712290709504",
+          "smart": true,
+          "text": "Charger un {charge_shrine} le transforme en zone de soin. Fais aussi pop {value} {charge_shrine} en plus pour les prochains niveaux."
+        },
+        "Beacon_NAME": {
+          "id": "7989711195996160",
+          "smart": false,
+          "text": "Phare"
+        },
+        "Beer_NAME": {
+          "id": "41881105989632",
+          "smart": false,
+          "text": "Bière"
+        },
+        "BrassKnuckles_DESC": {
+          "id": "42098337382400",
+          "smart": true,
+          "text": "Frappez les ennemis proches avec {value1} dégâts en plus."
+        },
+        "BrassKnuckles_NAME": {
+          "id": "42094017249280",
+          "smart": false,
+          "text": "Poings américains"
+        },
+        "Campfire_DESC": {
+          "id": "42292055506944",
+          "smart": true,
+          "text": "Rester immobile te soigne"
+        },
+        "Campfire_NAME": {
+          "id": "42289819942912",
+          "smart": false,
+          "text": "Feu de camp"
+        },
+        "CowardsCloak_DESC": {
+          "id": "42514454282240",
+          "smart": true,
+          "text": "Augmente {stat1} en prenant des dégâts. Gagne aussi {value1} {stat1}."
+        },
+        "CowardsCloak_NAME": {
+          "id": "42507063918592",
+          "smart": false,
+          "text": "Cape de lâche"
+        },
+        "CreditCardGreen_NAME": {
+          "id": "42951085522944",
+          "smart": false,
+          "text": "Carte de crédit (Verte)"
+        },
+        "CreditCardRed_DESC": {
+          "id": "45663284463009792",
+          "smart": true,
+          "text": "Augmente {stat1} de {value1} à l’ouverture d’un coffre."
+        },
+        "CreditCardRed_NAME": {
+          "id": "43145151774720",
+          "smart": false,
+          "text": "Carte de crédit (Rouge)"
+        },
+        "CreditCard_DESC": {
+          "id": "42954235445248",
+          "smart": true,
+          "text": "Augmente {stat1} de {value1} à l’ouverture d’un coffre. Augmente aussi {stat2} de {value2}."
+        },
+        "DemonBlade_DESC": {
+          "id": "43471762227200",
+          "smart": true,
+          "text": "Les crits ont {value1} chance de te soigner"
+        },
+        "DemonBlade_NAME": {
+          "id": "43259488501760",
+          "smart": false,
+          "text": "Lame démoniaque"
+        },
+        "DemonicBlood_DESC": {
+          "id": "43507740966912",
+          "smart": true,
+          "text": "Augmente {stat1} de {value1} par kill (Max {value2} cumuls)"
+        },
+        "DemonicBlood_NAME": {
+          "id": "43506054856704",
+          "smart": false,
+          "text": "Sang démoniaque"
+        },
+        "EchoShard_DESC": {
+          "id": "43850231054336",
+          "smart": true,
+          "text": "{value1} chance de faire apparaître un éclat d'XP supplémentaire en tuant un ennemi"
+        },
+        "EchoShard_NAME": {
+          "id": "43849685794816",
+          "smart": false,
+          "text": "Éclat d'écho"
+        },
+        "ElectricPlug_DESC": {
+          "id": "44018707857408",
+          "smart": true,
+          "text": "En prenant des dégâts, envoie un choc électrique aux ennemis proches."
+        },
+        "ElectricPlug_NAME": {
+          "id": "43989033156608",
+          "smart": false,
+          "text": "Fiche électrique"
+        },
+        "Feathers_DESC": {
+          "id": "44116615495680",
+          "smart": true,
+          "text": "Saute plus haut et plus loin. Gagne aussi +1 {stat1}."
+        },
+        "Feathers_NAME": {
+          "id": "44112882565120",
+          "smart": false,
+          "text": "Plumes"
+        },
+        "GoldenShield_DESC": {
+          "id": "44426897522688",
+          "smart": true,
+          "text": "Gagne de l'or supplémentaire en prenant des dégâts"
+        },
+        "GoldenShield_NAME": {
+          "id": "44425421127680",
+          "smart": false,
+          "text": "Bouclier doré"
+        },
+        "GoldenSneakers_DESC": {
+          "id": "44585307996160",
+          "smart": true,
+          "text": "Gagne de l'argent en te déplaçant"
+        },
+        "GoldenSneakers_NAME": {
+          "id": "44583961624576",
+          "smart": false,
+          "text": "Baskets en or"
+        },
+        "IdleJuice_DESC": {
+          "id": "44710906429440",
+          "smart": true,
+          "text": "Plus tu restes immobile, plus tu fais de dégâts. Max {value1} dégâts."
+        },
+        "IdleJuice_NAME": {
+          "id": "44710247923712",
+          "smart": false,
+          "text": "Jus d'oisiveté"
+        },
+        "Kevin_DESC": {
+          "id": "44909192151040",
+          "smart": true,
+          "text": "Kevin te déteste. {value1} chance que Kevin te colle une baffe à chaque fois que tu touches un ennemi. Kevin ne peut pas te tuer, mais il en a bien envie."
+        },
+        "Kevin_NAME": {
+          "id": "44907694784512",
+          "smart": false,
+          "text": "Kevin"
+        },
+        "LeechingCrystal_NAME": {
+          "id": "45162670718976",
+          "smart": false,
+          "text": "Cristal sangsue"
+        },
+        "MoldyGloves_DESC": {
+          "id": "7766609216274432",
+          "smart": false,
+          "text": "Crée un nuage toxique moisi en touchant un ennemi. Les gants sont recouverts d'une texture humide, moisie et visqueuse."
+        },
+        "MoldyGloves_NAME": {
+          "id": "7766608486465536",
+          "smart": false,
+          "text": "Gants Moisis"
+        },
+        "PhantomShroud_DESC": {
+          "id": "45762040954880",
+          "smart": true,
+          "text": "Après esquive, inflige {value1} dégâts lors de la prochaine attaque et augmente temporairement {stat1} et {stat2}."
+        },
+        "PhantomShroud_NAME": {
+          "id": "45163492802560",
+          "smart": false,
+          "text": "Linceul fantôme"
+        },
+        "Pumpkin_DESC": {
+          "id": "42074267624538112",
+          "smart": true,
+          "text": "Fait apparaître {value} pots supplémentaires pour les prochaines phases et augmente leur récompense de {value2}."
+        },
+        "Pumpkin_NAME": {
+          "id": "42074266685014016",
+          "smart": false,
+          "text": "Citrouille"
+        },
+        "ThunderMitts_DESC": {
+          "id": "7766605747585024",
+          "smart": true,
+          "text": "Quand tu frappes un ennemi, claque-lui les joues si fort que ça déclenche un éclair. Recharge de {time_seconds} secondes."
+        },
+        "ThunderMitts_NAME": {
+          "id": "7766597883265024",
+          "smart": false,
+          "text": "Moufles-Foudre"
+        }
+      }
+    },
+    "ItemsGray": {
+      "collection_guid": "61cf9b4ccb92cbb4b81fd4679870ef36",
+      "entries": {
+        "Battery_NAME": {
+          "id": "10274709504",
+          "smart": false,
+          "text": "Batterie"
+        },
+        "Borgar_DESC": {
+          "id": "18323628566380544",
+          "smart": true,
+          "text": "{value1} chance de faire pop un Burger en tuant un ennemi"
+        },
+        "Borgar_NAME": {
+          "id": "18323336491827200",
+          "smart": false,
+          "text": "Burger"
+        },
+        "BossBuster_DESC": {
+          "id": "18324384077971456",
+          "smart": true,
+          "text": "{value1} de dégâts en plus contre les Élites et Boss"
+        },
+        "BossBuster_NAME": {
+          "id": "18324381305536512",
+          "smart": false,
+          "text": "Briseur de Boss"
+        },
+        "Cactus_DESC": {
+          "id": "18324566240788480",
+          "smart": true,
+          "text": "Lance des pics si blessé. Dégâts selon {stat1}"
+        },
+        "Cactus_NAME": {
+          "id": "18324562939871232",
+          "smart": false,
+          "text": "Cactus"
+        },
+        "Clover_NAME": {
+          "id": "18324853366063104",
+          "smart": false,
+          "text": "Trefle"
+        },
+        "CursedDoll_DESC": {
+          "id": "18325049177145344",
+          "smart": true,
+          "text": "Maudit un ennemi, infligeant {value1} de leurs PV max par seconde"
+        },
+        "CursedDoll_NAME": {
+          "id": "18325022769807360",
+          "smart": false,
+          "text": "Poupée Maudite"
+        },
+        "ForbiddenJuice_NAME": {
+          "id": "18325356309250048",
+          "smart": false,
+          "text": "Jus Interdit"
+        },
+        "Ghost_DESC": {
+          "id": "18325558210461696",
+          "smart": true,
+          "text": "Utiliser un interactif invoque des fantômes"
+        },
+        "Ghost_NAME": {
+          "id": "18325557027667968",
+          "smart": false,
+          "text": "Fantôme"
+        },
+        "GoldenGlove_DESC": {
+          "id": "18325640972468224",
+          "smart": true,
+          "text": "Gagne {value1} d'or en plus en tuant des ennemis"
+        },
+        "GoldenGlove_NAME": {
+          "id": "18325640372682752",
+          "smart": false,
+          "text": "Gant Doré"
+        },
+        "GymSauce_NAME": {
+          "id": "18325852533161984",
+          "smart": false,
+          "text": "Sauce Gym"
+        },
+        "IceCrystal_DESC": {
+          "id": "24829136370532352",
+          "smart": true,
+          "text": "{value1} chance de geler les ennemis quand tu les cognes."
+        },
+        "IceCrystal_NAME": {
+          "id": "24829135066103808",
+          "smart": false,
+          "text": "Crystal de Glace"
+        },
+        "Key_DESC": {
+          "id": "9118574944256",
+          "smart": true,
+          "text": "{value1} chance d'ouvrir les coffres gratos"
+        },
+        "Key_NAME": {
+          "id": "9112086355968",
+          "smart": false,
+          "text": "Clé"
+        },
+        "Medkit_NAME": {
+          "id": "18326014991138816",
+          "smart": false,
+          "text": "Trousse de Soin"
+        },
+        "MoldyCheese_DESC": {
+          "id": "18326181765054464",
+          "smart": true,
+          "text": "{value1} chance d'empoisonner les ennemis lors d'un coup. Fromage Moisi, mon amour <3"
+        },
+        "MoldyCheese_NAME": {
+          "id": "18326180775198720",
+          "smart": false,
+          "text": "Fromage Moisi"
+        },
+        "Oats_NAME": {
+          "id": "18326487261380608",
+          "smart": false,
+          "text": "Flocons d'Avoine"
+        },
+        "OldMask_NAME": {
+          "id": "48732858469187584",
+          "smart": false,
+          "text": "Masque ancien"
+        },
+        "Skuleg_NAME": {
+          "id": "18326638285684736",
+          "smart": false,
+          "text": "Crâne"
+        },
+        "SlipperRing_NAME": {
+          "id": "18326697127575552",
+          "smart": false,
+          "text": "Bague Glissante"
+        },
+        "TacticalGlasses_DESC": {
+          "id": "18326961658134528",
+          "smart": true,
+          "text": "{value1} de dégâts en plus aux ennemis avec plus de 90% de PV"
+        },
+        "TacticalGlasses_NAME": {
+          "id": "18326959774892032",
+          "smart": false,
+          "text": "Lunettes Tactiques"
+        },
+        "TimeBracelet_DESC": {
+          "id": "25953195078582272",
+          "smart": true,
+          "text": "{value1} {stat1}. Mais non, c'est pas juste une montre normale !"
+        },
+        "TimeBracelet_NAME": {
+          "id": "25953193266642944",
+          "smart": false,
+          "text": "Bracelet du Temps"
+        },
+        "TurboSocks_NAME": {
+          "id": "18327177463463936",
+          "smart": false,
+          "text": "Chaussettes Turbo"
+        },
+        "UnstableTransfusion_DESC": {
+          "id": "18327373572341760",
+          "smart": true,
+          "text": "{value1} chance d'appliquer une pile de {bloodmark} en touchant un ennemi."
+        },
+        "UnstableTransfusion_NAME": {
+          "id": "18327231469322240",
+          "smart": false,
+          "text": "Transfusion Instable"
+        },
+        "Wrench_DESC": {
+          "id": "26289249149124608",
+          "smart": true,
+          "text": "{charge_shrine}: Charge {value1}% plus vite et empoche {value2} de récompenses en plus."
+        },
+        "Wrench_NAME": {
+          "id": "26289248587087872",
+          "smart": false,
+          "text": "Clé anglaise"
+        }
+      }
+    },
+    "ItemsPink": {
+      "collection_guid": "59ac5eef9ad329147827ebbe0922b147",
+      "entries": {
+        "BeefyRing_DESC": {
+          "id": "184527486976",
+          "smart": true,
+          "text": "Augmente {stat1} de {value1} par {value2} {stat2}"
+        },
+        "BeefyRing_NAME": {
+          "id": "181566308352",
+          "smart": false,
+          "text": "Bague Costaud"
+        },
+        "BobDead_DESC": {
+          "id": "380124659712",
+          "smart": true,
+          "text": "Pour chaque {value1} unités parcourues, invoque Bob (il est mort)"
+        },
+        "BobDead_NAME": {
+          "id": "377796820992",
+          "smart": false,
+          "text": "Bob (Défunt)"
+        },
+        "BobsLantern_DESC": {
+          "id": "41746912129449984",
+          "smart": true,
+          "text": "Une sphère de lumière explose toutes les {value1}s et tue tous les ennemis proches. Les cumuls réduisent le cooldown de {value2}s et augmentent le rayon de {value3}m."
+        },
+        "BobsLantern_NAME": {
+          "id": "41746908954361856",
+          "smart": false,
+          "text": "La lumière de Bob"
+        },
+        "CursedGrabbies_DESC": {
+          "id": "7716256340901888",
+          "smart": true,
+          "text": "{value1} {stat1}, {value2} {stat2}. {chance} de lancer de la magie maudite en frappant un ennemi, endommageant les ennemis à proximité."
+        },
+        "CursedGrabbies_NAME": {
+          "id": "7716255283937280",
+          "smart": false,
+          "text": "Griffes Maudites"
+        },
+        "DemonicSoul_DESC": {
+          "id": "502292152320",
+          "smart": true,
+          "text": "Augmente {stat1} de {value1} par ennemi abattu (max {value2})"
+        },
+        "DemonicSoul_NAME": {
+          "id": "499863650304",
+          "smart": false,
+          "text": "Âme Démoniaque"
+        },
+        "GamerGoggles_DESC": {
+          "id": "731628306432",
+          "smart": true,
+          "text": "Augmente {stat1} quand tes PV sont bas. chat je lock-in"
+        },
+        "GamerGoggles_NAME": {
+          "id": "729455656960",
+          "smart": false,
+          "text": "Lunettes de Gamer"
+        },
+        "GasMask_DESC": {
+          "id": "968900083712",
+          "smart": true,
+          "text": "Obtiens {stat1} et {stat2} pour chaque ennemi empoisonné"
+        },
+        "GasMask_NAME": {
+          "id": "963128721408",
+          "smart": false,
+          "text": "Masque à Gaz"
+        },
+        "Grandma_DESC": {
+          "id": "1195308613632",
+          "smart": true,
+          "text": "Les critiques ont {value1} de chance d'exploser et de blesser les ennemis à proximité pour {value2} dégâts"
+        },
+        "Grandma_NAME": {
+          "id": "1191869284352",
+          "smart": false,
+          "text": "Tonique Secret de Mamy"
+        },
+        "Mirror_DESC": {
+          "id": "1646720581632",
+          "smart": true,
+          "text": "Renvoie tous les dégâts reçus à l'attaquant, et gagne une invulnérabilité temporaire."
+        },
+        "Mirror_NAME": {
+          "id": "1645118357504",
+          "smart": false,
+          "text": "Miroir"
+        },
+        "QuinsMask_DESC": {
+          "id": "12707965701324800",
+          "smart": true,
+          "text": "Les dégâts d'épines ont une chance de {value1} d'exploser et de toucher les ennemis proches"
+        },
+        "QuinsMask_NAME": {
+          "id": "12707964644360192",
+          "smart": false,
+          "text": "Le Masque de Quin"
+        },
+        "Rollerblades_DESC": {
+          "id": "1879848386560",
+          "smart": true,
+          "text": "Plus tu bouges vite, plus tu gagnes de {stat1}. Max {value1} par pile."
+        },
+        "Rollerblades_NAME": {
+          "id": "1878405545984",
+          "smart": false,
+          "text": "Rollers"
+        },
+        "Scarf_DESC": {
+          "id": "2023423606784",
+          "smart": true,
+          "text": "Inflige {value1} de {stat1} en plus en l'air"
+        },
+        "Scarf_NAME": {
+          "id": "2022786072576",
+          "smart": false,
+          "text": "Écharpe"
+        },
+        "ShatteredKnowledge_DESC": {
+          "id": "2205368320000",
+          "smart": true,
+          "text": "Les fragments d'XP tranchent les ennemis, causant des dégâts en passant. Le savoir, ça fait mal."
+        },
+        "ShatteredKnowledge_NAME": {
+          "id": "2204877586432",
+          "smart": false,
+          "text": "Savoir Fracassé"
+        },
+        "SlurpGloves_DESC": {
+          "id": "7716254239555584",
+          "smart": true,
+          "text": "Lance une magie de sang en frappant un ennemi, infligeant des dégâts aux ennemis proches et te soignant de {value}. Recharge de {time_seconds}."
+        },
+        "SlurpGloves_NAME": {
+          "id": "7716253438443520",
+          "smart": false,
+          "text": "Gants Slurp"
+        },
+        "SluttyCannon_DESC": {
+          "id": "2400780943360",
+          "smart": true,
+          "text": "{value1} de chance de lancer des missiles en tuant un ennemi"
+        },
+        "SluttyCannon_NAME": {
+          "id": "2399711395840",
+          "smart": false,
+          "text": "Canon Fou"
+        },
+        "SpikyShield_DESC": {
+          "id": "2685372858368",
+          "smart": true,
+          "text": "Obtiens {value1} {stat1} pour chaque {value2} {stat2}. Obtiens aussi {value3} {stat2}."
+        },
+        "SpikyShield_NAME": {
+          "id": "2684777267200",
+          "smart": false,
+          "text": "Bouclier Épineux"
+        },
+        "ToxicBarrel_DESC": {
+          "id": "3058330370048",
+          "smart": true,
+          "text": "Libère des déchets toxiques en subissant des dégâts, empoisonnant tous les ennemis proches"
+        },
+        "ToxicBarrel_NAME": {
+          "id": "3057550229504",
+          "smart": false,
+          "text": "Tonneau Toxique"
+        },
+        "ZaWarudo_DESC": {
+          "id": "3184427925504",
+          "smart": true,
+          "text": "En cas de dégâts fatals, fige le temps. Se casse après un usage."
+        },
+        "ZaWarudo_NAME": {
+          "id": "3183886860288",
+          "smart": false,
+          "text": "Za Warudo"
+        }
+      }
+    },
+    "ItemsQuest": {
+      "collection_guid": "c990ac6fef2d1714eabf88495f2aa42d",
+      "entries": {
+        "CAGE_KEY_DESC": {
+          "id": "40897740800",
+          "smart": false,
+          "text": "Qu'est-ce que ça peut bien ouvrir..."
+        },
+        "CAGE_KEY_NAME": {
+          "id": "9788588032",
+          "smart": false,
+          "text": "Clé en or"
+        },
+        "CRYPT_KEY": {
+          "id": "28016907927027712",
+          "smart": false,
+          "text": "Clé de crypte"
+        }
+      }
+    },
+    "ItemsYellow": {
+      "collection_guid": "f471d8bac646d5049aa682f06b9dedde",
+      "entries": {
+        "Anvil_DESC": {
+          "id": "8138576232448",
+          "smart": true,
+          "text": "Les améliorations d'arme peuvent maintenant avoir +1 en stats"
+        },
+        "Anvil_NAME": {
+          "id": "8135954792448",
+          "smart": false,
+          "text": "Enclume"
+        },
+        "BloodyCleaver_DESC": {
+          "id": "8188253569024",
+          "smart": true,
+          "text": "{stat1} déclenche maintenant des stacks de {bloodmark}. Vous avez aussi {value1} de chances d'appliquer {bloodmark}"
+        },
+        "BloodyCleaver_NAME": {
+          "id": "8184919097344",
+          "smart": false,
+          "text": "Hachoir Sanguinaire"
+        },
+        "Bonker_DESC": {
+          "id": "9759620202496",
+          "smart": true,
+          "text": "{value1} chance de BONK un ennemi, infligeant {value2} {stat1}"
+        },
+        "Bonker_NAME": {
+          "id": "9755270709248",
+          "smart": false,
+          "text": "Gros Bonk"
+        },
+        "Chonkplate_DESC": {
+          "id": "9920144605184",
+          "smart": true,
+          "text": "Se soigner au-dessus de {stat1} te permet de {stat2} de {value1}. Donne aussi {value2} {stat3}."
+        },
+        "Chonkplate_NAME": {
+          "id": "9917565108224",
+          "smart": false,
+          "text": "Chonkplate"
+        },
+        "Dragonfire_DESC": {
+          "id": "10333291937792",
+          "smart": true,
+          "text": "{value1} chance d'invoquer un feu de dragon en frappant les ennemis. Les dégâts de feu peuvent maintenant brûler."
+        },
+        "Dragonfire_NAME": {
+          "id": "10330838269952",
+          "smart": false,
+          "text": "Souffle de Dragon"
+        },
+        "EagleClaw_DESC": {
+          "id": "10851166846976",
+          "smart": true,
+          "text": "Inflige {value1} {stat1} aux ennemis en l'air. {value2} chance de faire voler un ennemi dans les airs."
+        },
+        "EagleClaw_NAME": {
+          "id": "10848155336704",
+          "smart": false,
+          "text": "Griffe d'Aigle"
+        },
+        "EnergyCore_DESC": {
+          "id": "11024613900288",
+          "smart": true,
+          "text": "Lance des orbes d'énergie sur les ennemis."
+        },
+        "EnergyCore_NAME": {
+          "id": "11023976366080",
+          "smart": false,
+          "text": "Cœur d'Énergie"
+        },
+        "GiantFork_DESC": {
+          "id": "11351337598976",
+          "smart": true,
+          "text": "Avec ce bad boi, tu peux manger une quantité indécente de spaghetti. Les coups critiques ont {value1}% de chances de devenir des mégacrits. Gagne {value2} {stat2} et augmente les dégâts des mégacrits de {value3}% par cumul."
+        },
+        "GiantFork_NAME": {
+          "id": "11350154805248",
+          "smart": false,
+          "text": "Fourchette Géante"
+        },
+        "GoldenRing_DESC": {
+          "id": "8711273603792896",
+          "smart": false,
+          "text": "Ça a l'air de rien faire…"
+        },
+        "GoldenRing_NAME": {
+          "id": "8711271682801664",
+          "smart": false,
+          "text": "Anneau Doré"
+        },
+        "HolyBook_DESC": {
+          "id": "11546175602688",
+          "smart": true,
+          "text": "{value1} {stat1}, {value2} {stat2}. Les soins irradieront maintenant des dégâts aux ennemis proches."
+        },
+        "HolyBook_NAME": {
+          "id": "11545651314688",
+          "smart": false,
+          "text": "Livre Sacré"
+        },
+        "IceCube_DESC": {
+          "id": "11799800971264",
+          "smart": true,
+          "text": "{value1} chance d'infliger des dégâts de glace en frappant les ennemis. La glace peut maintenant geler les ennemis."
+        },
+        "IceCube_NAME": {
+          "id": "11799201185792",
+          "smart": false,
+          "text": "Glaçon"
+        },
+        "JoesDagger_DESC": {
+          "id": "11985210179584",
+          "smart": true,
+          "text": "{value1} chance de {execute} un ennemi. Faire un {execute} augmente {stat1} de {value2}."
+        },
+        "JoesDagger_NAME": {
+          "id": "11983926722560",
+          "smart": false,
+          "text": "Dague de Joe"
+        },
+        "LightningOrb_DESC": {
+          "id": "12363993579520",
+          "smart": true,
+          "text": "{value1} chance d'invoquer la foudre en frappant les ennemis. La foudre peut maintenant étourdir les ennemis."
+        },
+        "LightningOrb_NAME": {
+          "id": "12362613653504",
+          "smart": false,
+          "text": "Orbe Fulgurante"
+        },
+        "OverpoweredLamp_DESC": {
+          "id": "12828001042432",
+          "smart": true,
+          "text": "+1 chance d'activer les effets à l'impact"
+        },
+        "OverpoweredLamp_NAME": {
+          "id": "12827237679104",
+          "smart": false,
+          "text": "Lampe Surpuissante"
+        },
+        "Pot_DESC": {
+          "id": "41354511971909632",
+          "smart": true,
+          "text": "Plus de marge. +{value1} niveaux max pour toutes les armes. Chaque cumul donne 1 niveau max de moins, minimum {value2} à {value3} cumuls."
+        },
+        "Pot_NAME": {
+          "id": "41354509748928512",
+          "smart": false,
+          "text": "Casserole (inox)"
+        },
+        "PowerGloves_DESC": {
+          "id": "7717635641966592",
+          "smart": true,
+          "text": "{chance} de chance à chaque coup porté sur un ennemi de déclencher une énorme explosion, infligeant des dégâts et repoussant les ennemis."
+        },
+        "PowerGloves_NAME": {
+          "id": "7717634392064000",
+          "smart": false,
+          "text": "Gants de Puissance"
+        },
+        "Snek_DESC": {
+          "id": "37081012826669056",
+          "smart": true,
+          "text": "Applique {value1} charges de poison et gagne {value2} chance de faire exploser tous les dégâts de poison instantanément en touchant un ennemi."
+        },
+        "Snek_NAME": {
+          "id": "37081005419528192",
+          "smart": false,
+          "text": "Serpent"
+        },
+        "SouldHarvester_DESC": {
+          "id": "13069458735104",
+          "smart": true,
+          "text": "Tuer un ennemi invoque {value1} âmes qui se dirigent vers toi"
+        },
+        "SouldHarvester_NAME": {
+          "id": "13068942835712",
+          "smart": false,
+          "text": "Faucheuse d'âmes"
+        },
+        "SpeedBoi_DESC": {
+          "id": "13201382178816",
+          "smart": true,
+          "text": "Quand tu prends des dégâts en dessous de {value1} {stat1}, le temps ralentit et tu infliges {value2} dégâts."
+        },
+        "SpeedBoi_NAME": {
+          "id": "13200639787008",
+          "smart": false,
+          "text": "Speed Boi"
+        },
+        "SpicyMeatball_DESC": {
+          "id": "13549991755776",
+          "smart": true,
+          "text": "Les attaques ont {value1} chance d'exploser, infligeant {value2} {stat1} aux ennemis proches"
+        },
+        "SpicyMeatball_NAME": {
+          "id": "13201898078208",
+          "smart": false,
+          "text": "Boulettes Épicées"
+        },
+        "SuckyMagnet_DESC": {
+          "id": "13710050590720",
+          "smart": true,
+          "text": "Attire périodiquement toute l'XP autour de toi"
+        },
+        "SuckyMagnet_NAME": {
+          "id": "13709513719808",
+          "smart": false,
+          "text": "Magnétoche"
+        },
+        "WizardsHat_DESC": {
+          "id": "44901194190159872",
+          "smart": true,
+          "text": "Développe les connaissances magiques. +{value1} niveaux max pour tous les tomes. Chaque cumul donne 1 niveau max de moins, minimum {value2} à {value3} cumuls."
+        },
+        "WizardsHat_NAME": {
+          "id": "44901193451962368",
+          "smart": false,
+          "text": "Chapeau de mage"
+        }
+      }
+    },
+    "Main Menu": {
+      "collection_guid": "f761d2c2e38d1d24481733b1dee2691e",
+      "entries": {
+        "BUTTON_BUY_PURCHASE": {
+          "id": "311344237355008",
+          "smart": false,
+          "text": "Acheter"
+        },
+        "HIGHSCORE": {
+          "id": "28720302287618048",
+          "smart": false,
+          "text": "Highscore"
+        },
+        "ITEM_PURCHASED": {
+          "id": "323143900831744",
+          "smart": false,
+          "text": "Acheté"
+        },
+        "LEADERBOARDS": {
+          "id": "41993940738048",
+          "smart": false,
+          "text": "Classements"
+        },
+        "LEADERBOARDS_ALL": {
+          "id": "28687913972793344",
+          "smart": false,
+          "text": "Tous les classements"
+        },
+        "LEADERBOARDS_CHARACTER": {
+          "id": "42318361763840",
+          "smart": false,
+          "text": "Personnage"
+        },
+        "LEADERBOARDS_FRIENDS": {
+          "id": "42113373544448",
+          "smart": false,
+          "text": "Amis"
+        },
+        "LEADERBOARDS_GLOBAL": {
+          "id": "42048978395136",
+          "smart": false,
+          "text": "Mondial"
+        },
+        "LEADERBOARDS_KILLS": {
+          "id": "42372480868352",
+          "smart": false,
+          "text": "Frags"
+        },
+        "LEADERBOARDS_PLAYER_NAME": {
+          "id": "42227106291712",
+          "smart": false,
+          "text": "Joueur"
+        },
+        "LEADERBOARDS_RANKING": {
+          "id": "42195598680064",
+          "smart": false,
+          "text": "Classement"
+        },
+        "LEADERBOARDS_SPEEDRUN": {
+          "id": "28687239721648128",
+          "smart": false,
+          "text": "Speedrun"
+        },
+        "MENU_BUTTON_CREDITS": {
+          "id": "39329299406848",
+          "smart": false,
+          "text": "Crédits"
+        },
+        "MENU_BUTTON_EXIT_GAME": {
+          "id": "41572790673408",
+          "smart": false,
+          "text": "Quitter"
+        },
+        "MENU_BUTTON_NO": {
+          "id": "1309505500192768",
+          "smart": false,
+          "text": "Nan"
+        },
+        "MENU_BUTTON_SETTINGS": {
+          "id": "175144411136",
+          "smart": false,
+          "text": "Options"
+        },
+        "MENU_BUTTON_SHOP": {
+          "id": "2480903631380480",
+          "smart": false,
+          "text": "Magasin"
+        },
+        "MENU_BUTTON_YES": {
+          "id": "1309503386263552",
+          "smart": false,
+          "text": "Ouais"
+        },
+        "MENU_BUTTON__CONFIRM_CONTINUE": {
+          "id": "259969730191360",
+          "smart": false,
+          "text": "Confirmer"
+        },
+        "MENU_TAB_CHARACTER_SELECTION": {
+          "id": "956982729875456",
+          "smart": false,
+          "text": "Sélection de Perso"
+        },
+        "MENU_TAB_MAP_SELECTION": {
+          "id": "957326117543936",
+          "smart": false,
+          "text": "Choix de Carte"
+        },
+        "PLAY": {
+          "id": "10438287360",
+          "smart": false,
+          "text": "Jouer"
+        },
+        "QUESTS": {
+          "id": "141749362688",
+          "smart": false,
+          "text": "Quêtes"
+        },
+        "SHOP_BUTTON_REFUND": {
+          "id": "2481062264152064",
+          "smart": false,
+          "text": "Retour"
+        },
+        "UNLOCKS": {
+          "id": "108295593984",
+          "smart": false,
+          "text": "Déblocages"
+        }
+      }
+    },
+    "MainMenuOther": {
+      "collection_guid": "6f010fd8263d17c42b1ba844e807cc52",
+      "entries": {
+        "ALL_QUESTS_COMPLETED": {
+          "id": "22851683024502784",
+          "smart": false,
+          "text": "Tu as tout fini ! Bravo, champion. Maintenant, va toucher de l'herbe."
+        },
+        "CONFIG_ERROR_IGNORE_WARNING": {
+          "id": "289038572167168",
+          "smart": false,
+          "text": "Ta progression ne sera PAS sauvegardée si tu ignores cet avertissement. Je te conseille de résoudre le problème. T'es sûr ?"
+        },
+        "CONFIG_ERROR_MSG": {
+          "id": "286536128765952",
+          "smart": true,
+          "text": "Impossible de charger le fichier de configuration. Journal d'erreur : {error}"
+        },
+        "CONFIG_ERROR_RESET_WARNING": {
+          "id": "289004283731968",
+          "smart": true,
+          "text": "T'es sûr de vouloir réinitialiser ton fichier {file} ? Ça va te ramener aux paramètres par défaut."
+        },
+        "ERROR": {
+          "id": "286504067506176",
+          "smart": false,
+          "text": "Erreur"
+        },
+        "ERROR_BACKUP": {
+          "id": "23930929364992000",
+          "smart": false,
+          "text": "Charger la sauvegarde de secours"
+        },
+        "ERROR_DELETE_FILE": {
+          "id": "286827163131904",
+          "smart": false,
+          "text": "Supprimer le fichier"
+        },
+        "ERROR_IGNORE": {
+          "id": "286844913426432",
+          "smart": false,
+          "text": "Ignorer"
+        },
+        "ERROR_RELOAD_FILE": {
+          "id": "286808846606336",
+          "smart": false,
+          "text": "Recharger le fichier"
+        },
+        "ERROR_VIEW_FILE": {
+          "id": "286720820748288",
+          "smart": false,
+          "text": "Voir le fichier"
+        },
+        "ITEM_PURCHASED": {
+          "id": "6118154240",
+          "smart": true,
+          "text": "{item} acheté !"
+        },
+        "JUICE": {
+          "id": "660182114304",
+          "smart": false,
+          "text": "Trop bien !"
+        },
+        "LOADING": {
+          "id": "401471655616512",
+          "smart": false,
+          "text": "Chargement..."
+        },
+        "NONE": {
+          "id": "3555621218263040",
+          "smart": false,
+          "text": "Rien"
+        },
+        "NO_HAT": {
+          "id": "63162311995686912",
+          "smart": false,
+          "text": "Aucun chapeau"
+        },
+        "PHOTO_SENSITIVITY_DESC": {
+          "id": "27806327639244800",
+          "smart": false,
+          "text": "Ce jeu peut contenir des lumières clignotantes ou des motifs susceptibles de déclencher des crises chez les personnes épileptiques photosensibles. Prudence, les joueurs !"
+        },
+        "WARNING": {
+          "id": "289103281889280",
+          "smart": false,
+          "text": "Attention"
+        },
+        "WARNING_PHOTO_SENSITIVITY": {
+          "id": "27806180456923136",
+          "smart": false,
+          "text": "Avertissement de Photosensibilité"
+        }
+      }
+    },
+    "Maps": {
+      "collection_guid": "fdcc2246dda33fc48940435e5f1862b0",
+      "entries": {
+        "CRYPT_DESC": {
+          "id": "53282717406724096",
+          "smart": false,
+          "text": "Trouve la sortie"
+        },
+        "CRYPT_TITLE": {
+          "id": "53282692710662144",
+          "smart": false,
+          "text": "Crypte"
+        },
+        "MAP_DESERT_DESC": {
+          "id": "12346536393474048",
+          "smart": false,
+          "text": "Un endroit chaud, sec et poussiéreux."
+        },
+        "MAP_DESERT_NAME": {
+          "id": "12346478096842752",
+          "smart": false,
+          "text": "Désert"
+        },
+        "MAP_FOREST_DESC": {
+          "id": "1411541344256",
+          "smart": false,
+          "text": "Un coin vert bourré d'arbres, d'oiseaux et de bonnes vibes. Bon, tout va aussi essayer de te tuer."
+        },
+        "MAP_FOREST_NAME": {
+          "id": "48052805632",
+          "smart": false,
+          "text": "Forêt"
+        },
+        "MAP_GRAVEYARD_DESC": {
+          "id": "48963091852034048",
+          "smart": false,
+          "text": "Le repaire des fantômes et autres esprits"
+        },
+        "MAP_GRAVEYARD_NAME": {
+          "id": "48962979721510912",
+          "smart": false,
+          "text": "Cimetière"
+        },
+        "MAP_RIFT": {
+          "id": "12064487162118144",
+          "smart": true,
+          "text": "{mapname} (Faille)"
+        },
+        "STAGE_DESERT_1_DESC": {
+          "id": "12346721592967168",
+          "smart": false,
+          "text": "C'est chaud et sablonneux... Je déteste ce sable chaud."
+        },
+        "STAGE_DESERT_1_NAME": {
+          "id": "12346566399524864",
+          "smart": false,
+          "text": "Désert Poussiéreux"
+        },
+        "STAGE_DESERT_2_DESC": {
+          "id": "12346967676977152",
+          "smart": false,
+          "text": "Sèche et poussiéreuse... Me rappelle ma soirée d'hier."
+        },
+        "STAGE_DESERT_2_NAME": {
+          "id": "12346612180353024",
+          "smart": false,
+          "text": "Désert Crépusculaire"
+        },
+        "STAGE_DESERT_3_DESC": {
+          "id": "12346969312755712",
+          "smart": false,
+          "text": "Oh zut !"
+        },
+        "STAGE_DESERT_3_NAME": {
+          "id": "12346663346667520",
+          "smart": false,
+          "text": "Désert Brûlé"
+        },
+        "STAGE_FOREST_1": {
+          "id": "89479946240",
+          "smart": false,
+          "text": "Forêt Verte"
+        },
+        "STAGE_FOREST_1_DESC": {
+          "id": "2148044894871552",
+          "smart": false,
+          "text": "Que des bonnes ondes"
+        },
+        "STAGE_FOREST_2": {
+          "id": "1017352265728",
+          "smart": false,
+          "text": "Forêt Profonde"
+        },
+        "STAGE_FOREST_2_DESC": {
+          "id": "2148086942769152",
+          "smart": false,
+          "text": "Les ondes sont bizarres"
+        },
+        "STAGE_FOREST_3": {
+          "id": "1027032719360",
+          "smart": false,
+          "text": "Forêt Maudite"
+        },
+        "STAGE_FOREST_3_DESC": {
+          "id": "2148098963644416",
+          "smart": false,
+          "text": "oups"
+        },
+        "STAGE_GRAVEYARD_DESC": {
+          "id": "48963162865795072",
+          "smart": false,
+          "text": "Les avis sur Google Maps sont catastrophiques ici"
+        }
+      }
+    },
+    "Other": {
+      "collection_guid": "99fa6340bfff0d848a70f2fb89d383e9",
+      "entries": {
+        "CHALLENGES": {
+          "id": "48220947062784",
+          "smart": false,
+          "text": "Défis"
+        },
+        "COMPLETED": {
+          "id": "59144428822528",
+          "smart": false,
+          "text": "Fini"
+        },
+        "DIFFICULTY_COOKED": {
+          "id": "15901795149807616",
+          "smart": false,
+          "text": "Cuit"
+        },
+        "DIFFICULTY_EASY": {
+          "id": "15901787545534464",
+          "smart": false,
+          "text": "Facile"
+        },
+        "DIFFICULTY_HARD": {
+          "id": "15901793035878400",
+          "smart": false,
+          "text": "Difficile"
+        },
+        "DIFFICULTY_NORMAL": {
+          "id": "15901790380883968",
+          "smart": false,
+          "text": "Normal"
+        },
+        "ELITE": {
+          "id": "18501575499710464",
+          "smart": false,
+          "text": "Élite"
+        },
+        "FINAL_BOSS": {
+          "id": "18501402186874880",
+          "smart": false,
+          "text": "Boss Final"
+        },
+        "GOLD": {
+          "id": "2488414023426048",
+          "smart": false,
+          "text": "Or"
+        },
+        "MINIBOSS": {
+          "id": "18501542654115840",
+          "smart": false,
+          "text": "Mini-boss"
+        },
+        "NOT_COMPLETED": {
+          "id": "59155489202176",
+          "smart": false,
+          "text": "Pas encore fini"
+        },
+        "RANK": {
+          "id": "19275685888",
+          "smart": false,
+          "text": "Rang"
+        },
+        "REQUIRES": {
+          "id": "152229783511040",
+          "smart": false,
+          "text": "Requiert"
+        },
+        "RUNS": {
+          "id": "5841330176",
+          "smart": false,
+          "text": "Courses"
+        },
+        "SILVER": {
+          "id": "107249635401728",
+          "smart": false,
+          "text": "Argent"
+        },
+        "STAGE": {
+          "id": "21882863065628672",
+          "smart": false,
+          "text": "Niveau"
+        },
+        "STAGE_BOSS": {
+          "id": "18501400353964032",
+          "smart": false,
+          "text": "Boss du Niveau"
+        },
+        "TIER": {
+          "id": "48273694629888",
+          "smart": false,
+          "text": "Niveau"
+        },
+        "TIER_SMART": {
+          "id": "49788157140992",
+          "smart": true,
+          "text": "Niveau {tier}"
+        },
+        "TROLL_INVERTED_CONTROLS": {
+          "id": "20782181042487296",
+          "smart": false,
+          "text": "Beau essai p'tit malin"
+        },
+        "TROLL_INVERTED_CONTROLS_2": {
+          "id": "20783149427589120",
+          "smart": false,
+          "text": "Frérot, fais juste le défi normalement"
+        }
+      }
+    },
+    "PassiveAbilities": {
+      "collection_guid": "f2f37496fd9c4024084f2f9a4e7b18c4",
+      "entries": {
+        "BULLSEYE_DESC": {
+          "id": "786753626112",
+          "smart": true,
+          "text": "Des ennemis aléatoires sont marqués. Gagne aussi {value1} {stat1} par niveau"
+        },
+        "BULLSEYE_NAME": {
+          "id": "753341800448",
+          "smart": false,
+          "text": "Dans le Mille"
+        },
+        "CRIT_NAME": {
+          "id": "1122016927744",
+          "smart": false,
+          "text": "C'est Critique"
+        },
+        "CURSE_NAME": {
+          "id": "10258414105133056",
+          "smart": false,
+          "text": "Malédiction"
+        },
+        "ENDURING_DESC": {
+          "id": "39646635070980096",
+          "smart": true,
+          "text": "Gagne {value1} {stat1} par niveau. Augmente aussi {damage} pour chaque ennemi gelé."
+        },
+        "ENDURING_NAME": {
+          "id": "1483360411648",
+          "smart": false,
+          "text": "Endurant"
+        },
+        "FLEX_DESC": {
+          "id": "1572267073536",
+          "smart": true,
+          "text": "Flexe pour bloquer les dégâts ! Recharge -{value1}s/niveau. +{valueDamage} {statDamage}."
+        },
+        "FLEX_NAME": {
+          "id": "1559981957120",
+          "smart": false,
+          "text": "Flex"
+        },
+        "FLOAT_DESC": {
+          "id": "2346682392576",
+          "smart": true,
+          "text": "Maintiens “Saut” pour flotter dans les airs. Gagne aussi {value1} de {stat1} aérien par niveau."
+        },
+        "FLOAT_NAME": {
+          "id": "2321780809728",
+          "smart": false,
+          "text": "Flottement"
+        },
+        "FLOWSTATE_NAME": {
+          "id": "2422716735488",
+          "smart": false,
+          "text": "État de Flux"
+        },
+        "GAMBA_DESC": {
+          "id": "9176706677080064",
+          "smart": false,
+          "text": "Joue les dés et booste un stat au hasard quand tu montes de niveau !"
+        },
+        "GAMBA_NAME": {
+          "id": "9176705020329984",
+          "smart": false,
+          "text": "Gamba"
+        },
+        "HOARDER_DESC": {
+          "id": "45663873431371776",
+          "smart": true,
+          "text": "Coffre gratuit toutes les {value1}s, allant jusqu’à {value2}s. Il peut aussi flotter (un peu)."
+        },
+        "HOARDER_NAME": {
+          "id": "45663871959171072",
+          "smart": false,
+          "text": "Hoarder"
+        },
+        "LOCKIN_DESC": {
+          "id": "25057108864139264",
+          "smart": true,
+          "text": "Fais plus de dégâts quand t'as plus beaucoup de vie. Gagne {value1} {stat1} par niveau."
+        },
+        "LOCKIN_NAME": {
+          "id": "25057107920420864",
+          "smart": false,
+          "text": "Verrouillage"
+        },
+        "PLAGUE_DESC": {
+          "id": "5533106495848448",
+          "smart": true,
+          "text": "Les ennemis empoisonnés explosent à leur mort, empoisonnant les ennemis proches. Gagne aussi {value1} {stat1} par niveau."
+        },
+        "PLAGUE_NAME": {
+          "id": "5533104142843904",
+          "smart": false,
+          "text": "Peste"
+        },
+        "QUANTUM_NAME": {
+          "id": "5954035122307072",
+          "smart": false,
+          "text": "Théorie XP Quantique"
+        },
+        "REINFORCED_NAME": {
+          "id": "2492870664192",
+          "smart": false,
+          "text": "Renforcé"
+        },
+        "RNG_BLESSING_NAME": {
+          "id": "2564576485376",
+          "smart": false,
+          "text": "Bénédiction RNG"
+        },
+        "SHADOWSTEP_DESC": {
+          "id": "6559807355092992",
+          "smart": true,
+          "text": "{Execute} un ennemi en l'esquivant. Gagne aussi {value1} {stat1} par niveau."
+        },
+        "SHADOWSTEP_NAME": {
+          "id": "6559805111140352",
+          "smart": false,
+          "text": "Ombre Pas"
+        },
+        "SPEED_DEMON_DESC": {
+          "id": "2694956425216",
+          "smart": false,
+          "text": "La vitesse augmente, mais se réduit de moitié si tu prends un coup. Plus t'es rapide, plus tu tapes fort !"
+        },
+        "SPEED_DEMON_NAME": {
+          "id": "2656582737920",
+          "smart": false,
+          "text": "Démon de la Vitesse"
+        },
+        "STAT_CHANGE_DESC": {
+          "id": "8336941056",
+          "smart": true,
+          "text": "Gagne {value1} {stat1} par niveau."
+        },
+        "STONKS_DESC": {
+          "id": "25057106032984064",
+          "smart": true,
+          "text": "Gagne {value1} {stat1} par niveau. Augmente aussi {damage} légèrement selon le total de {gold} dans l'inventaire."
+        },
+        "STONKS_NAME": {
+          "id": "25057104783081472",
+          "smart": false,
+          "text": "Stonks"
+        },
+        "VAMPIRE_NAME": {
+          "id": "9847599027847168",
+          "smart": false,
+          "text": "Vampire"
+        },
+        "WALL_CLIMB_DESC": {
+          "id": "2791169564672",
+          "smart": true,
+          "text": "Grimpe aux murs ! En plus, tu gagnes {value1} {stat1} par niveau."
+        },
+        "WALL_CLIMB_NAME": {
+          "id": "2789525397504",
+          "smart": false,
+          "text": "Prise de Singe"
+        },
+        "WARRIOR_NAME": {
+          "id": "3002679926784",
+          "smart": false,
+          "text": "Guerrier"
+        },
+        "ZAP_DESC": {
+          "id": "25057111464607744",
+          "smart": true,
+          "text": "Recharge une attaque électrique en bougeant. Gagne {value1} {stat1} par niveau."
+        },
+        "ZAP_NAME": {
+          "id": "25057110395060224",
+          "smart": false,
+          "text": "Zap"
+        }
+      }
+    },
+    "PopupText": {
+      "collection_guid": "ba8b6f3dfabe9924dba22d2eae5e5511",
+      "entries": {
+        "CANT_AFFORD": {
+          "id": "412076449792",
+          "smart": false,
+          "text": "Pas assez d'argent"
+        },
+        "CANT_AFFORD_SILVER": {
+          "id": "26195708846080",
+          "smart": false,
+          "text": "Pas assez d'argent en argent"
+        },
+        "CANT_BANISH": {
+          "id": "4702778138624",
+          "smart": false,
+          "text": "Impossible de bannir un objet possédé"
+        },
+        "CHARACTER_NOT_UNLOCKED": {
+          "id": "5913770172416",
+          "smart": false,
+          "text": "Personnage pas encore débloqué"
+        },
+        "MICROWAVE_MAX_ITEMS": {
+          "id": "5310826389504",
+          "smart": true,
+          "text": "Max {maxAmount} {itemName}"
+        },
+        "MICROWAVE_NEED_RARITY": {
+          "id": "1510908600320",
+          "smart": true,
+          "text": "Il te faut plus d'objets {rarity}"
+        },
+        "NO_BANISHES": {
+          "id": "5023466233856",
+          "smart": false,
+          "text": "Plus de bannissements disponibles"
+        },
+        "SHOP_CANT_REFUND": {
+          "id": "26295839465472",
+          "smart": false,
+          "text": "Pas de remboursement possible"
+        },
+        "SHOP_ITEM_MAX_LEVEL": {
+          "id": "26125898850304",
+          "smart": false,
+          "text": "Niveau max"
+        }
+      }
+    },
+    "QuestsUi": {
+      "collection_guid": "e423ec7b28ab4284a866e7a2bb7e080a",
+      "entries": {
+        "CLAIM_REWARD": {
+          "id": "3223216431104",
+          "smart": false,
+          "text": "Prendre"
+        },
+        "HIDE_COMPLETED": {
+          "id": "26860864060653568",
+          "smart": false,
+          "text": "Masquer terminées"
+        }
+      }
+    },
+    "Rarities": {
+      "collection_guid": "1248a7b336699c54a8ba22f3a5e02dcd",
+      "entries": {
+        "Common": {
+          "id": "5459648512",
+          "smart": false,
+          "text": "Commun"
+        },
+        "Epic": {
+          "id": "52603625472",
+          "smart": false,
+          "text": "Épique"
+        },
+        "Legendary": {
+          "id": "61441024000",
+          "smart": false,
+          "text": "Légendaire"
+        },
+        "New": {
+          "id": "118366117888",
+          "smart": false,
+          "text": "Nouveau"
+        },
+        "Rare": {
+          "id": "46073094144",
+          "smart": false,
+          "text": "Rare"
+        },
+        "Uncommon": {
+          "id": "17048510464",
+          "smart": false,
+          "text": "Peu commun"
+        }
+      }
+    },
+    "SettingEnums": {
+      "collection_guid": "7965b13cc71a8e647a42b605e05f1865",
+      "entries": {
+        "Always": {
+          "id": "1066970882048",
+          "smart": false,
+          "text": "Toujours"
+        },
+        "Blue": {
+          "id": "1627963236352",
+          "smart": false,
+          "text": "Bleu"
+        },
+        "ClosestEnemy": {
+          "id": "24100720356753408",
+          "smart": false,
+          "text": "Ennemi le Plus Proche"
+        },
+        "ExclusiveFullScreen": {
+          "id": "3487310782464",
+          "smart": false,
+          "text": "Mode plein écran exclusif"
+        },
+        "Fancy": {
+          "id": "1320814354432",
+          "smart": false,
+          "text": "Stylé"
+        },
+        "Fast": {
+          "id": "1308868976640",
+          "smart": false,
+          "text": "Rapide"
+        },
+        "FullScreenWindow": {
+          "id": "3494092972032",
+          "smart": false,
+          "text": "Fenêtre plein écran"
+        },
+        "Half": {
+          "id": "1101343203328",
+          "smart": false,
+          "text": "Moitié"
+        },
+        "Hard": {
+          "id": "1170826043392",
+          "smart": false,
+          "text": "Difficile"
+        },
+        "High": {
+          "id": "1143139442688",
+          "smart": false,
+          "text": "Haut"
+        },
+        "Low": {
+          "id": "1112269365248",
+          "smart": false,
+          "text": "Bas"
+        },
+        "Magenta": {
+          "id": "1639669538816",
+          "smart": false,
+          "text": "Magenta"
+        },
+        "MaximizedWindow": {
+          "id": "3498585071616",
+          "smart": false,
+          "text": "Fenêtre maximisée"
+        },
+        "Medium": {
+          "id": "1131022098432",
+          "smart": false,
+          "text": "Moyen"
+        },
+        "Off": {
+          "id": "1034058178560",
+          "smart": false,
+          "text": "Off"
+        },
+        "On": {
+          "id": "1043013017600",
+          "smart": false,
+          "text": "On"
+        },
+        "PC": {
+          "id": "1536535797760",
+          "smart": false,
+          "text": "PC"
+        },
+        "Playstation": {
+          "id": "1513165135872",
+          "smart": false,
+          "text": "PlayStation"
+        },
+        "Red": {
+          "id": "1575609933824",
+          "smart": false,
+          "text": "Rouge"
+        },
+        "SmartAim": {
+          "id": "24100719215902720",
+          "smart": false,
+          "text": "Visée intelligente"
+        },
+        "Soft": {
+          "id": "1188844773376",
+          "smart": false,
+          "text": "Doux"
+        },
+        "SteamDeck": {
+          "id": "1372702089216",
+          "smart": false,
+          "text": "Steam Deck"
+        },
+        "Ultra": {
+          "id": "1201633206272",
+          "smart": false,
+          "text": "Ultra"
+        },
+        "White": {
+          "id": "1595914559488",
+          "smart": false,
+          "text": "Blanc"
+        },
+        "Windowed": {
+          "id": "3512979922944",
+          "smart": false,
+          "text": "Mode fenêtré"
+        },
+        "Xbox": {
+          "id": "1336572354560",
+          "smart": false,
+          "text": "Xbox"
+        },
+        "Yellow": {
+          "id": "1610548486144",
+          "smart": false,
+          "text": "Jaune"
+        }
+      }
+    },
+    "SettingsAudio": {
+      "collection_guid": "aca340e2cf0efeb43905d7941e5a969f",
+      "entries": {
+        "ambience": {
+          "id": "10705032189181952",
+          "smart": false,
+          "text": "Ambiance"
+        },
+        "game_sfx": {
+          "id": "10705028141678592",
+          "smart": false,
+          "text": "Sons du jeu"
+        },
+        "master_volume": {
+          "id": "8819286016",
+          "smart": false,
+          "text": "Volume principale"
+        },
+        "music": {
+          "id": "11067432960",
+          "smart": false,
+          "text": "Volume musique"
+        },
+        "ui": {
+          "id": "10705050237272064",
+          "smart": false,
+          "text": "Interface"
+        },
+        "xp_and_gold": {
+          "id": "31826077935599616",
+          "smart": false,
+          "text": "XP et Or"
+        }
+      }
+    },
+    "SettingsControls": {
+      "collection_guid": "b75ab39dacde2bc4da67d0e6b661b516",
+      "entries": {
+        "aim": {
+          "id": "54042271744",
+          "smart": false,
+          "text": "Viser"
+        },
+        "controller": {
+          "id": "225987764224",
+          "smart": false,
+          "text": "Manette"
+        },
+        "controller_sensitivity": {
+          "id": "20051632128",
+          "smart": false,
+          "text": "Sensibilité Manette"
+        },
+        "hold_aim": {
+          "id": "32680681472",
+          "smart": false,
+          "text": "Vise Maintenue"
+        },
+        "hold_crouch": {
+          "id": "28230524928",
+          "smart": false,
+          "text": "Rester Accroupi"
+        },
+        "hold_to_wallrun": {
+          "id": "59423840701382656",
+          "smart": false,
+          "text": "Maintenir pour courir sur le mur"
+        },
+        "horizontal_navigation": {
+          "id": "61821287419478016",
+          "smart": false,
+          "text": "Utilisez les touches de déplacement horizontal pour naviguer entre les boutons d’ouverture des coffres"
+        },
+        "interact": {
+          "id": "52737843200",
+          "smart": false,
+          "text": "Interagir"
+        },
+        "inverted_horizontal_axis": {
+          "id": "23344160768",
+          "smart": false,
+          "text": "Axe Horizontal Inversé"
+        },
+        "inverted_vertical_axis": {
+          "id": "25827188736",
+          "smart": false,
+          "text": "Axe Vertical Inversé"
+        },
+        "jump": {
+          "id": "49768275968",
+          "smart": false,
+          "text": "Sauter"
+        },
+        "jump_ignore_extra_jumps": {
+          "id": "42361180805791744",
+          "smart": false,
+          "text": "Saut (ignorer sauts multiples)"
+        },
+        "look_smoothing": {
+          "id": "16603914240",
+          "smart": false,
+          "text": "Fluidité de la Vue"
+        },
+        "map_overlay": {
+          "id": "39391745866334208",
+          "smart": false,
+          "text": "Carte en jeu"
+        },
+        "move_backward": {
+          "id": "37273444352",
+          "smart": false,
+          "text": "Reculer"
+        },
+        "move_forward": {
+          "id": "35163709440",
+          "smart": false,
+          "text": "Avancer"
+        },
+        "move_left": {
+          "id": "40326897664",
+          "smart": false,
+          "text": "Gauche"
+        },
+        "move_right": {
+          "id": "47062949888",
+          "smart": false,
+          "text": "Droite"
+        },
+        "pause_on_controller_disconnect": {
+          "id": "17931843310583808",
+          "smart": false,
+          "text": "Pause si manette déconnectée"
+        },
+        "quick_reset": {
+          "id": "27803156565065728",
+          "smart": false,
+          "text": "Remise à zéro rapide"
+        },
+        "rotate_camera_with_arrow_keys": {
+          "id": "17638684366077952",
+          "smart": false,
+          "text": "Tourner caméra avec flèches"
+        },
+        "select_upgrades_with_number_keys": {
+          "id": "30636199503855616",
+          "smart": false,
+          "text": "Choisir améliorations avec chiffres"
+        },
+        "sensitivity": {
+          "id": "13558849536",
+          "smart": false,
+          "text": "Sensibilité"
+        },
+        "slide": {
+          "id": "55250231296",
+          "smart": false,
+          "text": "Glisser"
+        },
+        "space_navigation": {
+          "id": "55016596920467456",
+          "smart": false,
+          "text": "Utilise Espace pour confirmer"
+        },
+        "vibration": {
+          "id": "4358561919115264",
+          "smart": false,
+          "text": "Vibration manette"
+        }
+      }
+    },
+    "SettingsGame": {
+      "collection_guid": "8fd8ed9cececca1448ac9b4f08218220",
+      "entries": {
+        "auto_select_after_level": {
+          "id": "61830441848668160",
+          "smart": false,
+          "text": "Sélection auto après le niveau"
+        },
+        "auto_select_upgrades": {
+          "id": "61830439831207936",
+          "smart": false,
+          "text": "Sélection auto des améliorations de niveau par rareté max"
+        },
+        "camera_shake": {
+          "id": "6190220943360",
+          "smart": false,
+          "text": "Secousse de Caméra"
+        },
+        "crosshair_alpha": {
+          "id": "6747782356992",
+          "smart": false,
+          "text": "Transparence du Réticule"
+        },
+        "crosshair_height": {
+          "id": "6713842049024",
+          "smart": false,
+          "text": "Hauteur du Réticule"
+        },
+        "crosshair_size": {
+          "id": "6729126092800",
+          "smart": false,
+          "text": "Taille du Réticule"
+        },
+        "debug_enemy_scaling": {
+          "id": "6800307625984",
+          "smart": false,
+          "text": "Échelle des Ennemis"
+        },
+        "debug_fps": {
+          "id": "6763557134336",
+          "smart": false,
+          "text": "Déboguer FPS"
+        },
+        "debug_ram": {
+          "id": "6786458034176",
+          "smart": false,
+          "text": "Déboguer RAM"
+        },
+        "debug_shrines": {
+          "id": "54322078483087360",
+          "smart": false,
+          "text": "Compteur de sanctuaires"
+        },
+        "debug_speed": {
+          "id": "6776785969152",
+          "smart": false,
+          "text": "Déboguer Vitesse"
+        },
+        "enable_silver_pots": {
+          "id": "55042996415102976",
+          "smart": false,
+          "text": "Activer les pots en argent"
+        },
+        "enemy_targeting_mode": {
+          "id": "24114260429897728",
+          "smart": false,
+          "text": "Mode de ciblage des ennemis"
+        },
+        "hide_leaderboards": {
+          "id": "27825623606099968",
+          "smart": false,
+          "text": "Masquer les classements"
+        },
+        "hp_bar_color": {
+          "id": "6699975680000",
+          "smart": false,
+          "text": "Couleur de la Barre de Vie"
+        },
+        "input_delay": {
+          "id": "6628584431616",
+          "smart": false,
+          "text": "Délai de Réponse"
+        },
+        "language": {
+          "id": "244998933815296",
+          "smart": false,
+          "text": "Langue"
+        },
+        "minimap_rotation": {
+          "id": "30355329144455168",
+          "smart": false,
+          "text": "Rotation de la mini-carte"
+        },
+        "minimap_size": {
+          "id": "6693944270848",
+          "smart": false,
+          "text": "Taille de la Mini-carte"
+        },
+        "quick_reset": {
+          "id": "6830770855936",
+          "smart": false,
+          "text": "Reset Rapide"
+        },
+        "random_enemy_targeting": {
+          "id": "29969246854447104",
+          "smart": false,
+          "text": "Ciblage aléatoire"
+        },
+        "show_advanced_settings": {
+          "id": "42391137615478784",
+          "smart": false,
+          "text": "Afficher les paramètres avancés"
+        },
+        "show_hud": {
+          "id": "45678446679031808",
+          "smart": false,
+          "text": "Affiche le HUD"
+        },
+        "show_item_feed": {
+          "id": "57884837158191104",
+          "smart": false,
+          "text": "Afficher le flux d’objets"
+        },
+        "show_tips": {
+          "id": "6658384961536",
+          "smart": false,
+          "text": "Affiche les Astuces"
+        },
+        "skip_chest_animation": {
+          "id": "54321555751174144",
+          "smart": false,
+          "text": "Passer l’animation du coffre"
+        },
+        "skip_portal_animation": {
+          "id": "54321557214986240",
+          "smart": false,
+          "text": "Passer l’animation du portail"
+        },
+        "super_quick_resets": {
+          "id": "58655824699064320",
+          "smart": false,
+          "text": "Réinitialisations ultra rapides"
+        },
+        "upload_score_to_leaderboard": {
+          "id": "6840845574144",
+          "smart": false,
+          "text": "Publie le Score au Classement"
+        }
+      }
+    },
+    "SettingsHeaders": {
+      "collection_guid": "ff6b76393deb9cf4bbeb427d23750a6a",
+      "entries": {
+        "ADVANCED": {
+          "id": "42373939580764160",
+          "smart": false,
+          "text": "Avancé"
+        },
+        "AUDIO": {
+          "id": "21663033565184",
+          "smart": false,
+          "text": "Audio"
+        },
+        "CONTROLLER INPUT": {
+          "id": "21660034637824",
+          "smart": false,
+          "text": "Saisie Manette"
+        },
+        "DEBUG": {
+          "id": "21645992108032",
+          "smart": false,
+          "text": "Débogage"
+        },
+        "EXTRA": {
+          "id": "17945366392602624",
+          "smart": false,
+          "text": "Extra"
+        },
+        "GAME": {
+          "id": "21639901978624",
+          "smart": false,
+          "text": "Jeu"
+        },
+        "GENERAL": {
+          "id": "21655576092672",
+          "smart": false,
+          "text": "Général"
+        },
+        "GRAPHICS": {
+          "id": "21652610719744",
+          "smart": false,
+          "text": "Graphismes"
+        },
+        "KEYBOARD INPUT": {
+          "id": "21657660661760",
+          "smart": false,
+          "text": "Saisie Clavier"
+        },
+        "OTHER": {
+          "id": "27817376845266944",
+          "smart": false,
+          "text": "Autre"
+        },
+        "SAVES": {
+          "id": "65441841275863040",
+          "smart": false,
+          "text": "Sauvegardes et progression"
+        },
+        "SCREEN": {
+          "id": "21649301413888",
+          "smart": false,
+          "text": "Écran"
+        },
+        "UI": {
+          "id": "21643660075008",
+          "smart": false,
+          "text": "Interface"
+        },
+        "VISUALS": {
+          "id": "22040294432768",
+          "smart": false,
+          "text": "Visuels"
+        }
+      }
+    },
+    "SettingsUi": {
+      "collection_guid": "afbded52179e48f409964975ef052499",
+      "entries": {
+        "INPUT_LISTENER": {
+          "id": "195232963207168",
+          "smart": true,
+          "text": "Appuie sur une touche pour {action}"
+        },
+        "INPUT_LISTENER_ESCAPE": {
+          "id": "195424751951872",
+          "smart": false,
+          "text": "[ÉCHAP] pour annuler"
+        },
+        "LANGUAGE": {
+          "id": "219294200471552",
+          "smart": false,
+          "text": "Langue"
+        },
+        "RESET_CONTROLS": {
+          "id": "4177956665270272",
+          "smart": false,
+          "text": "Réinitialiser les commandes"
+        },
+        "RESOLUTION_CONFIRMATION": {
+          "id": "187881711443968",
+          "smart": false,
+          "text": "Tu veux garder cette résolution ?"
+        },
+        "SETTING_AUDIO": {
+          "id": "120538767360",
+          "smart": false,
+          "text": "Audio"
+        },
+        "SETTING_CONTROLS": {
+          "id": "101454684160",
+          "smart": false,
+          "text": "Commandes"
+        },
+        "SETTING_EFFECTS": {
+          "id": "133721464832",
+          "smart": false,
+          "text": "Effets"
+        },
+        "SETTING_GAME": {
+          "id": "4549484544",
+          "smart": false,
+          "text": "Jeu"
+        },
+        "SETTING_VIDEO": {
+          "id": "89098264576",
+          "smart": false,
+          "text": "Vidéo"
+        }
+      }
+    },
+    "SettingsVideo": {
+      "collection_guid": "2c81966ae207d0e4d94f0966e20bd4ff",
+      "entries": {
+        "ambient_occlusion": {
+          "id": "295596433408",
+          "smart": false,
+          "text": "Occlusion Ambiante"
+        },
+        "anti_aliasing": {
+          "id": "189203718144",
+          "smart": false,
+          "text": "Anti Crénelage"
+        },
+        "bloom": {
+          "id": "290923978752",
+          "smart": false,
+          "text": "Effet de Flou Lumineux"
+        },
+        "camera_distance": {
+          "id": "30335610630832128",
+          "smart": false,
+          "text": "Distance de Caméra"
+        },
+        "fov": {
+          "id": "179737174016",
+          "smart": false,
+          "text": "Champ de Vision"
+        },
+        "fps_limit": {
+          "id": "176453033984",
+          "smart": false,
+          "text": "Limite FPS"
+        },
+        "fullscreen_mode": {
+          "id": "171809939456",
+          "smart": false,
+          "text": "Mode Plein Écran"
+        },
+        "grass_quality": {
+          "id": "181771411456",
+          "smart": false,
+          "text": "Qualité de l'Herbe"
+        },
+        "motion_blur": {
+          "id": "293822242816",
+          "smart": false,
+          "text": "Flou de Mouvement"
+        },
+        "resolution": {
+          "id": "154948837376",
+          "smart": false,
+          "text": "Résolution"
+        },
+        "shadow_quality": {
+          "id": "184011169792",
+          "smart": false,
+          "text": "Qualité des Ombres"
+        },
+        "shadow_resolution": {
+          "id": "186993319936",
+          "smart": false,
+          "text": "Résolution des Ombres"
+        },
+        "soft_particles": {
+          "id": "192336863232",
+          "smart": false,
+          "text": "Particules Douces"
+        },
+        "target_monitor": {
+          "id": "169469517824",
+          "smart": false,
+          "text": "Moniteur Cible"
+        },
+        "vsync": {
+          "id": "173886119936",
+          "smart": false,
+          "text": "VSync"
+        }
+      }
+    },
+    "SettingsVisuals": {
+      "collection_guid": "eb5d834d8f12304459dc1addb19f2742",
+      "entries": {
+        "damage_flash": {
+          "id": "44412149760",
+          "smart": false,
+          "text": "Flash des dégâts"
+        },
+        "damage_numbers": {
+          "id": "29077774336",
+          "smart": false,
+          "text": "Nombres des dégâts"
+        },
+        "low_hp_effects": {
+          "id": "7606081781104640",
+          "smart": false,
+          "text": "Effets PV faibles"
+        },
+        "particle_auto_opacity": {
+          "id": "38961002069491712",
+          "smart": false,
+          "text": "Opacité auto des particules"
+        },
+        "particle_opacity": {
+          "id": "38960998537887744",
+          "smart": false,
+          "text": "Opacité des particules"
+        },
+        "warning_color": {
+          "id": "74604113046831104",
+          "smart": false,
+          "text": "Couleur de l’indicateur d’attaque ennemie"
+        },
+        "xp_gold_hud": {
+          "id": "75214382760493056",
+          "smart": false,
+          "text": "Texte d’augmentation XP et or"
+        }
+      }
+    },
+    "ShopItems": {
+      "collection_guid": "13192ddf60bf8a54aa9f07d0706741a8",
+      "entries": {
+        "BANISH_DESC": {
+          "id": "274199628349440",
+          "smart": true,
+          "text": "Bannir {weapons}, {tomes} et {items}. Ils n'apparaîtront plus dans cette partie."
+        },
+        "BANISH_NAME": {
+          "id": "274180074504192",
+          "smart": false,
+          "text": "Exiler"
+        },
+        "BOOMBOX_DESC": {
+          "id": "50334924800",
+          "smart": false,
+          "text": "Sélectionne manuellement la musique à jouer"
+        },
+        "BOOMBOX_NAME": {
+          "id": "6483476480",
+          "smart": false,
+          "text": "Boombox"
+        },
+        "REFRESH_DEC": {
+          "id": "274130455887872",
+          "smart": false,
+          "text": "Rafraîchir les offres de niveau"
+        },
+        "REFRESH_NAME": {
+          "id": "274128098689024",
+          "smart": false,
+          "text": "Rafraîchir"
+        },
+        "SILVER_DESC": {
+          "id": "274449315266560",
+          "smart": true,
+          "text": "Augmente {silver} gagné"
+        },
+        "SKIP_DESC": {
+          "id": "274155709792256",
+          "smart": false,
+          "text": "Ignorer les offres de niveau"
+        },
+        "SKIP_NAME": {
+          "id": "274153809772544",
+          "smart": false,
+          "text": "Passer"
+        },
+        "TOGGLER_DESC": {
+          "id": "56492395986944",
+          "smart": true,
+          "text": "Active ou désactive les {weapons}, {tomes} et {items} achetés."
+        },
+        "TOGGLER_NAME": {
+          "id": "56489552248832",
+          "smart": false,
+          "text": "Toggleur"
+        },
+        "TOME_SLOTS_DESC": {
+          "id": "274276614799360",
+          "smart": true,
+          "text": "Transporte plus de {tomes}"
+        },
+        "TOME_SLOTS_NAME": {
+          "id": "274275746578432",
+          "smart": true,
+          "text": "Emplacements de {tome}"
+        },
+        "WEAPON_SLOTS_DESC": {
+          "id": "274217001156608",
+          "smart": true,
+          "text": "Transporte plus de {weapons}"
+        },
+        "WEAPON_SLOTS_NAME": {
+          "id": "274213838651392",
+          "smart": true,
+          "text": "Emplacements de {weapon}"
+        }
+      }
+    },
+    "Skins": {
+      "collection_guid": "214a397d377dae842b76b5a530f863dd",
+      "entries": {
+        "ACID": {
+          "id": "256635543552",
+          "smart": false,
+          "text": "Acide"
+        },
+        "ATTONREY": {
+          "id": "9400848907108352",
+          "smart": false,
+          "text": "Avocat"
+        },
+        "BLACK": {
+          "id": "1032095244288",
+          "smart": false,
+          "text": "Noir"
+        },
+        "BLAZE": {
+          "id": "367251922944",
+          "smart": false,
+          "text": "Flamboiement"
+        },
+        "BLUE": {
+          "id": "591819153408",
+          "smart": false,
+          "text": "Bleu"
+        },
+        "BUBBLE_GUM": {
+          "id": "1407057633280",
+          "smart": false,
+          "text": "Chewing-gum"
+        },
+        "BURNT": {
+          "id": "8655689168846848",
+          "smart": false,
+          "text": "Carbonisé"
+        },
+        "CRIMSON": {
+          "id": "99038765056",
+          "smart": false,
+          "text": "Cramoisi"
+        },
+        "DARK": {
+          "id": "284590579712",
+          "smart": false,
+          "text": "Sombre"
+        },
+        "DEFAULT": {
+          "id": "8852840448",
+          "smart": false,
+          "text": "Par défaut"
+        },
+        "EARTH": {
+          "id": "1543653531648",
+          "smart": false,
+          "text": "Terre"
+        },
+        "EDGY": {
+          "id": "700636176384",
+          "smart": false,
+          "text": "Tranchant"
+        },
+        "FIRE": {
+          "id": "316127551488",
+          "smart": false,
+          "text": "Feu"
+        },
+        "FOREST": {
+          "id": "165048721408",
+          "smart": false,
+          "text": "Sylvestre"
+        },
+        "FUTURE": {
+          "id": "406175064064",
+          "smart": false,
+          "text": "Futur"
+        },
+        "GALAXY": {
+          "id": "893247004672",
+          "smart": false,
+          "text": "Galaxie"
+        },
+        "GIGA": {
+          "id": "20364344633196544",
+          "smart": false,
+          "text": "Giga"
+        },
+        "GOLD": {
+          "id": "190361346048",
+          "smart": false,
+          "text": "Or"
+        },
+        "GRANDPA": {
+          "id": "20364362345742336",
+          "smart": false,
+          "text": "Papy"
+        },
+        "GREEN": {
+          "id": "5962451052003328",
+          "smart": false,
+          "text": "Vert"
+        },
+        "ICE": {
+          "id": "479223062528",
+          "smart": false,
+          "text": "Glace"
+        },
+        "JESTER": {
+          "id": "9400856712708096",
+          "smart": false,
+          "text": "Bouffon"
+        },
+        "JUICE": {
+          "id": "1439076950016",
+          "smart": false,
+          "text": "Jus"
+        },
+        "LIGHT": {
+          "id": "529533739008",
+          "smart": false,
+          "text": "Lumière"
+        },
+        "OBSIDIAN": {
+          "id": "627592372224",
+          "smart": false,
+          "text": "Obsidienne"
+        },
+        "PURPLE": {
+          "id": "42042639586033664",
+          "smart": false,
+          "text": "Violet"
+        },
+        "RED": {
+          "id": "994698829824",
+          "smart": false,
+          "text": "Rouge"
+        },
+        "SAKURA": {
+          "id": "665328525312",
+          "smart": false,
+          "text": "Sakura"
+        },
+        "SCARECROW": {
+          "id": "8655690175479808",
+          "smart": false,
+          "text": "Épouvantail"
+        },
+        "SHINOBI": {
+          "id": "6571353862963200",
+          "smart": false,
+          "text": "Shinobi"
+        },
+        "SPOOKY": {
+          "id": "59197512051982336",
+          "smart": false,
+          "text": "Effrayant"
+        },
+        "STREET": {
+          "id": "1079063060480",
+          "smart": false,
+          "text": "Rue"
+        },
+        "SUS": {
+          "id": "5433699498852352",
+          "smart": false,
+          "text": "Sus"
+        },
+        "TOXIC": {
+          "id": "5433728275972096",
+          "smart": false,
+          "text": "Toxique"
+        },
+        "WHITE": {
+          "id": "214474399744",
+          "smart": false,
+          "text": "Blanc"
+        },
+        "WINTER": {
+          "id": "1474858557440",
+          "smart": false,
+          "text": "Hiver"
+        },
+        "YAKUZA": {
+          "id": "9400858436567040",
+          "smart": false,
+          "text": "Yakuza"
+        },
+        "Zesty": {
+          "id": "20364408743133184",
+          "smart": false,
+          "text": "Zesty"
+        }
+      }
+    },
+    "Stats": {
+      "collection_guid": "57e0eed3dec1ae24ea18e1ac4aaaf739",
+      "entries": {
+        "Armor_DESC": {
+          "id": "13160562794496",
+          "smart": false,
+          "text": "L'armure réduit les dégâts que tu encaisses."
+        },
+        "Armor_NAME": {
+          "id": "13124810547200",
+          "smart": false,
+          "text": "Armure"
+        },
+        "AttackSpeed_DESC": {
+          "id": "15228329500672",
+          "smart": false,
+          "text": "À quelle vitesse tu lances des projectiles et fais des attaques."
+        },
+        "AttackSpeed_NAME": {
+          "id": "14800854425600",
+          "smart": false,
+          "text": "Vitesse Attaque"
+        },
+        "ChestIncreaseMultiplier_DESC": {
+          "id": "381343001976832",
+          "smart": false,
+          "text": "Fait apparaître plus de coffres sur la map."
+        },
+        "ChestIncreaseMultiplier_NAME": {
+          "id": "381305404235776",
+          "smart": false,
+          "text": "Multiplicateur de Coffres"
+        },
+        "ChestPriceMultiplier_NAME": {
+          "id": "21323853509820416",
+          "smart": false,
+          "text": "Prix du coffre"
+        },
+        "CritChance_DESC": {
+          "id": "15967873376256",
+          "smart": false,
+          "text": "Chance de faire des dégâts critiques. Plus de 100% te permet de sur-crit, faisant encore plus de dégâts."
+        },
+        "CritChance_NAME": {
+          "id": "15967261007872",
+          "smart": false,
+          "text": "Chance de Crit"
+        },
+        "CritDamage_DESC": {
+          "id": "16175835357184",
+          "smart": false,
+          "text": "Augmente les dégâts de tes coups critiques. De base, les critiques font le double de dégâts."
+        },
+        "CritDamage_NAME": {
+          "id": "16175109742592",
+          "smart": false,
+          "text": "Dégâts Critiques"
+        },
+        "DamageMultiplier_DESC": {
+          "id": "14282090323968",
+          "smart": false,
+          "text": "Augmente les dégâts de tes attaques."
+        },
+        "DamageMultiplier_NAME": {
+          "id": "14279779262464",
+          "smart": false,
+          "text": "Dégâts"
+        },
+        "Difficulty_DESC": {
+          "id": "17958506831872",
+          "smart": false,
+          "text": "La difficulté augmente la quantité, la vie, la vitesse et la force des ennemis. Seuls les vrais gamers choisissent ça."
+        },
+        "Difficulty_NAME": {
+          "id": "17787811241984",
+          "smart": false,
+          "text": "Difficulté"
+        },
+        "DurationMultiplier_DESC": {
+          "id": "13933384278016",
+          "smart": false,
+          "text": "La durée de tes attaques et projectiles."
+        },
+        "DurationMultiplier_NAME": {
+          "id": "13932146958336",
+          "smart": false,
+          "text": "Durée"
+        },
+        "EffectDurationMultiplier_DESC": {
+          "id": "14668243116032",
+          "smart": false,
+          "text": "La durée des effets comme le poison ou la glace."
+        },
+        "EffectDurationMultiplier_NAME": {
+          "id": "14666708000768",
+          "smart": false,
+          "text": "Durée des Effets"
+        },
+        "EliteDamageMultiplier_DESC": {
+          "id": "16481419763712",
+          "smart": false,
+          "text": "Augmente les dégâts contre les ennemis élites."
+        },
+        "EliteDamageMultiplier_NAME": {
+          "id": "16480819978240",
+          "smart": false,
+          "text": "Dégâts Élite"
+        },
+        "EliteSpawnIncrease_DESC": {
+          "id": "18009035612160",
+          "smart": false,
+          "text": "Augmente les chances d'apparition des ennemis élites."
+        },
+        "EliteSpawnIncrease_NAME": {
+          "id": "18004530929664",
+          "smart": false,
+          "text": "Augmentation Apparition Élite"
+        },
+        "EnemyAmountMultiplier_NAME": {
+          "id": "21098208234176512",
+          "smart": false,
+          "text": "Quantité d'ennemis"
+        },
+        "EnemyDamageMultiplier_NAME": {
+          "id": "21098229126004736",
+          "smart": false,
+          "text": "Dégâts ennemis"
+        },
+        "EnemyHpMultiplier_NAME": {
+          "id": "21098216379514880",
+          "smart": false,
+          "text": "Vie ennemis"
+        },
+        "EnemyScalingMultiplier_NAME": {
+          "id": "21323851693686784",
+          "smart": false,
+          "text": "Progression des ennemis"
+        },
+        "EnemySizeMultiplier_NAME": {
+          "id": "21098210771730432",
+          "smart": false,
+          "text": "Taille ennemis"
+        },
+        "EnemySpeedMultiplier_NAME": {
+          "id": "21098214437552128",
+          "smart": false,
+          "text": "Vitesse ennemis"
+        },
+        "Evasion_DESC": {
+          "id": "13361235075072",
+          "smart": false,
+          "text": "L'évasion est ta chance d'éviter un coup, sans prendre de dégâts."
+        },
+        "Evasion_NAME": {
+          "id": "13348484390912",
+          "smart": false,
+          "text": "Esquive"
+        },
+        "ExtraJumps_DESC": {
+          "id": "18530010112000",
+          "smart": false,
+          "text": "Te donne des sauts supplémentaires dans les airs."
+        },
+        "ExtraJumps_NAME": {
+          "id": "18526608531456",
+          "smart": false,
+          "text": "Sauts Supplémentaires"
+        },
+        "FallDamageReduction_DESC": {
+          "id": "17069855449088",
+          "smart": false,
+          "text": "La réduction des dégâts de chute diminue les dégâts de chute. Au-delà de 100%, tu te soignes en tombant. Tais-toi. C'est une feature, pas un bug."
+        },
+        "FallDamageReduction_NAME": {
+          "id": "17069079502848",
+          "smart": false,
+          "text": "Réduction Dégâts de Chute"
+        },
+        "GoldIncreaseMultiplier_DESC": {
+          "id": "17566733672448",
+          "smart": false,
+          "text": "Augmentation Or te donne plus d'or de toutes les sources."
+        },
+        "GoldIncreaseMultiplier_NAME": {
+          "id": "17565831897088",
+          "smart": false,
+          "text": "Augmentation Or"
+        },
+        "HealthRegen_DESC": {
+          "id": "12321492279296",
+          "smart": false,
+          "text": "Régén PV augmente la quantité de PV que tu régénères par minute."
+        },
+        "HealthRegen_NAME": {
+          "id": "12024481030144",
+          "smart": false,
+          "text": "Régén PV"
+        },
+        "JumpHeight_DESC": {
+          "id": "17001215664128",
+          "smart": false,
+          "text": "À quelle hauteur tu peux sauter"
+        },
+        "JumpHeight_NAME": {
+          "id": "17000058036224",
+          "smart": false,
+          "text": "Hauteur de Saut"
+        },
+        "KnockbackMultiplier_DESC": {
+          "id": "16641403101184",
+          "smart": false,
+          "text": "La distance à laquelle tu repousses les ennemis en les frappant."
+        },
+        "KnockbackMultiplier_NAME": {
+          "id": "16640631349248",
+          "smart": false,
+          "text": "Recul"
+        },
+        "Lifesteal_DESC": {
+          "id": "15698712305664",
+          "smart": false,
+          "text": "Ta chance de te soigner de 1 quand tu touches un ennemi. Plus de 100% garantit 1 soin, et donne une chance de se soigner de 2."
+        },
+        "Lifesteal_NAME": {
+          "id": "15698171240448",
+          "smart": false,
+          "text": "Vol de Vie"
+        },
+        "Luck_DESC": {
+          "id": "17378044518400",
+          "smart": false,
+          "text": "La chance augmente tes chances d'obtenir des offres de plus haut niveau en montant de niveau, aux sanctuaires et plus."
+        },
+        "Luck_NAME": {
+          "id": "17377222434816",
+          "smart": false,
+          "text": "Chance"
+        },
+        "MaxHealth_NAME": {
+          "id": "11411298951168",
+          "smart": false,
+          "text": "PV Max"
+        },
+        "MoveSpeedMultiplier_DESC": {
+          "id": "16890188242944",
+          "smart": false,
+          "text": "À quelle vitesse tu te déplaces"
+        },
+        "MoveSpeedMultiplier_NAME": {
+          "id": "16888908980224",
+          "smart": false,
+          "text": "Vitesse Déplacement"
+        },
+        "Overheal_DESC": {
+          "id": "17698517517729792",
+          "smart": false,
+          "text": "Te permet de te soigner au-delà de ton max HP."
+        },
+        "Overheal_NAME": {
+          "id": "17698515575767040",
+          "smart": false,
+          "text": "Sursoin"
+        },
+        "PickupRange_DESC": {
+          "id": "17246204960768",
+          "smart": false,
+          "text": "Augmente la distance à laquelle tu collectes l'xp."
+        },
+        "PickupRange_NAME": {
+          "id": "17244841811968",
+          "smart": false,
+          "text": "Portée Collecte"
+        },
+        "PoisonDamageMultiplier_NAME": {
+          "id": "60810573833699328",
+          "smart": false,
+          "text": "Dégâts de poison"
+        },
+        "PowerupBoostMultiplier_DESC": {
+          "id": "18139709153280",
+          "smart": false,
+          "text": "Augmente la puissance des effets et la durée des powerups."
+        },
+        "PowerupBoostMultiplier_NAME": {
+          "id": "18132130045952",
+          "smart": false,
+          "text": "Multiplicateur de Powerup"
+        },
+        "PowerupChance_DESC": {
+          "id": "18368768483328",
+          "smart": false,
+          "text": "Augmente les chances que les ennemis laissent tomber des powerups et des coffres."
+        },
+        "PowerupChance_NAME": {
+          "id": "18365530480640",
+          "smart": false,
+          "text": "Chance de Powerup"
+        },
+        "ProjectileBounces_DESC": {
+          "id": "18501094580224",
+          "smart": false,
+          "text": "Certains projectiles rebondissent"
+        },
+        "ProjectileBounces_NAME": {
+          "id": "18497495867392",
+          "smart": false,
+          "text": "Rebonds des Projectiles"
+        },
+        "ProjectileSpeedMultiplier_DESC": {
+          "id": "14169276129280",
+          "smart": false,
+          "text": "La vitesse de tes projectiles."
+        },
+        "ProjectileSpeedMultiplier_NAME": {
+          "id": "14128209698816",
+          "smart": false,
+          "text": "Vitesse Projectile"
+        },
+        "Projectiles_DESC": {
+          "id": "15430247489536",
+          "smart": false,
+          "text": "Augmente le nombre d'attaques / projectiles."
+        },
+        "Projectiles_NAME": {
+          "id": "15429710618624",
+          "smart": false,
+          "text": "Nombre de Projectiles"
+        },
+        "Shield_DESC": {
+          "id": "12566083117056",
+          "smart": false,
+          "text": "Le bouclier prend les dégâts à la place des PV avant de se briser. Il se régénère vite après un moment sans prendre de coups."
+        },
+        "Shield_NAME": {
+          "id": "12454221029376",
+          "smart": false,
+          "text": "Bouclier"
+        },
+        "SilverIncreaseMultiplier_DESC": {
+          "id": "23886740299776",
+          "smart": false,
+          "text": "Le bonus d'argent augmente l'argent obtenu de toutes les sources."
+        },
+        "SilverIncreaseMultiplier_NAME": {
+          "id": "23882051067904",
+          "smart": false,
+          "text": "Bonus d'argent"
+        },
+        "SizeMultiplier_DESC": {
+          "id": "13628353519616",
+          "smart": false,
+          "text": "La taille de tes attaques, projectiles, explosions et plus."
+        },
+        "SizeMultiplier_NAME": {
+          "id": "13626319282176",
+          "smart": false,
+          "text": "Taille"
+        },
+        "Thorns_DESC": {
+          "id": "12982942408704",
+          "smart": false,
+          "text": "Inflige des dégâts aux ennemis quand ils t'attaquent."
+        },
+        "Thorns_NAME": {
+          "id": "12884846026752",
+          "smart": false,
+          "text": "Épines"
+        },
+        "XpIncreaseMultiplier_DESC": {
+          "id": "17680923598848",
+          "smart": false,
+          "text": "Augmentation XP te donne plus d'xp de toutes les sources."
+        },
+        "XpIncreaseMultiplier_NAME": {
+          "id": "17679753388032",
+          "smart": false,
+          "text": "Augmentation XP"
+        }
+      }
+    },
+    "Tomes": {
+      "collection_guid": "b3cc0f2193f2d174faddcd0cd8eddf9b",
+      "entries": {
+        "TOME_AGILITY_NAME": {
+          "id": "70643326976",
+          "smart": false,
+          "text": "Tome d'Agilité"
+        },
+        "TOME_ARMOR_NAME": {
+          "id": "32662906183680",
+          "smart": false,
+          "text": "Tome d'Armure"
+        },
+        "TOME_ATTRACTION_NAME": {
+          "id": "32703855173632",
+          "smart": false,
+          "text": "Tome d'Attraction"
+        },
+        "TOME_BALANCE_DESC": {
+          "id": "5022098245001216",
+          "smart": true,
+          "text": "Augmente toutes les stats de {value}"
+        },
+        "TOME_BALANCE_NAME": {
+          "id": "5022061393846272",
+          "smart": false,
+          "text": "Tome d'Équilibre"
+        },
+        "TOME_BLOOD_NAME": {
+          "id": "32747115225088",
+          "smart": false,
+          "text": "Tome Sanglant"
+        },
+        "TOME_CHAOS_DESC": {
+          "id": "5033045101617152",
+          "smart": false,
+          "text": "Boost une stat au hasard"
+        },
+        "TOME_CHAOS_NAME": {
+          "id": "5033042987687936",
+          "smart": false,
+          "text": "Tome du Chaos"
+        },
+        "TOME_COOLDOWN_NAME": {
+          "id": "32770720768000",
+          "smart": false,
+          "text": "Tome de Refroidissement"
+        },
+        "TOME_CURSED_NAME": {
+          "id": "32796981305344",
+          "smart": false,
+          "text": "Tome Maudit"
+        },
+        "TOME_DAMAGE_NAME": {
+          "id": "32801532125184",
+          "smart": false,
+          "text": "Tome de Dégâts"
+        },
+        "TOME_DURATION_NAME": {
+          "id": "32809702629376",
+          "smart": false,
+          "text": "Tome de Durée"
+        },
+        "TOME_EVASION_NAME": {
+          "id": "32812705751040",
+          "smart": false,
+          "text": "Tome d'Évasion"
+        },
+        "TOME_GAMBLER_DESC": {
+          "id": "5033653955174400",
+          "smart": false,
+          "text": "C'est quitte ou double"
+        },
+        "TOME_GAMBLER_NAME": {
+          "id": "5033652839489536",
+          "smart": false,
+          "text": "Tome du Jeu"
+        },
+        "TOME_GOLDEN_NAME": {
+          "id": "32924379095040",
+          "smart": false,
+          "text": "Tome Doré"
+        },
+        "TOME_HEALTH_NAME": {
+          "id": "32926925037568",
+          "smart": false,
+          "text": "Tome de PV"
+        },
+        "TOME_HOARDER_DESC": {
+          "id": "5036555058782208",
+          "smart": false,
+          "text": "Un coffre s'ouvre au hasard sur la carte"
+        },
+        "TOME_HOARDER_NAME": {
+          "id": "5036552647057408",
+          "smart": false,
+          "text": "Tome du Collectionneur"
+        },
+        "TOME_KNOCKBACK_NAME": {
+          "id": "32929278042112",
+          "smart": false,
+          "text": "Tome de Recul"
+        },
+        "TOME_LUCK_NAME": {
+          "id": "32991861252096",
+          "smart": false,
+          "text": "Tome de Chance"
+        },
+        "TOME_PRECISION_NAME": {
+          "id": "32993463476224",
+          "smart": false,
+          "text": "Tome de Précision"
+        },
+        "TOME_PROJECTILE_SPEED_NAME": {
+          "id": "33039797952512",
+          "smart": false,
+          "text": "Tome de Vitesse de Projectile"
+        },
+        "TOME_QUANTITY_NAME": {
+          "id": "33041035272192",
+          "smart": false,
+          "text": "Tome de Quantité"
+        },
+        "TOME_REGEN_NAME": {
+          "id": "33146106781696",
+          "smart": false,
+          "text": "Tome de Régénération"
+        },
+        "TOME_SHIELD_NAME": {
+          "id": "33174502219776",
+          "smart": false,
+          "text": "Tome de Bouclier"
+        },
+        "TOME_SILVER_NAME": {
+          "id": "33193993150464",
+          "smart": false,
+          "text": "Tome Argenté"
+        },
+        "TOME_SIZE_NAME": {
+          "id": "33223558799360",
+          "smart": false,
+          "text": "Tome de Taille"
+        },
+        "TOME_THORNS_NAME": {
+          "id": "33244589039616",
+          "smart": false,
+          "text": "Tome de Ronces"
+        },
+        "TOME_XP_NAME": {
+          "id": "33263979307008",
+          "smart": false,
+          "text": "Tome d'XP"
+        }
+      }
+    },
+    "Unlockables": {
+      "collection_guid": "703f4444f9b58394eb0b74666ab5a809",
+      "entries": {
+        "AFFECTED_STATS": {
+          "id": "68565517126893568",
+          "smart": false,
+          "text": "Stats utiles"
+        },
+        "CHARACTER": {
+          "id": "1437466337280",
+          "smart": false,
+          "text": "Personnage"
+        },
+        "CHARACTERS": {
+          "id": "48201435160576",
+          "smart": false,
+          "text": "Personnages"
+        },
+        "CHARACTER_COLOR": {
+          "id": "1450464485376",
+          "smart": false,
+          "text": "Éclat"
+        },
+        "CHARACTER_COLORS": {
+          "id": "48234293338112",
+          "smart": false,
+          "text": "Skins"
+        },
+        "CHARACTER_STATS": {
+          "id": "76481317955469312",
+          "smart": false,
+          "text": "Stats du personnage"
+        },
+        "HAT": {
+          "id": "63812037204115456",
+          "smart": false,
+          "text": "Chapeau"
+        },
+        "HATS": {
+          "id": "63812071584825344",
+          "smart": false,
+          "text": "Chapeaux"
+        },
+        "ITEM": {
+          "id": "1112961425408",
+          "smart": false,
+          "text": "Objet"
+        },
+        "ITEMS": {
+          "id": "48175967346688",
+          "smart": false,
+          "text": "Objets"
+        },
+        "MAP": {
+          "id": "1754392141824",
+          "smart": false,
+          "text": "Niveau"
+        },
+        "MAPS": {
+          "id": "48268434972672",
+          "smart": false,
+          "text": "Niveaux"
+        },
+        "SHOP_ITEM": {
+          "id": "23671199371493376",
+          "smart": false,
+          "text": "Objet de magasin"
+        },
+        "SUGGESTED_BY": {
+          "id": "18962585008340992",
+          "smart": true,
+          "text": "Suggéré par {author}"
+        },
+        "TOME_BOOK": {
+          "id": "1820808945664",
+          "smart": false,
+          "text": "Livre"
+        },
+        "TOME_BOOKS": {
+          "id": "48293428830208",
+          "smart": false,
+          "text": "Livres"
+        },
+        "WEAPON": {
+          "id": "1840878690304",
+          "smart": false,
+          "text": "Arme"
+        },
+        "WEAPONS": {
+          "id": "48336055541760",
+          "smart": false,
+          "text": "Armes"
+        }
+      }
+    },
+    "Weapons": {
+      "collection_guid": "5d53022d3d4838d4daecd51331c0c80b",
+      "entries": {
+        "AEGIS_DESCRIPTION": {
+          "id": "270804477255680",
+          "smart": false,
+          "text": "Bloque les attaques et envoie des ondes de choc"
+        },
+        "AEGIS_NAME": {
+          "id": "270800496861184",
+          "smart": false,
+          "text": "Égide"
+        },
+        "AURA_DESCRIPTION": {
+          "id": "53480235008",
+          "smart": false,
+          "text": "Fais des dégâts aux ennemis autour de toi"
+        },
+        "AURA_NAME": {
+          "id": "12589965312",
+          "smart": false,
+          "text": "Aura"
+        },
+        "AXE_DESCRIPTION": {
+          "id": "270909796229120",
+          "smart": false,
+          "text": "Lance des haches tournantes qui causent des dégâts de zone"
+        },
+        "AXE_NAME": {
+          "id": "270905836806144",
+          "smart": false,
+          "text": "Hache"
+        },
+        "BANANARANG_DESCRIPTION": {
+          "id": "271019322089472",
+          "smart": false,
+          "text": "Lance des bananes qui reviennent vers toi"
+        },
+        "BANANARANG_WEAPON": {
+          "id": "270977878171648",
+          "smart": false,
+          "text": "Bananarang"
+        },
+        "BLACKHOLE_DESC": {
+          "id": "6799221805154304",
+          "smart": false,
+          "text": "Tire un trou noir qui attire les ennemis."
+        },
+        "BLACKHOLE_NAME": {
+          "id": "6799221335392256",
+          "smart": false,
+          "text": "Trou Noir"
+        },
+        "BLOODMAGIC_DESC": {
+          "id": "9305582950547456",
+          "smart": false,
+          "text": "Invoque la magie de sang. 5% de chance d'augmenter les PV max en tuant les ennemis."
+        },
+        "BLOODMAGIC_NAME": {
+          "id": "9305554534137856",
+          "smart": false,
+          "text": "Magie de Sang"
+        },
+        "BONE_DESCRIPTION": {
+          "id": "271079220944896",
+          "smart": false,
+          "text": "Lance des os rebondissants sur les ennemis"
+        },
+        "BONE_WEAPON": {
+          "id": "271076419149824",
+          "smart": false,
+          "text": "Os"
+        },
+        "BOW_DESCRIPTION": {
+          "id": "271154714222592",
+          "smart": false,
+          "text": "Tire des flèches qui transpercent les ennemis"
+        },
+        "BOW_NAME": {
+          "id": "271152474464256",
+          "smart": false,
+          "text": "Arc"
+        },
+        "CHUNKERS_DESC": {
+          "id": "4069452801613824",
+          "smart": false,
+          "text": "Fait apparaître des gros cailloux qui tournent autour de toi."
+        },
+        "CHUNKERS_NAME": {
+          "id": "4069450738016256",
+          "smart": false,
+          "text": "Chunkers"
+        },
+        "CORRUPTEDSWORD_DESC": {
+          "id": "11223300956094464",
+          "smart": false,
+          "text": "Tranche dans les deux sens. Frappe plus fort quand t’as plus beaucoup de vie."
+        },
+        "CORRUPTEDSWORD_NAME": {
+          "id": "11223296807927808",
+          "smart": false,
+          "text": "Épée Corrompue"
+        },
+        "DEXECUTIONER_DESCRIPTION": {
+          "id": "271214826987520",
+          "smart": false,
+          "text": "Une lame perçante. Petite chance d'exécuter un ennemi direct."
+        },
+        "DEXECUTIONER_NAME": {
+          "id": "271213463838720",
+          "smart": false,
+          "text": "Déxécuteur"
+        },
+        "DICE_DESC": {
+          "id": "10477185243676672",
+          "smart": false,
+          "text": "Lance un dé qui inflige 1–6 dégâts. Un 6 augmente définitivement le Crit Chance de l’arme"
+        },
+        "DICE_NAME": {
+          "id": "10477181917593600",
+          "smart": false,
+          "text": "Dés"
+        },
+        "DRAGONBREATH_DESC": {
+          "id": "4062294068404224",
+          "smart": false,
+          "text": "Crache un souffle de dragon féroce en cône vers les ennemis proches."
+        },
+        "DRAGONBREATH_NAME": {
+          "id": "4062290536800256",
+          "smart": false,
+          "text": "Souffle du Dragon"
+        },
+        "FIRESTAFF_DESCRIPTION": {
+          "id": "271316052320256",
+          "smart": false,
+          "text": "Tire des boules de feu qui explosent à l'impact"
+        },
+        "FIRESTAFF_NAME": {
+          "id": "271314508816384",
+          "smart": false,
+          "text": "Bâton de Feu"
+        },
+        "FLAMEWALKER_DESCRIPTION": {
+          "id": "271441491369984",
+          "smart": false,
+          "text": "Laisse une traînée de feu derrière toi"
+        },
+        "FLAMEWALKER_NAME": {
+          "id": "271401569984512",
+          "smart": false,
+          "text": "Marcheur de Feu"
+        },
+        "FROSTWALKER_DESCRIPTION": {
+          "id": "271547577901056",
+          "smart": false,
+          "text": "Gèle et blesse les ennemis autour de toi"
+        },
+        "FROSTWALKER_NAME": {
+          "id": "271484050972672",
+          "smart": false,
+          "text": "Marcheur de Gel"
+        },
+        "HEROSWORD_DESC": {
+          "id": "11223413757706240",
+          "smart": false,
+          "text": "Fend plusieurs ennemis et tire un projectile tranchant."
+        },
+        "HEROSWORD_NAME": {
+          "id": "11223409408212992",
+          "smart": false,
+          "text": "Épée du Héros"
+        },
+        "KATANA_DESC": {
+          "id": "7317356060737536",
+          "smart": false,
+          "text": "Une lame affûtée qui vise l'ennemi le plus proche."
+        },
+        "KATANA_NAME": {
+          "id": "7317353221193728",
+          "smart": false,
+          "text": "Katana"
+        },
+        "LIGHTNINGBOLT_DESCRIPTION": {
+          "id": "271715467501568",
+          "smart": false,
+          "text": "Fait tomber la foudre pour foudroyer les ennemis proches"
+        },
+        "LIGHTNINGBOLT_NAME": {
+          "id": "271714561531904",
+          "smart": false,
+          "text": "Bâton de Foudre"
+        },
+        "MINES_DESC": {
+          "id": "8334136531091456",
+          "smart": false,
+          "text": "Déploie des mines autour de toi qui explosent quand les ennemis approchent."
+        },
+        "MINES_NAME": {
+          "id": "8334134803038208",
+          "smart": false,
+          "text": "Mines"
+        },
+        "POISONFLASK_DESC": {
+          "id": "6052084360282112",
+          "smart": false,
+          "text": "Lance des fioles toxiques sur les ennemis, infligeant des dégâts de zone et les empoisonnant."
+        },
+        "POISONFLASK_NAME": {
+          "id": "6052082560925696",
+          "smart": false,
+          "text": "Fiole Empoisonnée"
+        },
+        "REVOLVER_DESCRIPTION": {
+          "id": "271899022827520",
+          "smart": false,
+          "text": "Tire plusieurs balles sur les ennemis"
+        },
+        "REVOLVER_NAME": {
+          "id": "271898297212928",
+          "smart": false,
+          "text": "Revolver"
+        },
+        "SCYTHE_DESC": {
+          "id": "59081283496706048",
+          "smart": false,
+          "text": "Effectue une attaque circulaire. Tuer des ennemis d’élite charge une attaque plus puissante."
+        },
+        "SCYTHE_NAME": {
+          "id": "59081259954077696",
+          "smart": false,
+          "text": "Faux"
+        },
+        "SHOTGUN_DESC": {
+          "id": "13310880816168960",
+          "smart": false,
+          "text": "Tire à dispersion, plus puissant à courte portée. Vise manuellement pour faire mal."
+        },
+        "SHOTGUN_NAME": {
+          "id": "13310876139520000",
+          "smart": false,
+          "text": "Fusil à pompe"
+        },
+        "SLUTTYROCKET_DESCRIPTION": {
+          "id": "271966257520640",
+          "smart": false,
+          "text": "Lance des missiles à tête chercheuse"
+        },
+        "SLUTTYROCKET_NAME": {
+          "id": "271965729038336",
+          "smart": false,
+          "text": "Rocket Vagabonde"
+        },
+        "SNIPER_DESC": {
+          "id": "272151318601728",
+          "smart": false,
+          "text": "Tire des balles perçantes. Peut être visé manuellement."
+        },
+        "SNIPER_NAME": {
+          "id": "272111892144128",
+          "smart": false,
+          "text": "Fusil de Sniper"
+        },
+        "SPACENOODLE_DESCRIPTION": {
+          "id": "272213037785088",
+          "smart": false,
+          "text": "S'accroche à un ennemi proche. Inflige des dégâts aux ennemis entre les deux."
+        },
+        "SPACENOODLE_NAME": {
+          "id": "272212484136960",
+          "smart": false,
+          "text": "Space Nouille"
+        },
+        "SWORD_DESCRIPTION": {
+          "id": "272294805741568",
+          "smart": false,
+          "text": "Fend plusieurs ennemis d'un coup"
+        },
+        "SWORD_NAME": {
+          "id": "272290871484416",
+          "smart": false,
+          "text": "Épée"
+        },
+        "TORNADO_DESCRIPTION": {
+          "id": "272386933628928",
+          "smart": false,
+          "text": "Envoie des tornades qui repoussent les ennemis"
+        },
+        "TORNADO_NAME": {
+          "id": "272386203820032",
+          "smart": false,
+          "text": "Tornade"
+        },
+        "WIRELESSDAGGER_DESC": {
+          "id": "9446300058779648",
+          "smart": false,
+          "text": "Lance des dagues intelligentes sur tes ennemis. La tech' sans fil c'est la folie de nos jours."
+        },
+        "WIRELESSHDAGGER_NAME": {
+          "id": "9446155648892928",
+          "smart": false,
+          "text": "Dague Sans Fil"
+        }
+      }
+    }
+  }
+}

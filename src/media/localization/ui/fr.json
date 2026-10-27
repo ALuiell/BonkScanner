@@ -1,0 +1,19 @@
+{
+  "common.settings": "Paramètres",
+  "common.help": "Aide",
+  "common.save": "Enregistrer",
+  "common.cancel": "Annuler",
+  "common.done": "Terminé",
+  "common.save_changes": "Enregistrer les modifications",
+  "settings.general": "Général",
+  "settings.restart": "Redémarrage",
+  "settings.data": "Données",
+  "settings.support": "Soutien",
+  "settings.interface": "Interface",
+  "settings.language": "Langue :",
+  "settings.language_hint": "Appliquée après l’enregistrement des paramètres.",
+  "settings.language_scope": "Certaines parties de l’interface sont encore en anglais.",
+  "settings.save_hint": "Enregistrer toutes les modifications de cette fenêtre.",
+  "scanner.start": "Démarrer",
+  "scanner.stop": "Arrêter"
+}

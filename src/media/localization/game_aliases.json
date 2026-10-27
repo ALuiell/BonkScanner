@@ -1,0 +1,144 @@
+{
+  "items": {
+    "The One Ring": {
+      "key": "GoldenRing_NAME",
+      "table": "ItemsYellow"
+    }
+  },
+  "tomes": {
+    "Agility": {
+      "key": "TOME_AGILITY_NAME",
+      "table": "Tomes"
+    },
+    "Armor": {
+      "key": "TOME_ARMOR_NAME",
+      "table": "Tomes"
+    },
+    "Attraction": {
+      "key": "TOME_ATTRACTION_NAME",
+      "table": "Tomes"
+    },
+    "Balance": {
+      "key": "TOME_BALANCE_NAME",
+      "table": "Tomes"
+    },
+    "Blood": {
+      "key": "TOME_BLOOD_NAME",
+      "table": "Tomes"
+    },
+    "Chaos": {
+      "key": "TOME_CHAOS_NAME",
+      "table": "Tomes"
+    },
+    "Cooldown": {
+      "key": "TOME_COOLDOWN_NAME",
+      "table": "Tomes"
+    },
+    "Cursed": {
+      "key": "TOME_CURSED_NAME",
+      "table": "Tomes"
+    },
+    "Damage": {
+      "key": "TOME_DAMAGE_NAME",
+      "table": "Tomes"
+    },
+    "Duration": {
+      "key": "TOME_DURATION_NAME",
+      "table": "Tomes"
+    },
+    "Evasion": {
+      "key": "TOME_EVASION_NAME",
+      "table": "Tomes"
+    },
+    "Gambler": {
+      "key": "TOME_GAMBLER_NAME",
+      "table": "Tomes"
+    },
+    "Golden": {
+      "key": "TOME_GOLDEN_NAME",
+      "table": "Tomes"
+    },
+    "Health": {
+      "key": "TOME_HEALTH_NAME",
+      "table": "Tomes"
+    },
+    "Hoarder": {
+      "key": "TOME_HOARDER_NAME",
+      "table": "Tomes"
+    },
+    "Knockback": {
+      "key": "TOME_KNOCKBACK_NAME",
+      "table": "Tomes"
+    },
+    "Luck": {
+      "key": "TOME_LUCK_NAME",
+      "table": "Tomes"
+    },
+    "Precision": {
+      "key": "TOME_PRECISION_NAME",
+      "table": "Tomes"
+    },
+    "Projectile Speed": {
+      "key": "TOME_PROJECTILE_SPEED_NAME",
+      "table": "Tomes"
+    },
+    "Quantity": {
+      "key": "TOME_QUANTITY_NAME",
+      "table": "Tomes"
+    },
+    "Regeneration": {
+      "key": "TOME_REGEN_NAME",
+      "table": "Tomes"
+    },
+    "Shield": {
+      "key": "TOME_SHIELD_NAME",
+      "table": "Tomes"
+    },
+    "Silver": {
+      "key": "TOME_SILVER_NAME",
+      "table": "Tomes"
+    },
+    "Size": {
+      "key": "TOME_SIZE_NAME",
+      "table": "Tomes"
+    },
+    "Thorns": {
+      "key": "TOME_THORNS_NAME",
+      "table": "Tomes"
+    },
+    "XP": {
+      "key": "TOME_XP_NAME",
+      "table": "Tomes"
+    }
+  },
+  "weapons": {
+    "Bluetooth Dagger": {
+      "key": "WIRELESSHDAGGER_NAME",
+      "table": "Weapons"
+    },
+    "Corrupt Sword": {
+      "key": "CORRUPTEDSWORD_NAME",
+      "table": "Weapons"
+    },
+    "Dragons Breath": {
+      "key": "DRAGONBREATH_NAME",
+      "table": "Weapons"
+    },
+    "Fire Staff": {
+      "key": "FIRESTAFF_NAME",
+      "table": "Weapons"
+    },
+    "Mine": {
+      "key": "MINES_NAME",
+      "table": "Weapons"
+    },
+    "Rockets": {
+      "key": "SLUTTYROCKET_NAME",
+      "table": "Weapons"
+    },
+    "Sniper": {
+      "key": "SNIPER_NAME",
+      "table": "Weapons"
+    }
+  }
+}

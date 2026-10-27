@@ -27,6 +27,7 @@ coupling so it cannot rot into a silent no-op.
 from __future__ import annotations
 
 from ui.run_toggle import RunToggle
+from ui.localization import bind_text
 
 
 class ScannerToggle(RunToggle):
@@ -40,3 +41,7 @@ class ScannerToggle(RunToggle):
 
     def __init__(self, parent=None) -> None:
         super().__init__(self.START_TEXT, self.STOP_TEXT, parent)
+        # Keep the owner's English caption protocol stable. Only the visible
+        # segment labels are localized, independently of the running state.
+        bind_text(self.segment("start"), "scanner.start", prefix="▶  ")
+        bind_text(self.segment("stop"), "scanner.stop", prefix="■  ")

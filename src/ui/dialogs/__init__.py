@@ -98,6 +98,8 @@ from core.template_colors import (
 from app import config
 from ui.themes import THEME_CONFIG_KEY, LEGACY_THEME_CONFIG_KEY
 from ui.themes.selector import ThemeSelector
+from core.localization import LANGUAGE_CONFIG_KEY
+from ui.localization import LanguageSelector, bind_text, localization
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
 CRYPTO_SUPPORT_URL = config.CRYPTO_SUPPORT_URL
@@ -1547,7 +1549,8 @@ class SettingsDialog(QDialog):
         self.master = master or parent
         self._reloading_general_settings = False
         self._general_settings_dirty = False
-        self.setWindowTitle("Settings")
+        self._localization = localization()
+        bind_text(self, "common.settings", method="setWindowTitle")
         self.setModal(True)
 
         self.settings_header_tabs = QTabBar(self)
@@ -1656,6 +1659,21 @@ class SettingsDialog(QDialog):
         appearance_form = QFormLayout()
         appearance_form.addRow("Design:", self.theme_selector)
         layout.addLayout(appearance_form)
+
+        language_heading = _settings_group_label("")
+        bind_text(language_heading, "settings.interface")
+        layout.addWidget(language_heading)
+        self.language_selector = LanguageSelector()
+        language_label = QLabel()
+        bind_text(language_label, "settings.language")
+        language_form = QFormLayout()
+        language_form.addRow(language_label, self.language_selector)
+        layout.addLayout(language_form)
+        language_note = QLabel()
+        language_note.setObjectName("dialogHint")
+        language_note.setWordWrap(True)
+        bind_text(language_note, "settings.language_scope")
+        layout.addWidget(language_note)
 
         layout.addWidget(_settings_group_label("Hotkeys"))
         layout.addLayout(
@@ -1856,9 +1874,10 @@ class SettingsDialog(QDialog):
         # clear job and one primary action instead of duplicating that control.
         self.save_btn = QPushButton("Save")
         self.save_btn.clicked.connect(self._on_primary_action)
-        self.save_btn.setToolTip("Save all changes made in this Settings window.")
+        self.save_btn.setToolTip(self._localization.text("settings.save_hint"))
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self.reject)
+        bind_text(self.cancel_btn, "common.cancel")
         dialog_footer(self, primary=self.save_btn, secondary=self.cancel_btn,
                       leading=self.recommended_reset_btn)
         self.settings_tabs.currentChanged.connect(self._on_settings_tab_changed)
@@ -1877,6 +1896,7 @@ class SettingsDialog(QDialog):
         ):
             spinbox.valueChanged.connect(self._mark_general_settings_dirty)
         self.theme_selector.currentIndexChanged.connect(self._mark_general_settings_dirty)
+        self.language_selector.currentIndexChanged.connect(self._mark_general_settings_dirty)
         for checkbox in (
             self.stop_scanning_on_player_movement_var,
             self.auto_start_recording_var,
@@ -1893,6 +1913,22 @@ class SettingsDialog(QDialog):
         self.reset_timing_timer = QTimer(self)
         self.reset_timing_timer.setInterval(1000)
         self.reset_timing_timer.timeout.connect(self._refresh_live_reset_timing)
+
+        self._localization.changed.connect(self._retranslate_localized_ui)
+        self._retranslate_localized_ui()
+
+    def _retranslate_localized_ui(self) -> None:
+        for index, key in enumerate(("general", "restart", "data", "support")):
+            caption = self._localization.text(f"settings.{key}")
+            self.settings_header_tabs.setTabText(index, caption)
+            self.settings_tabs.setTabText(index, caption)
+        # Navigation must fit longer translations as well as English.
+        margins = self.layout().contentsMargins()
+        self.setMinimumWidth(max(
+            DIALOG_REGULAR,
+            self.settings_header_tabs.sizeHint().width() + margins.left() + margins.right(),
+        ))
+        self._on_settings_tab_changed(self.settings_tabs.currentIndex())
 
     def _make_support_card(self, parent: QWidget):
         support_card = QFrame(parent)
@@ -1995,11 +2031,11 @@ class SettingsDialog(QDialog):
         )
         has_general_edits = bool(self._general_settings_dirty)
         self.save_btn.setText(
-            "Save changes"
+            self._localization.text("common.save_changes")
             if not on_editable_page and has_general_edits
-            else "Done"
+            else self._localization.text("common.done")
             if not on_editable_page
-            else "Save"
+            else self._localization.text("common.save")
         )
         self.cancel_btn.setVisible(on_editable_page or has_general_edits)
         # Key actions are explicit and immediate. Keep Support free of a dialog
@@ -2105,6 +2141,7 @@ class SettingsDialog(QDialog):
         """Discard unsaved edits before reopening the reusable dialog."""
         self._reloading_general_settings = True
         self.theme_selector.reload()
+        self.language_selector.reload()
         self._timing_save_message = self._timing_save_error = ""
         self.hotkey_entry.setText(str(config.HOTKEY))
         self.reset_hotkey_entry.setText(str(config.RESET_HOTKEY))
@@ -2249,7 +2286,7 @@ class SettingsDialog(QDialog):
                 self.reset_timing_status_label.setToolTip(message)
                 self.save_btn.setToolTip(message + " Open Restart to review.")
             else:
-                self.save_btn.setToolTip("Save all changes made in this Settings window.")
+                self.save_btn.setToolTip(self._localization.text("settings.save_hint"))
 
     def _apply_recommended_reset_timing(self) -> None:
         try:
@@ -2631,6 +2668,9 @@ class SettingsDialog(QDialog):
             settings_updates[THEME_CONFIG_KEY] = theme_selector.currentData()
             # Keep the two-theme choice readable by earlier application versions.
             settings_updates[LEGACY_THEME_CONFIG_KEY] = theme_selector.currentData() == "original"
+        language_selector = getattr(self, "language_selector", None)
+        if language_selector is not None:
+            settings_updates[LANGUAGE_CONFIG_KEY] = language_selector.currentData()
         if timing_changed:
             settings_updates.update(
                 {
@@ -2695,6 +2735,9 @@ class SettingsDialog(QDialog):
                 callback()
             except Exception as exc:
                 runtime_errors.append(f"{name}: {type(exc).__name__}: {exc}")
+
+        if language_selector is not None:
+            apply_runtime_step("language", localization().apply_saved_language)
 
         apply_theme = getattr(self.master, "apply_visual_theme", None)
         if callable(apply_theme):

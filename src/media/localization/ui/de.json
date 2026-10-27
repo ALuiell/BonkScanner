@@ -1,0 +1,19 @@
+{
+  "common.settings": "Einstellungen",
+  "common.help": "Hilfe",
+  "common.save": "Speichern",
+  "common.cancel": "Abbrechen",
+  "common.done": "Fertig",
+  "common.save_changes": "Änderungen speichern",
+  "settings.general": "Allgemein",
+  "settings.restart": "Neustart",
+  "settings.data": "Daten",
+  "settings.support": "Unterstützung",
+  "settings.interface": "Oberfläche",
+  "settings.language": "Sprache:",
+  "settings.language_hint": "Wird beim Speichern der Einstellungen übernommen.",
+  "settings.language_scope": "Einige Teile der Oberfläche sind noch auf Englisch.",
+  "settings.save_hint": "Alle Änderungen in diesem Einstellungsfenster speichern.",
+  "scanner.start": "Starten",
+  "scanner.stop": "Stoppen"
+}
