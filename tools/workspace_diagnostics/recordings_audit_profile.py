@@ -1,8 +1,19 @@
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os
 os.environ['BONKSCANNER_IGNORE_SHARED_STORAGE']='1'
 import sys, time, json, cProfile, pstats, gc, io
 from pathlib import Path
-sys.path[:0]=[str(Path(__file__).resolve().parents[1]),str(Path(__file__).resolve().parents[1]/'src')]
+sys.path[:0]=[str(REPO_ROOT),str(REPO_ROOT/'src')]
 import src
 from infra.vod_storage import load_vod
 from app.prepared_recording import prepare_loaded_recording
@@ -19,4 +30,4 @@ for path in files[:2]:
     print(path.name,load_ms,prepare_ms,flush=True);print(text.getvalue(),flush=True)
     results.append({'path':str(path),'bytes':path.stat().st_size,'snapshots':len(vod.snapshots),'load_ms':round(load_ms,2),'prepare_ms':round(prepare_ms,2)})
     kept.append(prepared)
-Path('scratch/recordings-audit-profile.json').write_text(json.dumps(results,indent=2))
+output_path('recordings-audit-profile.json').write_text(json.dumps(results,indent=2))

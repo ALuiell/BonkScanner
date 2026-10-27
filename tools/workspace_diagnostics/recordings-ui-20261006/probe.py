@@ -1,3 +1,14 @@
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os
 import sys
 import json
@@ -5,10 +16,10 @@ import time
 import ctypes
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = REPO_ROOT
 sys.path[:0] = [str(ROOT), str(ROOT / 'src')]
 os.environ['BONKSCANNER_IGNORE_SHARED_STORAGE'] = '1'
-os.environ.pop('QT_QPA_PLATFORM', None)
+# Respect the caller's platform selection, including offscreen verification.
 import src
 from PySide6.QtCore import QObject, Signal, QTimer, QEvent, Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget
@@ -18,11 +29,12 @@ from infra.vod_storage import list_vods
 from ui.tabs.player_stats.recordings import RecordingsTab
 from ui.styles import build_qt_app_stylesheet
 
-folder = Path(__file__).parent
+folder = session_directory("recordings-ui-20261006")
+stage_recording_fixtures(folder / "recordings")
 phase = sys.argv[1] if len(sys.argv) > 1 else 'before'
 if 'baseline' in phase:
     import importlib.util
-    spec = importlib.util.spec_from_file_location('baseline_recordings', folder / 'baseline_recordings.py')
+    spec = importlib.util.spec_from_file_location('baseline_recordings', CODE_ROOT / 'recordings-ui-20261006/baseline_recordings.py')
     baseline = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(baseline)
     RecordingsTab = baseline.RecordingsTab

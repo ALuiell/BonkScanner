@@ -1,4 +1,15 @@
 """Deterministic renders of production widgets; no game, network or user config writes."""
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 import json
@@ -9,8 +20,8 @@ from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 from tempfile import TemporaryDirectory
 
-OUT = Path(__file__).resolve().parent
-ROOT = OUT.parents[1]
+OUT = output_directory("weapon-review-20260905")
+ROOT = REPO_ROOT
 sys.path[:0] = [str(ROOT), str(ROOT / 'src'), str(ROOT / 'src/tests')]
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase

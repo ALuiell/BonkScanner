@@ -1,6 +1,17 @@
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 from pathlib import Path
-fragment = Path(r'C:\Users\heave\.codex\visualizations\2026\09\05\01a071d4-f847-7360-a57c-3d55d40082fe\obs-weapon-tracker.html').read_text(encoding='utf-8')
-out = Path(__file__).parent
+fragment = local_asset_path('weapon-review-20260905/obs-weapon-tracker-fragment.html').read_text(encoding='utf-8')
+out = output_directory("weapon-review-20260905")
 assert len(fragment.encode()) < 1_000_000
 assert '<html' not in fragment and '<body' not in fragment
 assert 'fetch(' not in fragment

@@ -1,4 +1,15 @@
 """Render production response cards and exercise their existing save/reset paths."""
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 import sys
@@ -7,7 +18,7 @@ from copy import deepcopy
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = REPO_ROOT
 sys.path[:0] = [str(ROOT), str(ROOT / 'src')]
 from PySide6.QtWidgets import QApplication, QWidget, QFrame, QScrollArea, QLabel
 from PySide6.QtGui import QFont, QFontDatabase
@@ -21,7 +32,7 @@ for name in ('segoeui.ttf', 'segoeuib.ttf'):
     QFontDatabase.addApplicationFont('C:/Windows/Fonts/' + name)
 app.setFont(QFont('Segoe UI', 10))
 app.setStyleSheet(build_qt_app_stylesheet((ROOT / 'src/media/checkmark.svg').as_posix()))
-output = Path(__file__).parent
+output = output_directory("twitch-template-cards")
 with TemporaryDirectory() as temp:
     repo = ConfigRepository(Path(temp) / 'config.json')
     with patch.multiple(config, TWITCH_BOT=config.normalize_twitch_bot_config({}),

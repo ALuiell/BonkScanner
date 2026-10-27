@@ -1,9 +1,20 @@
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import ctypes, json, time
 from pathlib import Path
 import win32gui,win32con
 def state():
     for _ in range(10):
-        try:return json.loads(Path('scratch/recordings-ui-state.json').read_text())
+        try:return json.loads(output_path('recordings-ui-state.json').read_text())
         except ValueError:time.sleep(.02)
     raise RuntimeError('State unavailable')
 hwnd=state()['hwnd']
@@ -43,5 +54,5 @@ out['recordings_detail']=state()['rec_detail']
 click(240,22)
 for fx in (.12,.2,.27,.34,.42):widget('comp_details',fx,.04)
 out['compare_detail']=state()['comp_detail']
-Path('scratch/recordings-winapi-timeline.json').write_text(json.dumps(out,indent=2))
+output_path('recordings-winapi-timeline.json').write_text(json.dumps(out,indent=2))
 print(json.dumps(out))

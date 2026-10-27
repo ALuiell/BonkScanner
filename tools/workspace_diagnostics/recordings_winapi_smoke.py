@@ -1,3 +1,14 @@
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import ctypes, json, time
 from pathlib import Path
 import win32gui, win32ui, win32con
@@ -5,7 +16,7 @@ from PySide6.QtGui import QImage
 
 def state():
     for _ in range(10):
-        try:return json.loads(Path('scratch/recordings-ui-state.json').read_text('utf-8'))
+        try:return json.loads(output_path('recordings-ui-state.json').read_text('utf-8'))
         except (OSError,ValueError):time.sleep(.03)
     raise RuntimeError('Missing probe state')
 s=state(); hwnd=s['hwnd']
@@ -31,6 +42,7 @@ def screenshot(path):
     assert result
     bmp=path.with_suffix('.bmp');bitmap.SaveBitmapFile(dst,str(bmp))
     assert QImage(str(bmp)).save(str(path))
+    bmp.unlink()
     dst.DeleteDC();src.DeleteDC();win32gui.ReleaseDC(hwnd,dc);win32gui.DeleteObject(bitmap.GetHandle())
 def ping():
     start=time.perf_counter()
@@ -41,24 +53,25 @@ out={}
 click_at(120,22);assert state()['tab']==1
 if state()['rects']['rec_library'][0]<100:click('rec_library')
 if state()['rec_query']:click('rec_search',.95,.5)
+all_recordings_count=state()['rec_visible']
 click('rec_search');text('Dice')
-assert state()['rec_query']=='Dice';assert 0<state()['rec_visible']<120
+assert state()['rec_query']=='Dice';assert 0<state()['rec_visible']<all_recordings_count
 out['recordings_search_visible']=state()['rec_visible']
 out['recordings_ping_ms']=ping()
-screenshot(Path('scratch/recordings-winapi.png'))
+screenshot(output_path('recordings-winapi.png'))
 # The native mouse path also exercises the edit's built-in clear button.
 click('rec_search',.95,.5)
-time.sleep(.6);assert state()['rec_query']=='';assert state()['rec_visible']==120
+time.sleep(.6);assert state()['rec_query']=='';assert state()['rec_visible']==all_recordings_count
 click('rec_list',.5,.10);time.sleep(1.5)
 assert state()['rec_selected']
 out['recordings_selected']=Path(state()['rec_selected']).name
 click_at(240,22);assert state()['tab']==2
 click('comp_change');click('comp_search_a');text('Dice')
-assert state()['a_query']=='Dice';assert 0<state()['a_visible']<120
+assert state()['a_query']=='Dice';assert 0<state()['a_visible']<all_recordings_count
 out['compare_search_visible']=state()['a_visible']
 click('comp_list_a',.5,.10);time.sleep(1.5)
 out['compare_selected_a']=Path(state()['a_selected']).name
 out['compare_ping_ms']=ping()
-screenshot(Path('scratch/compare-winapi.png'))
-Path('scratch/recordings-winapi-smoke.json').write_text(json.dumps(out,indent=2),'utf-8')
+screenshot(output_path('compare-winapi.png'))
+output_path('recordings-winapi-smoke.json').write_text(json.dumps(out,indent=2),'utf-8')
 print(json.dumps(out))

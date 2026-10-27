@@ -1,10 +1,21 @@
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch, MagicMock
-ROOT = Path.cwd()
+ROOT = REPO_ROOT
 sys.path[:0] = [str(ROOT), str(ROOT/'src'), str(ROOT/'src/tests')]
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFont, QFontDatabase
@@ -29,18 +40,18 @@ with TemporaryDirectory() as tmp:
         page.resize(1120, 1000)
         page.show()
         app.processEvents()
-        page.grab().save(str(ROOT/'scratch/caps-checkbox-move/tab.png'))
+        page.grab().save(str(output_path('caps-checkbox-move/tab.png')))
         checkbox = overlay.igo_weapon_tracker_caps_cb
         holder = checkbox.parentWidget()
         for i in range(holder.layout().count()):
             widget = holder.layout().itemAt(i).widget()
             if widget:
                 assert widget.geometry().right() < holder.width(), (widget, holder.width())
-        holder.grab().save(str(ROOT/'scratch/caps-checkbox-move/options.png'))
+        holder.grab().save(str(output_path('caps-checkbox-move/options.png')))
         dialog = WeaponTrackerSettingsDialog(overlay, page)
         dialog.show()
         app.processEvents()
-        dialog.grab().save(str(ROOT/'scratch/caps-checkbox-move/dialog.png'))
+        dialog.grab().save(str(output_path('caps-checkbox-move/dialog.png')))
         print('Rendered production tab, options and dialog; row bounds OK')
         dialog.close()
         page.close()

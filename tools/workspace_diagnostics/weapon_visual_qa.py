@@ -1,9 +1,20 @@
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 import json
 import sys
 from pathlib import Path
-root = Path(__file__).resolve().parents[1]
+root = REPO_ROOT
 sys.path[:0] = [str(root), str(root / 'src'), str(root / 'src/tests')]
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
@@ -33,12 +44,12 @@ view.display_weapons(weapons, general_stats=stats)
 window.resize(760, 460)
 window.show()
 app.processEvents()
-window.grab().save(str(root / 'scratch/weapon-live-qa.png'))
+window.grab().save(str(output_path('weapon-live-qa.png')))
 native = QLabel()
 native.setStyleSheet('background:#121820; padding:12px; font-size:14px')
 native.setText(build_weapon_tracker_overlay_html(calculate_weapon_tracker_rows(weapons, stats, WEAPON_TRACKER_METRIC_ORDER), show_caps=True))
 native.resize(native.sizeHint())
-native.grab().save(str(root / 'scratch/weapon-native-qa.png'))
+native.grab().save(str(output_path('weapon-native-qa.png')))
 state = {'status': 'live', 'widgets': {'weapon_tracker': {
     'id': 'weapon_tracker', 'enabled': True, 'order': 1, 'show_caps': True,
     'layout': 'compact', 'selected_stats': list(WEAPON_TRACKER_METRIC_ORDER),
@@ -50,5 +61,5 @@ js = (root / 'src/media/overlay/overlay.js').read_text(encoding='utf-8')
 html = '<!doctype html><style>' + css + '</style><body style="background:#182432"><main id="overlay"></main><script>'
 html += 'const fixture = ' + json.dumps(state) + '; window.fetch = async () => ({ok:true,json:async()=>fixture});'
 html += js + '</script></body>'
-(root / 'scratch/weapon-obs-qa.html').write_text(html, encoding='utf-8')
+(output_path('weapon-obs-qa.html')).write_text(html, encoding='utf-8')
 window.close()

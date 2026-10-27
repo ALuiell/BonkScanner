@@ -1,3 +1,14 @@
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -13,7 +24,7 @@ from ui.styles import build_qt_app_stylesheet
 
 
 app = QApplication.instance() or QApplication([])
-root = Path(__file__).resolve().parents[2]
+root = REPO_ROOT
 for name in ("segoeui.ttf", "segoeuib.ttf"):
     QFontDatabase.addApplicationFont(f"C:/Windows/Fonts/{name}")
 app.setFont(QFont("Segoe UI", 10))
@@ -35,8 +46,8 @@ def capture(dialog):
         for child in dialog.findChildren(QGroupBox)
         if child.title() == "Weapon Tracker"
     )
-    group.grab().save(str(Path(__file__).parent / "weapon-tracker-sections.png"))
-    dialog.grab().save(str(Path(__file__).parent / "widget-settings-dialog.png"))
+    group.grab().save(str(output_directory("obs-weapon-settings") / "weapon-tracker-sections.png"))
+    dialog.grab().save(str(output_directory("obs-weapon-settings") / "widget-settings-dialog.png"))
     return QDialog.Accepted
 
 

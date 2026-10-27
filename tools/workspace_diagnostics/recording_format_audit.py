@@ -1,4 +1,15 @@
-"""Read-only audit of real JSONL payloads; output goes only to scratch/."""
+"""Read-only audit of real JSONL payloads; output goes to runtime diagnostics."""
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os, sys, json, time, zlib, hashlib, collections, statistics
 from pathlib import Path
 root=Path(os.environ['LOCALAPPDATA'])/'BonkScanner'/'stats_recordings'
@@ -71,7 +82,7 @@ result={'root':str(root),'files':len(rows),'versions':dict(versions),'totals':di
         'bytes_by_type':dict(bytes_by_type),'snapshot_field_payload_bytes':dict(field_bytes),
         'snapshot_unchanged_field_counts':dict(unchanged),'changed_during_read':changed,'errors':errors,
         'elapsed_seconds':round(time.perf_counter()-started,2),'files_detail':rows}
-Path('scratch/recording-format-audit.json').write_text(json.dumps(result,indent=2),'utf-8')
+output_path('recording-format-audit.json').write_text(json.dumps(result,indent=2),'utf-8')
 print(json.dumps({k:v for k,v in result.items() if k!='files_detail'},indent=2))
 print('LARGEST FILES')
 for row in sorted(rows,key=lambda r:r['bytes'],reverse=True)[:8]:

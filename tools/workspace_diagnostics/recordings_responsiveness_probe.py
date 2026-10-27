@@ -1,9 +1,20 @@
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os
 os.environ['BONKSCANNER_IGNORE_SHARED_STORAGE'] = '1'
 import sys, json, time, argparse, faulthandler, gc, cProfile, pstats, io, statistics
 faulthandler.dump_traceback_later(20, repeat=True)
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parents[1] / 'src')]
+sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / 'src')]
 import src
 from PySide6.QtCore import QObject, Signal, Qt, QTimer, QPoint
 from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget, QWidget
@@ -15,7 +26,7 @@ from ui.tabs.compare_runs.tab import CompareRunsTab
 from ui.styles import build_qt_app_stylesheet
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--output', default='scratch/recordings-before.json')
+parser.add_argument('--output', default=str(output_path("recordings-before.json")))
 parser.add_argument('--interactive', action='store_true')
 parser.add_argument('--staged', action='store_true')
 parser.add_argument('--cooperate', action='store_true')
@@ -31,13 +42,16 @@ if args.cooperate:
                 time.sleep(0.001)
                 deadline=time.perf_counter()+0.008
     storage._iter_records=cooperative_records
-root = Path(os.environ['LOCALAPPDATA']) / 'BonkScanner'
+root = session_directory("recordings-responsiveness")
+stage_recording_fixtures(root / "stats_recordings")
 class Settings:
-    def read_metadata_index(self): return json.loads((root/'vod_metadata_index.json').read_text('utf-8'))
-    def write_metadata_index(self, payload): pass
+    def __init__(self): self.index = {}
+    def read_metadata_index(self): return self.index
+    def write_metadata_index(self, payload): self.index = payload
 settings = Settings()
 storage.RECORDINGS_DIR = root/'stats_recordings'
 storage.LEGACY_VODS_DIR = root/'vods'
+storage.refresh_vod_metadata_index(settings)
 results = {}
 collections=[]
 gc_start={}
@@ -103,7 +117,7 @@ def export_state():
              'rec_index':recordings._snapshot_index, 'a_index':compare._index_a,'b_index':compare._index_b,
              'rec_detail':recordings._detail_tabs.currentIndex() if recordings._detail_tabs else None,
              'comp_detail':compare._detail_tabs.currentIndex() if compare._detail_tabs else None}
-    Path('scratch/recordings-ui-state.json').write_text(json.dumps(payload),'utf-8')
+    output_path('recordings-ui-state.json').write_text(json.dumps(payload),'utf-8')
 export_timer=QTimer(); export_timer.timeout.connect(export_state); export_timer.start(200)
 gaps = []
 last_tick = time.perf_counter()

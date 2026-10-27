@@ -1,10 +1,21 @@
 """Verify the selected layout using the production Live Stats card and theme."""
+
+# Resolve this checkout and keep diagnostic output separate from source/evidence.
+import sys as _diag_sys
+from pathlib import Path as _DiagPath
+for _diag_parent in _DiagPath(__file__).resolve().parents:
+    if (_diag_parent / "workspace_paths.py").is_file():
+        _diag_sys.path.insert(0, str(_diag_parent))
+        break
+from workspace_paths import (REPO_ROOT, CODE_ROOT, output_path, output_directory,
+                             session_directory, local_asset_path, stage_recording_fixtures)
+_diag_sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(REPO_ROOT / "src/tests")]
 import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 import sys
 from pathlib import Path
 from unittest.mock import patch
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = REPO_ROOT
 sys.path[:0] = [str(ROOT), str(ROOT/'src')]
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PySide6.QtGui import QFont, QFontDatabase
@@ -43,7 +54,7 @@ for width in (1100, 760, 620, 520):
     for _ in range(3):
         app.processEvents()
     grid = view._weapon_grid
-    grid.grab().save(str(Path(__file__).parent/f'selected-{width}.png'))
+    grid.grab().save(str(output_directory("weapon-card-variants")/f'selected-{width}.png'))
     for card in view._weapon_cards:
         for row in [card._weapon_heading, *card._row_widgets]:
             for label in row.findChildren(QLabel):
