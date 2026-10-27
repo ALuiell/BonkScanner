@@ -3,8 +3,10 @@ import json
 import sys
 from pathlib import Path
 from PIL import Image, ImageDraw
+from _paths import analysis_directory
 
 p = Path(sys.argv[1])
+output = analysis_directory(p)
 rows = [json.loads(line) for line in (p / 'samples.jsonl').read_text().splitlines()]
 rows = [r for r in rows if 'offset' in r]
 selected = [rows[int(i * (len(rows)-1) / 11)] for i in range(12)]
@@ -22,5 +24,5 @@ with (p / 'frames.bin').open('rb') as stream:
         x, y = (i%4)*380, (i//4)*405
         sheet.paste(frame, (x, y+25))
         draw.text((x+5,y+5), f"{r['t']:.2f}s", fill='white')
-sheet.save(p / 'contact-sheet.jpg', quality=90)
-print(p / 'contact-sheet.jpg')
+sheet.save(output / 'contact-sheet.jpg', quality=90)
+print(output / 'contact-sheet.jpg')

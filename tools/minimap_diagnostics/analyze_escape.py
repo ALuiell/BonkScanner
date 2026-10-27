@@ -4,8 +4,10 @@ from pathlib import Path
 import sys
 import numpy as np
 from PIL import Image, ImageDraw
+from _paths import analysis_directory
 
 p = Path(sys.argv[1])
+output = analysis_directory(p)
 rows = [json.loads(line) for line in (p/'samples.jsonl').read_text().splitlines()]
 with (p/'frames.bin').open('rb') as stream:
     for r in rows:
@@ -54,8 +56,8 @@ result = {'capture':str(p),'target':'Shady Guy cyan hat and outline', 'resumes':
           'transitions':results,
           'limits':['Pixel capture and raw pause flag sampled externally; this includes game render and capture phase.',
                     'Previous one-second delay was reported by the user, not measured in a matched before capture.']}
-(p/'escape-analysis.json').write_text(json.dumps(result,indent=2))
-(p/'icon-presence.json').write_text(json.dumps([{'t':r['t'],'screen_time':r.get('screen_time'),'paused':r.get('paused'),
+(output/'escape-analysis.json').write_text(json.dumps(result,indent=2))
+(output/'icon-presence.json').write_text(json.dumps([{'t':r['t'],'screen_time':r.get('screen_time'),'paused':r.get('paused'),
     'icon':r['icon'],'cyan_pixels':r.get('cyan_pixels'),'box':r.get('icon_box')} for r in rows]))
 print(json.dumps(result,indent=2))
 
@@ -81,4 +83,4 @@ if values:
                 x,y = col*370,row_index*395
                 sheet.paste(frame,(x,y+28))
                 draw.text((x+4,y+4),f"{(r['screen_time']-t)*1000:+.1f}ms pause={r['paused']} icon={r['icon']}",fill='white')
-    sheet.save(p/'escape-transitions.jpg',quality=92)
+    sheet.save(output/'escape-transitions.jpg',quality=92)

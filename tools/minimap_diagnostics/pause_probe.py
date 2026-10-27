@@ -4,6 +4,7 @@ from pathlib import Path
 import statistics
 import sys
 import time
+from _paths import DIAGNOSTICS_ROOT
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 from infra.memory.game_data_client import GameDataClient
@@ -27,7 +28,8 @@ try:
               'read_ms_median': statistics.median(durations),
               'read_ms_p95': sorted(durations)[189],
               'read_ms_max': max(durations), 'bytes_per_sample': 1}
-    Path(__file__).with_name('pause-probe-result.json').write_text(json.dumps(result, indent=2))
+    DIAGNOSTICS_ROOT.mkdir(parents=True, exist_ok=True)
+    (DIAGNOSTICS_ROOT / 'pause-probe-result.json').write_text(json.dumps(result, indent=2))
     print(json.dumps(result))
 finally:
     client.close()

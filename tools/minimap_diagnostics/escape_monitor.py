@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 import sys
 import time
+from _paths import capture_directory
 
 try:
     ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -19,8 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 from infra.memory.map_marker_client import MapMarkerMemoryClient
 from infra.memory.game_data_client import GameDataClient
 
-out = Path(__file__).parent / time.strftime('escape-%H%M%S')
-out.mkdir()
+out = capture_directory('escape')
 user = ctypes.windll.user32
 user.GetForegroundWindow.restype = wintypes.HWND
 user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]

@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import time
 import collections
+from _paths import REPO_ROOT, capture_directory
 
 try:
     ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -17,11 +18,10 @@ except Exception:
 import mss
 from PIL import Image
 
-sys.path.insert(0, r"F:\Python\BonkScanner\src")
+sys.path.insert(0, str(REPO_ROOT / "src"))
 from infra.memory.map_marker_client import MapMarkerMemoryClient
 
-out = Path(__file__).parent / time.strftime("capture-%H%M%S")
-out.mkdir()
+out = capture_directory("capture")
 user = ctypes.windll.user32
 user.GetForegroundWindow.restype = wintypes.HWND
 user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]

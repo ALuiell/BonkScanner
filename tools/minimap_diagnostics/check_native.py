@@ -94,6 +94,6 @@ result={'native_observations':len(native),'native_time_range':[float(a.t.min()),
         'blue_change_interval_by_threshold':{str(v):change_stats(blue_t,blue_xy,v) for v in [.25,.45,.75,1.0]},
         'native_change_interval_by_threshold':{str(v):change_stats(a.t,a.xy,v) for v in [.25,.45,.75,1.0]},
         'native_world_position':solution[:2].tolist()}
-(a.p/'native_analysis.json').write_text(json.dumps(result,indent=2))
-(a.p/'native_positions.json').write_text(json.dumps(native))
+(a.output/'native_analysis.json').write_text(json.dumps(result,indent=2))
+(a.output/'native_positions.json').write_text(json.dumps(native))
 print(json.dumps(result,indent=2))

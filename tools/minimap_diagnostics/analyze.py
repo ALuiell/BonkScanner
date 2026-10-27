@@ -6,8 +6,12 @@ import statistics
 import sys
 import numpy as np
 from PIL import Image
+from _paths import analysis_directory
 
-p = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "capture-111030"
+if len(sys.argv) < 2:
+    raise SystemExit("Usage: analyze.py CAPTURE_DIRECTORY [START_SECONDS [END_SECONDS]]")
+p = Path(sys.argv[1])
+output = analysis_directory(p)
 rows = [json.loads(line) for line in (p / "samples.jsonl").read_text().splitlines()]
 start_time = float(sys.argv[2]) if len(sys.argv) > 2 else 76
 end_time = float(sys.argv[3]) if len(sys.argv) > 3 else float('inf')
@@ -109,6 +113,6 @@ result={"observations":len(t), "inliers":int(mask.sum()), "time_range":[float(t.
         "limits":["Visual lag fit includes game render/capture phase; not direct in-process timer or paint instrumentation.",
                   "Position-change intervals depend on pixel threshold and camera motion.",
                   "Temporary probe itself adds read/capture load."]}
-(p/"analysis.json").write_text(json.dumps(result,indent=2))
-(p/"icon_positions.json").write_text(json.dumps(observations))
+(output/"analysis.json").write_text(json.dumps(result,indent=2))
+(output/"icon_positions.json").write_text(json.dumps(observations))
 print(json.dumps({k:v for k,v in result.items() if k!='fit_curve'},indent=2))
