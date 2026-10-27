@@ -1,0 +1,20 @@
+{
+  "description": "Local-only run copies staged into an isolated diagnostic session; recording bodies are not published.",
+  "files": [
+    {
+      "name": "2026-09-29_01-39-20.jsonl",
+      "bytes": 12996302,
+      "sha256": "49f30a9222e36607630e0ebafa2559366dd755f5af34ff18a4eba6d6e08ecf0e"
+    },
+    {
+      "name": "950k.jsonl",
+      "bytes": 8082131,
+      "sha256": "dc657c94a1af648c75c74691e912d6a4efc84c88b9d4dfee4c743e85c58b83d5"
+    },
+    {
+      "name": "Dice 965K 16 09 2026.jsonl",
+      "bytes": 13150115,
+      "sha256": "a57903bb7a6041ba25e7ec36358ffde96c39f9461d8c70f9f7b9af661e07a6dc"
+    }
+  ]
+}

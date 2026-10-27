@@ -1,3 +1,5 @@
 * text=auto eol=crlf
 # Retain the recovered diagnostic source bytes in history.
 tools/minimap_diagnostics/*.py -text whitespace=cr-at-eol
+# Immutable recovery checkpoint and later maintained workspace diagnostics.
+tools/workspace_diagnostics/** -text whitespace=cr-at-eol
