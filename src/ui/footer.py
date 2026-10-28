@@ -19,6 +19,8 @@ a footer inset from the edges reads as a floating bar, not as the window's base.
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import logging
 import math
 import random
@@ -367,7 +369,7 @@ class _SupportFooterLink(_AnimatedFooterLink):
         self._hovered = False
         self._heartbeat_suspended = False
         super().__init__("", parent)
-        self.setText(text)
+        l10n.display(self, 'setText', text)
 
         self._ambient_heartbeat = QSequentialAnimationGroup(self)
         self._ambient_heartbeat.addPause(HEART_PASSIVE_PAUSE_MS)
@@ -447,7 +449,7 @@ class _SupportFooterLink(_AnimatedFooterLink):
     def setText(self, text: str) -> None:  # noqa: N802 -- Qt's name
         visible_text = str(text)
         self._caption = visible_text.replace("♥", "", 1).strip()
-        super().setText(visible_text)
+        l10n.display(super(), 'setText', visible_text)
         if self._theme_icon is not None:
             self.setFixedWidth(round(QFontMetricsF(self.font()).horizontalAdvance(self._caption)) + self._theme_icon.slot_width + 6)
         self.updateGeometry()
@@ -730,15 +732,12 @@ class _SupportReminder(QFrame):
         self._heart = _SupportReminderHeart(self)
         row.addWidget(self._heart, 0, Qt.AlignVCenter)
 
-        self._message = QLabel(
-            "Updates are fueled by BonkScanner supporters. Thank you!",
-            self,
-        )
+        self._message = l10n.localized(QLabel, l10n.tr('Updates are fueled by BonkScanner supporters. Thank you!'), self)
         self._message.setObjectName("supportReminderText")
         self._message.setWordWrap(True)
         row.addWidget(self._message, 1, Qt.AlignVCenter)
 
-        self._action = QPushButton("Support", self)
+        self._action = l10n.localized(QPushButton, l10n.tr('Support'), self)
         self._action.setObjectName("supportReminderButton")
         self._action.setCursor(Qt.PointingHandCursor)
         self._action.setFocusPolicy(Qt.NoFocus)
@@ -1204,15 +1203,12 @@ class _SupportThankYou(_SupportReminder):
             cooldown_seconds=SUPPORT_THANK_YOU_COOLDOWN_SECONDS,
         )
         self.setProperty("messageKind", "thankYou")
-        self.setAccessibleName("Thank you for supporting BonkScanner")
-        self._message.setText(
-            "Thank you for supporting BonkScanner!\n"
-            "You help make every update possible."
-        )
-        self._action.setText("×")
+        l10n.display(self, 'setAccessibleName', l10n.tr('Thank you for supporting BonkScanner'))
+        l10n.display(self._message, 'setText', l10n.tr('Thank you for supporting BonkScanner!\nYou help make every update possible.'))
+        l10n.display(self._action, 'setText', '×')
         self._action.setFixedWidth(32)
-        self._action.setToolTip("Close")
-        self._action.setAccessibleName("Dismiss thank-you message")
+        l10n.display(self._action, 'setToolTip', l10n.tr('Close'))
+        l10n.display(self._action, 'setAccessibleName', l10n.tr('Dismiss thank-you message'))
 
     def start(self) -> None:
         if self._has_shown or self._playing or self._due or self._startup_timer.isActive():
@@ -1293,7 +1289,7 @@ def _link(
     elif object_name == "footerLink":
         button = _AnimatedFooterLink(text)
     else:
-        button = QPushButton(text)
+        button = l10n.localized(QPushButton, text)
     button.setObjectName(object_name)
     if link_role:
         button.setProperty("linkRole", link_role)
@@ -1379,7 +1375,7 @@ def _support_badge_icon(
     icon = _TintedSupportBadgeIcon(icon_path, color_source, parent)
     icon.setObjectName(object_name)
     icon.setProperty("badge", badge_key)
-    icon.setToolTip(tooltip)
+    l10n.display(icon, 'setToolTip', tooltip)
     return icon
 
 
@@ -1420,7 +1416,7 @@ class _SupporterNameRow(QWidget):
         self.name_label = _SupporterNameLabel(name, self)
         self.name_label.setObjectName(name_object)
         self.name_label.setTextFormat(Qt.PlainText)
-        self.name_label.setToolTip(name)
+        l10n.display(self.name_label, 'setToolTip', name)
 
         badge_definitions = {
             key: (icon_path, caption)
@@ -1486,11 +1482,11 @@ class SupportPopup(QFrame):
         body.setContentsMargins(12, 11, 12, 12)
         body.setSpacing(3)
 
-        title = QLabel("Support BonkScanner", card)
+        title = l10n.localized(QLabel, l10n.tr('Support BonkScanner'), card)
         title.setObjectName("supportPopupTitle")
         body.addWidget(title)
 
-        note = QLabel(self.DEFAULT_NOTE, card)
+        note = l10n.localized(QLabel, self.DEFAULT_NOTE, card)
         note.setObjectName("supportPopupNote")
         note.setWordWrap(True)
         body.addWidget(note)
@@ -1509,15 +1505,12 @@ class SupportPopup(QFrame):
 
         source_row = QHBoxLayout()
         source_row.setSpacing(7)
-        source_heading = QLabel("Source:", self._legend)
+        source_heading = l10n.localized(QLabel, l10n.tr('Source:'), self._legend)
         source_heading.setObjectName("supporterLegendSourceHeading")
         source_heading.setTextFormat(Qt.PlainText)
         source_row.addWidget(source_heading, 0, Qt.AlignVCenter)
-        for object_name, caption in (
-            ("supporterLegendPatreon", "●  Patreon"),
-            ("supporterLegendDirect", "●  Direct"),
-        ):
-            label = QLabel(caption, self._legend)
+        for object_name, caption in (('supporterLegendPatreon', l10n.tr('●  Patreon')), ('supporterLegendDirect', l10n.tr('●  Direct'))):
+            label = l10n.localized(QLabel, caption, self._legend)
             label.setObjectName(object_name)
             label.setTextFormat(Qt.PlainText)
             source_row.addWidget(label, 0, Qt.AlignVCenter)
@@ -1526,7 +1519,7 @@ class SupportPopup(QFrame):
 
         badge_row = QHBoxLayout()
         badge_row.setSpacing(7)
-        badge_heading = QLabel("Badges:", self._legend)
+        badge_heading = l10n.localized(QLabel, l10n.tr('Badges:'), self._legend)
         badge_heading.setObjectName("supporterLegendBadgesHeading")
         badge_heading.setTextFormat(Qt.PlainText)
         badge_row.addWidget(badge_heading, 0, Qt.AlignVCenter)
@@ -1543,7 +1536,7 @@ class SupportPopup(QFrame):
             item_layout = QHBoxLayout(item)
             item_layout.setContentsMargins(0, 0, 0, 0)
             item_layout.setSpacing(4)
-            label = QLabel(caption, item)
+            label = l10n.localized(QLabel, caption, item)
             label.setObjectName(object_name)
             label.setTextFormat(Qt.PlainText)
             item_layout.addWidget(
@@ -1567,9 +1560,9 @@ class SupportPopup(QFrame):
         self._legend.setVisible(False)
         body.addWidget(self._legend)
 
-        self._founder_count = QLabel("Founder availability unavailable", card)
+        self._founder_count = l10n.localized(QLabel, l10n.tr('Founder availability unavailable'), card)
         self._founder_count.setObjectName("supporterFounderCount")
-        self._founder_count.setToolTip("Claimed Founder slots / total capacity")
+        l10n.display(self._founder_count, 'setToolTip', l10n.tr('Claimed Founder slots / total capacity'))
         self._founder_count.setVisible(False)
         self._founder_host = QWidget(card)
         founder_row = QHBoxLayout(self._founder_host)
@@ -1620,19 +1613,19 @@ class SupportPopup(QFrame):
         buttons.setSpacing(7)
         # The same object names as the settings card's buttons keep both support
         # routes in one set of QSS rules instead of letting the two places drift.
-        self.patreon_btn = QPushButton("Patreon", card)
+        self.patreon_btn = l10n.localized(QPushButton, l10n.tr('Patreon'), card)
         self.patreon_btn.setObjectName("PatreonButton")
         self.patreon_btn.setIcon(QIcon(resource_path(PATREON_ICON_PATH)))
         self.patreon_btn.setIconSize(QSize(18, 18))
         self.patreon_btn.clicked.connect(self._open_patreon)
-        self.crypto_btn = QPushButton("Crypto", card)
+        self.crypto_btn = l10n.localized(QPushButton, l10n.tr('Crypto'), card)
         self.crypto_btn.setObjectName("CryptoButton")
         self.crypto_btn.setIcon(QIcon(resource_path(CRYPTO_ICON_PATH)))
         self.crypto_btn.setIconSize(QSize(18, 18))
         self.crypto_btn.clicked.connect(self._open_crypto)
         self.crypto_btn.setEnabled(bool(config.CRYPTO_SUPPORT_URL))
         if not config.CRYPTO_SUPPORT_URL:
-            self.crypto_btn.setToolTip("Crypto support page is coming soon.")
+            l10n.display(self.crypto_btn, 'setToolTip', l10n.tr('Crypto support page is coming soon.'))
         for button in (self.patreon_btn, self.crypto_btn):
             button.setCursor(Qt.PointingHandCursor)
             buttons.addWidget(button, 1)
@@ -1721,10 +1714,7 @@ class SupportPopup(QFrame):
             supporters = (self._last_supporters if supporters.supporters is None
                           else supporters.supporters)
         self._last_supporters = tuple(supporters or ())
-        self._founder_count.setText(
-            f"{slots.used}/{slots.limit}"
-            if slots else "Founder availability unavailable"
-        )
+        l10n.display(self._founder_count, 'setText', f'{slots.used}/{slots.limit}' if slots else l10n.tr('Founder availability unavailable'))
         people = []
         for entry in supporters or ():
             if isinstance(entry, dict):
@@ -1764,7 +1754,7 @@ class SupportPopup(QFrame):
             self._founder_count.parentWidget().layout().removeWidget(self._founder_count)
             counter_layout.insertWidget(2 if people else 1, self._founder_count, 0, Qt.AlignVCenter)
         if people and not slots:
-            self._founder_count.setText("unavailable")
+            l10n.display(self._founder_count, 'setText', l10n.tr('unavailable'))
         self._founder_count.setVisible(directory_update)
         self._founder_host.setVisible(directory_update and not people)
 
@@ -1776,20 +1766,16 @@ class SupportPopup(QFrame):
         self._card.setFixedWidth(self.WIDE_WIDTH if people else self.NARROW_WIDTH)
 
         if not people:
-            self._title.setText("Support BonkScanner")
-            self._note.setText(self.DEFAULT_NOTE)
+            l10n.display(self._title, 'setText', l10n.tr('Support BonkScanner'))
+            l10n.display(self._note, 'setText', self.DEFAULT_NOTE)
             self._reanchor()
             return
 
         count = len(people)
-        self._title.setText(
-            "1 person supports BonkScanner"
-            if count == 1
-            else f"{count} people support BonkScanner"
-        )
+        l10n.display(self._title, 'setText', l10n.tr('1 person supports BonkScanner') if count == 1 else l10n.tr('{p0} people support BonkScanner', p0=count))
         # The service owns badge priority; source changes colour only.
         listed = people
-        self._note.setText("Thank you.")
+        l10n.display(self._note, 'setText', l10n.tr('Thank you.'))
 
         for index, (name, (object_name, _rank), badges) in enumerate(
             listed
@@ -2127,20 +2113,13 @@ class FooterView:
         button that cannot do anything is worse than no button. `"unknown"`,
         by contrast, is a real invitation: nothing has been checked *yet*.
         """
-        captions = {
-            "checking": "Checking…",
-            "current": "Up to date",
-            "available": f"v{version} available  →",
-            "downloading": "Downloading update…",
-            "installing": "Restarting…",
-            "unknown": "Check for updates",
-        }
+        captions = {'checking': l10n.tr('Checking…'), 'current': l10n.tr('Up to date'), 'available': l10n.tr('v{p0} available  →', p0=version), 'downloading': l10n.tr('Downloading update…'), 'installing': l10n.tr('Restarting…'), 'unknown': l10n.tr('Check for updates')}
         visible = state != "unavailable"
         self._update_btn.setVisible(visible)
         self._update_separator.setVisible(visible)
         if not visible:
             return
-        self._update_btn.setText(captions.get(state, captions["unknown"]))
+        l10n.display(self._update_btn, 'setText', captions.get(state, captions['unknown']))
         # The full update session is single-flight. Current/available/unknown
         # remain pressable; checking, downloading and installing cannot start a
         # second request beneath the active dialog.
@@ -2180,9 +2159,7 @@ class FooterView:
             self._supporter_directory = SupporterDirectory(tuple(supporters or ()))
         self._supporters = self._supporter_directory.supporters
         count = len(self._supporters)
-        self._support_btn.setText(
-            "♥  Support" if not count else f"♥  {count} supporters"
-        )
+        l10n.display(self._support_btn, 'setText', l10n.tr('♥  Support') if not count else l10n.tr('♥  {p0} supporters', p0=count))
         if self._popup is not None:
             try:
                 self._popup.set_supporters(self._supporter_directory)
@@ -2264,30 +2241,30 @@ def build_footer(app) -> QFrame:
     # title bar and again in the header two lines up; a third copy down here
     # said nothing the other two had not, and pushed the one new fact -- which
     # build this is -- into second place on its own line.
-    number = QLabel(f"v{CURRENT_VERSION}")
+    number = l10n.localized(QLabel, f'v{CURRENT_VERSION}')
     number.setObjectName("footerVersionNumber")
     row.addWidget(number, 0, Qt.AlignVCenter)
 
     update_separator = _separator()
     row.addWidget(update_separator, 0, Qt.AlignVCenter)
 
-    update_btn = _link("Check for updates", "footerUpdate")
+    update_btn = _link(l10n.tr('Check for updates'), 'footerUpdate')
     update_btn.setProperty("state", "unknown")
     row.addWidget(update_btn, 0, Qt.AlignVCenter)
 
     row.addStretch(1)
 
-    github_btn = _link("GitHub", link_role="github")
+    github_btn = _link(l10n.tr('GitHub'), link_role='github')
     row.addWidget(github_btn, 0, Qt.AlignVCenter)
     row.addWidget(_separator(), 0, Qt.AlignVCenter)
 
-    discord_btn = _link("Discord", link_role="discord")
+    discord_btn = _link(l10n.tr('Discord'), link_role='discord')
     row.addWidget(discord_btn, 0, Qt.AlignVCenter)
     row.addWidget(_separator(), 0, Qt.AlignVCenter)
 
     # GitHub and Discord open the browser on the click; only Support opens the
     # chooser. Two destinations behind one word is the whole reason it differs.
-    support_btn = _link("♥  Support", "footerSupportLink")
+    support_btn = _link(l10n.tr('♥  Support'), 'footerSupportLink')
     row.addWidget(support_btn, 0, Qt.AlignVCenter)
 
     app.footer = FooterView(

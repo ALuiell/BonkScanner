@@ -37,6 +37,8 @@ knows what a scan is.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt
@@ -53,7 +55,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.map_scoring import map_highlight_rows
-from projections import formatting
+from ui import formatting
 from ui.shared import _apply_button_icon, _make_scroll_section, _set_text, resource_path
 
 #: The two conditions the settings dialog can produce. Everything else in
@@ -67,7 +69,7 @@ CONDITION_LABELS = {
 
 def condition_label(mode: str) -> str:
     """The badge text for a rule's mode."""
-    return CONDITION_LABELS.get(str(mode or ""), "All run")
+    return l10n.term(CONDITION_LABELS.get(str(mode or ""), "All run"))
 
 
 def rerolls_per_seed(rerolls: int, seeds_found: int) -> str:
@@ -174,36 +176,28 @@ class SessionStatsTab:
         grid.setHorizontalSpacing(14)
         for column, (key, caption) in enumerate(
             (
-                ("time", "Session Time"),
-                ("rerolls", "Rerolls"),
-                ("seeds", "Seeds Found"),
-                ("rpm", "Rerolls / min"),
+                ("time", l10n.tr("Session Time")),
+                ("rerolls", l10n.tr("Rerolls")),
+                ("seeds", l10n.tr("Seeds Found")),
+                ("rpm", l10n.tr("Rerolls / min")),
             )
         ):
             label = _eyebrow(caption)
             if key == "rpm":
-                label.setToolTip(
-                    "Current: average since the scanner session started. "
-                    "Max: highest average speed over 10 consecutive complete reroll cycles."
-                )
+                l10n.display(label, 'setToolTip', l10n.tr('Current: average since the scanner session started. Max: highest average speed over 10 consecutive complete reroll cycles.'))
             grid.addWidget(label, 0, column)
-            value = QLabel("--")
+            value = l10n.localized(QLabel, '--')
             value.setObjectName("kpiValueHero")
             self._kpi_values[key] = value
             if key == "rpm":
-                value.setToolTip("Average rerolls per minute since this scanner session started.")
+                l10n.display(value, 'setToolTip', l10n.tr('Average rerolls per minute since this scanner session started.'))
                 row = QHBoxLayout()
                 row.setContentsMargins(0, 0, 0, 0)
                 row.setSpacing(8)
                 row.addWidget(value, 0, Qt.AlignBottom)
-                peak = QLabel("Max --")
+                peak = l10n.localized(QLabel, l10n.tr('Max --'))
                 peak.setObjectName("kpiPeakValue")
-                peak.setToolTip(
-                    "Highest average rerolls per minute over 10 consecutive complete cycles "
-                    "this scanner session, including map loading. "
-                    "Pauses break the measurement sequence but preserve Max. "
-                    "Available after 10 complete rerolls."
-                )
+                l10n.display(peak, 'setToolTip', l10n.tr('Highest average rerolls per minute over 10 consecutive complete cycles this scanner session, including map loading. Pauses break the measurement sequence but preserve Max. Available after 10 complete rerolls.'))
                 self._peak_rpm_value = peak
                 row.addWidget(peak, 0, Qt.AlignBottom)
                 row.addStretch(1)
@@ -220,15 +214,12 @@ class SessionStatsTab:
         chips = QHBoxLayout()
         chips.setContentsMargins(0, 0, 0, 0)
         chips.setSpacing(26)
-        for key, caption in (
-            ("per_seed", "Rerolls / seed"),
-            ("all_time", "All-time rerolls"),
-        ):
+        for key, caption in (('per_seed', l10n.tr('Rerolls / seed')), ('all_time', l10n.tr('All-time rerolls'))):
             chip = QHBoxLayout()
             chip.setContentsMargins(0, 0, 0, 0)
             chip.setSpacing(7)
             chip.addWidget(_eyebrow(caption))
-            value = QLabel("--")
+            value = l10n.localized(QLabel, '--')
             value.setObjectName("chipValue")
             self._chip_values[key] = value
             chip.addWidget(value)
@@ -241,7 +232,7 @@ class SessionStatsTab:
         analytics = QHBoxLayout()
         analytics.setContentsMargins(0, 0, 0, 0)
         analytics.setSpacing(12)
-        self._merchant_analytics_collect = QCheckBox("Collect Shady Guy analytics")
+        self._merchant_analytics_collect = l10n.localized(QCheckBox, l10n.tr('Collect Shady Guy analytics'))
         self._merchant_analytics_collect.toggled.connect(
             self._toggle_merchant_analytics
         )
@@ -253,7 +244,7 @@ class SessionStatsTab:
         locked_layout = QVBoxLayout(locked)
         locked_layout.setContentsMargins(14, 12, 14, 12)
         locked_layout.setSpacing(4)
-        title = QLabel("Shady Guy Analytics")
+        title = l10n.localized(QLabel, l10n.tr('Shady Guy Analytics'))
         title.setObjectName("PremiumFeatureLockedTitle")
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -263,17 +254,17 @@ class SessionStatsTab:
         icon = QLabel()
         icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
         header.addWidget(icon)
-        label = QLabel("Requires Premium")
+        label = l10n.localized(QLabel, l10n.tr('Requires Premium'))
         label.setObjectName("PremiumFeatureLockedStatus")
         header.addWidget(label)
         locked_layout.addLayout(header)
-        note = QLabel("Lifetime item availability from the merchants you have viewed.")
+        note = l10n.localized(QLabel, l10n.tr('Lifetime item availability from the merchants you have viewed.'))
         note.setObjectName("PremiumFeatureNote")
         note.setWordWrap(True)
         locked_layout.addWidget(note)
         analytics.addWidget(locked, 1)
-        open_analytics = QPushButton("Shady Analytics")
-        open_analytics.setToolTip("Open analytics. Saved history remains available without Premium.")
+        open_analytics = l10n.localized(QPushButton, l10n.tr('Shady Analytics'))
+        l10n.display(open_analytics, 'setToolTip', l10n.tr('Open analytics. Saved history remains available without Premium.'))
         open_analytics.clicked.connect(
             lambda _checked=False: self._on_open_merchant_analytics()
         )
@@ -283,7 +274,7 @@ class SessionStatsTab:
         rolls = QHBoxLayout()
         rolls.setContentsMargins(0, 0, 0, 0)
         rolls.setSpacing(12)
-        self._roll_analytics_collect = QCheckBox("Collect roll analytics")
+        self._roll_analytics_collect = l10n.localized(QCheckBox, l10n.tr('Collect roll analytics'))
         self._roll_analytics_collect.toggled.connect(self._toggle_roll_analytics)
         rolls.addWidget(self._roll_analytics_collect, 1)
         self._roll_analytics_collect.hide()
@@ -293,7 +284,7 @@ class SessionStatsTab:
         locked_layout = QVBoxLayout(locked)
         locked_layout.setContentsMargins(14, 12, 14, 12)
         locked_layout.setSpacing(4)
-        title = QLabel("Roll Analytics")
+        title = l10n.localized(QLabel, l10n.tr('Roll Analytics'))
         title.setObjectName("PremiumFeatureLockedTitle")
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -303,17 +294,17 @@ class SessionStatsTab:
         icon = QLabel()
         icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
         header.addWidget(icon)
-        label = QLabel("Requires Premium")
+        label = l10n.localized(QLabel, l10n.tr('Requires Premium'))
         label.setObjectName("PremiumFeatureLockedStatus")
         header.addWidget(label)
         locked_layout.addLayout(header)
-        note = QLabel("Lifetime stat rolls from Dice passive and Chaos Tome.")
+        note = l10n.localized(QLabel, l10n.tr('Lifetime stat rolls from Dice passive and Chaos Tome.'))
         note.setObjectName("PremiumFeatureNote")
         note.setWordWrap(True)
         locked_layout.addWidget(note)
         rolls.addWidget(locked, 1)
-        button = QPushButton("Roll Analytics")
-        button.setToolTip("Open analytics. Saved history remains available without Premium.")
+        button = l10n.localized(QPushButton, l10n.tr('Roll Analytics'))
+        l10n.display(button, 'setToolTip', l10n.tr('Open analytics. Saved history remains available without Premium.'))
         button.clicked.connect(lambda _checked=False: self._on_open_roll_analytics())
         rolls.addWidget(button)
         layout.addLayout(rolls)
@@ -323,7 +314,7 @@ class SessionStatsTab:
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(10)
-        for kind, caption in (("best", "Best map"), ("worst", "Worst map")):
+        for kind, caption in (('best', l10n.tr('Best map')), ('worst', l10n.tr('Worst map'))):
             card = _card()
             layout = QVBoxLayout(card)
             layout.setContentsMargins(14, 12, 14, 12)
@@ -331,9 +322,9 @@ class SessionStatsTab:
 
             header = QHBoxLayout()
             header.setContentsMargins(0, 0, 0, 0)
-            title = QLabel(caption.upper())
+            title = l10n.localized(QLabel, l10n.transform(caption, str.upper))
             title.setObjectName(f"mapTitle{kind.capitalize()}")
-            score = QLabel("--")
+            score = l10n.localized(QLabel, '--')
             score.setObjectName(f"mapScore{kind.capitalize()}")
             score.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             header.addWidget(title)
@@ -365,11 +356,11 @@ class SessionStatsTab:
         tracked_layout.setSpacing(0)
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
-        head.addWidget(_eyebrow("Tracked items"))
+        head.addWidget(_eyebrow(l10n.tr('Tracked items')))
         head.addStretch(1)
-        gear = QPushButton("")
+        gear = l10n.localized(QPushButton, '')
         gear.setObjectName("iconBtn")
-        gear.setToolTip("Tracked item settings")
+        l10n.display(gear, 'setToolTip', l10n.tr('Tracked item settings'))
         gear.setFixedSize(28, 26)
         _apply_button_icon(gear, "media/settings_icon.png", 16)
         gear.clicked.connect(lambda _checked=False: self._on_open_tracked_item_settings())
@@ -380,7 +371,7 @@ class SessionStatsTab:
         self._tracked_layout.setContentsMargins(0, 0, 0, 0)
         self._tracked_layout.setSpacing(0)
         tracked_layout.addLayout(self._tracked_layout)
-        self._tracked_empty = QLabel("No tracked items configured")
+        self._tracked_empty = l10n.localized(QLabel, l10n.tr('No tracked items configured'))
         self._tracked_empty.setObjectName("tableEmpty")
         tracked_layout.addWidget(self._tracked_empty)
         tracked_layout.addStretch(1)
@@ -390,13 +381,13 @@ class SessionStatsTab:
         averages_layout = QVBoxLayout(averages)
         averages_layout.setContentsMargins(14, 12, 14, 12)
         averages_layout.setSpacing(0)
-        averages_layout.addWidget(_eyebrow("Average rerolls per target"))
+        averages_layout.addWidget(_eyebrow(l10n.tr('Average rerolls per target')))
         averages_layout.addSpacing(6)
         self._averages_layout = QVBoxLayout()
         self._averages_layout.setContentsMargins(0, 0, 0, 0)
         self._averages_layout.setSpacing(4)
         averages_layout.addLayout(self._averages_layout)
-        self._averages_empty = QLabel("No active targets")
+        self._averages_empty = l10n.localized(QLabel, l10n.tr('No active targets'))
         self._averages_empty.setObjectName("tableEmpty")
         averages_layout.addWidget(self._averages_empty)
         averages_layout.addStretch(1)
@@ -410,7 +401,7 @@ class SessionStatsTab:
         _set_text(self._kpi_values.get("rpm"), f"{rpm:.1f}")
 
     def set_peak_rpm(self, peak_rpm: float | None) -> None:
-        text = "Max --" if peak_rpm is None else f"Max {peak_rpm:,.1f}"
+        text = l10n.tr("Max --") if peak_rpm is None else l10n.tr("Max {value:,.1f}", value=peak_rpm)
         _set_text(self._peak_rpm_value, text)
 
     def set_counters(self, *, rerolls: int, seeds_found: int, all_time_rerolls: int) -> None:
@@ -442,7 +433,7 @@ class SessionStatsTab:
             text = "Collection off"
         checkbox = self._merchant_analytics_collect
         if checkbox is not None:
-            checkbox.setToolTip(error or text)
+            l10n.display(checkbox, 'setToolTip', error or text)
             checkbox.blockSignals(True)
             checkbox.setChecked(bool(enabled))
             checkbox.setEnabled(bool(premium))
@@ -465,7 +456,7 @@ class SessionStatsTab:
             text = ("Collection paused" if error else
                     f"Active · {session_recorded:,} rolls recorded this session" if enabled and premium else
                     "Collection paused · Premium required" if enabled else "Collection off")
-            checkbox.setToolTip(error or text)
+            l10n.display(checkbox, 'setToolTip', error or text)
             checkbox.blockSignals(True)
             checkbox.setChecked(bool(enabled))
             checkbox.setEnabled(bool(premium))
@@ -500,11 +491,11 @@ class SessionStatsTab:
             _set_text(score_label, "--" if score is None else f"{score:.1f}")
             placeholder = self._map_empty[kind]
             if placeholder is None:
-                placeholder = QLabel("No map yet")
+                placeholder = l10n.localized(QLabel, l10n.tr('No map yet'))
                 placeholder.setObjectName("tableEmpty")
                 rows_layout.addWidget(placeholder)
                 self._map_empty[kind] = placeholder
-            _set_text(placeholder, "No map yet" if not rows else "")
+            _set_text(placeholder, l10n.tr('No map yet') if not rows else '')
             placeholder.setVisible(not rows)
             row_widgets = self._map_rows[kind]
             while len(row_widgets) < len(rows):
@@ -612,7 +603,7 @@ def _divider() -> QFrame:
 
 
 def _eyebrow(text: str) -> QLabel:
-    label = QLabel(text.upper())
+    label = l10n.localized(QLabel, l10n.transform(l10n.term(text), str.upper))
     label.setObjectName("kpiLabel")
     return label
 
@@ -636,7 +627,7 @@ class _MapStatRow(QWidget):
         layout.addWidget(self._value_label)
 
     def set_values(self, name: str, value: str) -> None:
-        _set_text(self._name_label, name)
+        _set_text(self._name_label, l10n.term(name))
         _set_text(self._value_label, value)
 
 
@@ -704,7 +695,12 @@ class _AverageRow(QWidget):
         found: int,
         fraction: float,
     ) -> None:
-        _set_text(self._name_label, str(name))
+        # Names of unrenamed defaults are translated; custom names remain data.
+        from app import config
+        default = next((row for row in config.TEMPLATES if row.get("name") == name), None)
+        caption = (l10n.template_name(default) if default else
+                   l10n.preset_name(name, uppercase=name.isupper()) if config.EVALUATION_MODE == "scores" else name)
+        _set_text(self._name_label, caption)
         if colour != self._colour:
             self._colour = str(colour)
             self._name_label.setStyleSheet(f"color: {colour};")
@@ -735,16 +731,16 @@ class _TrackedRow(QWidget):
         chips_layout.setSpacing(5)
         item_names = tuple(row.get("item_names") or ())
         if not item_names:
-            fallback = QLabel(str(row.get("label") or "Item"))
+            fallback = l10n.localized(QLabel, str(row.get('label') or 'Item'))
             fallback.setObjectName("rowLabel")
             chips_layout.addWidget(fallback)
         for index, item_name in enumerate(item_names):
             if index:
-                plus = QLabel("+")
+                plus = l10n.localized(QLabel, '+')
                 plus.setObjectName("chipPlus")
                 chips_layout.addWidget(plus)
             display_text, object_name = formatting.item_chip_display(str(item_name))
-            chip = QLabel(display_text)
+            chip = l10n.localized(QLabel, display_text)
             chip.setObjectName(object_name)
             chips_layout.addWidget(chip)
         chips_layout.addStretch(1)

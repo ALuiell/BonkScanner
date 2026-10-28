@@ -1,8 +1,1180 @@
 {
+  "activities": {
+    "Bald Head": {
+      "key": "SHRINE_BALANCE",
+      "table": "Game_Interactables"
+    },
+    "Boss Curse": {
+      "key": "SHRINE_CURSED",
+      "table": "Game_Interactables"
+    },
+    "Charge Shrine": {
+      "key": "CHARGE_SHRINE_NAME",
+      "table": "Game_Interactables"
+    },
+    "Magnet Shrine": {
+      "key": "SUCC_SHRINE_NAME",
+      "table": "Game_Interactables"
+    },
+    "Microwave": {
+      "key": "MICROWAVE_NAME",
+      "table": "Game_Interactables"
+    },
+    "Shady Guy": {
+      "key": "SHADY_GUY_NAME",
+      "table": "Game_Interactables"
+    }
+  },
+  "characters": {
+    "Amog": {
+      "key": "HAZMAT_NAME",
+      "table": "Characters"
+    },
+    "Athena": {
+      "key": "ATHENA_NAME",
+      "table": "Characters"
+    },
+    "Bandit": {
+      "key": "BANDIT_NAME",
+      "table": "Characters"
+    },
+    "Birdo": {
+      "key": "BIRDO_NAME",
+      "table": "Characters"
+    },
+    "Bush": {
+      "key": "BUSH_NAME",
+      "table": "Characters"
+    },
+    "CL4NK": {
+      "key": "CL4NK_NAME",
+      "table": "Characters"
+    },
+    "Calcium": {
+      "key": "CALCIUM_NAME",
+      "table": "Characters"
+    },
+    "Dicehead": {
+      "key": "DICEHEAD_NAME",
+      "table": "Characters"
+    },
+    "Fox": {
+      "key": "FOX_NAME",
+      "table": "Characters"
+    },
+    "Megachad": {
+      "key": "MEGACHAD_NAME",
+      "table": "Characters"
+    },
+    "Monke": {
+      "key": "MONKE_NAME",
+      "table": "Characters"
+    },
+    "Ninja": {
+      "key": "NINJA_NAME",
+      "table": "Characters"
+    },
+    "Noelle": {
+      "key": "NOELLE_NAME",
+      "table": "Characters"
+    },
+    "Ogre": {
+      "key": "OGRE_NAME",
+      "table": "Characters"
+    },
+    "Roberto": {
+      "key": "ROBERTO_NAME",
+      "table": "Characters"
+    },
+    "Robinette": {
+      "key": "ROBINETTE_NAME",
+      "table": "Characters"
+    },
+    "Sir Chadwell": {
+      "key": "CHADWELL_NAME",
+      "table": "Characters"
+    },
+    "Sir Oofie": {
+      "key": "KNIGHT_NAME",
+      "table": "Characters"
+    },
+    "Spaceman": {
+      "key": "SPACEMAN_NAME",
+      "table": "Characters"
+    },
+    "Tony McZoom": {
+      "key": "JIMMY_NAME",
+      "table": "Characters"
+    },
+    "Vlad": {
+      "key": "VLAD_NAME",
+      "table": "Characters"
+    }
+  },
+  "damage_sources": {
+    "Bloodmark": {
+      "key": "Bloodmark",
+      "table": "DamageSources"
+    },
+    "Bullseye": {
+      "key": "Bullseye",
+      "table": "DamageSources"
+    },
+    "Burn": {
+      "key": "Burn",
+      "table": "DamageSources"
+    },
+    "Echo": {
+      "key": "Echo",
+      "table": "DamageSources"
+    },
+    "Execute": {
+      "key": "Execute",
+      "table": "DamageSources"
+    },
+    "Flex": {
+      "key": "Flex",
+      "table": "DamageSources"
+    },
+    "Poison": {
+      "key": "Poison",
+      "table": "DamageSources"
+    },
+    "Shadowstep": {
+      "key": "Shadowstep",
+      "table": "DamageSources"
+    },
+    "Thorns": {
+      "key": "Thorns",
+      "table": "DamageSources"
+    },
+    "Zap": {
+      "key": "Zap",
+      "table": "DamageSources"
+    }
+  },
   "items": {
+    "Anvil": {
+      "key": "Anvil_NAME",
+      "table": "ItemsYellow"
+    },
+    "Backpack": {
+      "key": "Backpack_NAME",
+      "table": "ItemsBlue"
+    },
+    "Battery": {
+      "key": "Battery_NAME",
+      "table": "ItemsGray"
+    },
+    "Beacon": {
+      "key": "Beacon_NAME",
+      "table": "ItemsBlue"
+    },
+    "Beefy Ring": {
+      "key": "BeefyRing_NAME",
+      "table": "ItemsPink"
+    },
+    "BeefyRing": {
+      "key": "BeefyRing_NAME",
+      "table": "ItemsPink"
+    },
+    "Beer": {
+      "key": "Beer_NAME",
+      "table": "ItemsBlue"
+    },
+    "Big Bonk": {
+      "key": "Bonker_NAME",
+      "table": "ItemsYellow"
+    },
+    "Bloody Cleaver": {
+      "key": "BloodyCleaver_NAME",
+      "table": "ItemsYellow"
+    },
+    "BloodyCleaver": {
+      "key": "BloodyCleaver_NAME",
+      "table": "ItemsYellow"
+    },
+    "Bob (Dead)": {
+      "key": "BobDead_NAME",
+      "table": "ItemsPink"
+    },
+    "Bob Dead": {
+      "key": "BobDead_NAME",
+      "table": "ItemsPink"
+    },
+    "Bob's Light": {
+      "key": "BobsLantern_NAME",
+      "table": "ItemsPink"
+    },
+    "BobDead": {
+      "key": "BobDead_NAME",
+      "table": "ItemsPink"
+    },
+    "Bobs Lantern": {
+      "key": "BobsLantern_NAME",
+      "table": "ItemsPink"
+    },
+    "BobsLantern": {
+      "key": "BobsLantern_NAME",
+      "table": "ItemsPink"
+    },
+    "Bonker": {
+      "key": "Bonker_NAME",
+      "table": "ItemsYellow"
+    },
+    "Borgar": {
+      "key": "Borgar_NAME",
+      "table": "ItemsGray"
+    },
+    "Boss Buster": {
+      "key": "BossBuster_NAME",
+      "table": "ItemsGray"
+    },
+    "BossBuster": {
+      "key": "BossBuster_NAME",
+      "table": "ItemsGray"
+    },
+    "Brass Knuckles": {
+      "key": "BrassKnuckles_NAME",
+      "table": "ItemsBlue"
+    },
+    "BrassKnuckles": {
+      "key": "BrassKnuckles_NAME",
+      "table": "ItemsBlue"
+    },
+    "Cactus": {
+      "key": "Cactus_NAME",
+      "table": "ItemsGray"
+    },
+    "Cage Key": {
+      "key": "CAGE_KEY_NAME",
+      "table": "ItemsQuest"
+    },
+    "CageKey": {
+      "key": "CAGE_KEY_NAME",
+      "table": "ItemsQuest"
+    },
+    "Campfire": {
+      "key": "Campfire_NAME",
+      "table": "ItemsBlue"
+    },
+    "Chonkplate": {
+      "key": "Chonkplate_NAME",
+      "table": "ItemsYellow"
+    },
+    "Clover": {
+      "key": "Clover_NAME",
+      "table": "ItemsGray"
+    },
+    "Coward's cloak": {
+      "key": "CowardsCloak_NAME",
+      "table": "ItemsBlue"
+    },
+    "Cowards Cloak": {
+      "key": "CowardsCloak_NAME",
+      "table": "ItemsBlue"
+    },
+    "CowardsCloak": {
+      "key": "CowardsCloak_NAME",
+      "table": "ItemsBlue"
+    },
+    "Credit Card (Green)": {
+      "key": "CreditCardGreen_NAME",
+      "table": "ItemsBlue"
+    },
+    "Credit Card (Red)": {
+      "key": "CreditCardRed_NAME",
+      "table": "ItemsBlue"
+    },
+    "Credit Card Green": {
+      "key": "CreditCardGreen_NAME",
+      "table": "ItemsBlue"
+    },
+    "Credit Card Red": {
+      "key": "CreditCardRed_NAME",
+      "table": "ItemsBlue"
+    },
+    "CreditCardGreen": {
+      "key": "CreditCardGreen_NAME",
+      "table": "ItemsBlue"
+    },
+    "CreditCardRed": {
+      "key": "CreditCardRed_NAME",
+      "table": "ItemsBlue"
+    },
+    "Crypt key": {
+      "key": "CRYPT_KEY",
+      "table": "ItemsQuest"
+    },
+    "Cursed Doll": {
+      "key": "CursedDoll_NAME",
+      "table": "ItemsGray"
+    },
+    "Cursed Grabbies": {
+      "key": "CursedGrabbies_NAME",
+      "table": "ItemsPink"
+    },
+    "CursedDoll": {
+      "key": "CursedDoll_NAME",
+      "table": "ItemsGray"
+    },
+    "Demon Blade": {
+      "key": "DemonBlade_NAME",
+      "table": "ItemsBlue"
+    },
+    "DemonBlade": {
+      "key": "DemonBlade_NAME",
+      "table": "ItemsBlue"
+    },
+    "Demonic Blade": {
+      "key": "DemonBlade_NAME",
+      "table": "ItemsBlue"
+    },
+    "Demonic Blood": {
+      "key": "DemonicBlood_NAME",
+      "table": "ItemsBlue"
+    },
+    "Demonic Soul": {
+      "key": "DemonicSoul_NAME",
+      "table": "ItemsPink"
+    },
+    "DemonicBlood": {
+      "key": "DemonicBlood_NAME",
+      "table": "ItemsBlue"
+    },
+    "DemonicSoul": {
+      "key": "DemonicSoul_NAME",
+      "table": "ItemsPink"
+    },
+    "Dragonfire": {
+      "key": "Dragonfire_NAME",
+      "table": "ItemsYellow"
+    },
+    "Eagle Claw": {
+      "key": "EagleClaw_NAME",
+      "table": "ItemsYellow"
+    },
+    "EagleClaw": {
+      "key": "EagleClaw_NAME",
+      "table": "ItemsYellow"
+    },
+    "Echo Shard": {
+      "key": "EchoShard_NAME",
+      "table": "ItemsBlue"
+    },
+    "EchoShard": {
+      "key": "EchoShard_NAME",
+      "table": "ItemsBlue"
+    },
+    "Electric Plug": {
+      "key": "ElectricPlug_NAME",
+      "table": "ItemsBlue"
+    },
+    "ElectricPlug": {
+      "key": "ElectricPlug_NAME",
+      "table": "ItemsBlue"
+    },
+    "Energy Core": {
+      "key": "EnergyCore_NAME",
+      "table": "ItemsYellow"
+    },
+    "EnergyCore": {
+      "key": "EnergyCore_NAME",
+      "table": "ItemsYellow"
+    },
+    "Feathers": {
+      "key": "Feathers_NAME",
+      "table": "ItemsBlue"
+    },
+    "Forbidden Juice": {
+      "key": "ForbiddenJuice_NAME",
+      "table": "ItemsGray"
+    },
+    "ForbiddenJuice": {
+      "key": "ForbiddenJuice_NAME",
+      "table": "ItemsGray"
+    },
+    "Gamer Goggles": {
+      "key": "GamerGoggles_NAME",
+      "table": "ItemsPink"
+    },
+    "GamerGoggles": {
+      "key": "GamerGoggles_NAME",
+      "table": "ItemsPink"
+    },
+    "Gas Mask": {
+      "key": "GasMask_NAME",
+      "table": "ItemsPink"
+    },
+    "Gasmask": {
+      "key": "GasMask_NAME",
+      "table": "ItemsPink"
+    },
+    "Ghost": {
+      "key": "Ghost_NAME",
+      "table": "ItemsGray"
+    },
+    "Giant Fork": {
+      "key": "GiantFork_NAME",
+      "table": "ItemsYellow"
+    },
+    "GiantFork": {
+      "key": "GiantFork_NAME",
+      "table": "ItemsYellow"
+    },
+    "Glove Blood": {
+      "key": "SlurpGloves_NAME",
+      "table": "ItemsPink"
+    },
+    "Glove Curse": {
+      "key": "CursedGrabbies_NAME",
+      "table": "ItemsPink"
+    },
+    "Glove Lightning": {
+      "key": "ThunderMitts_NAME",
+      "table": "ItemsBlue"
+    },
+    "Glove Poison": {
+      "key": "MoldyGloves_NAME",
+      "table": "ItemsBlue"
+    },
+    "Glove Power": {
+      "key": "PowerGloves_NAME",
+      "table": "ItemsYellow"
+    },
+    "GloveBlood": {
+      "key": "SlurpGloves_NAME",
+      "table": "ItemsPink"
+    },
+    "GloveCurse": {
+      "key": "CursedGrabbies_NAME",
+      "table": "ItemsPink"
+    },
+    "GloveLightning": {
+      "key": "ThunderMitts_NAME",
+      "table": "ItemsBlue"
+    },
+    "GlovePoison": {
+      "key": "MoldyGloves_NAME",
+      "table": "ItemsBlue"
+    },
+    "GlovePower": {
+      "key": "PowerGloves_NAME",
+      "table": "ItemsYellow"
+    },
+    "Golden Glove": {
+      "key": "GoldenGlove_NAME",
+      "table": "ItemsGray"
+    },
+    "Golden Ring": {
+      "key": "GoldenRing_NAME",
+      "table": "ItemsYellow"
+    },
+    "Golden Shield": {
+      "key": "GoldenShield_NAME",
+      "table": "ItemsBlue"
+    },
+    "Golden Sneakers": {
+      "key": "GoldenSneakers_NAME",
+      "table": "ItemsBlue"
+    },
+    "Golden key": {
+      "key": "CAGE_KEY_NAME",
+      "table": "ItemsQuest"
+    },
+    "GoldenGlove": {
+      "key": "GoldenGlove_NAME",
+      "table": "ItemsGray"
+    },
+    "GoldenRing": {
+      "key": "GoldenRing_NAME",
+      "table": "ItemsYellow"
+    },
+    "GoldenShield": {
+      "key": "GoldenShield_NAME",
+      "table": "ItemsBlue"
+    },
+    "GoldenSneakers": {
+      "key": "GoldenSneakers_NAME",
+      "table": "ItemsBlue"
+    },
+    "Grandma's Secret Tonic": {
+      "key": "Grandma_NAME",
+      "table": "ItemsPink"
+    },
+    "Grandmas Secret Tonic": {
+      "key": "Grandma_NAME",
+      "table": "ItemsPink"
+    },
+    "GrandmasSecretTonic": {
+      "key": "Grandma_NAME",
+      "table": "ItemsPink"
+    },
+    "Gym Sauce": {
+      "key": "GymSauce_NAME",
+      "table": "ItemsGray"
+    },
+    "GymSauce": {
+      "key": "GymSauce_NAME",
+      "table": "ItemsGray"
+    },
+    "Holy Book": {
+      "key": "HolyBook_NAME",
+      "table": "ItemsYellow"
+    },
+    "HolyBook": {
+      "key": "HolyBook_NAME",
+      "table": "ItemsYellow"
+    },
+    "Ice Crystal": {
+      "key": "IceCrystal_NAME",
+      "table": "ItemsGray"
+    },
+    "Ice Cube": {
+      "key": "IceCube_NAME",
+      "table": "ItemsYellow"
+    },
+    "IceCrystal": {
+      "key": "IceCrystal_NAME",
+      "table": "ItemsGray"
+    },
+    "IceCube": {
+      "key": "IceCube_NAME",
+      "table": "ItemsYellow"
+    },
+    "Idle Juice": {
+      "key": "IdleJuice_NAME",
+      "table": "ItemsBlue"
+    },
+    "IdleJuice": {
+      "key": "IdleJuice_NAME",
+      "table": "ItemsBlue"
+    },
+    "Joe's Dagger": {
+      "key": "JoesDagger_NAME",
+      "table": "ItemsYellow"
+    },
+    "Joes Dagger": {
+      "key": "JoesDagger_NAME",
+      "table": "ItemsYellow"
+    },
+    "JoesDagger": {
+      "key": "JoesDagger_NAME",
+      "table": "ItemsYellow"
+    },
+    "Kevin": {
+      "key": "Kevin_NAME",
+      "table": "ItemsBlue"
+    },
+    "Key": {
+      "key": "Key_NAME",
+      "table": "ItemsGray"
+    },
+    "Leeching Crystal": {
+      "key": "LeechingCrystal_NAME",
+      "table": "ItemsBlue"
+    },
+    "LeechingCrystal": {
+      "key": "LeechingCrystal_NAME",
+      "table": "ItemsBlue"
+    },
+    "Lightning Orb": {
+      "key": "LightningOrb_NAME",
+      "table": "ItemsYellow"
+    },
+    "LightningOrb": {
+      "key": "LightningOrb_NAME",
+      "table": "ItemsYellow"
+    },
+    "Medkit": {
+      "key": "Medkit_NAME",
+      "table": "ItemsGray"
+    },
+    "Mirror": {
+      "key": "Mirror_NAME",
+      "table": "ItemsPink"
+    },
+    "Moldy Cheese": {
+      "key": "MoldyCheese_NAME",
+      "table": "ItemsGray"
+    },
+    "Moldy Gloves": {
+      "key": "MoldyGloves_NAME",
+      "table": "ItemsBlue"
+    },
+    "MoldyCheese": {
+      "key": "MoldyCheese_NAME",
+      "table": "ItemsGray"
+    },
+    "Oats": {
+      "key": "Oats_NAME",
+      "table": "ItemsGray"
+    },
+    "Old Mask": {
+      "key": "OldMask_NAME",
+      "table": "ItemsGray"
+    },
+    "OldMask": {
+      "key": "OldMask_NAME",
+      "table": "ItemsGray"
+    },
+    "Overpowered Lamp": {
+      "key": "OverpoweredLamp_NAME",
+      "table": "ItemsYellow"
+    },
+    "OverpoweredLamp": {
+      "key": "OverpoweredLamp_NAME",
+      "table": "ItemsYellow"
+    },
+    "Phantom Shroud": {
+      "key": "PhantomShroud_NAME",
+      "table": "ItemsBlue"
+    },
+    "PhantomShroud": {
+      "key": "PhantomShroud_NAME",
+      "table": "ItemsBlue"
+    },
+    "Pot": {
+      "key": "Pot_NAME",
+      "table": "ItemsYellow"
+    },
+    "Pot (stainless steel)": {
+      "key": "Pot_NAME",
+      "table": "ItemsYellow"
+    },
+    "Power Gloves": {
+      "key": "PowerGloves_NAME",
+      "table": "ItemsYellow"
+    },
+    "Pumpkin": {
+      "key": "Pumpkin_NAME",
+      "table": "ItemsBlue"
+    },
+    "Quin's Mask": {
+      "key": "QuinsMask_NAME",
+      "table": "ItemsPink"
+    },
+    "Quins Mask": {
+      "key": "QuinsMask_NAME",
+      "table": "ItemsPink"
+    },
+    "QuinsMask": {
+      "key": "QuinsMask_NAME",
+      "table": "ItemsPink"
+    },
+    "Rollerblades": {
+      "key": "Rollerblades_NAME",
+      "table": "ItemsPink"
+    },
+    "Scarf": {
+      "key": "Scarf_NAME",
+      "table": "ItemsPink"
+    },
+    "Shattered Knowledge": {
+      "key": "ShatteredKnowledge_NAME",
+      "table": "ItemsPink"
+    },
+    "Shattered Wisdom": {
+      "key": "ShatteredKnowledge_NAME",
+      "table": "ItemsPink"
+    },
+    "ShatteredWisdom": {
+      "key": "ShatteredKnowledge_NAME",
+      "table": "ItemsPink"
+    },
+    "Skuleg": {
+      "key": "Skuleg_NAME",
+      "table": "ItemsGray"
+    },
+    "Slippery Ring": {
+      "key": "SlipperRing_NAME",
+      "table": "ItemsGray"
+    },
+    "SlipperyRing": {
+      "key": "SlipperRing_NAME",
+      "table": "ItemsGray"
+    },
+    "Slurp Gloves": {
+      "key": "SlurpGloves_NAME",
+      "table": "ItemsPink"
+    },
+    "Slutty Cannon": {
+      "key": "SluttyCannon_NAME",
+      "table": "ItemsPink"
+    },
+    "SluttyCannon": {
+      "key": "SluttyCannon_NAME",
+      "table": "ItemsPink"
+    },
+    "Snek": {
+      "key": "Snek_NAME",
+      "table": "ItemsYellow"
+    },
+    "Soul Harvester": {
+      "key": "SouldHarvester_NAME",
+      "table": "ItemsYellow"
+    },
+    "SoulHarvester": {
+      "key": "SouldHarvester_NAME",
+      "table": "ItemsYellow"
+    },
+    "Speed Boi": {
+      "key": "SpeedBoi_NAME",
+      "table": "ItemsYellow"
+    },
+    "SpeedBoi": {
+      "key": "SpeedBoi_NAME",
+      "table": "ItemsYellow"
+    },
+    "Spicy Meatball": {
+      "key": "SpicyMeatball_NAME",
+      "table": "ItemsYellow"
+    },
+    "SpicyMeatball": {
+      "key": "SpicyMeatball_NAME",
+      "table": "ItemsYellow"
+    },
+    "Spiky Shield": {
+      "key": "SpikyShield_NAME",
+      "table": "ItemsPink"
+    },
+    "SpikyShield": {
+      "key": "SpikyShield_NAME",
+      "table": "ItemsPink"
+    },
+    "Sucky Magnet": {
+      "key": "SuckyMagnet_NAME",
+      "table": "ItemsYellow"
+    },
+    "SuckyMagnet": {
+      "key": "SuckyMagnet_NAME",
+      "table": "ItemsYellow"
+    },
+    "Tactical Glasses": {
+      "key": "TacticalGlasses_NAME",
+      "table": "ItemsGray"
+    },
+    "TacticalGlasses": {
+      "key": "TacticalGlasses_NAME",
+      "table": "ItemsGray"
+    },
     "The One Ring": {
       "key": "GoldenRing_NAME",
       "table": "ItemsYellow"
+    },
+    "Thunder Mitts": {
+      "key": "ThunderMitts_NAME",
+      "table": "ItemsBlue"
+    },
+    "Time Bracelet": {
+      "key": "TimeBracelet_NAME",
+      "table": "ItemsGray"
+    },
+    "TimeBracelet": {
+      "key": "TimeBracelet_NAME",
+      "table": "ItemsGray"
+    },
+    "Toxic Barrel": {
+      "key": "ToxicBarrel_NAME",
+      "table": "ItemsPink"
+    },
+    "ToxicBarrel": {
+      "key": "ToxicBarrel_NAME",
+      "table": "ItemsPink"
+    },
+    "Turbo Skates": {
+      "key": "Rollerblades_NAME",
+      "table": "ItemsPink"
+    },
+    "Turbo Socks": {
+      "key": "TurboSocks_NAME",
+      "table": "ItemsGray"
+    },
+    "TurboSocks": {
+      "key": "TurboSocks_NAME",
+      "table": "ItemsGray"
+    },
+    "Unstable Transfusion": {
+      "key": "UnstableTransfusion_NAME",
+      "table": "ItemsGray"
+    },
+    "UnstableTransfusion": {
+      "key": "UnstableTransfusion_NAME",
+      "table": "ItemsGray"
+    },
+    "Wizard's Hat": {
+      "key": "WizardsHat_NAME",
+      "table": "ItemsYellow"
+    },
+    "Wizards Hat": {
+      "key": "WizardsHat_NAME",
+      "table": "ItemsYellow"
+    },
+    "WizardsHat": {
+      "key": "WizardsHat_NAME",
+      "table": "ItemsYellow"
+    },
+    "Wrench": {
+      "key": "Wrench_NAME",
+      "table": "ItemsGray"
+    },
+    "Za Warudo": {
+      "key": "ZaWarudo_NAME",
+      "table": "ItemsPink"
+    },
+    "ZaWarudo": {
+      "key": "ZaWarudo_NAME",
+      "table": "ItemsPink"
+    }
+  },
+  "maps": {
+    "Crusty Desert": {
+      "key": "STAGE_DESERT_1_NAME",
+      "table": "Maps"
+    },
+    "Crypt": {
+      "key": "CRYPT_TITLE",
+      "table": "Maps"
+    },
+    "Cursed Forest": {
+      "key": "STAGE_FOREST_3",
+      "table": "Maps"
+    },
+    "Deep Forest": {
+      "key": "STAGE_FOREST_2",
+      "table": "Maps"
+    },
+    "Desert": {
+      "key": "MAP_DESERT_NAME",
+      "table": "Maps"
+    },
+    "Forest": {
+      "key": "MAP_FOREST_NAME",
+      "table": "Maps"
+    },
+    "Graveyard": {
+      "key": "MAP_GRAVEYARD_NAME",
+      "table": "Maps"
+    },
+    "Green Forest": {
+      "key": "STAGE_FOREST_1",
+      "table": "Maps"
+    },
+    "Scorched Desert": {
+      "key": "STAGE_DESERT_3_NAME",
+      "table": "Maps"
+    },
+    "Twilight Desert": {
+      "key": "STAGE_DESERT_2_NAME",
+      "table": "Maps"
+    }
+  },
+  "passives": {
+    "Bullseye": {
+      "key": "BULLSEYE_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Crit Happens": {
+      "key": "CRIT_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Curse": {
+      "key": "CURSE_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Enduring": {
+      "key": "ENDURING_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Flex": {
+      "key": "FLEX_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Float": {
+      "key": "FLOAT_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Flowstate": {
+      "key": "FLOWSTATE_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Gamba": {
+      "key": "GAMBA_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Hoarder": {
+      "key": "HOARDER_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Lock in": {
+      "key": "LOCKIN_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Monke Grip": {
+      "key": "WALL_CLIMB_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Plague": {
+      "key": "PLAGUE_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Quantum XP Theory": {
+      "key": "QUANTUM_NAME",
+      "table": "PassiveAbilities"
+    },
+    "RNG Blessing": {
+      "key": "RNG_BLESSING_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Reinforced": {
+      "key": "REINFORCED_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Shadowstep": {
+      "key": "SHADOWSTEP_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Speed Demon": {
+      "key": "SPEED_DEMON_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Stonks": {
+      "key": "STONKS_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Vampire": {
+      "key": "VAMPIRE_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Warrior": {
+      "key": "WARRIOR_NAME",
+      "table": "PassiveAbilities"
+    },
+    "Zap": {
+      "key": "ZAP_NAME",
+      "table": "PassiveAbilities"
+    }
+  },
+  "powerups": {
+    "Clock": {
+      "key": "TIME_NAME",
+      "table": "Game_ScoreUi"
+    },
+    "Rage": {
+      "key": "RAGE_NAME",
+      "table": "Game_ScoreUi"
+    },
+    "Shield": {
+      "key": "SHIELD_NAME",
+      "table": "Game_ScoreUi"
+    },
+    "Stonks": {
+      "key": "STONKS_NAME",
+      "table": "Game_ScoreUi"
+    }
+  },
+  "rarities": {
+    "Common": {
+      "key": "Common",
+      "table": "Rarities"
+    },
+    "Epic": {
+      "key": "Epic",
+      "table": "Rarities"
+    },
+    "Legendary": {
+      "key": "Legendary",
+      "table": "Rarities"
+    },
+    "New": {
+      "key": "New",
+      "table": "Rarities"
+    },
+    "Rare": {
+      "key": "Rare",
+      "table": "Rarities"
+    },
+    "Uncommon": {
+      "key": "Uncommon",
+      "table": "Rarities"
+    }
+  },
+  "stats": {
+    "Armor": {
+      "key": "Armor_NAME",
+      "table": "Stats"
+    },
+    "Attack Speed": {
+      "key": "AttackSpeed_NAME",
+      "table": "Stats"
+    },
+    "Chest Multiplier": {
+      "key": "ChestIncreaseMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Chest price": {
+      "key": "ChestPriceMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Crit Chance": {
+      "key": "CritChance_NAME",
+      "table": "Stats"
+    },
+    "Crit Damage": {
+      "key": "CritDamage_NAME",
+      "table": "Stats"
+    },
+    "Crit. Chance": {
+      "key": "CritChance_NAME",
+      "table": "Stats"
+    },
+    "Crit. Damage": {
+      "key": "CritDamage_NAME",
+      "table": "Stats"
+    },
+    "Damage": {
+      "key": "DamageMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Damage to Elites": {
+      "key": "EliteDamageMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Difficulty": {
+      "key": "Difficulty_NAME",
+      "table": "Stats"
+    },
+    "Duration": {
+      "key": "DurationMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Effect Duration": {
+      "key": "EffectDurationMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Elite Spawn Increase": {
+      "key": "EliteSpawnIncrease_NAME",
+      "table": "Stats"
+    },
+    "Enemy amount": {
+      "key": "EnemyAmountMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Enemy damage": {
+      "key": "EnemyDamageMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Enemy hp": {
+      "key": "EnemyHpMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Enemy scaling": {
+      "key": "EnemyScalingMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Enemy size": {
+      "key": "EnemySizeMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Enemy speed": {
+      "key": "EnemySpeedMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Evasion": {
+      "key": "Evasion_NAME",
+      "table": "Stats"
+    },
+    "Extra Jumps": {
+      "key": "ExtraJumps_NAME",
+      "table": "Stats"
+    },
+    "Fall Damage Reduction": {
+      "key": "FallDamageReduction_NAME",
+      "table": "Stats"
+    },
+    "Gold Gain": {
+      "key": "GoldIncreaseMultiplier_NAME",
+      "table": "Stats"
+    },
+    "HP Regen": {
+      "key": "HealthRegen_NAME",
+      "table": "Stats"
+    },
+    "Jump Height": {
+      "key": "JumpHeight_NAME",
+      "table": "Stats"
+    },
+    "Knockback": {
+      "key": "KnockbackMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Lifesteal": {
+      "key": "Lifesteal_NAME",
+      "table": "Stats"
+    },
+    "Luck": {
+      "key": "Luck_NAME",
+      "table": "Stats"
+    },
+    "Max HP": {
+      "key": "MaxHealth_NAME",
+      "table": "Stats"
+    },
+    "Movement Speed": {
+      "key": "MoveSpeedMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Overheal": {
+      "key": "Overheal_NAME",
+      "table": "Stats"
+    },
+    "Pickup Range": {
+      "key": "PickupRange_NAME",
+      "table": "Stats"
+    },
+    "Poison Damage": {
+      "key": "PoisonDamageMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Powerup Drop Chance": {
+      "key": "PowerupChance_NAME",
+      "table": "Stats"
+    },
+    "Powerup Multiplier": {
+      "key": "PowerupBoostMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Projectile Bounces": {
+      "key": "ProjectileBounces_NAME",
+      "table": "Stats"
+    },
+    "Projectile Count": {
+      "key": "Projectiles_NAME",
+      "table": "Stats"
+    },
+    "Projectile Speed": {
+      "key": "ProjectileSpeedMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Shield": {
+      "key": "Shield_NAME",
+      "table": "Stats"
+    },
+    "Silver Gain": {
+      "key": "SilverIncreaseMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Size": {
+      "key": "SizeMultiplier_NAME",
+      "table": "Stats"
+    },
+    "Thorns": {
+      "key": "Thorns_NAME",
+      "table": "Stats"
+    },
+    "XP Gain": {
+      "key": "XpIncreaseMultiplier_NAME",
+      "table": "Stats"
     }
   },
   "tomes": {
@@ -10,7 +1182,15 @@
       "key": "TOME_AGILITY_NAME",
       "table": "Tomes"
     },
+    "Agility Tome": {
+      "key": "TOME_AGILITY_NAME",
+      "table": "Tomes"
+    },
     "Armor": {
+      "key": "TOME_ARMOR_NAME",
+      "table": "Tomes"
+    },
+    "Armor Tome": {
       "key": "TOME_ARMOR_NAME",
       "table": "Tomes"
     },
@@ -18,7 +1198,15 @@
       "key": "TOME_ATTRACTION_NAME",
       "table": "Tomes"
     },
+    "Attraction Tome": {
+      "key": "TOME_ATTRACTION_NAME",
+      "table": "Tomes"
+    },
     "Balance": {
+      "key": "TOME_BALANCE_NAME",
+      "table": "Tomes"
+    },
+    "Balance Tome": {
       "key": "TOME_BALANCE_NAME",
       "table": "Tomes"
     },
@@ -26,7 +1214,15 @@
       "key": "TOME_BLOOD_NAME",
       "table": "Tomes"
     },
+    "Bloody Tome": {
+      "key": "TOME_BLOOD_NAME",
+      "table": "Tomes"
+    },
     "Chaos": {
+      "key": "TOME_CHAOS_NAME",
+      "table": "Tomes"
+    },
+    "Chaos Tome": {
       "key": "TOME_CHAOS_NAME",
       "table": "Tomes"
     },
@@ -34,7 +1230,15 @@
       "key": "TOME_COOLDOWN_NAME",
       "table": "Tomes"
     },
+    "Cooldown Tome": {
+      "key": "TOME_COOLDOWN_NAME",
+      "table": "Tomes"
+    },
     "Cursed": {
+      "key": "TOME_CURSED_NAME",
+      "table": "Tomes"
+    },
+    "Cursed Tome": {
       "key": "TOME_CURSED_NAME",
       "table": "Tomes"
     },
@@ -42,12 +1246,28 @@
       "key": "TOME_DAMAGE_NAME",
       "table": "Tomes"
     },
+    "Damage Tome": {
+      "key": "TOME_DAMAGE_NAME",
+      "table": "Tomes"
+    },
     "Duration": {
+      "key": "TOME_DURATION_NAME",
+      "table": "Tomes"
+    },
+    "Duration Tome": {
       "key": "TOME_DURATION_NAME",
       "table": "Tomes"
     },
     "Evasion": {
       "key": "TOME_EVASION_NAME",
+      "table": "Tomes"
+    },
+    "Evasion Tome": {
+      "key": "TOME_EVASION_NAME",
+      "table": "Tomes"
+    },
+    "Gamba Tome": {
+      "key": "TOME_GAMBLER_NAME",
       "table": "Tomes"
     },
     "Gambler": {
@@ -58,6 +1278,14 @@
       "key": "TOME_GOLDEN_NAME",
       "table": "Tomes"
     },
+    "Golden Tome": {
+      "key": "TOME_GOLDEN_NAME",
+      "table": "Tomes"
+    },
+    "HP Tome": {
+      "key": "TOME_HEALTH_NAME",
+      "table": "Tomes"
+    },
     "Health": {
       "key": "TOME_HEALTH_NAME",
       "table": "Tomes"
@@ -66,7 +1294,15 @@
       "key": "TOME_HOARDER_NAME",
       "table": "Tomes"
     },
+    "Hoarder Tome": {
+      "key": "TOME_HOARDER_NAME",
+      "table": "Tomes"
+    },
     "Knockback": {
+      "key": "TOME_KNOCKBACK_NAME",
+      "table": "Tomes"
+    },
+    "Knockback Tome": {
       "key": "TOME_KNOCKBACK_NAME",
       "table": "Tomes"
     },
@@ -74,7 +1310,15 @@
       "key": "TOME_LUCK_NAME",
       "table": "Tomes"
     },
+    "Luck Tome": {
+      "key": "TOME_LUCK_NAME",
+      "table": "Tomes"
+    },
     "Precision": {
+      "key": "TOME_PRECISION_NAME",
+      "table": "Tomes"
+    },
+    "Precision Tome": {
       "key": "TOME_PRECISION_NAME",
       "table": "Tomes"
     },
@@ -82,8 +1326,20 @@
       "key": "TOME_PROJECTILE_SPEED_NAME",
       "table": "Tomes"
     },
+    "Projectile Speed Tome": {
+      "key": "TOME_PROJECTILE_SPEED_NAME",
+      "table": "Tomes"
+    },
     "Quantity": {
       "key": "TOME_QUANTITY_NAME",
+      "table": "Tomes"
+    },
+    "Quantity Tome": {
+      "key": "TOME_QUANTITY_NAME",
+      "table": "Tomes"
+    },
+    "Regen Tome": {
+      "key": "TOME_REGEN_NAME",
       "table": "Tomes"
     },
     "Regeneration": {
@@ -94,7 +1350,15 @@
       "key": "TOME_SHIELD_NAME",
       "table": "Tomes"
     },
+    "Shield Tome": {
+      "key": "TOME_SHIELD_NAME",
+      "table": "Tomes"
+    },
     "Silver": {
+      "key": "TOME_SILVER_NAME",
+      "table": "Tomes"
+    },
+    "Silver Tome": {
       "key": "TOME_SILVER_NAME",
       "table": "Tomes"
     },
@@ -102,22 +1366,78 @@
       "key": "TOME_SIZE_NAME",
       "table": "Tomes"
     },
+    "Size Tome": {
+      "key": "TOME_SIZE_NAME",
+      "table": "Tomes"
+    },
     "Thorns": {
+      "key": "TOME_THORNS_NAME",
+      "table": "Tomes"
+    },
+    "Thorns Tome": {
       "key": "TOME_THORNS_NAME",
       "table": "Tomes"
     },
     "XP": {
       "key": "TOME_XP_NAME",
       "table": "Tomes"
+    },
+    "XP Tome": {
+      "key": "TOME_XP_NAME",
+      "table": "Tomes"
     }
   },
   "weapons": {
+    "Aegis": {
+      "key": "AEGIS_NAME",
+      "table": "Weapons"
+    },
+    "Aura": {
+      "key": "AURA_NAME",
+      "table": "Weapons"
+    },
+    "Axe": {
+      "key": "AXE_NAME",
+      "table": "Weapons"
+    },
+    "Black Hole": {
+      "key": "BLACKHOLE_NAME",
+      "table": "Weapons"
+    },
+    "Blood Magic": {
+      "key": "BLOODMAGIC_NAME",
+      "table": "Weapons"
+    },
     "Bluetooth Dagger": {
       "key": "WIRELESSHDAGGER_NAME",
       "table": "Weapons"
     },
+    "Bow": {
+      "key": "BOW_NAME",
+      "table": "Weapons"
+    },
+    "Chunkers": {
+      "key": "CHUNKERS_NAME",
+      "table": "Weapons"
+    },
     "Corrupt Sword": {
       "key": "CORRUPTEDSWORD_NAME",
+      "table": "Weapons"
+    },
+    "Corrupted Sword": {
+      "key": "CORRUPTEDSWORD_NAME",
+      "table": "Weapons"
+    },
+    "Dexecutioner": {
+      "key": "DEXECUTIONER_NAME",
+      "table": "Weapons"
+    },
+    "Dice": {
+      "key": "DICE_NAME",
+      "table": "Weapons"
+    },
+    "Dragon's Breath": {
+      "key": "DRAGONBREATH_NAME",
       "table": "Weapons"
     },
     "Dragons Breath": {
@@ -128,16 +1448,84 @@
       "key": "FIRESTAFF_NAME",
       "table": "Weapons"
     },
+    "Firestaff": {
+      "key": "FIRESTAFF_NAME",
+      "table": "Weapons"
+    },
+    "Flamewalker": {
+      "key": "FLAMEWALKER_NAME",
+      "table": "Weapons"
+    },
+    "Frostwalker": {
+      "key": "FROSTWALKER_NAME",
+      "table": "Weapons"
+    },
+    "Hero Sword": {
+      "key": "HEROSWORD_NAME",
+      "table": "Weapons"
+    },
+    "Katana": {
+      "key": "KATANA_NAME",
+      "table": "Weapons"
+    },
+    "Lightning Staff": {
+      "key": "LIGHTNINGBOLT_NAME",
+      "table": "Weapons"
+    },
     "Mine": {
       "key": "MINES_NAME",
+      "table": "Weapons"
+    },
+    "Mines": {
+      "key": "MINES_NAME",
+      "table": "Weapons"
+    },
+    "Poison Flask": {
+      "key": "POISONFLASK_NAME",
+      "table": "Weapons"
+    },
+    "Revolver": {
+      "key": "REVOLVER_NAME",
       "table": "Weapons"
     },
     "Rockets": {
       "key": "SLUTTYROCKET_NAME",
       "table": "Weapons"
     },
+    "Scythe": {
+      "key": "SCYTHE_NAME",
+      "table": "Weapons"
+    },
+    "Shotgun": {
+      "key": "SHOTGUN_NAME",
+      "table": "Weapons"
+    },
+    "Slutty Rocket": {
+      "key": "SLUTTYROCKET_NAME",
+      "table": "Weapons"
+    },
     "Sniper": {
       "key": "SNIPER_NAME",
+      "table": "Weapons"
+    },
+    "Sniper Rifle": {
+      "key": "SNIPER_NAME",
+      "table": "Weapons"
+    },
+    "Space Noodle": {
+      "key": "SPACENOODLE_NAME",
+      "table": "Weapons"
+    },
+    "Sword": {
+      "key": "SWORD_NAME",
+      "table": "Weapons"
+    },
+    "Tornado": {
+      "key": "TORNADO_NAME",
+      "table": "Weapons"
+    },
+    "Wireless Dagger": {
+      "key": "WIRELESSHDAGGER_NAME",
       "table": "Weapons"
     }
   }

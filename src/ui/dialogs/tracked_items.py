@@ -35,6 +35,8 @@ serve all three without knowing which config it is editing.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from html import escape
 from typing import Callable, Sequence
 
@@ -139,7 +141,7 @@ class TrackedItemPicker(QWidget):
         # three lists, and a line reading "in Session Stats" while the OBS
         # segment is lit is worse than no line -- it is the screen telling you
         # you are editing something you are not.
-        self._hint = QLabel("")
+        self._hint = l10n.localized(QLabel, '')
         self._hint.setObjectName("dialogHint")
         self._hint.setTextFormat(Qt.RichText)
         self._hint.setWordWrap(True)
@@ -156,6 +158,7 @@ class TrackedItemPicker(QWidget):
         self._refresh_picks()
         self._refresh_preview()
         self.refresh_rules()
+        l10n.RefreshBinding(self, self._refresh_picks)
 
     # -- construction ---------------------------------------------------------
 
@@ -167,16 +170,16 @@ class TrackedItemPicker(QWidget):
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
-        head.addWidget(_eyebrow("Items"))
+        head.addWidget(_eyebrow(l10n.tr('Items')))
         head.addStretch(1)
-        self._count_label = QLabel("")
+        self._count_label = l10n.localized(QLabel, '')
         self._count_label.setObjectName("pickerCount")
         head.addWidget(self._count_label)
         layout.addLayout(head)
 
         self._search_entry = QLineEdit()
         self._search_entry.setObjectName("logSearch")
-        self._search_entry.setPlaceholderText("Search…")
+        l10n.display(self._search_entry, 'setPlaceholderText', l10n.tr('Search…'))
         self._search_entry.setClearButtonEnabled(True)
         self._search_entry.textChanged.connect(self._on_search)
         layout.addWidget(self._search_entry)
@@ -195,7 +198,7 @@ class TrackedItemPicker(QWidget):
         # Grows with the window. The list it replaces was pinned at 220px in a
         # dialog the user can resize, so the extra height went to empty space.
         layout.addWidget(scroll, 1)
-        self._empty_search = QLabel("Nothing matches that search")
+        self._empty_search = l10n.localized(QLabel, l10n.tr('Nothing matches that search'))
         self._empty_search.setObjectName("tableEmpty")
         self._empty_search.setVisible(False)
         layout.addWidget(self._empty_search)
@@ -212,7 +215,7 @@ class TrackedItemPicker(QWidget):
         builder_layout = QVBoxLayout(builder)
         builder_layout.setContentsMargins(12, 12, 12, 12)
         builder_layout.setSpacing(10)
-        builder_layout.addWidget(_eyebrow("New rule"))
+        builder_layout.addWidget(_eyebrow(l10n.tr('New rule')))
 
         self._preview = QWidget()
         self._preview.setObjectName("rulePreview")
@@ -237,13 +240,13 @@ class TrackedItemPicker(QWidget):
         self._mode_toggle.activated.connect(self._on_mode)
         actions.addWidget(self._mode_toggle)
         actions.addStretch(1)
-        self._add_btn = QPushButton("Add")
+        self._add_btn = l10n.localized(QPushButton, l10n.tr('Add'))
         self._add_btn.setObjectName("primary")
         self._add_btn.clicked.connect(self._on_add)
         actions.addWidget(self._add_btn)
         builder_layout.addLayout(actions)
 
-        self._add_note = QLabel("")
+        self._add_note = l10n.localized(QLabel, '')
         self._add_note.setObjectName("addNote")
         self._add_note.setWordWrap(True)
         builder_layout.addWidget(self._add_note)
@@ -255,9 +258,9 @@ class TrackedItemPicker(QWidget):
         rules_layout.setSpacing(0)
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
-        head.addWidget(_eyebrow("Tracked"))
+        head.addWidget(_eyebrow(l10n.tr('Tracked')))
         head.addStretch(1)
-        self._rules_count = QLabel("")
+        self._rules_count = l10n.localized(QLabel, '')
         self._rules_count.setObjectName("pickerCount")
         head.addWidget(self._rules_count)
         rules_layout.addLayout(head)
@@ -266,7 +269,7 @@ class TrackedItemPicker(QWidget):
         self._rules_layout.setContentsMargins(0, 0, 0, 0)
         self._rules_layout.setSpacing(0)
         rules_layout.addLayout(self._rules_layout)
-        self._rules_empty = QLabel("Nothing tracked yet")
+        self._rules_empty = l10n.localized(QLabel, l10n.tr('Nothing tracked yet'))
         self._rules_empty.setObjectName("tableEmpty")
         rules_layout.addWidget(self._rules_empty)
         rules_layout.addStretch(1)
@@ -285,10 +288,11 @@ class TrackedItemPicker(QWidget):
             if not query
             or query in tracked_item_display_name(name).casefold()
             or query in str(name).casefold()
+            or query in str(l10n.game('items', tracked_item_display_name(name))).casefold()
         ]
         self._empty_search.setVisible(not visible)
         for caption, names in group_tracked_items_by_rarity(visible):
-            header = QLabel(f"{caption} · {len(names)}")
+            header = l10n.localized(QLabel, l10n.tr('{caption} · {count}', caption=l10n.game_term(caption, ('rarities',)), count=len(names)))
             header.setObjectName("pickerGroup")
             self._groups_layout.addWidget(header)
             row = QWidget()
@@ -301,7 +305,7 @@ class TrackedItemPicker(QWidget):
 
     def _build_pick(self, item_name: str) -> QPushButton:
         colour = tracked_item_color(item_name)
-        button = QPushButton(tracked_item_display_name(item_name))
+        button = l10n.localized(QPushButton, l10n.game('items', tracked_item_display_name(item_name)))
         button.setObjectName("pickChip")
         button.setCheckable(True)
         button.setChecked(item_name in self._selected)
@@ -315,9 +319,7 @@ class TrackedItemPicker(QWidget):
         return button
 
     def _refresh_count(self) -> None:
-        self._count_label.setText(
-            f"{len(self._selected)} selected of {len(self._item_names)}"
-        )
+        l10n.display(self._count_label, 'setText', l10n.tr('{p0} selected of {p1}', p0=len(self._selected), p1=len(self._item_names)))
 
     # -- commands -------------------------------------------------------------
 
@@ -377,13 +379,13 @@ class TrackedItemPicker(QWidget):
     def _refresh_preview(self) -> None:
         _clear_layout(self._preview_layout)
         if not self._selected:
-            note = QLabel("Pick one or more items on the left")
+            note = l10n.localized(QLabel, l10n.tr('Pick one or more items on the left'))
             note.setObjectName("previewEmpty")
             self._preview_layout.addWidget(note)
         else:
             for index, item_name in enumerate(self._selected):
                 if index:
-                    plus = QLabel("+")
+                    plus = l10n.localized(QLabel, '+')
                     plus.setObjectName("chipPlus")
                     self._preview_layout.addWidget(plus)
                 self._preview_layout.addWidget(_item_chip(item_name))
@@ -393,14 +395,14 @@ class TrackedItemPicker(QWidget):
             existing_signatures=[rule_signature(rule) for rule in self._rules_port()],
         )
         self._add_btn.setEnabled(enabled)
-        self._add_note.setText(message)
+        l10n.display(self._add_note, 'setText', message)
         self._add_note.setVisible(bool(message))
 
     def refresh_rules(self) -> None:
         _clear_layout(self._rules_layout)
         rules = list(self._rules_port() or ())
         self._rules_empty.setVisible(not rules)
-        self._rules_count.setText(str(len(rules)) if rules else "")
+        l10n.display(self._rules_count, 'setText', str(len(rules)) if rules else '')
         for index, rule in enumerate(rules):
             self._rules_layout.addWidget(
                 self._build_rule_row(rule, last=index == len(rules) - 1)
@@ -419,22 +421,22 @@ class TrackedItemPicker(QWidget):
         item_names = tuple(rule.get("item_names") or ())
         for index, item_name in enumerate(item_names):
             if index:
-                plus = QLabel("+")
+                plus = l10n.localized(QLabel, '+')
                 plus.setObjectName("chipPlus")
                 items_layout.addWidget(plus)
             items_layout.addWidget(_item_chip(item_name))
         layout.addWidget(items, 1)
 
         mode = str(rule.get("mode") or MODE_ALL_RUN)
-        badge = QLabel(MODE_CAPTIONS.get(mode, MODE_CAPTIONS[MODE_ALL_RUN]))
+        badge = l10n.localized(QLabel, l10n.term(MODE_CAPTIONS.get(mode, MODE_CAPTIONS[MODE_ALL_RUN])))
         badge.setObjectName("condBadge" if mode == MODE_MAP_ONE else "condBadgeMuted")
         layout.addWidget(badge)
 
-        remove = QPushButton("✕")
+        remove = l10n.localized(QPushButton, '✕')
         remove.setObjectName("chipRemove")
         remove.setFixedSize(20, 20)
         remove.setCursor(Qt.PointingHandCursor)
-        remove.setToolTip("Remove this rule")
+        l10n.display(remove, 'setToolTip', l10n.tr('Remove this rule'))
         remove.clicked.connect(
             lambda _checked=False, rule_id=str(rule.get("id") or ""): self.remove_rule(rule_id)
         )
@@ -456,10 +458,7 @@ class TrackedItemPicker(QWidget):
         self._on_pick(item_name)
 
     def set_hint(self, target_caption: str) -> None:
-        self._hint.setText(
-            f"Counts item pickups for <b>{target_caption}</b>. "
-            "<b>Map 1</b> counts only what was found on the first map."
-        )
+        l10n.display(self._hint, 'setText', l10n.tr('Counts item pickups for <b>{p0}</b>. <b>Map 1</b> counts only what was found on the first map.', p0=target_caption))
 
     def reset(self) -> None:
         """Drop the selection and re-read the rules.
@@ -509,18 +508,9 @@ class TrackedItemsDialog(QDialog):
         self._targets = TARGETS
         self._target = TARGETS_BY_KEY.get(target_key, TARGETS[0])
 
-        self.setWindowTitle("Tracked Items")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Tracked Items'))
 
-        layout = dialog_body(
-            self,
-            title="Tracked Items",
-            subtitle=(
-                "Session Stats keeps the list; the OBS overlay and !session "
-                "each keep their own or mirror it."
-            ),
-            width=DIALOG_WIDE,
-            height=DIALOG_TALL,
-        )
+        layout = dialog_body(self, title=l10n.tr('Tracked Items'), subtitle=l10n.tr('Session Stats keeps the list; the OBS overlay and !session each keep their own or mirror it.'), width=DIALOG_WIDE, height=DIALOG_TALL)
 
         # Captions carry no counts, deliberately: `SegmentedToggle` is built on
         # its captions never changing -- that is what keeps the control one
@@ -549,7 +539,7 @@ class TrackedItemsDialog(QDialog):
         source_layout.setContentsMargins(0, 0, 0, 0)
         source_layout.setSpacing(10)
         source_layout.addWidget(self._source_toggle)
-        self._summary = QLabel("")
+        self._summary = l10n.localized(QLabel, '')
         self._summary.setObjectName("dialogHint")
         source_layout.addWidget(self._summary, 1)
         layout.addWidget(self._source_row)
@@ -575,9 +565,9 @@ class TrackedItemsDialog(QDialog):
         # Behind a confirmation, and the shared footer is what keeps it away
         # from Close. The two dialogs this replaces both wiped every rule on one
         # click of a button sitting next to the dismiss button.
-        self._clear_btn = QPushButton("Remove all")
+        self._clear_btn = l10n.localized(QPushButton, l10n.tr('Remove all'))
         self._clear_btn.clicked.connect(lambda _checked=False: self._confirm_clear())
-        close_btn = QPushButton("Close")
+        close_btn = l10n.localized(QPushButton, l10n.tr('Close'))
         close_btn.clicked.connect(self.accept)
         dialog_footer(self, secondary=close_btn, destructive=self._clear_btn)
 
@@ -595,9 +585,9 @@ class TrackedItemsDialog(QDialog):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(12, 12, 12, 12)
         card_layout.setSpacing(10)
-        card_layout.addWidget(_eyebrow("Mirrored from Session Stats"))
+        card_layout.addWidget(_eyebrow(l10n.tr('Mirrored from Session Stats')))
 
-        self._mirror_note = QLabel("")
+        self._mirror_note = l10n.localized(QLabel, '')
         self._mirror_note.setObjectName("dialogHint")
         self._mirror_note.setWordWrap(True)
         card_layout.addWidget(self._mirror_note)
@@ -607,11 +597,11 @@ class TrackedItemsDialog(QDialog):
         self._mirror_rules.setSpacing(0)
         card_layout.addLayout(self._mirror_rules)
 
-        self._mirror_empty = QLabel("Session Stats tracks nothing yet")
+        self._mirror_empty = l10n.localized(QLabel, l10n.tr('Session Stats tracks nothing yet'))
         self._mirror_empty.setObjectName("tableEmpty")
         card_layout.addWidget(self._mirror_empty)
 
-        edit = QPushButton("Edit the Session Stats list")
+        edit = l10n.localized(QPushButton, l10n.tr('Edit the Session Stats list'))
         # A way through rather than a dead end: the greyed-out editor this
         # replaces left the reader with nowhere to go.
         edit.clicked.connect(lambda _checked=False: self._on_target("session"))
@@ -654,17 +644,17 @@ class TrackedItemsDialog(QDialog):
         try:
             change()
         except TrackedItemPublishError as exc:
-            title = "Saved with warnings"
+            title = l10n.tr('Saved with warnings')
             message = str(exc) or "Live views could not all be refreshed."
         except Exception as exc:
-            title = "Changes were not saved"
+            title = l10n.tr('Changes were not saved')
             message = str(exc) or type(exc).__name__
 
         try:
             self._refresh()
         except Exception as exc:
             if not message:
-                title = "Tracked Items could not refresh"
+                title = l10n.tr('Tracked Items could not refresh')
                 message = str(exc) or type(exc).__name__
 
         if message:
@@ -675,7 +665,7 @@ class TrackedItemsDialog(QDialog):
     def _show_status(self, title: str, message: str) -> None:
         safe_title = escape(str(title))
         safe_message = escape(str(message)).replace("\n", "<br>")
-        self._status_label.setText(f"<b>{safe_title}</b><br>{safe_message}")
+        l10n.display(self._status_label, 'setText', f'<b>{safe_title}</b><br>{safe_message}')
         self._status_card.show()
 
     def _clear_status(self) -> None:
@@ -683,14 +673,7 @@ class TrackedItemsDialog(QDialog):
         self._status_card.hide()
 
     def _confirm_clear(self) -> None:
-        confirmed = QMessageBox.question(
-            self,
-            "Remove all tracked items?",
-            f"Every rule in the {self._target.caption} list will be removed. "
-            "This cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        confirmed = QMessageBox.question(self, l10n.tr('Remove all tracked items?'), l10n.tr('Every rule in the {p0} list will be removed. This cannot be undone.', p0=self._target.caption), QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if confirmed != QMessageBox.Yes:
             return
         try:
@@ -717,16 +700,10 @@ class TrackedItemsDialog(QDialog):
         own = len(self._settings.rules(self._target))
         session = len(self._settings.rules(self._targets[0]))
         if mirroring:
-            self._summary.setText(
-                f"{self._target.caption} shows the Session Stats list "
-                f"({_rules(session)}). Its own {_rules(own)} stay saved."
-            )
-            self._mirror_note.setText(
-                f"{self._target.caption} counts these. Switch to "
-                f"<b>Own list</b> to give it a list of its own."
-            )
+            l10n.display(self._summary, 'setText', l10n.tr('{p0} shows the Session Stats list ({p1}). Its own {p2} stay saved.', p0=self._target.caption, p1=_rules(session), p2=_rules(own)))
+            l10n.display(self._mirror_note, 'setText', l10n.tr('{p0} counts these. Switch to <b>Own list</b> to give it a list of its own.', p0=self._target.caption))
         else:
-            self._summary.setText(f"{self._target.caption} keeps {_rules(own)}.")
+            l10n.display(self._summary, 'setText', l10n.tr('{p0} keeps {p1}.', p0=self._target.caption, p1=_rules(own)))
 
         self._picker.refresh_rules()
         self._refresh_mirror_rules()
@@ -784,11 +761,7 @@ def show_tracked_items_dialog(
         return True
     except Exception as exc:
         try:
-            QMessageBox.warning(
-                parent,
-                "Tracked Items Error",
-                str(exc) or "Tracked Items could not be opened.",
-            )
+            QMessageBox.warning(parent, l10n.tr('Tracked Items Error'), str(exc) or 'Tracked Items could not be opened.')
         except Exception:
             pass
         return False
@@ -817,14 +790,14 @@ def _mirror_row(rule, *, last: bool) -> QWidget:
     items_layout = FlowLayout(items, margin=0, spacing=5)
     for index, item_name in enumerate(tuple(rule.get("item_names") or ())):
         if index:
-            plus = QLabel("+")
+            plus = l10n.localized(QLabel, '+')
             plus.setObjectName("chipPlus")
             items_layout.addWidget(plus)
         items_layout.addWidget(_item_chip(item_name))
     layout.addWidget(items, 1)
 
     mode = str(rule.get("mode") or MODE_ALL_RUN)
-    badge = QLabel(MODE_CAPTIONS.get(mode, MODE_CAPTIONS[MODE_ALL_RUN]))
+    badge = l10n.localized(QLabel, l10n.term(MODE_CAPTIONS.get(mode, MODE_CAPTIONS[MODE_ALL_RUN])))
     badge.setObjectName("condBadge" if mode == MODE_MAP_ONE else "condBadgeMuted")
     layout.addWidget(badge)
     return row
@@ -840,13 +813,13 @@ def _card() -> QFrame:
 
 
 def _eyebrow(text: str) -> QLabel:
-    label = QLabel(text.upper())
+    label = l10n.localized(QLabel, l10n.transform(l10n.term(text), str.upper))
     label.setObjectName("kpiLabel")
     return label
 
 
 def _item_chip(item_name: str) -> QLabel:
-    chip = QLabel(tracked_item_display_name(item_name))
+    chip = l10n.localized(QLabel, l10n.game('items', tracked_item_display_name(item_name)))
     chip.setObjectName("pickedChip")
     chip.setStyleSheet(_chip_stylesheet(tracked_item_color(item_name)))
     return chip

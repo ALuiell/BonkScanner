@@ -1,6 +1,8 @@
 """Halloween Support art; bounded paints and a monotonic, pausable timeline."""
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import math
 import time
 
@@ -148,7 +150,7 @@ class _SpiderPlaque(QWidget):
             self.resize(296, 124)
             self.raster = QPixmap()
             self.raster_key = None
-            self.action = QPushButton("Support", self)
+            self.action = l10n.localized(QPushButton, l10n.tr('Support'), self)
             self.action.setCursor(Qt.PointingHandCursor)
             self.action.setFocusPolicy(Qt.NoFocus)
             self.action.setGeometry(178, 66, 100, 42)
@@ -160,10 +162,10 @@ class _SpiderPlaque(QWidget):
                 "border-radius:8px;font-weight:600;padding:0;min-height:0;min-width:0}"
                 "QPushButton:hover {background:#ab78c6}", colors
             ))
-            self.close_button = QPushButton("×", self)
+            self.close_button = l10n.localized(QPushButton, '×', self)
             self.close_button.setGeometry(263, 8, 26, 26)
-            self.close_button.setAccessibleName("Dismiss Support message")
-            self.close_button.setToolTip("Close")
+            l10n.display(self.close_button, 'setAccessibleName', l10n.tr('Dismiss Support message'))
+            l10n.display(self.close_button, 'setToolTip', l10n.tr('Close'))
             self.close_button.setFocusPolicy(Qt.NoFocus)
             self.close_button.clicked.connect(controller.dismiss)
             self.close_button.setStyleSheet(remap_colors(
@@ -182,14 +184,7 @@ class _SpiderPlaque(QWidget):
         p.setPen(QPen(self.controller.package.color("#8861ac"), 1.2))
         p.drawRoundedRect(QRectF(1, 1, self.width() - 2, 122), 15, 15)
         thanks = self.controller.thank_you
-        for text, rect, size, weight, color in (
-            ("Thank you for your support!" if thanks else "Support BonkScanner",
-             QRectF(15, 12, self.width() - 51, 26), 10, QFont.Bold, "#e4caff"),
-            ("You help make every update possible." if thanks else "Keep the updates coming.",
-             QRectF(15, 40, self.width() - 30, 24), 9, QFont.Normal, "#c3b5ce"),
-            ("Enjoy your Premium features." if thanks else "Thank you for your support!",
-             QRectF(15, 77, self.width() - 30 if thanks else 156, 22), 8, QFont.Normal, "#aa83cf"),
-        ):
+        for text, rect, size, weight, color in ((l10n.tr('Thank you for your support!') if thanks else l10n.tr('Support BonkScanner'), QRectF(15, 12, self.width() - 51, 26), 10, QFont.Bold, '#e4caff'), (l10n.tr('You help make every update possible.') if thanks else l10n.tr('Keep the updates coming.'), QRectF(15, 40, self.width() - 30, 24), 9, QFont.Normal, '#c3b5ce'), (l10n.tr('Enjoy your Premium features.') if thanks else l10n.tr('Thank you for your support!'), QRectF(15, 77, self.width() - 30 if thanks else 156, 22), 8, QFont.Normal, '#aa83cf')):
             p.setFont(QFont("Segoe UI", size, weight))
             p.setPen(self.controller.package.color(color))
             p.drawText(rect, Qt.AlignVCenter, text)
@@ -273,7 +268,7 @@ class SpiderSupport(QObject):
         self.thank_you = thank_you
         self.art.set_thank_you(thank_you)
         self.plaque.action.setVisible(not thank_you)
-        self.plaque.setAccessibleName("Thank you for your support" if thank_you else "Support BonkScanner")
+        l10n.display(self.plaque, 'setAccessibleName', l10n.tr('Thank you for your support') if thank_you else l10n.tr('Support BonkScanner'))
         self.running = True
         self.elapsed = 0.0
         self._last = time.monotonic()

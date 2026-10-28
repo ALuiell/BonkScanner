@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 
-from core.localization import Translator
+from core.localization import Translator, FOLLOW_INTERFACE_LANGUAGE
 from infra.paths import source_path
 
 
@@ -13,7 +13,7 @@ def localization_directory() -> Path:
     return Path(getattr(sys, "_MEIPASS", source_path())) / "media" / "localization"
 
 
-def create_translator(*, language="en", directory: Path | None = None) -> Translator:
+def create_translator(*, language="en", game_language=FOLLOW_INTERFACE_LANGUAGE, directory: Path | None = None) -> Translator:
     root = directory if directory is not None else localization_directory()
 
     def read(relative: str):
@@ -24,4 +24,5 @@ def create_translator(*, language="en", directory: Path | None = None) -> Transl
         load_game=lambda locale: read(f"game/{locale}.json"),
         aliases=read("game_aliases.json"),
         language=language,
+        game_language=game_language,
     )

@@ -1,0 +1,164 @@
+BonkScanner — Aide rapide
+=========================
+
+Démarrage rapide
+----------------
+1. Lancez MegaBonk et attendez le chargement complet de la scène souhaitée.
+2. Ouvrez BonkScanner et choisissez `Modèles` ou `Scores` à gauche.
+3. Configurez les modèles ou niveaux de score actifs.
+4. Cliquez sur `Démarrer`. Le raccourci d’analyse permet aussi de lancer ou suspendre la recherche depuis le jeu.
+5. Lorsqu’une carte remplit les conditions, la recherche s’arrête et le résultat apparaît dans le `Journal`.
+
+Les statistiques, les enregistrements et les surimpressions fonctionnent indépendamment de la boucle de recherche.
+
+Langue de l’interface
+---------------------
+Dans `Paramètres → Général`, choisissez English, Українська, Русский, Français, Español, Deutsch ou Português, puis enregistrez. Le changement s’applique à l’interface, aux widgets en jeu et à OBS. Annuler abandonne le choix non enregistré. Les noms personnalisés, les textes de commandes et les identifiants techniques sont conservés. Les noms des objets du jeu proviennent des traductions de MegaBonk ; un terme absent utilise la version anglaise.
+
+Le même onglet propose un choix distinct, `Terminologie du jeu`, pour les noms des objets, des armes et des statistiques dans le scanner et les surimpressions. Les noms du jeu sont en anglais par défaut. Choisissez `Comme l’interface` pour qu’ils suivent la langue de l’interface. Vous pouvez ainsi utiliser une interface française avec les noms du jeu en anglais. Les deux choix s’appliquent après enregistrement et ne modifient pas la langue de MegaBonk. Les noms anglais conservent les abréviations de statistiques existantes lorsqu’elles sont activées.
+
+Modes de recherche
+------------------
+- `Modèles` applique des conditions strictes : nombre de Types louches, Moaïs, micro-ondes, malédictions de boss et autres objets de carte. Les minimums et maximums sont obligatoires.
+- `Scores` calcule une note avec les poids des objets et les bonus de carte. Un poids positif ajoute des points, zéro ignore l’objet et un poids négatif retire des points. D’autres points peuvent compenser cette pénalité.
+- L’onglet gauche actif détermine le mode. Les modèles et niveaux actifs peuvent être modifiés pendant la recherche ; les filtres sont appliqués immédiatement.
+
+Réinitialisations
+-----------------
+- Le redémarrage au clavier reste la méthode standard. BonkScanner envoie la touche configurée pour relancer une partie.
+- En cas de réinitialisations manquées, augmentez le maintien supplémentaire dans `Paramètres → Redémarrage → Avancé`, enregistrez et essayez plusieurs réinitialisations. Cela allonge le maintien sans modifier le seuil du jeu actuel ou prévu.
+- BonkScanner attend que la carte et les lectures mémoire soient prêtes. Une courte pause après la réinitialisation est donc normale.
+- L’option d’arrêt lorsque le joueur se déplace suspend immédiatement la recherche avec W, A, S, D ou Espace. Elle agit uniquement pendant la recherche automatique, lorsque MegaBonk est au premier plan.
+- Dans la Forêt ou le Désert après la première étape, le raccourci d’analyse laisse la recherche automatique désactivée et affiche un avertissement. La première étape, le Cimetière et la touche R manuelle du jeu restent utilisables.
+
+Principaux onglets
+------------------
+- `Journal` : messages, avertissements, erreurs, filtres et recherche. Les détails techniques peuvent rester dans leur langue d’origine.
+- `Statistiques de session` : durée, réinitialisations, graines trouvées, cadence, meilleurs et moins bons résultats, compteurs d’objets suivis.
+- `Statistiques en direct` : données de la partie en cours et commandes d’enregistrement.
+- `Enregistrements` : consultation, renommage, suppression et nettoyage des parties enregistrées.
+- `Comparaison des parties` : deux enregistrements synchronisés avec leurs écarts.
+- `Surimpression OBS`, `Bot Twitch` et `Surimpression en jeu` : diffusion et widgets.
+
+Statistiques en direct
+----------------------
+L’onglet affiche les caractéristiques du joueur, les objets passifs triés par rareté, les coffres par minute, le temps de jeu, les éliminations, le niveau, le récapitulatif des étapes, les bonus temporaires et les bannissements.
+
+Les sous-onglets regroupent les caractéristiques, le butin, les armes, les tomes, le Tome du Chaos, le Sanctuaire de Recharge, les capacités passives, les sources de dégâts et la progression du build.
+
+Pour les armes, la valeur propre à l’arme figure sous `Arme`, puis la valeur incluant les caractéristiques globales sous `Avec bonus globaux`, séparées par `/`. Un tiret indique une valeur indisponible ou un calcul non pris en charge. Les tomes montrent leurs niveaux et effets actifs. Le chaos et les sanctuaires affichent les bonus déduits des tirages suivis. Les capacités passives affichent uniquement ce que le suivi permet de confirmer.
+
+Les bonus temporaires incluent Rage, Bouclier, Stonks et Horloge, avec leurs heures d’obtention et d’expiration. Certains compteurs attendent le début d’une nouvelle partie si BonkScanner a été ouvert trop tard. Une absence momentanée de données pendant le chargement ne signifie pas nécessairement une erreur.
+
+Enregistrement et consultation
+-----------------------------
+- Démarrez un enregistrement depuis les statistiques en direct ou avec son raccourci. L’intervalle des instantanés se règle dans les paramètres.
+- Dans `Enregistrements`, déplacez la tête de lecture pour examiner caractéristiques, objets, armes, tomes, chaos, passifs, dégâts, étapes et bannissements à un instant donné.
+- Définissez un début de comparaison, puis sélectionnez un instantané ultérieur pour voir les objets obtenus, cassés ou perdus.
+- Vous pouvez renommer, supprimer ou nettoyer les enregistrements courts selon leur nombre d’instantanés. Une capture en cours ne peut être ni renommée ni supprimée.
+- Un enregistrement actif est signalé comme en cours et se met à jour sans rouvrir le fichier. La synchronisation automatique est activée lors de sa sélection.
+- Revenir en arrière désactive le suivi de la position actuelle mais conserve la synchronisation : la chronologie peut s’allonger sans déplacer votre position historique. `Suivre la partie` revient au dernier instantané.
+- Si la synchronisation automatique est désactivée, le bouton de synchronisation indique le nombre de nouveaux instantanés et applique la dernière révision en une fois.
+
+Un changement d’étape normal ne crée pas un autre fichier. Une véritable nouvelle partie peut poursuivre l’enregistrement dans un nouveau fichier. Si la graine disparaît durablement, l’enregistrement peut s’arrêter. Les anciens fichiers restent lisibles même s’ils ne contiennent pas les armes, les tomes, les bannissements ou les capacités passives.
+
+Comparaison des parties
+-----------------------
+Sélectionnez une partie A et une partie B. Lors de la première ouverture sans sélection, le sélecteur s’ouvre automatiquement et se ferme après le choix des deux parties.
+
+La comparaison aligne les instantanés sur le temps de jeu le plus proche. Le panneau central présente les écarts généraux et les détails des caractéristiques, étapes, objets, armes, tomes, chaos, sanctuaires et passifs. Les paramètres de comparaison permettent de choisir les caractéristiques et sections visibles.
+
+Les passifs comparent le personnage, sa capacité, son niveau, la couverture du suivi, les tirages confirmés et les bonus accumulés. Les anciens enregistrements sans ces données l’indiquent explicitement.
+
+Chaque côté peut être un enregistrement en cours. La synchronisation met à jour uniquement ce côté. Le suivi de la partie aligne l’autre côté sur le temps absolu du jeu ; un déplacement manuel conserve le moment historique choisi.
+
+Progression du build
+--------------------
+Ouvrez la bibliothèque depuis les statistiques en direct. Créez, modifiez, dupliquez, importez ou exportez des builds. Un seul est actif à la fois ; modifier un autre build ne l’active pas.
+
+Ajoutez des objectifs d’objets, de caractéristiques ou de progression. Le minimum est la première cible. Les objets peuvent avoir un maximum ; les caractéristiques, une valeur idéale. Après le minimum, le suivi poursuit cette seconde cible. Certains objets de rayon proposent un plafond automatique calculé à partir de la taille capturée. Un tiret signifie que ce plafond n’est pas encore calculable.
+
+Les délais s’appliquent au premier instant où le minimum est atteint. Une condition « avant l’étape » doit être remplie avant son début. Le temps supplémentaire est compté après le minuteur principal de l’étape. Atteindre le maximum ou la valeur idéale plus tard ne rend pas un minimum ponctuel en retard. Un retard déjà constaté reste visible.
+
+Les contrôles de visibilité des lignes terminées et de leur nombre sont indépendants dans OBS et dans la surimpression en jeu. La définition reste enregistrée entre les parties ; les états et heures d’achèvement sont réinitialisés à chaque nouvelle partie.
+
+Surimpression OBS
+-----------------
+- Activez le serveur OBS et copiez son URL locale dans une source navigateur OBS.
+- L’adresse ressemble à `http://127.0.0.1:17845/overlay`. `127.0.0.1` désigne ce PC, `17845` le port et `/overlay` la page. Le serveur est accessible uniquement depuis ce PC.
+- Si une autre application utilise le port, changez-le et mettez à jour l’URL dans OBS.
+- L’enregistrement `.jsonl` n’est pas nécessaire : les widgets utilisent les lectures en direct.
+- Choisissez les widgets : étapes, objets suivis, caractéristiques, éliminations par seconde, bannissements, rareté, progression du build et suivi des armes.
+- Le suivi des armes possède des réglages distincts pour l’apparence, les plafonds et les valeurs affichées. Les plafonds utilisent le même format compact que les widgets en jeu.
+- Les éliminations par seconde peuvent afficher la valeur actuelle, la moyenne sur 60 s, sur 5 min ou sur toute la partie.
+- Les objets suivis utilisent leur propre liste par défaut. L’option de liste commune avec les statistiques de session conserve votre liste dédiée. Un objet peut compter uniquement sur la première carte ou sur toute la partie.
+- Chaque widget possède aussi une URL distincte, par exemple `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, `/overlay/stage_summary`, `/overlay/kps`, `/overlay/luck_rarity`, `/overlay/build_progression` ou `/overlay/weapon_tracker`.
+
+Ouvrez l’éditeur de disposition ou ajoutez `?edit=true` à l’URL. Faites glisser les widgets ; les positions sont enregistrées automatiquement. Réglez le canevas à la résolution voulue, par défaut 1920×1080, et utilisez exactement la même largeur et hauteur dans la source navigateur OBS.
+
+Au survol d’un widget, la barre d’échelle permet d’utiliser +, − ou un pourcentage saisi. La poignée en bas à droite modifie largeur et hauteur. Les caractéristiques et bannissements se répartissent en colonnes lorsque la largeur augmente. L’image du jeu sert de repère ; la sortie normale reste transparente.
+
+Après une mise à jour ou un changement de disposition, ouvrez les propriétés de la source navigateur OBS et actualisez le cache de la page actuelle pour éviter une ancienne version.
+
+Surimpression en jeu
+-------------------
+Cette fenêtre transparente affiche les données directement au-dessus de MegaBonk. Activez-la dans son onglet ou autorisez son démarrage automatique.
+
+Le raccourci d’édition, F9 par défaut, ou le bouton d’édition ouvre le mode de disposition. Déplacez les widgets au-dessus du jeu. Enregistrer, Échap ou F9 quitte ce mode et conserve les positions. Les paramètres des widgets règlent leur échelle de 0,5 à 3,0.
+
+Widgets disponibles : état du scanner, état de l’enregistrement, éliminations par seconde, bonus temporaires et minuteries, chances de rareté, caractéristiques, événements de carte, délais des objets pris en charge et progression du build.
+
+Les marqueurs de carte constituent une couche distincte sur la carte complète du jeu. Les raccourcis servent au placement manuel ; la détection automatique des objets pris en charge est facultative. Les micro-ondes détectés peuvent afficher leurs utilisations restantes. Les options Premium peuvent ajouter des marqueurs de minicarte et la mémorisation du stock du Type louche.
+
+La surimpression se masque lorsque le jeu perd le premier plan et réapparaît à son retour.
+
+Bot Twitch
+----------
+1. Ouvrez `Bot Twitch` et connectez votre compte. L’autorisation se déroule dans le navigateur via le service OAuth officiel de Twitch.
+2. Choisissez le canal de destination, les utilisateurs autorisés, les délais, les commandes et les annonces.
+3. Démarrez le bot. Par défaut, il rejoint le canal du compte autorisé ; avec un compte de bot distinct, indiquez le canal du streamer.
+
+Les paramètres des commandes regroupent les alias, modèles de réponse, balises disponibles et options associées. Enregistrer applique les changements ; Annuler les abandonne. Les textes personnalisés restent tels que vous les avez écrits. Pour `!session`, la liste des statistiques de session est utilisée par défaut ; désactivez cette option pour gérer une liste Twitch indépendante.
+
+Commandes disponibles :
+- `!stats` / `!bonkstats` : caractéristiques du personnage.
+- `!session` : réinitialisations, graines, cadence et compteurs d’objets de la session.
+- `!bans` / `!banishes` : objets bannis.
+- `!disabled` : objets désactivés sélectionnés. Le jeu expose les objets réellement désactivés seulement après le début d’une partie ; utilisez l’affichage de tous les objets pour préparer la sélection depuis le menu.
+- `!items` / `!tracked` : objets obtenus, triés par rareté et regroupés si nécessaire pour respecter la limite Twitch.
+- `!weapons` et `!tomes` : armes améliorées et effets des tomes ; le Tome du Chaos affiche son niveau.
+- `!chaos` / `!chaostome`, `!dice`, `!shrines` : bonus suivis du chaos, de Gamba et des sanctuaires de recharge.
+- `!kps`, `!stages`, `!powerups` : cadence d’élimination, récapitulatif des étapes et bonus temporaires.
+- `!build`, `!luck`, `!chests` / `!chest`, `!presets` / `!preset` : build, rareté, coffres et préréglages.
+- `!bonkhelp` : commandes actives ; alias `!bonkcmds`, `!bonkcommands`, `!bhelp`.
+- `!scanner` : informations sur BonkScanner et lien de téléchargement.
+
+Les annonces peuvent signaler les changements d’étape, rappeler les commandes et annoncer l’Anneau Doré. L’annonce de l’anneau est désactivée par défaut. Le premier exemplaire observé et les suivants utilisent des listes de phrases distinctes et modifiables. Une connexion en cours de partie n’annonce pas un anneau déjà présent dans l’inventaire.
+
+Paramètres, données et mises à jour
+----------------------------------
+Les raccourcis contrôlent l’analyse, le redémarrage, l’enregistrement et la disposition en jeu. Le démarrage automatique de l’enregistrement s’active lorsqu’une partie est détectée. Le démarrage automatique de la surimpression se règle dans son propre onglet.
+
+L’apparence propose Original et Halloween, tous deux gratuits. Un nouveau profil utilise Halloween ; un choix antérieur est conservé. Enregistrer applique immédiatement le style, Annuler abandonne la modification. Le style du bureau ne modifie pas l’apparence d’OBS ou des widgets en jeu, et ne change pas automatiquement selon la date.
+
+Dans Halloween, les animations du bandeau et de la toile sont coordonnées. Elles se suspendent quand l’application est inactive ou réduite. Les messages de soutien laissent huit secondes de lecture après leur arrivée. Les utilisateurs Premium reçoivent un remerciement au plus une fois par période de 24 heures ; le délai reste enregistré entre les redémarrages et changements d’apparence.
+
+Les paramètres de redémarrage affichent la valeur `quick_reset_time` du fichier enregistré du jeu, pas celle déjà chargée en mémoire. Le maintien de touche doit couvrir ce seuil plus la marge supplémentaire. La marge vaut 0,05 s par défaut, avec une plage de 0,00 à 1,00 s. Le maintien minimal sélectionnable est de 0,01 s plus la marge. Une marge nulle ou un maintien trop court peut provoquer des réinitialisations manquées.
+
+Les valeurs recommandées sont : jeu 0,01 s + marge 0,05 s = maintien 0,06 s. Le bouton demande confirmation et ne sauvegarde que ces réglages ; les autres modifications restent non enregistrées. Une nouvelle installation tente cette configuration lorsque le jeu est fermé ; les utilisateurs existants conservent leurs réglages. En cas de blocage, fermez le jeu et réessayez avec ce bouton. Un enregistrement manuel du réglage annule la configuration initiale en attente.
+
+Une indication bleue précède les modifications de temps. Ensuite, vert signifie prêt ou enregistré, jaune annonce une modification du fichier du jeu et rouge signale une valeur incorrecte ou un échec. Les valeurs incorrectes restent visibles. L’enregistrement est bloqué tant qu’elles ne sont pas valides et, si nécessaire, tant que MegaBonk reste ouvert.
+
+Si le maintien couvre déjà le seuil et la marge, seul BonkScanner change et le jeu peut rester ouvert. Abaisser le seuil du fichier exige de fermer le jeu ; il le relira au lancement suivant. Les fichiers modifiés sont vérifiés. En cas d’échec, la fenêtre reste ouverte et précise si les fichiers précédents ont été restaurés. Les réglages sans rapport ne modifient pas les temps de réinitialisation.
+
+Avant la recherche automatique, le seuil est vérifié à nouveau. Un maintien trop court est augmenté automatiquement ; un maintien volontairement plus long est conservé. Les problèmes de lecture ou d’enregistrement apparaissent dans le journal.
+
+La page des données permet de changer leur dossier. Le transfert copie et vérifie les données au redémarrage, en conservant les originaux comme sauvegarde. Supprimer ensuite les anciennes données est une action distincte et définitive. Les paramètres principaux sont enregistrés dans `config.json`.
+
+La recherche de mises à jour propose les nouvelles versions lorsque le programme de mise à jour est disponible. La page de soutien permet d’activer, vérifier ou supprimer un accès Premium avec une clé personnelle.
+
+En cas de problème
+-----------------
+Commencez par le `Journal`. Des lectures mémoire manquantes pendant le chargement sont normales. Si un raccourci ne répond pas, vérifiez que le jeu est ouvert, au premier plan si nécessaire, et que BonkScanner s’y est connecté. Certains raccourcis Windows peuvent nécessiter des droits administrateur.
+
+Les filtres changent en direct ; il n’est généralement pas nécessaire de relancer la recherche pour les appliquer. Si la boucle semble bloquée après des changements importants, arrêtez-la puis redémarrez-la.

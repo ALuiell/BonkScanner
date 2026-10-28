@@ -1,3 +1,16 @@
+// Only presentation strings use this catalog. Widget IDs, routes and values stay stable.
+let uiCatalog = {};
+function t(source, values = {}) {
+  return String(uiCatalog.messages?.[source] ?? source).replace(/\{(\w+)\}/g,
+    (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
+}
+function gameName(category, source) {
+  return uiCatalog.game?.[category]?.[source] ?? source;
+}
+function knownTerm(source) {
+  return t(source);
+}
+
 const root = document.getElementById("overlay");
 let pollMs = 500;
 let canvasWidth = 1920;
@@ -148,26 +161,26 @@ function panel(title, body, classes = "", widget = null) {
 function renderWidget(widget, state) {
   switch (widget.id) {
     case "tracked_items":
-      return panel("Tracked Items", renderTrackedItems(state), "wide item-widget", widget);
+      return panel(t("Tracked Items"), renderTrackedItems(state), "wide item-widget", widget);
     case "stats":
-      return panel("Stats", renderStats(state, widget), "wide stats-widget", widget);
+      return panel(t("Stats"), renderStats(state, widget), "wide stats-widget", widget);
     case "kps":
-      return panel("KPS", renderKps(state, widget), "kps-widget", widget);
+      return panel(t("KPS"), renderKps(state, widget), "kps-widget", widget);
     case "stage_summary":
-      return panel("Stage Summary", renderStageSummary(state), "wide stage-summary-widget", widget);
+      return panel(t("Stage Summary"), renderStageSummary(state), "wide stage-summary-widget", widget);
     case "banishes":
-      return panel("Banishes", renderBanishes(state, widget), "wide banishes-widget", widget);
+      return panel(t("Banishes"), renderBanishes(state, widget), "wide banishes-widget", widget);
     case "luck_rarity":
-      return panel("Luck", renderLuckRarity(state), "wide luck-widget", widget);
+      return panel(t("Luck"), renderLuckRarity(state), "wide luck-widget", widget);
     case "build_progression":
       return panel(
-        "Build Progression",
+        t("Build Progression"),
         renderBuildProgression(state),
         "wide build-progress-widget",
         widget,
       );
     case "weapon_tracker":
-      return panel("Weapon Tracker", renderWeaponTracker(state, widget), "wide weapon-tracker-widget", widget);
+      return panel(t("Weapon Tracker"), renderWeaponTracker(state, widget), "wide weapon-tracker-widget", widget);
     default:
       return "";
   }
@@ -176,21 +189,21 @@ function renderWidget(widget, state) {
 function renderWeaponTracker(state, widget) {
   const payload = state.weapon_tracker || {};
   const selected = new Set(widget.selected_stats || ["damage", "projectile_count", "size"]);
-  if (!selected.size) return `<div class="muted">No Weapon Stats Selected</div>`;
-  if (!payload.available) return `<div class="muted">Waiting for Weapon Data</div>`;
+  if (!selected.size) return `<div class="muted">${escapeHtml(t("No Weapon Stats Selected"))}</div>`;
+  if (!payload.available) return `<div class="muted">${escapeHtml(t("Waiting for Weapon Data"))}</div>`;
   const rows = (payload.rows || []).map((row) => ({
     ...row, metrics: (row.metrics || []).filter((metric) => selected.has(metric.key)),
   })).filter((row) => row.metrics.length);
-  if (!rows.length) return `<div class="muted">No Matching Weapon Stats</div>`;
+  if (!rows.length) return `<div class="muted">${escapeHtml(t("No Matching Weapon Stats"))}</div>`;
   return rows.map((row) => {
     const metrics = row.metrics.map((metric) => {
       const displayValue = widget.show_caps
         ? (metric.display_value_with_cap || metric.display_value)
         : metric.display_value;
-      return `<div class="stat-row"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(displayValue)}</strong></div>`;
+      return `<div class="stat-row"><span>${escapeHtml(gameName("stats", metric.label))}</span><strong>${escapeHtml(String(displayValue).replace(/\((HC|SC)\)/g, (_m, cap) => `(${t(cap)})`))}</strong></div>`;
     }).join("");
     return `<div class="weapon-tracker-row ${widget.layout === "detailed" ? "detailed" : "compact"}">
-      <div class="weapon-tracker-name">${escapeHtml(row.name)} <span class="muted">Lv.${escapeHtml(row.level)}</span></div>
+      <div class="weapon-tracker-name">${escapeHtml(gameName("weapons", row.name))} <span class="muted">${escapeHtml(t("Lv.{level}", {level: row.level}))}</span></div>
       <div class="weapon-tracker-metrics">${metrics}</div></div>`;
   }).join("");
 }
@@ -203,23 +216,23 @@ function buildLabelColor(value) {
 function renderBuildProgression(state) {
   const build = state.build_progression || {};
   if (!build.configured) {
-    return `<div class="muted">Build not configured</div>`;
+    return `<div class="muted">${escapeHtml(t("Build not configured"))}</div>`;
   }
   if (!build.available) {
-    return `<div class="muted">Waiting for live run</div>`;
+    return `<div class="muted">${escapeHtml(t("Waiting for live run"))}</div>`;
   }
   if (build.complete) {
     if (build.late_complete) {
-      return `<div class="build-complete late">! BUILD COMPLETE <span>${escapeHtml(build.completion_time || "--:--")}</span></div>`;
+      return `<div class="build-complete late">! ${escapeHtml(t("BUILD COMPLETE"))} <span>${escapeHtml(build.completion_time || "--:--")}</span></div>`;
     }
-    return `<div class="build-complete">\u2713 BUILD COMPLETE <span>${escapeHtml(build.completion_time || "--:--")}</span></div>`;
+    return `<div class="build-complete">\u2713 ${escapeHtml(t("BUILD COMPLETE"))} <span>${escapeHtml(build.completion_time || "--:--")}</span></div>`;
   }
   const rows = Array.isArray(build.rows) ? build.rows : [];
   let lastKind = "";
-  const sectionLabels = { item: "ITEMS", stat: "STATS", progress: "PROGRESS" };
+  const sectionLabels = { item: t("ITEMS"), stat: t("STATS"), progress: t("PROGRESS") };
   const body = rows.map((row) => {
     const heading = build.show_section_headings && row.kind !== lastKind
-      ? `<div class="build-section">${sectionLabels[row.kind] || "PROGRESS"}</div>`
+      ? `<div class="build-section">${escapeHtml(sectionLabels[row.kind] || t("PROGRESS"))}</div>`
       : "";
     lastKind = row.kind;
     const lateClass = row.late ? " late" : "";
@@ -227,9 +240,9 @@ function renderBuildProgression(state) {
     const minMetClass = row.min_met && !row.complete ? " min-met" : "";
     return `${heading}<div class="build-row status-${escapeHtml(row.status)}${minMetClass}${lateClass}${banishedClass}">
     <span class="build-symbol">${escapeHtml(row.symbol)}</span>
-    <span class="build-label" style="color:${buildLabelColor(row.label_color)}">${escapeHtml(row.label)}</span>
+    <span class="build-label" style="color:${buildLabelColor(row.label_color)}">${escapeHtml(row.kind === "item" ? gameName("items", row.target || row.label) : row.kind === "stat" ? gameName("stats", row.target || row.label) : knownTerm(row.label))}</span>
     <strong>${escapeHtml(row.value)}</strong>
-    ${row.time ? `<span class="build-time">${escapeHtml(row.time)}</span>` : ""}
+    ${row.time ? `<span class="build-time">${escapeHtml(knownTerm(row.time))}</span>` : ""}
   </div>`;
   }).join("");
   return `<div class="build-head"><strong>${escapeHtml(build.name)}</strong><span>${escapeHtml(build.progress)}</span></div><div class="build-list">${body}</div>`;
@@ -241,9 +254,32 @@ function renderTrackedItems(state) {
     return `<div class="muted">--</div>`;
   }
   return `<div class="chip-strip">${rows.map((row) => {
-    const label = String(row.label || "").replace(/\s+map\s*1$/i, "");
+    const label = Array.isArray(row.item_names) && row.item_names.length
+      ? row.item_names.map(name => gameName("items", name)).join(" + ")
+      : gameName("items", String(row.label || "").replace(/\s+map\s*1$/i, ""));
     return `<div class="counter-chip"><span>${escapeHtml(label)}</span><strong>${formatNumber(row.count)}</strong></div>`;
   }).join("")}</div>`;
+}
+
+let statMeasureContext;
+const statLabelWidths = new Map();
+function statLabelWidth(labels) {
+  if (statMeasureContext === undefined) {
+    statMeasureContext = document.createElement("canvas").getContext?.("2d") || null;
+  }
+  if (!statMeasureContext || typeof window.getComputedStyle !== "function") {
+    return Math.max(60, ...labels.map(label => label.length * 8.8));
+  }
+  const font = `800 13px ${window.getComputedStyle(document.body).fontFamily}`;
+  statMeasureContext.font = font;
+  if (statLabelWidths.size > 512) statLabelWidths.clear();
+  return Math.max(60, ...labels.map(label => {
+    const key = `${font}\n${label}`;
+    if (!statLabelWidths.has(key)) {
+      statLabelWidths.set(key, Math.ceil(statMeasureContext.measureText(label).width) + 2);
+    }
+    return statLabelWidths.get(key);
+  }));
 }
 
 function renderStats(state, widget) {
@@ -252,9 +288,8 @@ function renderStats(state, widget) {
   if (!rows.length) {
     return `<div class="muted">--</div>`;
   }
-  const labels = rows.map((row) => String(row.display_label || row.label || ""));
-  const maxLen = Math.max(...labels.map((label) => label.length));
-  const labelWidth = Math.max(60, maxLen * 8.8);
+  const labels = rows.map((row) => gameName("stats", String(row.display_label || row.label || "")));
+  const labelWidth = statLabelWidth(labels);
   const style = `--stat-label-width: calc(${labelWidth}px * var(--scale));`;
   const body = rows.map((row, index) => `<div class="stat-row"><span>${escapeHtml(labels[index])}</span><strong>${escapeHtml(row.value || "--")}</strong></div>`).join("");
   return `<div class="stats-list" style="${style}">${body}</div>`;
@@ -270,10 +305,10 @@ function formatRate(value) {
 function renderKps(state, widget) {
   const kps = state.kps || {};
   const allMetrics = [
-    { label: "KPS", value: formatRate(kps.current) },
-    { label: "60s", value: formatRate(kps.minute_avg) },
-    { label: "5m", value: formatRate(kps.five_minute_avg) },
-    { label: "Run", value: formatRate(kps.run_avg) },
+    { label: t("KPS"), value: formatRate(kps.current) },
+    { label: t("60s"), value: formatRate(kps.minute_avg) },
+    { label: t("5m"), value: formatRate(kps.five_minute_avg) },
+    { label: t("Run"), value: formatRate(kps.run_avg) },
   ];
   const enabledMetricIds = Array.isArray(widget?.selected_kps_metrics) && widget.selected_kps_metrics.length
     ? new Set(widget.selected_kps_metrics)
@@ -282,7 +317,7 @@ function renderKps(state, widget) {
   const metrics = allMetrics.filter((_metric, index) => enabledMetricIds.has(metricIds[index]));
   return `<div class="kps-strip">${metrics.map((metric) => `
     <span class="kps-metric">
-      <span>${escapeHtml(metric.label)}</span>
+      <span>${escapeHtml(gameName("stats", metric.label))}</span>
       <strong>${escapeHtml(metric.value)}</strong>
     </span>
   `).join("")}</div>`;
@@ -297,7 +332,7 @@ function renderStageSummary(state) {
   if (!stageRows.length) {
     return `<div class="muted">--</div>`;
   }
-  const headers = ["Stage", "Time", "Kills", "Items"]
+  const headers = ["Stage", "Time", "Kills", "Items"].map(label => t(label))
     .map((label) => `<div class="stage-header">${escapeHtml(label)}</div>`)
     .join("");
   const body = stageRows.map((row, index) => {
@@ -320,7 +355,7 @@ function renderStageItems(items, rarityLabels = {}) {
   return `<span class="stage-item-counts">${raritySlots.map((rarity) => {
     const item = rowsByRarity.get(rarity);
     const count = Number(item?.count || 0);
-    const label = escapeHtml(String(item?.label || rarityLabels[rarity] || rarity));
+    const label = escapeHtml(String(gameName("rarities", rarityLabels[rarity] || item?.label || rarity)));
     const value = count > 0 ? formatNumber(count) : "--";
     const rarityClass = rarity.toLowerCase();
     return `<span class="stage-item-count ${rarityClass} ${count > 0 ? "active" : "empty"}" title="${label}">${value}</span>`;
@@ -351,7 +386,7 @@ function renderLuckRarity(state) {
   const bar = luck.show_bar ? renderLuckBar(tiers) : "";
   // Presence alone decides: a resolved status string always means "draw this
   // instead", whatever made the run unmeasurable. This side never learns that.
-  const statusMessage = luck.status_message ? String(luck.status_message) : "";
+  const statusMessage = luck.status_message ? t(String(luck.status_message)) : "";
   const expected = statusMessage
     ? `<div class="luck-expected-status muted">${escapeHtml(statusMessage)}</div>`
     : luck.show_expected
@@ -400,10 +435,10 @@ function renderBanishes(state, widget) {
   const rows = allRows.slice(0, maxRows);
   const remaining = Math.max(0, allRows.length - rows.length);
   if (!allRows.length) {
-    return `<div class="muted">No banishes yet</div>`;
+    return `<div class="muted">${escapeHtml(t("No banishes yet"))}</div>`;
   }
-  const more = remaining > 0 ? `<span class="item-chip more-chip">+${formatNumber(remaining)} more</span>` : "";
-  return `<div class="banish-list">${rows.map((item) => `<span class="item-chip banish-chip">${escapeHtml(item)}</span>`).join("")}${more}</div>`;
+  const more = remaining > 0 ? `<span class="item-chip more-chip">${escapeHtml(t("+{count} more", {count: formatNumber(remaining)}))}</span>` : "";
+  return `<div class="banish-list">${rows.map((item) => `<span class="item-chip banish-chip">${escapeHtml(gameName("items", item))}</span>`).join("")}${more}</div>`;
 }
 
 const isEditMode = new URLSearchParams(window.location.search).has("edit");
@@ -636,14 +671,14 @@ function showEditBanner() {
   banner.id = "edit-mode-banner";
   banner.className = "edit-banner";
   banner.innerHTML = `
-    <div class="edit-banner-title">Overlay Layout Editor</div>
-    <div class="edit-banner-text">Drag widgets to place them anywhere. Close this browser tab when done.</div>
+    <div class="edit-banner-title">${escapeHtml(t("Overlay Layout Editor"))}</div>
+    <div class="edit-banner-text">${escapeHtml(t("Drag widgets to place them anywhere. Close this browser tab when done."))}</div>
     <div class="edit-resolution-controls">
-      <label>Canvas Resolution:</label>
+      <label>${escapeHtml(t("Canvas Resolution:"))}</label>
       <input type="number" id="canvas-width-input" value="${canvasWidth}" min="400" max="7680" />
       <span>x</span>
       <input type="number" id="canvas-height-input" value="${canvasHeight}" min="300" max="4320" />
-      <button id="apply-resolution-btn">Apply</button>
+      <button id="apply-resolution-btn">${escapeHtml(t("Apply"))}</button>
     </div>
   `;
   document.body.appendChild(banner);
@@ -1041,6 +1076,11 @@ function syncEditModeWidgets(html, widgets) {
 }
 
 function render(state) {
+  const languageChanged = uiCatalog.language !== state.localization?.language
+    || uiCatalog.game_language !== state.localization?.game_language;
+  uiCatalog = state.localization || {};
+  document.documentElement.lang = uiCatalog.language || "en";
+  if (isEditMode && languageChanged) document.getElementById("edit-mode-banner")?.remove();
   pollMs = Number(state.poll_ms || pollMs);
   canvasWidth = Number(state.canvas_width || 1920);
   canvasHeight = Number(state.canvas_height || 1080);
@@ -1071,8 +1111,8 @@ function render(state) {
   const showStatusCard = (state.style || {}).show_status === true || !lastGoodState;
   const statusPanel = QUIET_STATUSES.has(status) || !showStatusCard
     ? ""
-    : panel("Status", `<div class="small-value">${escapeHtml(status.replaceAll("_", " "))}</div>`, "wide status-panel");
-  const missingWidgetPanel = requested && !widgets.length ? panel("Status", `<div class="small-value">widget unavailable</div>`, "wide status-panel") : "";
+    : panel(t("Status"), `<div class="small-value">${escapeHtml(t(status))}</div>`, "wide status-panel");
+  const missingWidgetPanel = requested && !widgets.length ? panel(t("Status"), `<div class="small-value">${escapeHtml(t("widget unavailable"))}</div>`, "wide status-panel") : "";
 
   let html = statusPanel + missingWidgetPanel;
 
@@ -1098,9 +1138,9 @@ function render(state) {
       
       const toolbarHtml = isEditMode ? `
         <div class="widget-toolbar">
-          <button class="widget-scale-btn dec-scale" title="Decrease Scale" data-id="${escapeHtml(widget.id)}">-</button>
+          <button class="widget-scale-btn dec-scale" title="${escapeHtml(t("Decrease Scale"))}" data-id="${escapeHtml(widget.id)}">-</button>
           <input type="text" class="widget-scale-input" value="${Math.round(wScale * 100)}%" data-id="${escapeHtml(widget.id)}" />
-          <button class="widget-scale-btn inc-scale" title="Increase Scale" data-id="${escapeHtml(widget.id)}">+</button>
+          <button class="widget-scale-btn inc-scale" title="${escapeHtml(t("Increase Scale"))}" data-id="${escapeHtml(widget.id)}">+</button>
         </div>
       ` : "";
 
@@ -1168,7 +1208,7 @@ async function refresh() {
     if (!hasRenderedOnce) {
       // Nothing has ever been drawn, so there is no frame to hold; this is the
       // only case that may still put a card in an empty root.
-      root.innerHTML = panel("Status", `<div class="small-value">overlay unavailable</div>`, "wide status-panel");
+      root.innerHTML = panel(t("Status"), `<div class="small-value">${escapeHtml(t("overlay unavailable"))}</div>`, "wide status-panel");
     } else if (consecutiveFetchFailures >= OVERLAY_FAILURE_GRACE_POLLS) {
       root.classList.add("overlay-degraded");
       if (!loggedDegraded) {

@@ -24,6 +24,8 @@ same reason: a `QWidget` with its own stylesheet is routed through
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
@@ -86,7 +88,7 @@ def _style(color: str, *, bold: bool = False, size: float | None = None) -> str:
 
 
 def _label(parent, color: str, *, bold: bool = False, size: float | None = None, align=None):
-    label = QLabel(parent)
+    label = l10n.localized(QLabel, parent)
     label.setStyleSheet(_style(color, bold=bold, size=size))
     if align is not None:
         label.setAlignment(align)
@@ -165,8 +167,8 @@ class _AxisRowView(QWidget):
         self._summary_color = RUN_A_TEXT
 
     def set_row(self, row) -> None:
-        self._name.setText(str(row.label))
-        self._summary.setText(str(row.summary))
+        l10n.display(self._name, 'setText', str(row.label))
+        l10n.display(self._summary, 'setText', str(row.summary))
         self._magnitude = float(row.magnitude)
         self._lead = str(row.lead)
         color = RUN_A_TEXT if self._lead == LEAD_A else RUN_B_TEXT
@@ -207,11 +209,11 @@ class _Card(QFrame):
         header_layout.setContentsMargins(12, 9, 12, 9)
         header_layout.setSpacing(9)
         self._title = _label(header, TEXT, bold=True, size=12.5)
-        self._title.setText(title.upper())
+        l10n.display(self._title, 'setText', l10n.transform(l10n.term(title), str.upper))
         self._hint = _label(
             header, SECONDARY, size=11.5, align=Qt.AlignRight | Qt.AlignVCenter
         )
-        self._hint.setText(hint)
+        l10n.display(self._hint, 'setText', hint)
         self._hint.setVisible(bool(hint))
         header_layout.addWidget(self._title)
         header_layout.addStretch(1)
@@ -249,9 +251,9 @@ class CompareRunsAxisView(_Card):
         legend_layout = QHBoxLayout(legend)
         legend_layout.setContentsMargins(0, 0, 0, 2)
         left = _label(legend, RUN_A_TEXT, bold=True, size=10.5)
-        left.setText("◀  A AHEAD")
+        l10n.display(left, 'setText', l10n.tr('◀  A AHEAD'))
         right = _label(legend, RUN_B_TEXT, bold=True, size=10.5, align=Qt.AlignRight | Qt.AlignVCenter)
-        right.setText("B AHEAD  ▶")
+        l10n.display(right, 'setText', l10n.tr('B AHEAD  ▶'))
         legend_layout.addWidget(left)
         legend_layout.addStretch(1)
         legend_layout.addWidget(right)
@@ -275,7 +277,7 @@ class CompareRunsAxisView(_Card):
         self._table = table
 
         rows = table.rows
-        self._empty.setText(str(table.empty_text))
+        l10n.display(self._empty, 'setText', str(table.empty_text))
         self._empty.setVisible(not rows and bool(table.empty_text))
         self._legend.setVisible(bool(rows))
         self._ensure_capacity(len(rows))
@@ -320,9 +322,9 @@ class _LuckTile(QFrame):
         self._value_size = 19.0
 
     def set_tile(self, label: str, value: str, detail: str, color: str, *, size: float = 19) -> None:
-        self._label.setText(label)
-        self._value.setText(value)
-        self._detail.setText(detail)
+        l10n.display(self._label, 'setText', label)
+        l10n.display(self._value, 'setText', value)
+        l10n.display(self._detail, 'setText', detail)
         self._detail.setVisible(bool(detail))
         if (color, size) != (self._value_color, self._value_size):
             self._value_color = color
@@ -351,7 +353,7 @@ class _RungView(QFrame):
         self._sides: list[dict] = []
         for side, color in (("A", RUN_A_TEXT), ("B", RUN_B_TEXT)):
             tag = _label(self, color, bold=True, size=10.5)
-            tag.setText(side)
+            l10n.display(tag, 'setText', side)
             tag.setFixedWidth(12)
             track = QWidget(self)
             track.setStyleSheet("background: transparent;")
@@ -368,7 +370,7 @@ class _RungView(QFrame):
         self._rarity_color = TEXT
 
     def set_rung(self, rung, color: str) -> None:
-        self._rarity.setText(str(rung.rarity))
+        l10n.display(self._rarity, 'setText', str(rung.rarity))
         if self._rarity_color != color:
             self._rarity_color = color
             self._rarity.setStyleSheet(_style(color, bold=True, size=11.5))
@@ -377,9 +379,7 @@ class _RungView(QFrame):
             (self._sides[1], rung.actual_b, rung.expected_b, rung.ratio_b),
         ):
             side["ratio"] = ratio
-            side["counts"].setText(
-                "not measured" if actual == "--" else f"{actual} / {expected}"
-            )
+            l10n.display(side['counts'], 'setText', l10n.tr('not measured') if actual == '--' else f'{actual} / {expected}')
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802 -- Qt's name
@@ -427,9 +427,9 @@ class _ChestCell(QFrame):
         self._value_a = _label(self, HEADING, size=13)
         self._value_b = _label(self, HEADING, size=13)
         tag_a = _label(self, RUN_A_TEXT, bold=True, size=11.5)
-        tag_a.setText("A")
+        l10n.display(tag_a, 'setText', 'A')
         tag_b = _label(self, RUN_B_TEXT, bold=True, size=11.5)
-        tag_b.setText("B")
+        l10n.display(tag_b, 'setText', 'B')
         values_layout.addWidget(tag_a)
         values_layout.addWidget(self._value_a)
         values_layout.addWidget(tag_b)
@@ -439,9 +439,9 @@ class _ChestCell(QFrame):
         layout.addWidget(values)
 
     def set_row(self, row) -> None:
-        self._label.setText(str(row.label))
-        self._value_a.setText(str(row.value_a))
-        self._value_b.setText(str(row.value_b))
+        l10n.display(self._label, 'setText', str(row.label))
+        l10n.display(self._value_a, 'setText', str(row.value_a))
+        l10n.display(self._value_b, 'setText', str(row.value_b))
 
     def paintEvent(self, event) -> None:  # noqa: N802 -- Qt's name
         painter = QPainter(self)
@@ -504,7 +504,7 @@ class CompareRunsLuckLootView(_Card):
             return
         self._payload = payload
 
-        self._notice.setText(payload.notice)
+        l10n.display(self._notice, 'setText', payload.notice)
         self._notice.setVisible(bool(payload.notice))
 
         self._tiles[0].set_tile(
@@ -602,18 +602,18 @@ class _HubTile(QFrame):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(2)
         self._where = _label(text, MUTED, bold=True, size=10)
-        self._where.setText(target.upper())
+        l10n.display(self._where, 'setText', l10n.transform(l10n.term(target), str.upper))
         self._fact = _label(text, TEXT, bold=True, size=12.5)
         text_layout.addWidget(self._where)
         text_layout.addWidget(self._fact)
         arrow = _label(self, "#5B9BDD", bold=True, size=13)
-        arrow.setText("→")
+        l10n.display(arrow, 'setText', '→')
         layout.addWidget(text, 1)
         layout.addWidget(arrow)
         self._hovered = False
 
     def set_fact(self, fact: str) -> None:
-        self._fact.setText(fact)
+        l10n.display(self._fact, 'setText', fact)
 
     def enterEvent(self, event) -> None:  # noqa: N802 -- Qt's name
         self._hovered = True

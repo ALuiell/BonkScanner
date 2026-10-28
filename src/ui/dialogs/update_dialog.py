@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import ctypes
 import re
 import sys
@@ -216,31 +218,24 @@ class UpdateDialog(QDialog):
         self._installer_launched = False
         self._dark_title_bar_applied = False
 
-        self.setWindowTitle("BonkScanner Update")
-        version_badge = QLabel(f"v{release.version}", self)
+        l10n.display(self, 'setWindowTitle', l10n.tr('BonkScanner Update'))
+        version_badge = l10n.localized(QLabel, f'v{release.version}', self)
         version_badge.setObjectName("UpdateVersionBadge")
         version_badge.setAlignment(Qt.AlignCenter)
-        layout = dialog_body(
-            self,
-            title="A new update is available",
-            subtitle="A verified update is ready to download.",
-            title_trailing=version_badge,
-            width=DIALOG_REGULAR,
-            height=540,
-        )
+        layout = dialog_body(self, title=l10n.tr('A new update is available'), subtitle=l10n.tr('A verified update is ready to download.'), title_trailing=version_badge, width=DIALOG_REGULAR, height=540)
 
         summary = QFrame(self)
         summary.setObjectName("UpdateSummaryCard")
         summary_row = QHBoxLayout(summary)
         summary_row.setContentsMargins(14, 11, 14, 11)
         summary_row.setSpacing(10)
-        current = QLabel(f"v{CURRENT_VERSION}", summary)
+        current = l10n.localized(QLabel, f'v{CURRENT_VERSION}', summary)
         current.setObjectName("UpdateVersionOld")
-        arrow = QLabel("→", summary)
+        arrow = l10n.localized(QLabel, '→', summary)
         arrow.setObjectName("UpdateVersionArrow")
-        latest = QLabel(f"v{release.version}", summary)
+        latest = l10n.localized(QLabel, f'v{release.version}', summary)
         latest.setObjectName("UpdateVersionNew")
-        verified = QLabel("✓ SHA-256 verified before restart", summary)
+        verified = l10n.localized(QLabel, l10n.tr('✓ SHA-256 verified before restart'), summary)
         verified.setObjectName("UpdateTrustNote")
         summary_row.addWidget(current)
         summary_row.addWidget(arrow)
@@ -263,32 +258,32 @@ class UpdateDialog(QDialog):
         support_layout.setContentsMargins(12, 10, 12, 10)
         support_layout.setSpacing(8)
 
-        support_heart = QLabel("♥", self.support_card)
+        support_heart = l10n.localized(QLabel, '♥', self.support_card)
         support_heart.setObjectName("UpdateSupportHeart")
         support_heart.setAlignment(Qt.AlignCenter)
         support_layout.addWidget(support_heart, 0, Qt.AlignVCenter)
 
-        support_message = QLabel(SUPPORT_MESSAGE, self.support_card)
+        support_message = l10n.localized(QLabel, SUPPORT_MESSAGE, self.support_card)
         support_message.setObjectName("UpdateSupportMessage")
         support_message.setWordWrap(True)
         support_message.setMinimumWidth(0)
         support_layout.addWidget(support_message, 1)
 
-        self.patreon_button = QPushButton("Patreon", self.support_card)
+        self.patreon_button = l10n.localized(QPushButton, l10n.tr('Patreon'), self.support_card)
         self.patreon_button.setObjectName("PatreonButton")
         self.patreon_button.setProperty("updateSupportAction", True)
         self.patreon_button.setCursor(Qt.PointingHandCursor)
         self.patreon_button.clicked.connect(self._open_patreon)
         support_layout.addWidget(self.patreon_button, 0, Qt.AlignVCenter)
 
-        self.crypto_button = QPushButton("Crypto", self.support_card)
+        self.crypto_button = l10n.localized(QPushButton, l10n.tr('Crypto'), self.support_card)
         self.crypto_button.setObjectName("CryptoButton")
         self.crypto_button.setProperty("updateSupportAction", True)
         self.crypto_button.setCursor(Qt.PointingHandCursor)
         self.crypto_button.clicked.connect(self._open_crypto)
         self.crypto_button.setEnabled(bool(config.CRYPTO_SUPPORT_URL))
         if not config.CRYPTO_SUPPORT_URL:
-            self.crypto_button.setToolTip("Crypto support page is coming soon.")
+            l10n.display(self.crypto_button, 'setToolTip', l10n.tr('Crypto support page is coming soon.'))
         support_layout.addWidget(self.crypto_button, 0, Qt.AlignVCenter)
         layout.addWidget(self.support_card)
 
@@ -297,7 +292,7 @@ class UpdateDialog(QDialog):
         progress_layout = QVBoxLayout(self.progress_panel)
         progress_layout.setContentsMargins(14, 11, 14, 11)
         progress_layout.setSpacing(7)
-        self.progress_status = QLabel("Preparing download…", self.progress_panel)
+        self.progress_status = l10n.localized(QLabel, l10n.tr('Preparing download…'), self.progress_panel)
         self.progress_status.setObjectName("UpdateProgressStatus")
         progress_layout.addWidget(self.progress_status)
         self.progress_bar = QProgressBar(self.progress_panel)
@@ -306,7 +301,7 @@ class UpdateDialog(QDialog):
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
         progress_layout.addWidget(self.progress_bar)
-        self.progress_detail = QLabel("0 MB of 0 MB", self.progress_panel)
+        self.progress_detail = l10n.localized(QLabel, l10n.tr('0 MB of 0 MB'), self.progress_panel)
         self.progress_detail.setObjectName("UpdateProgressDetail")
         progress_layout.addWidget(self.progress_detail)
         self.progress_panel.hide()
@@ -317,13 +312,13 @@ class UpdateDialog(QDialog):
         footer_rule.setFrameShape(QFrame.NoFrame)
         layout.addWidget(footer_rule)
 
-        self.skip_button = QPushButton(f"Skip v{release.version}", self)
+        self.skip_button = l10n.localized(QPushButton, l10n.tr('Skip v{p0}', p0=release.version), self)
         self.skip_button.setObjectName("ghost")
         self.skip_button.setProperty("footerEdge", True)
         self.skip_button.clicked.connect(self._choose_skip)
-        self.later_button = QPushButton("Later", self)
+        self.later_button = l10n.localized(QPushButton, l10n.tr('Later'), self)
         self.later_button.clicked.connect(self.reject)
-        self.update_button = QPushButton("Update and restart", self)
+        self.update_button = l10n.localized(QPushButton, l10n.tr('Update and restart'), self)
         self.update_button.clicked.connect(self._begin_download)
         dialog_footer(
             self,
@@ -355,11 +350,7 @@ class UpdateDialog(QDialog):
             return
         if _open_browser_page(url):
             return
-        QMessageBox.warning(
-            self,
-            "Could not open support page",
-            f"BonkScanner could not open the {name} page in your browser.\n\n{url}",
-        )
+        QMessageBox.warning(self, l10n.tr('Could not open support page'), l10n.tr('BonkScanner could not open the {p0} page in your browser.\n\n{p1}', p0=name, p1=url))
 
     def _open_patreon(self) -> None:
         self._open_support_page("Patreon", config.PATREON_SUPPORT_URL)
@@ -403,11 +394,11 @@ class UpdateDialog(QDialog):
         self._installer_scheduled = False
         self._installer_launched = False
         self.progress_panel.show()
-        self.progress_status.setText("Downloading update…")
-        self.progress_detail.setText("Connecting securely to GitHub…")
+        l10n.display(self.progress_status, 'setText', l10n.tr('Downloading update…'))
+        l10n.display(self.progress_detail, 'setText', l10n.tr('Connecting securely to GitHub…'))
         self.progress_bar.setValue(0)
         self._set_progress_state("downloading")
-        self.update_button.setText("Downloading…")
+        l10n.display(self.update_button, 'setText', l10n.tr('Downloading…'))
         self.update_button.setEnabled(False)
         self.later_button.setEnabled(False)
         self.skip_button.setEnabled(False)
@@ -427,11 +418,9 @@ class UpdateDialog(QDialog):
         downloaded = max(0, min(int(downloaded), total))
         percentage = max(0, min(100, int(downloaded * 100 / total)))
         self.progress_bar.setValue(percentage)
-        self.progress_detail.setText(
-            f"{_format_bytes(downloaded)} of {_format_bytes(total)}  ·  {percentage}%"
-        )
+        l10n.display(self.progress_detail, 'setText', l10n.tr('{p0} of {p1}  ·  {p2}%', p0=_format_bytes(downloaded), p1=_format_bytes(total), p2=percentage))
         if downloaded >= total:
-            self.progress_status.setText("Verifying SHA-256 integrity…")
+            l10n.display(self.progress_status, 'setText', l10n.tr('Verifying SHA-256 integrity…'))
             self._set_progress_state("verifying")
 
     def _on_download_ready(self, prepared: PreparedUpdate) -> None:
@@ -443,11 +432,9 @@ class UpdateDialog(QDialog):
         self._installer_scheduled = True
         self._prepared = prepared
         self.progress_bar.setValue(100)
-        self.progress_status.setText("Verified — restarting BonkScanner…")
-        self.progress_detail.setText(
-            f"{_format_bytes(prepared.downloaded_size)} downloaded and verified"
-        )
-        self.update_button.setText("Restarting…")
+        l10n.display(self.progress_status, 'setText', l10n.tr('Verified — restarting BonkScanner…'))
+        l10n.display(self.progress_detail, 'setText', l10n.tr('{p0} downloaded and verified', p0=_format_bytes(prepared.downloaded_size)))
+        l10n.display(self.update_button, 'setText', l10n.tr('Restarting…'))
         self._set_progress_state("verified")
         # Give Qt a context object so deleting the modal during application
         # shutdown cancels the callback instead of invoking a dead wrapper.
@@ -481,11 +468,11 @@ class UpdateDialog(QDialog):
         self._installer_scheduled = False
         self._installer_launched = False
         self.progress_panel.show()
-        self.progress_status.setText("Update could not be installed")
-        self.progress_detail.setText(message or "Unknown updater error.")
+        l10n.display(self.progress_status, 'setText', l10n.tr('Update could not be installed'))
+        l10n.display(self.progress_detail, 'setText', message or l10n.tr('Unknown updater error.'))
         self.progress_bar.setValue(0)
         self._set_progress_state("error")
-        self.update_button.setText("Retry download")
+        l10n.display(self.update_button, 'setText', l10n.tr('Retry download'))
         self.update_button.setEnabled(True)
         self.later_button.setEnabled(True)
         self.skip_button.setEnabled(True)
@@ -533,7 +520,7 @@ def _open_browser_page(url: str) -> bool:
 def _set_release_notes_content(notes: QTextEdit, release_notes: str) -> None:
     if _looks_like_html(release_notes):
         try:
-            notes.setHtml(release_notes)
+            l10n.display(notes, 'setHtml', release_notes)
             return
         except Exception:
             pass

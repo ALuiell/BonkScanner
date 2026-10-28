@@ -1,6 +1,8 @@
 """Reset timing input that keeps invalid drafts visible instead of clamping them."""
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import re
 
 from PySide6.QtCore import Signal, Qt
@@ -51,7 +53,7 @@ class ResetTimingInput(QLineEdit):
 
     def setValue(self, value):
         self.finished_input = False
-        self.setText(f"{value:.2f}{self._suffix}")
+        l10n.display(self, 'setText', f'{value:.2f}{self._suffix}')
         # A valueChanged handler may have rejected this edit and restored a value.
         number = self.number()
         self._value = value if number is None else number

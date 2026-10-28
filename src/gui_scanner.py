@@ -27,6 +27,8 @@ diagnostic and the final join guarantees the interpreter never inherits it.
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import datetime
 import threading
 import time
@@ -351,9 +353,7 @@ class Scanner:
             # a full-width line of its own in Session Overview
             # (`stats_rpm_label`), where it is labelled rather than abbreviated,
             # and the header is where the states live rather than the numbers.
-            session_meta.setText(
-                f"Session {hours:02d}:{minutes:02d}:{seconds:02d}"
-            )
+            l10n.display(session_meta, 'setText', l10n.tr('Session {p0:02d}:{p1:02d}:{p2:02d}', p0=hours, p1=minutes, p2=seconds))
 
         recording = self._is_recording()
         # The header's REC flag, driven from the port that already answers this
@@ -379,56 +379,56 @@ class Scanner:
         toggle_btn.setEnabled(not (self._start_pending or self._stop_pending))
 
         if self._start_pending:
-            status_text = "STARTING"
-            status_label.setText(status_text)
+            status_text = l10n.tr('STARTING')
+            l10n.display(status_label, 'setText', status_text)
             _set_widget_style_role(status_label, "statusText", state="running")
             _set_widget_style_role(
                 getattr(status_label, "_status_dot", None),
                 "statusDot",
                 state="running",
             )
-            toggle_btn.setText("Start Scanner")
+            toggle_btn.setText('Start Scanner')
             _set_widget_style_role(toggle_btn, "primary")
         elif self._stop_pending:
-            status_text = "STOPPING"
-            status_label.setText(status_text)
+            status_text = l10n.tr('STOPPING')
+            l10n.display(status_label, 'setText', status_text)
             _set_widget_style_role(status_label, "statusText", state="idle")
             _set_widget_style_role(
                 getattr(status_label, "_status_dot", None),
                 "statusDot",
                 state="idle",
             )
-            toggle_btn.setText("Stop Scanner")
+            toggle_btn.setText('Stop Scanner')
             _set_widget_style_role(toggle_btn, "stopScanner")
         elif self.is_scanning():
             if self.is_running:
-                status_text = "RUNNING"
+                status_text = l10n.tr('RUNNING')
             elif self.pause_reason == "player_movement":
-                status_text = "PAUSED — PLAYER MOVEMENT"
+                status_text = l10n.tr('PAUSED — PLAYER MOVEMENT')
             elif self.pause_reason == "manual":
-                status_text = "PAUSED"
+                status_text = l10n.tr('PAUSED')
             elif self.is_ready_to_start:
-                status_text = "ARMED"
+                status_text = l10n.tr('ARMED')
             else:
-                status_text = "WAITING FOR GAME"
-            status_label.setText(status_text)
+                status_text = l10n.tr('WAITING FOR GAME')
+            l10n.display(status_label, 'setText', status_text)
             _set_widget_style_role(status_label, "statusText", state="running")
             _set_widget_style_role(
                 getattr(status_label, "_status_dot", None),
                 "statusDot",
                 state="running",
             )
-            toggle_btn.setText("Stop Scanner")
+            toggle_btn.setText('Stop Scanner')
             _set_widget_style_role(toggle_btn, "stopScanner")
         else:
-            status_label.setText("IDLE")
+            l10n.display(status_label, 'setText', l10n.tr('IDLE'))
             _set_widget_style_role(status_label, "statusText", state="idle")
             _set_widget_style_role(
                 getattr(status_label, "_status_dot", None),
                 "statusDot",
                 state="idle",
             )
-            toggle_btn.setText("Start Scanner")
+            toggle_btn.setText('Start Scanner')
             _set_widget_style_role(toggle_btn, "primary")
 
     def _append_log(self, message, tag=None):
@@ -1240,7 +1240,7 @@ class Scanner:
         # "the tab exists".
         self.stats_avg_layout = self._stats_view
         self.refresh_stats_ui()
-        self._add_tab(self.tab_stats, "Session Stats")
+        self._add_tab(self.tab_stats, l10n.tr('Session Stats'))
 
     def set_tracked_item_rows(self, rows) -> None:
         """Render the tracked-item rules. Called by the overlay component.
@@ -1268,41 +1268,7 @@ def build_scanner(
     `gui_dialogs` is top-level debt, so the composition root supplies the
     factory rather than the component importing it.
     """
-    scanner = Scanner(
-        coordinator,
-        run_control=run_control,
-        filters=filters,
-        schedule=lambda delay_ms, callback: app.after(delay_ms, callback),
-        # `__dict__`, not `hasattr`: `MegabonkApp.__getattr__` forwards unknown
-        # names to its window, so `hasattr(app, "_invoker")` would consult a
-        # widget before deciding the invoker is missing. Same reasoning as the
-        # client and template-filter owners above it in `gui_app.py`.
-        can_log=lambda: app.__dict__.get("_invoker") is not None,
-        log_box=lambda: app.log_box,
-        status_label=lambda: app.status_label,
-        toggle_btn=lambda: app.toggle_btn,
-        add_tab=lambda widget, title: app.tabview.addTab(widget, title),
-        refresh_session_stats_snapshot=lambda: app._refresh_session_stats_snapshot(),
-        refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(),
-        open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(),
-        open_merchant_analytics_dialog=lambda: _open_merchant_analytics_for_app(app),
-        toggle_merchant_analytics=lambda enabled: _toggle_merchant_analytics_for_app(
-            app, enabled
-        ),
-        merchant_analytics_status=coordinator.merchant_analytics.status,
-        open_roll_analytics_dialog=lambda: _open_roll_analytics_for_app(app),
-        toggle_roll_analytics=lambda enabled: _toggle_roll_analytics_for_app(app, enabled),
-        roll_analytics_status=coordinator.roll_analytics.status,
-        has_premium_access=lambda: app.has_premium_access(),
-        is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording),
-        refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(
-            update_slider=False
-        ),
-        is_shutting_down=lambda: bool(app._is_shutting_down),
-        current_runtime_snapshot=coordinator.live_run_tracker.runtime_snapshot,
-        reroll_warning_dialog=lambda: RerollWarningDialog(app.window),
-        obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window),
-    )
+    scanner = Scanner(coordinator, run_control=run_control, filters=filters, schedule=lambda delay_ms, callback: app.after(delay_ms, callback), can_log=lambda: app.__dict__.get('_invoker') is not None, log_box=lambda: app.log_box, status_label=lambda: app.status_label, toggle_btn=lambda: app.toggle_btn, add_tab=lambda widget, title: l10n.tab(app.tabview, widget, title), refresh_session_stats_snapshot=lambda: app._refresh_session_stats_snapshot(), refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(), open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(), open_merchant_analytics_dialog=lambda: _open_merchant_analytics_for_app(app), toggle_merchant_analytics=lambda enabled: _toggle_merchant_analytics_for_app(app, enabled), merchant_analytics_status=coordinator.merchant_analytics.status, open_roll_analytics_dialog=lambda: _open_roll_analytics_for_app(app), toggle_roll_analytics=lambda enabled: _toggle_roll_analytics_for_app(app, enabled), roll_analytics_status=coordinator.roll_analytics.status, has_premium_access=lambda: app.has_premium_access(), is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording), refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(update_slider=False), is_shutting_down=lambda: bool(app._is_shutting_down), current_runtime_snapshot=coordinator.live_run_tracker.runtime_snapshot, reroll_warning_dialog=lambda: RerollWarningDialog(app.window), obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window))
     app.supporter_access.add_listener(scanner.on_supporter_access_changed)
     return scanner
 

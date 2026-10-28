@@ -135,11 +135,11 @@ class DamageSourceCardReuseTests(unittest.TestCase):
     def test_the_total_line_follows_the_sources(self) -> None:
         self.view.display_damage_sources((_source("katana", 30.0), _source("orb", 10.0)))
         summary = self.view._damage_sources_summary
-        self.assertIn("2 sources", [label.text() for label in summary.findChildren(QLabel)])
+        self.assertIn("Sources: 2", [label.text() for label in summary.findChildren(QLabel)])
 
         self.view.display_damage_sources((_source("katana", 30.0),))
 
-        self.assertIn("1 source", [label.text() for label in summary.findChildren(QLabel)])
+        self.assertIn("Sources: 1", [label.text() for label in summary.findChildren(QLabel)])
 
     def test_an_unknown_damage_is_not_displayed_or_totalled_as_zero(self) -> None:
         self.view.display_damage_sources(

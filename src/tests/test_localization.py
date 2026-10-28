@@ -11,8 +11,8 @@ from unittest.mock import patch
 import src  # noqa: F401
 from app import config
 from app.config_repository import ConfigRepository
-from app.localization import selected_language
-from core.localization import LANGUAGE_CONFIG_KEY, SUPPORTED_LANGUAGES, Translator, normalize_language
+from app.localization import selected_language, selected_game_language
+from core.localization import LANGUAGE_CONFIG_KEY, GAME_LANGUAGE_CONFIG_KEY, SUPPORTED_LANGUAGES, Translator, normalize_language
 from infra.localization_catalogs import create_translator, localization_directory
 
 
@@ -87,14 +87,18 @@ class LocalizationTests(unittest.TestCase):
                     patch.object(config, "config_path", str(repository.path)), \
                     patch.object(config, "config_lock", repository.lock), \
                     patch.object(config, "user_config", deepcopy(snapshot)):
-                result = config.save_settings_with_game_reset({LANGUAGE_CONFIG_KEY: "de"}, None, sync_game=False)
+                result = config.save_settings_with_game_reset({LANGUAGE_CONFIG_KEY: "de", GAME_LANGUAGE_CONFIG_KEY: "fr"}, None, sync_game=False)
                 self.assertTrue(result.success)
                 self.assertEqual(selected_language(), "de")
+                self.assertEqual(selected_game_language(), "fr")
                 self.assertEqual(ConfigRepository(repository.path).load().snapshot[LANGUAGE_CONFIG_KEY], "de")
+                self.assertEqual(ConfigRepository(repository.path).load().snapshot[GAME_LANGUAGE_CONFIG_KEY], "fr")
                 repository.read_only_reason = "Secondary instance"
-                result = config.update_config(lambda candidate: candidate.update({LANGUAGE_CONFIG_KEY: "ru"}))
+                result = config.update_config(lambda candidate: candidate.update({LANGUAGE_CONFIG_KEY: "ru", GAME_LANGUAGE_CONFIG_KEY: "uk"}))
                 # Existing secondary-instance semantics allow session-only
                 # preferences while protecting the owning profile on disk.
                 self.assertTrue(result.success)
                 self.assertEqual(selected_language(), "ru")
+                self.assertEqual(selected_game_language(), "uk")
                 self.assertEqual(ConfigRepository(repository.path).load().snapshot[LANGUAGE_CONFIG_KEY], "de")
+                self.assertEqual(ConfigRepository(repository.path).load().snapshot[GAME_LANGUAGE_CONFIG_KEY], "fr")

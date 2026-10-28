@@ -236,7 +236,7 @@ body {
      two-digit rarity counts. The absolute-layout wrapper otherwise derives
      its auto width from the current text and makes the widget visibly breathe
      as the run fills in. */
-  --widget-natural-width: calc(470px * var(--scale));
+  --widget-natural-width: max-content;
   width: var(--widget-natural-width);
   padding: calc(12px * var(--scale)) calc(16px * var(--scale));
   border: calc(1px * var(--scale)) solid rgba(255, 210, 63, 0);
@@ -254,9 +254,9 @@ body {
 .stage-table {
   display: grid;
   grid-template-columns:
-    calc(48px * var(--scale))
-    calc(78px * var(--scale))
-    calc(88px * var(--scale))
+    minmax(calc(48px * var(--scale)), max-content)
+    minmax(calc(78px * var(--scale)), max-content)
+    minmax(calc(88px * var(--scale)), max-content)
     minmax(calc(176px * var(--scale)), 1fr);
   column-gap: calc(15px * var(--scale));
   row-gap: calc(7px * var(--scale));
@@ -404,7 +404,7 @@ body {
 
 .stats-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(calc(250px * var(--scale)), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(calc(250px * var(--scale)), calc(var(--stat-label-width, 170px) + 100px * var(--scale)))), 1fr));
   width: 100%;
   gap: calc(5px * var(--scale));
   column-gap: calc(20px * var(--scale));
@@ -412,6 +412,7 @@ body {
 
 .stat-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
   gap: calc(12px * var(--scale));
@@ -431,6 +432,14 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.stats-list .stat-row span {
+  flex-shrink: 1;
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
 }
 
 .stat-row strong {
@@ -457,13 +466,21 @@ body {
   flex-wrap: wrap;
   gap: calc(5px * var(--scale)) calc(16px * var(--scale));
 }
-.weapon-tracker-row.detailed .weapon-tracker-metrics { flex-direction: column; }
-.weapon-tracker-widget .stat-row { flex-wrap: wrap; gap: calc(6px * var(--scale)); }
-.weapon-tracker-widget .stat-row span { flex: 0 0 auto; }
-.weapon-tracker-widget .stat-row strong { white-space: nowrap; }
-.weapon-tracker-row.detailed .stat-row span {
-  flex-basis: calc(80px * var(--scale));
+.weapon-tracker-row.detailed .weapon-tracker-metrics {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) max-content;
+  column-gap: calc(6px * var(--scale));
 }
+.weapon-tracker-widget .stat-row { flex-wrap: wrap; gap: calc(6px * var(--scale)); }
+.weapon-tracker-widget .stat-row span {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.weapon-tracker-widget .stat-row strong { white-space: nowrap; }
+.weapon-tracker-row.detailed .stat-row { display: contents; }
 
 .banish-chip {
   display: flex;

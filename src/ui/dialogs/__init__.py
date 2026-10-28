@@ -18,6 +18,8 @@ manual check action.
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import html
 import re
 import webbrowser
@@ -37,6 +39,7 @@ from ui.dialogs.shell import (
     dialog_footer,
     dialog_info_card,
     dialog_note,
+    fit_dialog_header,
 )
 from ui.dialogs.reset_timing import ResetTimingInput
 from ui.dialogs.supporter_access import SupporterAccessPage
@@ -98,8 +101,8 @@ from core.template_colors import (
 from app import config
 from ui.themes import THEME_CONFIG_KEY, LEGACY_THEME_CONFIG_KEY
 from ui.themes.selector import ThemeSelector
-from core.localization import LANGUAGE_CONFIG_KEY
-from ui.localization import LanguageSelector, bind_text, localization
+from core.localization import LANGUAGE_CONFIG_KEY, GAME_LANGUAGE_CONFIG_KEY, SUPPORTED_LANGUAGES
+from ui.localization import LanguageSelector, GameLanguageSelector, bind_text, localization
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
 CRYPTO_SUPPORT_URL = config.CRYPTO_SUPPORT_URL
@@ -162,12 +165,12 @@ class TemplateFormFrame(QWidget):
         layout.setColumnStretch(2, 1)
 
         self.name_entry = QLineEdit()
-        layout.addWidget(QLabel("Template Name:"), 0, 0)
+        layout.addWidget(l10n.localized(QLabel, l10n.tr('Template Name:')), 0, 0)
         layout.addWidget(self.name_entry, 0, 1, 1, 2)
 
         self.color_btn = QPushButton()
         self.color_btn.clicked.connect(self._choose_color)
-        self.reset_color_btn = QPushButton("Reset")
+        self.reset_color_btn = l10n.localized(QPushButton, l10n.tr('Reset'))
         self.reset_color_btn.clicked.connect(self._reset_color)
         color_row = QWidget()
         color_layout = QHBoxLayout(color_row)
@@ -175,7 +178,7 @@ class TemplateFormFrame(QWidget):
         color_layout.setSpacing(8)
         color_layout.addWidget(self.color_btn, 1)
         color_layout.addWidget(self.reset_color_btn)
-        layout.addWidget(QLabel("Color:"), 1, 0)
+        layout.addWidget(l10n.localized(QLabel, l10n.tr('Color:')), 1, 0)
         layout.addWidget(color_row, 1, 1, 1, 2)
 
         self.sm_entry = QLineEdit()
@@ -194,36 +197,36 @@ class TemplateFormFrame(QWidget):
         self.challenges_max_entry = QLineEdit()
         self.bald_heads_max_entry = QLineEdit()
 
-        minimum_header = QLabel("MINIMUM")
+        minimum_header = l10n.localized(QLabel, l10n.tr('MINIMUM'))
         minimum_header.setObjectName("dialogHint")
-        maximum_header = QLabel("MAXIMUM")
+        maximum_header = l10n.localized(QLabel, l10n.tr('MAXIMUM'))
         maximum_header.setObjectName("dialogHint")
         layout.addWidget(minimum_header, 2, 1)
         layout.addWidget(maximum_header, 2, 2)
 
-        no_total_maximum = QLabel("—")
+        no_total_maximum = l10n.localized(QLabel, '—')
         no_total_maximum.setObjectName("dialogHint")
         rows = (
-            ("S+M Total", self.sm_entry, no_total_maximum),
-            ("Shady Guy", self.shady_entry, self.shady_max_entry),
-            ("Moais", self.moai_entry, self.moai_max_entry),
-            ("Microwaves", self.micro_entry, self.micro_max_entry),
-            ("Boss Curses", self.boss_entry, self.boss_max_entry),
-            ("Magnets", self.magnet_entry, self.magnet_max_entry),
-            ("Challenges", self.challenges_entry, self.challenges_max_entry),
-            ("Bald Heads", self.bald_heads_entry, self.bald_heads_max_entry),
+            (l10n.tr("S+M Total"), self.sm_entry, no_total_maximum),
+            (l10n.tr("Shady Guy"), self.shady_entry, self.shady_max_entry),
+            (l10n.tr("Moais"), self.moai_entry, self.moai_max_entry),
+            (l10n.tr("Microwaves"), self.micro_entry, self.micro_max_entry),
+            (l10n.tr("Boss Curses"), self.boss_entry, self.boss_max_entry),
+            (l10n.tr("Magnets"), self.magnet_entry, self.magnet_max_entry),
+            (l10n.tr("Challenges"), self.challenges_entry, self.challenges_max_entry),
+            (l10n.tr("Bald Heads"), self.bald_heads_entry, self.bald_heads_max_entry),
         )
         integer_validator = QIntValidator(0, 999, self)
         for row_index, (caption, minimum_entry, maximum_entry) in enumerate(rows, start=3):
             minimum_entry.setValidator(integer_validator)
-            layout.addWidget(QLabel(caption), row_index, 0)
+            layout.addWidget(l10n.localized(QLabel, caption), row_index, 0)
             layout.addWidget(minimum_entry, row_index, 1)
             layout.addWidget(maximum_entry, row_index, 2)
             if isinstance(maximum_entry, QLineEdit):
                 maximum_entry.setValidator(integer_validator)
-                maximum_entry.setPlaceholderText("No limit")
+                l10n.display(maximum_entry, 'setPlaceholderText', l10n.tr('No limit'))
 
-        maximum_note = QLabel("Maximum: empty = no limit; 0 = none allowed.")
+        maximum_note = l10n.localized(QLabel, l10n.tr('Maximum: empty = no limit; 0 = none allowed.'))
         maximum_note.setObjectName("dialogHint")
         layout.addWidget(maximum_note, len(rows) + 3, 1, 1, 2)
 
@@ -242,16 +245,16 @@ class TemplateFormFrame(QWidget):
         self._refresh_color_button()
         for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
             widget.blockSignals(True)
-        self.name_entry.setText(self.template_data.get("name", ""))
+        l10n.display(self.name_entry, 'setText', self.template_data.get('name', ''))
         self.name_entry.setEnabled(self.template_data.get("id", 100) > 7)
-        self.sm_entry.setText(str(self.template_data.get("sm_total", 0)))
-        self.shady_entry.setText(str(self.template_data.get("shady", 0)))
-        self.moai_entry.setText(str(self.template_data.get("moai", 0)))
-        self.micro_entry.setText(str(self.template_data.get("micro", 0)))
-        self.boss_entry.setText(str(self.template_data.get("boss", 0)))
-        self.magnet_entry.setText(str(self.template_data.get("magnet", self.template_data.get("magnet_shrines", 0))))
-        self.challenges_entry.setText(str(self.template_data.get("challenges", 0)))
-        self.bald_heads_entry.setText(str(self.template_data.get("bald_heads", 0)))
+        l10n.display(self.sm_entry, 'setText', str(self.template_data.get('sm_total', 0)))
+        l10n.display(self.shady_entry, 'setText', str(self.template_data.get('shady', 0)))
+        l10n.display(self.moai_entry, 'setText', str(self.template_data.get('moai', 0)))
+        l10n.display(self.micro_entry, 'setText', str(self.template_data.get('micro', 0)))
+        l10n.display(self.boss_entry, 'setText', str(self.template_data.get('boss', 0)))
+        l10n.display(self.magnet_entry, 'setText', str(self.template_data.get('magnet', self.template_data.get('magnet_shrines', 0))))
+        l10n.display(self.challenges_entry, 'setText', str(self.template_data.get('challenges', 0)))
+        l10n.display(self.bald_heads_entry, 'setText', str(self.template_data.get('bald_heads', 0)))
         for key, widget in (
             ("shady_max", self.shady_max_entry),
             ("moai_max", self.moai_max_entry),
@@ -262,7 +265,7 @@ class TemplateFormFrame(QWidget):
             ("bald_heads_max", self.bald_heads_max_entry),
         ):
             value = self.template_data.get(key)
-            widget.setText("" if value is None else str(value))
+            l10n.display(widget, 'setText', '' if value is None else str(value))
         for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
             widget.blockSignals(False)
         self._sync_sm_fields()
@@ -280,8 +283,8 @@ class TemplateFormFrame(QWidget):
         swatch = QPixmap(18, 18)
         swatch.fill(QColor(color_hex))
         self.color_btn.setIcon(QIcon(swatch))
-        self.color_btn.setText(color_hex.upper())
-        self.color_btn.setToolTip("Choose template color")
+        l10n.display(self.color_btn, 'setText', color_hex.upper())
+        l10n.display(self.color_btn, 'setToolTip', l10n.tr('Choose template color'))
 
     def _choose_color(self) -> None:
         selected = QColorDialog.getColor(
@@ -312,11 +315,11 @@ class TemplateFormFrame(QWidget):
         if sender is self.sm_entry and sm_val > 0:
             for widget in (self.shady_entry, self.moai_entry):
                 widget.blockSignals(True)
-                widget.setText("0")
+                l10n.display(widget, 'setText', '0')
                 widget.blockSignals(False)
         elif sender in (self.shady_entry, self.moai_entry) and (shady_val > 0 or moai_val > 0):
             self.sm_entry.blockSignals(True)
-            self.sm_entry.setText("0")
+            l10n.display(self.sm_entry, 'setText', '0')
             self.sm_entry.blockSignals(False)
 
     def get_payload(self):
@@ -348,31 +351,22 @@ class TemplateDialog(QDialog):
     def __init__(self, parent=None, edit_template=None):
         super().__init__(parent)
         self.result_payload = None
-        title = "Edit Template" if edit_template else "Add Template"
-        self.setWindowTitle(title)
+        title = l10n.tr('Edit Template') if edit_template else l10n.tr('Add Template')
+        l10n.display(self, 'setWindowTitle', title)
         self.setModal(True)
-        body = dialog_body(
-            self,
-            title=title,
-            subtitle="Minimum 0 is ignored. Leave Maximum empty for no limit.",
-            width=DIALOG_WIDE,
-        )
+        body = dialog_body(self, title=title, subtitle=l10n.tr('Minimum 0 is ignored. Leave Maximum empty for no limit.'), width=DIALOG_WIDE)
         self.form = TemplateFormFrame(self, edit_template)
         body.addWidget(self.form)
-        self.save_btn = QPushButton("Save Template")
+        self.save_btn = l10n.localized(QPushButton, l10n.tr('Save Template'))
         self.save_btn.clicked.connect(self.save)
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = l10n.localized(QPushButton, l10n.tr('Cancel'))
         cancel_btn.clicked.connect(self.reject)
         dialog_footer(self, primary=self.save_btn, secondary=cancel_btn)
 
     def save(self):
         payload = self.form.get_payload()
         if payload is None:
-            QMessageBox.warning(
-                self,
-                "Invalid Template",
-                "Enter a template name and make sure no minimum is greater than its maximum.",
-            )
+            QMessageBox.warning(self, l10n.tr('Invalid Template'), l10n.tr('Enter a template name and make sure no minimum is greater than its maximum.'))
             return
         self.result_payload = payload
         self.accept()
@@ -383,24 +377,15 @@ class TemplateManagerDialog(QDialog):
         super().__init__(parent)
         self.templates = [dict(template) for template in templates]
         self.on_save = on_save
-        self.setWindowTitle("Manage Templates")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Manage Templates'))
         self.expanded_template_id: int | None = None
         self.card_widgets: dict[int, dict[str, object]] = {}
 
-        layout = dialog_body(
-            self,
-            title="Templates",
-            subtitle="Pick one from the list and its settings open under the card.",
-            width=DIALOG_WIDE,
-            # The expanded form almost fills the 720 px viewport. Give its
-            # Save button enough room to remain fully visible after the card
-            # is scrolled into view.
-            height=DIALOG_TALL + 15,
-        )
+        layout = dialog_body(self, title=l10n.tr('Templates'), subtitle=l10n.tr('Pick one from the list and its settings open under the card.'), width=DIALOG_WIDE, height=DIALOG_TALL + 15)
         self.scroll, self.scroll_content, self.scroll_layout = _make_scroll_section()
         layout.addWidget(self.scroll, 1)
 
-        close_btn = QPushButton("Close")
+        close_btn = l10n.localized(QPushButton, l10n.tr('Close'))
         close_btn.clicked.connect(self.accept)
         dialog_footer(self, secondary=close_btn)
 
@@ -418,7 +403,7 @@ class TemplateManagerDialog(QDialog):
             card_layout.setContentsMargins(16, 14, 16, 14)
             card_layout.setSpacing(10)
 
-            header_btn = QPushButton(f"▶ {template['name']}")
+            header_btn = l10n.localized(QPushButton, f'▶ {template['name']}')
             header_btn.setCursor(Qt.PointingHandCursor)
             header_btn.setStyleSheet(_template_manager_header_stylesheet(color_hex))
             header_btn.clicked.connect(partial(self.toggle_template, template_id))
@@ -427,7 +412,7 @@ class TemplateManagerDialog(QDialog):
             meta_text = format_template_conditions(template)
             if template.get("id", 100) <= 7:
                 meta_text += "  •  Built-in"
-            meta_label = QLabel(meta_text)
+            meta_label = l10n.localized(QLabel, meta_text)
             meta_label.setStyleSheet("color: #C5CEDB; background: transparent;")
             card_layout.addWidget(meta_label)
 
@@ -440,7 +425,7 @@ class TemplateManagerDialog(QDialog):
 
             save_row = QHBoxLayout()
             save_row.addStretch(1)
-            save_btn = QPushButton("Save")
+            save_btn = l10n.localized(QPushButton, l10n.tr('Save'))
             save_btn.setObjectName("primary")
             save_btn.clicked.connect(partial(self.save_template, template_id, form))
             save_row.addWidget(save_btn)
@@ -469,7 +454,7 @@ class TemplateManagerDialog(QDialog):
         header_btn = widgets["header_btn"]
         details = widgets["details"]
         color_hex = str(widgets["color_hex"])
-        header_btn.setText(f"{'▼' if expanded else '▶'} {template['name']}")
+        l10n.display(header_btn, 'setText', f'{('▼' if expanded else '▶')} {template['name']}')
         details.setVisible(expanded)
         widgets["card"].setStyleSheet(_template_manager_card_stylesheet(color_hex, expanded))
 
@@ -511,11 +496,7 @@ class TemplateManagerDialog(QDialog):
     def save_template(self, template_id: int, form: TemplateFormFrame):
         payload = form.get_payload()
         if payload is None:
-            QMessageBox.warning(
-                self,
-                "Invalid Template",
-                "Enter a template name and make sure no minimum is greater than its maximum.",
-            )
+            QMessageBox.warning(self, l10n.tr('Invalid Template'), l10n.tr('Enter a template name and make sure no minimum is greater than its maximum.'))
             return
 
         template = next((item for item in self.templates if int(item.get("id", 0)) == template_id), None)
@@ -528,11 +509,7 @@ class TemplateManagerDialog(QDialog):
                 if not self.on_save(template, payload):
                     return
             except Exception as exc:
-                QMessageBox.warning(
-                    self,
-                    "Could Not Save Template",
-                    str(exc),
-                )
+                QMessageBox.warning(self, l10n.tr('Could Not Save Template'), str(exc))
                 return
 
         for index, existing in enumerate(self.templates):
@@ -549,140 +526,26 @@ class ScoresHelpDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("How Scores Work")
+        l10n.display(self, 'setWindowTitle', l10n.tr('How Scores Work'))
         self.setModal(True)
 
-        outer = dialog_body(
-            self,
-            title="How Scores Work",
-            subtitle="A step-by-step guide to what the scanner counts and why a map passes or fails.",
-            width=DIALOG_WIDE,
-            height=DIALOG_TALL,
-        )
+        outer = dialog_body(self, title=l10n.tr('How Scores Work'), subtitle=l10n.tr('A step-by-step guide to what the scanner counts and why a map passes or fails.'), width=DIALOG_WIDE, height=DIALOG_TALL)
         scroll, _scroll_content, scroll_layout = _make_scroll_section()
         outer.addWidget(scroll, 1)
 
-        scroll_layout.addWidget(
-            dialog_info_card(
-                "<b>1. What is Score?</b><br><br>"
-                "Score is one number that represents how valuable the generated map "
-                "is according to <i>your</i> settings. The scanner counts Moais, "
-                "Shady Guys, Boss Curses, Magnet Shrines, and Challenges. Each count "
-                "is converted into points, then all points are added together."
-            )
-        )
-        scroll_layout.addWidget(
-            dialog_card(
-                "<b>2. What does each Shrine Points value mean?</b><br><br>"
-                "The number beside a shrine is the amount added for <b>each</b> one "
-                "found on the map.<br><br>"
-                "&bull; <b>Positive value:</b> you want this shrine. For example, "
-                "Moais = 3 means every Moai adds 3 points. Four Moais add 12.<br>"
-                "&bull; <b>Zero:</b> this shrine does not change Score. It is still "
-                "shown in map statistics, but whether the map has zero or ten makes "
-                "no difference to Scores mode.<br>"
-                "&bull; <b>Negative value:</b> you do not want this shrine. For "
-                "example, Challenges = -3 means every Challenge removes 3 points. "
-                "Two Challenges remove 6.<br><br>"
-                "All five Shrine Points fields accept positive, zero, and negative values."
-            )
-        )
-        scroll_layout.addWidget(
-            dialog_card(
-                "<b>3. How is the base score calculated?</b><br><br>"
-                "For every shrine type, the scanner multiplies the map count by its "
-                "configured Shrine Points value:<br><br>"
-                "<b>Base Score =</b><br>"
-                "(Moais &times; Moai points)<br>"
-                "+ (Shady Guys &times; Shady points)<br>"
-                "+ (Boss Curses &times; Boss points)<br>"
-                "+ (Magnet Shrines &times; Magnet points)<br>"
-                "+ (Challenges &times; Challenge points)<br><br>"
-                "Negative results are simply subtracted. A penalty is <b>soft</b>: "
-                "it lowers the number, but it never rejects a map by itself. Enough "
-                "positive shrines can compensate for it."
-            )
-        )
-        scroll_layout.addWidget(
-            dialog_card(
-                "<b>4. How are Magnet Shrines counted?</b><br><br>"
-                "Every Magnet Shrine uses the configured Magnet points value. "
-                "Positive values reward every Magnet, zero ignores them, and "
-                "negative values penalize every Magnet. There is no two-Magnet cap."
-            )
-        )
-        scroll_layout.addWidget(
-            dialog_card(
-                "<b>5. When is the Microwave multiplier applied?</b><br><br>"
-                "The scanner first finishes the entire Base Score calculation, "
-                "including every reward and penalty. Only then is the whole result "
-                "multiplied by the Microwave value.<br><br>"
-                "<b>Final Score = Base Score &times; Microwave Multiplier</b><br><br>"
-                "This means the multiplier affects penalties too. A Base Score of 24 "
-                "with a 1.25 multiplier becomes a Final Score of 30."
-            )
-        )
-        scroll_layout.addWidget(
-            dialog_info_card(
-                "<b>6. Full example</b><br><br>"
-                "Settings: Moai = 3, Shady = 2, Boss = 1, Magnet = -1, "
-                "Challenges = -3, and the two-Microwave multiplier = 1.25.<br><br>"
-                "Map: 4 Moais, 5 Shady Guys, 3 Boss Curses, 1 Magnet, "
-                "0 Challenges, and 2 Microwaves.<br><br>"
-                "Moais: 4 &times; 3 = 12<br>"
-                "Shady Guys: 5 &times; 2 = 10<br>"
-                "Boss Curses: 3 &times; 1 = 3<br>"
-                "Magnet: 1 &times; -1 = -1<br>"
-                "Challenges: 0 &times; -3 = 0<br><br>"
-                "Base Score: 12 + 10 + 3 - 1 + 0 = <b>24</b><br>"
-                "Final Score: 24 &times; 1.25 = <b>30</b>"
-            )
-        )
-        scroll_layout.addWidget(
-            dialog_card(
-                "<b>7. What are thresholds and active tiers?</b><br><br>"
-                "A threshold is the minimum Final Score needed for a tier. If Light "
-                "is 14, a map with 13.9 fails Light and a map with 14 passes it.<br><br>"
-                "Only enabled tiers can stop the scanner. The scanner stops as soon "
-                "as the map reaches <b>any enabled tier</b>. Enabling Light means a "
-                "Light-or-better map may stop the scan; enabling every tier does not "
-                "make the scanner wait specifically for Perfect+."
-            )
-        )
-        scroll_layout.addWidget(
-            dialog_card(
-                "<b>8. Extra Perfect and Perfect+ requirements</b><br><br>"
-                "Reaching the number alone is not always enough:<br><br>"
-                "&bull; <b>Perfect+:</b> the score must reach its threshold and the "
-                "map must have at least 2 Microwaves.<br>"
-                "&bull; <b>Perfect:</b> the score must reach its threshold and the map "
-                "must have either 2 Microwaves, or 1 Microwave together with at least "
-                "8 total Shady Guys + Moais and at least 2 Boss Curses.<br>"
-                "&bull; <b>Good and Light:</b> only their score threshold is checked."
-            )
-        )
-        scroll_layout.addWidget(
-            dialog_card(
-                "<b>9. Automatic vs Manual Thresholds</b><br><br>"
-                "<b>Automatic Thresholds</b> scale the tier targets when you change "
-                "positive Shrine Points and use the stronger positive Microwave "
-                "multiplier as the reference. Negative values are excluded from this "
-                "scaling, so making a penalty stronger never makes the target easier.<br><br>"
-                "If every Shrine Points value is zero or negative, automatic targets "
-                "cannot be calculated usefully. The same is true if both Microwave "
-                "multipliers are zero. Add a positive value or enable "
-                "<b>Manual Thresholds</b> and enter the tier targets yourself."
-            )
-        )
-        scroll_layout.addWidget(
-            dialog_note(
-                "Templates mode is separate. Template maximums are hard conditions; "
-                "negative Shrine Points in Scores mode are only soft penalties."
-            )
-        )
+        scroll_layout.addWidget(dialog_info_card(l10n.tr('<b>1. What is Score?</b><br><br>Score is one number that represents how valuable the generated map is according to <i>your</i> settings. The scanner counts Moais, Shady Guys, Boss Curses, Magnet Shrines, and Challenges. Each count is converted into points, then all points are added together.')))
+        scroll_layout.addWidget(dialog_card(l10n.tr('<b>2. What does each Shrine Points value mean?</b><br><br>The number beside a shrine is the amount added for <b>each</b> one found on the map.<br><br>&bull; <b>Positive value:</b> you want this shrine. For example, Moais = 3 means every Moai adds 3 points. Four Moais add 12.<br>&bull; <b>Zero:</b> this shrine does not change Score. It is still shown in map statistics, but whether the map has zero or ten makes no difference to Scores mode.<br>&bull; <b>Negative value:</b> you do not want this shrine. For example, Challenges = -3 means every Challenge removes 3 points. Two Challenges remove 6.<br><br>All five Shrine Points fields accept positive, zero, and negative values.')))
+        scroll_layout.addWidget(dialog_card(l10n.tr('<b>3. How is the base score calculated?</b><br><br>For every shrine type, the scanner multiplies the map count by its configured Shrine Points value:<br><br><b>Base Score =</b><br>(Moais &times; Moai points)<br>+ (Shady Guys &times; Shady points)<br>+ (Boss Curses &times; Boss points)<br>+ (Magnet Shrines &times; Magnet points)<br>+ (Challenges &times; Challenge points)<br><br>Negative results are simply subtracted. A penalty is <b>soft</b>: it lowers the number, but it never rejects a map by itself. Enough positive shrines can compensate for it.')))
+        scroll_layout.addWidget(dialog_card(l10n.tr('<b>4. How are Magnet Shrines counted?</b><br><br>Every Magnet Shrine uses the configured Magnet points value. Positive values reward every Magnet, zero ignores them, and negative values penalize every Magnet. There is no two-Magnet cap.')))
+        scroll_layout.addWidget(dialog_card(l10n.tr('<b>5. When is the Microwave multiplier applied?</b><br><br>The scanner first finishes the entire Base Score calculation, including every reward and penalty. Only then is the whole result multiplied by the Microwave value.<br><br><b>Final Score = Base Score &times; Microwave Multiplier</b><br><br>This means the multiplier affects penalties too. A Base Score of 24 with a 1.25 multiplier becomes a Final Score of 30.')))
+        scroll_layout.addWidget(dialog_info_card(l10n.tr('<b>6. Full example</b><br><br>Settings: Moai = 3, Shady = 2, Boss = 1, Magnet = -1, Challenges = -3, and the two-Microwave multiplier = 1.25.<br><br>Map: 4 Moais, 5 Shady Guys, 3 Boss Curses, 1 Magnet, 0 Challenges, and 2 Microwaves.<br><br>Moais: 4 &times; 3 = 12<br>Shady Guys: 5 &times; 2 = 10<br>Boss Curses: 3 &times; 1 = 3<br>Magnet: 1 &times; -1 = -1<br>Challenges: 0 &times; -3 = 0<br><br>Base Score: 12 + 10 + 3 - 1 + 0 = <b>24</b><br>Final Score: 24 &times; 1.25 = <b>30</b>')))
+        scroll_layout.addWidget(dialog_card(l10n.tr('<b>7. What are thresholds and active tiers?</b><br><br>A threshold is the minimum Final Score needed for a tier. If Light is 14, a map with 13.9 fails Light and a map with 14 passes it.<br><br>Only enabled tiers can stop the scanner. The scanner stops as soon as the map reaches <b>any enabled tier</b>. Enabling Light means a Light-or-better map may stop the scan; enabling every tier does not make the scanner wait specifically for Perfect+.')))
+        scroll_layout.addWidget(dialog_card(l10n.tr('<b>8. Extra Perfect and Perfect+ requirements</b><br><br>Reaching the number alone is not always enough:<br><br>&bull; <b>Perfect+:</b> the score must reach its threshold and the map must have at least 2 Microwaves.<br>&bull; <b>Perfect:</b> the score must reach its threshold and the map must have either 2 Microwaves, or 1 Microwave together with at least 8 total Shady Guys + Moais and at least 2 Boss Curses.<br>&bull; <b>Good and Light:</b> only their score threshold is checked.')))
+        scroll_layout.addWidget(dialog_card(l10n.tr('<b>9. Automatic vs Manual Thresholds</b><br><br><b>Automatic Thresholds</b> scale the tier targets when you change positive Shrine Points and use the stronger positive Microwave multiplier as the reference. Negative values are excluded from this scaling, so making a penalty stronger never makes the target easier.<br><br>If every Shrine Points value is zero or negative, automatic targets cannot be calculated usefully. The same is true if both Microwave multipliers are zero. Add a positive value or enable <b>Manual Thresholds</b> and enter the tier targets yourself.')))
+        scroll_layout.addWidget(dialog_note(l10n.tr('Templates mode is separate. Template maximums are hard conditions; negative Shrine Points in Scores mode are only soft penalties.')))
         scroll_layout.addStretch(1)
 
-        close_btn = QPushButton("Got It")
+        close_btn = l10n.localized(QPushButton, l10n.tr('Got It'))
         close_btn.clicked.connect(self.accept)
         dialog_footer(self, primary=close_btn)
 
@@ -690,80 +553,61 @@ class ScoresHelpDialog(QDialog):
 class ScoresSettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle("Scores Settings")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Scores Settings'))
         self.setModal(True)
         self.active_tier_checks: dict[str, QCheckBox] = {}
         self.threshold_entries: dict[str, QLineEdit] = {}
         self.weight_entries: dict[str, QLineEdit] = {}
         self.multiplier_entries: dict[str, QLineEdit] = {}
 
-        outer = dialog_body(
-            self,
-            title="Scores Settings",
-            subtitle="Which tiers count, and what a run has to reach for each.",
-            width=DIALOG_REGULAR,
-            height=DIALOG_TALL,
-        )
+        outer = dialog_body(self, title=l10n.tr('Scores Settings'), subtitle=l10n.tr('Which tiers count, and what a run has to reach for each.'), width=DIALOG_REGULAR, height=DIALOG_TALL)
         scroll, scroll_content, scroll_layout = _make_scroll_section()
         outer.addWidget(scroll, 1)
 
-        active_group = QGroupBox("Active Tiers")
+        active_group = l10n.localized(QGroupBox, l10n.tr('Active Tiers'))
         active_layout = QVBoxLayout(active_group)
         for tier in ("Light", "Good", "Perfect", "Perfect+"):
-            cb = QCheckBox(tier)
+            cb = l10n.localized(QCheckBox, tier)
             cb.setChecked(tier in config.SCORES_SYSTEM.get("active_tiers", []))
             cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700; background: transparent;")
             self.active_tier_checks[tier] = cb
             active_layout.addWidget(cb)
         scroll_layout.addWidget(active_group)
 
-        threshold_group = QGroupBox("Thresholds")
+        threshold_group = l10n.localized(QGroupBox, l10n.tr('Thresholds'))
         threshold_layout = QGridLayout(threshold_group)
-        self.manual_thresholds_var = QCheckBox("Manual Thresholds")
+        self.manual_thresholds_var = l10n.localized(QCheckBox, l10n.tr('Manual Thresholds'))
         self.manual_thresholds_var.setChecked(bool(config.SCORES_SYSTEM.get("manual_thresholds", False)))
         self.manual_thresholds_var.toggled.connect(self.toggle_thresholds_mode)
         threshold_layout.addWidget(self.manual_thresholds_var, 0, 0, 1, 2)
         for row, tier in enumerate(("Light", "Good", "Perfect", "Perfect+"), start=1):
-            threshold_layout.addWidget(QLabel(f"{tier}:"), row, 0)
+            threshold_layout.addWidget(l10n.localized(QLabel, f'{tier}:'), row, 0)
             entry = QLineEdit(str(config.SCORES_SYSTEM.get("thresholds", {}).get(tier, 0)))
             self.threshold_entries[tier] = entry
             threshold_layout.addWidget(entry, row, 1)
         scroll_layout.addWidget(threshold_group)
 
-        weight_group = QGroupBox("Shrine Points")
+        weight_group = l10n.localized(QGroupBox, l10n.tr('Shrine Points'))
         weight_layout = QFormLayout(weight_group)
-        point_labels = {
-            "moais": "Moais",
-            "shady": "Shady",
-            "boss": "Boss",
-            "magnet": "Magnet",
-            "challenges": "Challenges",
-        }
+        point_labels = {'moais': l10n.tr('Moais'), 'shady': l10n.tr('Shady'), 'boss': l10n.tr('Boss'), 'magnet': l10n.tr('Magnet'), 'challenges': l10n.tr('Challenges')}
         for key, label in point_labels.items():
             entry = QLineEdit(str(config.SCORES_SYSTEM.get("weights", {}).get(key, 0)))
-            entry.setToolTip(
-                "Positive values add score, zero has no effect, and negative values subtract score."
-            )
+            l10n.display(entry, 'setToolTip', l10n.tr('Positive values add score, zero has no effect, and negative values subtract score.'))
             self.weight_entries[key] = entry
-            weight_layout.addRow(f"{label}:", entry)
-        points_note = QLabel(
-            "Positive values add score. Zero means the shrine count does not affect Score. "
-            "Negative values subtract score."
-        )
+            l10n.form_row(weight_layout, f'{label}:', entry)
+        points_note = l10n.localized(QLabel, l10n.tr('Positive values add score. Zero means the shrine count does not affect Score. Negative values subtract score.'))
         points_note.setWordWrap(True)
         weight_layout.addRow(points_note)
         scroll_layout.addWidget(weight_group)
 
-        multiplier_group = QGroupBox("Microwave Multipliers")
+        multiplier_group = l10n.localized(QGroupBox, l10n.tr('Microwave Multipliers'))
         multiplier_layout = QFormLayout(multiplier_group)
         for key in ("1", "2"):
             entry = QLineEdit(str(config.SCORES_SYSTEM.get("multipliers", {}).get("microwave", {}).get(key, 1.0)))
-            entry.setToolTip("Zero is allowed; negative multipliers are not.")
+            l10n.display(entry, 'setToolTip', l10n.tr('Zero is allowed; negative multipliers are not.'))
             self.multiplier_entries[key] = entry
-            multiplier_layout.addRow(f"{key} Microwave(s):", entry)
-        multiplier_note = QLabel(
-            "Zero is allowed and makes maps in that Microwave bucket produce a final Score of 0."
-        )
+            l10n.form_row(multiplier_layout, l10n.tr('{p0} Microwave(s):', p0=key), entry)
+        multiplier_note = l10n.localized(QLabel, l10n.tr('Zero is allowed and makes maps in that Microwave bucket produce a final Score of 0.'))
         multiplier_note.setWordWrap(True)
         multiplier_layout.addRow(multiplier_note)
         scroll_layout.addWidget(multiplier_group)
@@ -774,9 +618,9 @@ class ScoresSettingsDialog(QDialog):
         # they only came into view after scrolling all the way down. A footer
         # row on `outer` is always visible regardless of scroll position or
         # window size.
-        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn = l10n.localized(QPushButton, l10n.tr('Reset to Defaults'))
         reset_btn.clicked.connect(self.reset_to_defaults)
-        save_btn = QPushButton("Save Settings")
+        save_btn = l10n.localized(QPushButton, l10n.tr('Save Settings'))
         save_btn.clicked.connect(self.save)
         dialog_footer(self, primary=save_btn, destructive=reset_btn)
         self.toggle_thresholds_mode()
@@ -787,11 +631,11 @@ class ScoresSettingsDialog(QDialog):
         for tier, cb in self.active_tier_checks.items():
             cb.setChecked(tier in defaults.get("active_tiers", []))
         for tier, entry in self.threshold_entries.items():
-            entry.setText(str(defaults.get("thresholds", {}).get(tier, 0.0)))
+            l10n.display(entry, 'setText', str(defaults.get('thresholds', {}).get(tier, 0.0)))
         for key, entry in self.weight_entries.items():
-            entry.setText(str(defaults.get("weights", {}).get(key, 0.0)))
+            l10n.display(entry, 'setText', str(defaults.get('weights', {}).get(key, 0.0)))
         for key, entry in self.multiplier_entries.items():
-            entry.setText(str(defaults.get("multipliers", {}).get("microwave", {}).get(key, 1.0)))
+            l10n.display(entry, 'setText', str(defaults.get('multipliers', {}).get('microwave', {}).get(key, 1.0)))
         self.toggle_thresholds_mode()
 
     def auto_update_thresholds(self):
@@ -800,7 +644,7 @@ class ScoresSettingsDialog(QDialog):
             {"microwave": {key: _safe_float(entry.text(), 1.0) for key, entry in self.multiplier_entries.items()}},
         )
         for tier, entry in self.threshold_entries.items():
-            entry.setText(str(thresholds.get(tier, 0.0)))
+            l10n.display(entry, 'setText', str(thresholds.get(tier, 0.0)))
 
     def toggle_thresholds_mode(self):
         manual = self.manual_thresholds_var.isChecked()
@@ -816,23 +660,13 @@ class ScoresSettingsDialog(QDialog):
         manual_thresholds = self.manual_thresholds_var.isChecked()
 
         if any(value < 0 for value in multipliers.values()):
-            QMessageBox.warning(self, "Invalid Settings", "Microwave multipliers cannot be negative.")
+            QMessageBox.warning(self, l10n.tr('Invalid Settings'), l10n.tr('Microwave multipliers cannot be negative.'))
             return
         if not manual_thresholds and not any(value > 0 for value in weights.values()):
-            QMessageBox.warning(
-                self,
-                "Invalid Settings",
-                "Automatic thresholds need at least one positive Shrine Points value. "
-                "Add a positive value or enable Manual Thresholds.",
-            )
+            QMessageBox.warning(self, l10n.tr('Invalid Settings'), l10n.tr('Automatic thresholds need at least one positive Shrine Points value. Add a positive value or enable Manual Thresholds.'))
             return
         if not manual_thresholds and not any(value > 0 for value in multipliers.values()):
-            QMessageBox.warning(
-                self,
-                "Invalid Settings",
-                "Automatic thresholds need at least one positive Microwave multiplier. "
-                "Add a positive multiplier or enable Manual Thresholds.",
-            )
+            QMessageBox.warning(self, l10n.tr('Invalid Settings'), l10n.tr('Automatic thresholds need at least one positive Microwave multiplier. Add a positive multiplier or enable Manual Thresholds.'))
             return
 
         scores_system = {
@@ -862,11 +696,7 @@ class ScoresSettingsDialog(QDialog):
         if error is not None:
             config.SCORES_SYSTEM = previous_scores
             _restore_config_key("SCORES_SYSTEM", previous_config)
-            QMessageBox.warning(
-                self,
-                "Could Not Save Settings",
-                _config_rollback_message(error),
-            )
+            QMessageBox.warning(self, l10n.tr('Could Not Save Settings'), _config_rollback_message(error))
             return
         self.accept()
 
@@ -876,32 +706,27 @@ class DeleteDialog(QDialog):
         super().__init__(parent)
         self.templates = list(templates)
         self.checks: dict[int, QCheckBox] = {}
-        self.setWindowTitle("Delete Templates")
-        layout = dialog_body(
-            self,
-            title="Delete Templates",
-            subtitle="Tick templates to remove. Built-ins can be restored later.",
-            width=DIALOG_REGULAR,
-        )
+        l10n.display(self, 'setWindowTitle', l10n.tr('Delete Templates'))
+        layout = dialog_body(self, title=l10n.tr('Delete Templates'), subtitle=l10n.tr('Tick templates to remove. Built-ins can be restored later.'), width=DIALOG_REGULAR)
         scroll, _content, scroll_layout = _make_scroll_section()
         layout.addWidget(scroll, 1)
         builtin_ids = {template.get("id") for template in config.DEFAULT_TEMPLATES}
         for template in self.templates:
-            suffix = "  •  Built-in" if template.get("id") in builtin_ids else ""
-            cb = QCheckBox(f"{template['name']}{suffix}")
+            suffix = l10n.tr('  •  Built-in') if template.get('id') in builtin_ids else ''
+            cb = l10n.localized(QCheckBox, f'{template['name']}{suffix}')
             self.checks[template["id"]] = cb
             scroll_layout.addWidget(cb)
         if not self.templates:
-            empty_label = QLabel("No templates in the list.")
+            empty_label = l10n.localized(QLabel, l10n.tr('No templates in the list.'))
             empty_label.setObjectName("dialogNote")
             scroll_layout.addWidget(empty_label)
         scroll_layout.addStretch(1)
-        delete_btn = QPushButton("Delete Selected")
+        delete_btn = l10n.localized(QPushButton, l10n.tr('Delete Selected'))
         delete_btn.clicked.connect(self.delete)
-        restore_btn = QPushButton("Restore Built-ins")
+        restore_btn = l10n.localized(QPushButton, l10n.tr('Restore Built-ins'))
         restore_btn.setEnabled(bool(self._missing_builtins()))
         restore_btn.clicked.connect(self.restore_builtins)
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = l10n.localized(QPushButton, l10n.tr('Cancel'))
         cancel_btn.clicked.connect(self.reject)
         # `QDialogButtonBox` is gone with it: it put Delete next to Cancel and
         # ordered them by platform convention, which is the one thing a shared
@@ -937,11 +762,7 @@ class DeleteDialog(QDialog):
         if error is not None:
             config.TEMPLATES = previous_templates
             _restore_config_key("TEMPLATES", previous_config)
-            QMessageBox.warning(
-                self,
-                "Could Not Restore Templates",
-                _config_rollback_message(error),
-            )
+            QMessageBox.warning(self, l10n.tr('Could Not Restore Templates'), _config_rollback_message(error))
             return
         self.accept()
 
@@ -971,11 +792,7 @@ class DeleteDialog(QDialog):
             config.ACTIVE_TEMPLATES = previous_active
             _restore_config_key("TEMPLATES", previous_templates_config)
             _restore_config_key("ACTIVE_TEMPLATES", previous_active_config)
-            QMessageBox.warning(
-                self,
-                "Could Not Delete Templates",
-                _config_rollback_message(error),
-            )
+            QMessageBox.warning(self, l10n.tr('Could Not Delete Templates'), _config_rollback_message(error))
             return
         self.accept()
 
@@ -984,21 +801,17 @@ class ConfirmDeleteRecordingDialog(QDialog):
     def __init__(self, parent, recording_name: str):
         super().__init__(parent)
         self.result = False
-        self.setWindowTitle("Delete Recording")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Delete Recording'))
         self.setModal(True)
-        layout = dialog_body(
-            self,
-            title="Delete recording?",
-            width=DIALOG_COMPACT,
-        )
-        name = QLabel(str(recording_name))
+        layout = dialog_body(self, title=l10n.tr('Delete recording?'), width=DIALOG_COMPACT)
+        name = l10n.localized(QLabel, str(recording_name))
         name.setObjectName("dialogSubject")
         name.setWordWrap(True)
         layout.addWidget(name)
-        layout.addWidget(dialog_note("This cannot be undone."))
-        cancel_btn = QPushButton("Cancel")
+        layout.addWidget(dialog_note(l10n.tr('This cannot be undone.')))
+        cancel_btn = l10n.localized(QPushButton, l10n.tr('Cancel'))
         cancel_btn.clicked.connect(self.cancel)
-        confirm_btn = QPushButton("Delete")
+        confirm_btn = l10n.localized(QPushButton, l10n.tr('Delete'))
         confirm_btn.clicked.connect(self.confirm)
         dialog_footer(self, secondary=cancel_btn, destructive=confirm_btn)
 
@@ -1031,26 +844,21 @@ class CleanupRecordingsDialog(QDialog):
         super().__init__(parent)
         self.threshold: int | None = None
         self.recordings = tuple(recordings)
-        self.setWindowTitle("Clean Recordings")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Clean Recordings'))
         self.setModal(True)
-        layout = dialog_body(
-            self,
-            title="Clean up recordings",
-            subtitle="Removes every recording shorter than the count below.",
-            width=DIALOG_COMPACT,
-        )
+        layout = dialog_body(self, title=l10n.tr('Clean up recordings'), subtitle=l10n.tr('Removes every recording shorter than the count below.'), width=DIALOG_COMPACT)
         if default_threshold is None:
             default_threshold = DEFAULT_MINIMUM_SNAPSHOT_COUNT
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
         form.setHorizontalSpacing(12)
         self.threshold_entry = QLineEdit(str(max(0, int(default_threshold))))
-        form.addRow("Fewer snapshots than:", self.threshold_entry)
+        l10n.form_row(form, l10n.tr('Fewer snapshots than:'), self.threshold_entry)
         layout.addLayout(form)
-        layout.addWidget(dialog_note("This cannot be undone."))
-        cancel_btn = QPushButton("Cancel")
+        layout.addWidget(dialog_note(l10n.tr('This cannot be undone.')))
+        cancel_btn = l10n.localized(QPushButton, l10n.tr('Cancel'))
         cancel_btn.clicked.connect(self.reject)
-        self.confirm_btn = QPushButton("Remove")
+        self.confirm_btn = l10n.localized(QPushButton, l10n.tr('Remove'))
         self.confirm_btn.clicked.connect(self.confirm)
         self.threshold_entry.textChanged.connect(self._refresh_removal_count)
         dialog_footer(self, secondary=cancel_btn, destructive=self.confirm_btn)
@@ -1060,12 +868,12 @@ class CleanupRecordingsDialog(QDialog):
         try:
             threshold = int(float(_read_text(self.threshold_entry)))
         except ValueError:
-            self.confirm_btn.setText("Remove")
+            l10n.display(self.confirm_btn, 'setText', l10n.tr('Remove'))
             self.confirm_btn.setEnabled(False)
             return
 
         if threshold < 0:
-            self.confirm_btn.setText("Remove")
+            l10n.display(self.confirm_btn, 'setText', l10n.tr('Remove'))
             self.confirm_btn.setEnabled(False)
             return
 
@@ -1074,18 +882,17 @@ class CleanupRecordingsDialog(QDialog):
             for recording in self.recordings
             if int(recording.snapshot_count) < threshold
         )
-        noun = "recording" if count == 1 else "recordings"
-        self.confirm_btn.setText(f"Remove {count} {noun}")
+        l10n.display(self.confirm_btn, 'setText', l10n.tr('Remove recordings ({count})', count=count))
         self.confirm_btn.setEnabled(count > 0)
 
     def confirm(self):
         try:
             threshold = int(float(_read_text(self.threshold_entry)))
         except ValueError:
-            QMessageBox.warning(self, "Invalid Count", "Please enter a valid snapshot count.")
+            QMessageBox.warning(self, l10n.tr('Invalid Count'), l10n.tr('Please enter a valid snapshot count.'))
             return
         if threshold < 0:
-            QMessageBox.warning(self, "Invalid Count", "Snapshot count cannot be negative.")
+            QMessageBox.warning(self, l10n.tr('Invalid Count'), l10n.tr('Snapshot count cannot be negative.'))
             return
         self.threshold = threshold
         self.accept()
@@ -1096,34 +903,18 @@ class RerollWarningDialog(QDialog):
         super().__init__(parent)
         self.result = False
         self.dont_show_again = False
-        self.setWindowTitle("Auto-Reroll Confirmation")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Auto-Reroll Confirmation'))
         self.setModal(True)
 
-        layout = dialog_body(
-            self,
-            title="Confirm Auto-Reroll Start",
-            width=DIALOG_REGULAR,
-        )
-        layout.addWidget(
-            dialog_card(
-                "This button is only required for the Auto-Reroll map mode. "
-                "Pressing OK will launch the automatic loop to monitor your runs "
-                "and execute restarts until a matching target map is found."
-                "<br><br>For more details, please open the Help (?)."
-            )
-        )
-        layout.addWidget(
-            dialog_note(
-                "All other background features (Live Stats, VOD recordings and the "
-                "OBS overlay) work automatically and do not require this loop."
-            )
-        )
+        layout = dialog_body(self, title=l10n.tr('Confirm Auto-Reroll Start'), width=DIALOG_REGULAR)
+        layout.addWidget(dialog_card(l10n.tr('This button is only required for the Auto-Reroll map mode. Pressing OK will launch the automatic loop to monitor your runs and execute restarts until a matching target map is found.<br><br>For more details, please open the Help (?).')))
+        layout.addWidget(dialog_note(l10n.tr('All other background features (Live Stats, VOD recordings and the OBS overlay) work automatically and do not require this loop.')))
         layout.addStretch(1)
 
-        self.checkbox = QCheckBox("Don't show this again")
-        cancel_btn = QPushButton("Cancel")
+        self.checkbox = l10n.localized(QCheckBox, l10n.tr("Don't show this again"))
+        cancel_btn = l10n.localized(QPushButton, l10n.tr('Cancel'))
         cancel_btn.clicked.connect(self.cancel)
-        confirm_btn = QPushButton("OK")
+        confirm_btn = l10n.localized(QPushButton, l10n.tr('OK'))
         confirm_btn.clicked.connect(self.confirm)
         dialog_footer(
             self, primary=confirm_btn, secondary=cancel_btn, leading=self.checkbox
@@ -1143,26 +934,15 @@ class RerollWarningDialog(QDialog):
 class ObsRecordingReminderDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle("OBS Recording Reminder")
+        l10n.display(self, 'setWindowTitle', l10n.tr('OBS Recording Reminder'))
         self.setModal(True)
 
-        layout = dialog_body(
-            self,
-            title="OBS Recording Reminder",
-            width=DIALOG_REGULAR,
-        )
-        layout.addWidget(
-            dialog_card(
-                "If this run is for leaderboard verification or YouTube, make sure "
-                "OBS recording is started before beginning the run."
-            )
-        )
-        layout.addWidget(
-            dialog_note("This reminder can be switched off at any time in Settings.")
-        )
+        layout = dialog_body(self, title=l10n.tr('OBS Recording Reminder'), width=DIALOG_REGULAR)
+        layout.addWidget(dialog_card(l10n.tr('If this run is for leaderboard verification or YouTube, make sure OBS recording is started before beginning the run.')))
+        layout.addWidget(dialog_note(l10n.tr('This reminder can be switched off at any time in Settings.')))
         layout.addStretch(1)
 
-        ok_btn = QPushButton("OK")
+        ok_btn = l10n.localized(QPushButton, l10n.tr('OK'))
         ok_btn.clicked.connect(self.accept)
         dialog_footer(self, primary=ok_btn)
 
@@ -1173,7 +953,7 @@ class AutoRerollSetupGuideDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.acknowledged = False
-        self.setWindowTitle("Auto-Reroll Setup")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Auto-Reroll Setup'))
         self.setModal(True)
         margin = config.RESET_HOLD_SAFETY_MARGIN
         minimum_hold = config.minimum_reset_hold_duration(margin)
@@ -1183,48 +963,13 @@ class AutoRerollSetupGuideDialog(QDialog):
         )
         example_margin = min(config.MAX_RESET_HOLD_SAFETY_MARGIN, margin + 0.02)
 
-        layout = dialog_body(
-            self,
-            title="Configure Auto-Reroll",
-            subtitle=(
-                "To configure BonkScanner's Auto-Reroll feature correctly, make "
-                "these small changes in Megabonk's game settings."
-            ),
-            width=DIALOG_WIDE,
-            height=DIALOG_TALL,
-        )
+        layout = dialog_body(self, title=l10n.tr('Configure Auto-Reroll'), subtitle=l10n.tr("To configure BonkScanner's Auto-Reroll feature correctly, make these small changes in Megabonk's game settings."), width=DIALOG_WIDE, height=DIALOG_TALL)
         scroll, _content, guide_layout = _make_scroll_section()
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         layout.addWidget(scroll, 1)
         layout = guide_layout
-        layout.addWidget(
-            dialog_card(
-                "<b>1. Enable quick resets</b><br><br>"
-                "Open <b>Settings &rarr; Game</b> in Megabonk and make sure these "
-                "settings are <b>ON</b>:"
-                "<br><br><b>Quick Reset</b>"
-                "<br><b>Skip Portal Animation</b>"
-                "<br><b>Super Quick Resets</b>"
-            )
-        )
-        layout.addWidget(
-            dialog_card(
-                "<b>2. Set the reset key hold</b><br><br>"
-                "In BonkScanner <b>Settings &rarr; Restart</b>, <b>Reset key hold</b> is how long the reset "
-                "key stays pressed. A shorter hold can make resets faster; map loading "
-                "also affects the time between runs.<br><br>"
-                "<b>Use recommended values</b> applies game 0.01 s + extra 0.05 s = hold 0.06 s. "
-                "On a new installation, this setup is applied when the game is closed. "
-                "If it could not be applied, close the game and use this button in Settings. "
-                "The hold must cover the game's reset threshold plus <b>Extra hold time "
-                "(Safety Margin)</b>. For example: game 0.20 s + extra 0.05 s = hold 0.25 s."
-                f"<br><br>With your {margin:.2f}-second safety margin, the lowest selectable "
-                f"hold is <b>{minimum_hold:.2f} s</b> (game minimum {minimum_game_value:.2f} s)."
-                "<br><br>Settings shows the current game-file value and what Save will change. "
-                "<b>Close Megabonk only if its config needs changing.</b> A game-file change "
-                "takes effect on the next game launch. Changed config files are verified."
-            )
-        )
+        layout.addWidget(dialog_card(l10n.tr('<b>1. Enable quick resets</b><br><br>Open <b>Settings &rarr; Game</b> in Megabonk and make sure these settings are <b>ON</b>:<br><br><b>Quick Reset</b><br><b>Skip Portal Animation</b><br><b>Super Quick Resets</b>')))
+        layout.addWidget(dialog_card(l10n.tr("<b>2. Set the reset key hold</b><br><br>In BonkScanner <b>Settings &rarr; Restart</b>, <b>Reset key hold</b> is how long the reset key stays pressed. A shorter hold can make resets faster; map loading also affects the time between runs.<br><br><b>Use recommended values</b> applies game 0.01 s + extra 0.05 s = hold 0.06 s. On a new installation, this setup is applied when the game is closed. If it could not be applied, close the game and use this button in Settings. The hold must cover the game's reset threshold plus <b>Extra hold time (Safety Margin)</b>. For example: game 0.20 s + extra 0.05 s = hold 0.25 s.<br><br>With your {p0:.2f}-second safety margin, the lowest selectable hold is <b>{p1:.2f} s</b> (game minimum {p2:.2f} s).<br><br>Settings shows the current game-file value and what Save will change. <b>Close Megabonk only if its config needs changing.</b> A game-file change takes effect on the next game launch. Changed config files are verified.", p0=margin, p1=minimum_hold, p2=minimum_game_value)))
         layout.addWidget(
             dialog_danger_card(
                 "<b>3. If a reset is missed</b><br><br>"
@@ -1238,15 +983,11 @@ class AutoRerollSetupGuideDialog(QDialog):
                 "the game config and automatically raises a hold that is too short."
             )
         )
-        details = CollapsibleSection("Game config location")
-        details.body_layout.addWidget(dialog_note(
-            "Megabonk's game config: %USERPROFILE%\\AppData\\LocalLow\\Ved\\Megabonk\\"
-            "Saves\\LocalDir\\config.json. This is the saved file, not a live read of "
-            "the running game's settings."
-        ))
+        details = CollapsibleSection(l10n.tr('Game config location'))
+        details.body_layout.addWidget(dialog_note(l10n.tr("Megabonk's game config: %USERPROFILE%\\AppData\\LocalLow\\Ved\\Megabonk\\Saves\\LocalDir\\config.json. This is the saved file, not a live read of the running game's settings.")))
         layout.addWidget(details)
 
-        got_it_btn = QPushButton("Got it")
+        got_it_btn = l10n.localized(QPushButton, l10n.tr('Got it'))
         got_it_btn.clicked.connect(self.confirm)
         dialog_footer(self, primary=got_it_btn)
 
@@ -1273,12 +1014,8 @@ class GameResetTimeNoticeDialog(QDialog):
         self.setModal(True)
 
         if saved:
-            self.setWindowTitle("Settings Saved")
-            layout = dialog_body(
-                self,
-                title="Reset hold saved",
-                width=DIALOG_REGULAR,
-            )
+            l10n.display(self, 'setWindowTitle', l10n.tr('Settings Saved'))
+            layout = dialog_body(self, title=l10n.tr('Reset hold saved'), width=DIALOG_REGULAR)
             value_summary = ""
             if scanner_hold is not None and game_value is not None and margin is not None:
                 value_summary = (
@@ -1301,22 +1038,11 @@ class GameResetTimeNoticeDialog(QDialog):
                 )
             layout.addWidget(dialog_info_card(detail))
         else:
-            self.setWindowTitle("Settings Not Saved")
-            layout = dialog_body(
-                self,
-                title="Could not save settings",
-                width=DIALOG_REGULAR,
-            )
-            layout.addWidget(
-                dialog_card(
-                    "Your Settings changes were not applied. The save was blocked or "
-                    "could not be verified.<br><br>"
-                    f"<b>Reason:</b> {html.escape(reason or 'The change could not be verified.')}"
-                    "<br><br>Correct the problem and press Save again."
-                )
-            )
+            l10n.display(self, 'setWindowTitle', l10n.tr('Settings Not Saved'))
+            layout = dialog_body(self, title=l10n.tr('Could not save settings'), width=DIALOG_REGULAR)
+            layout.addWidget(dialog_card(l10n.tr('Your Settings changes were not applied. The save was blocked or could not be verified.<br><br><b>Reason:</b> {p0}<br><br>Correct the problem and press Save again.', p0=html.escape(reason or 'The change could not be verified.'))))
 
-        ok_btn = QPushButton("OK")
+        ok_btn = l10n.localized(QPushButton, l10n.tr('OK'))
         ok_btn.clicked.connect(self.accept)
         dialog_footer(self, primary=ok_btn)
 
@@ -1325,25 +1051,15 @@ class TwitchCommandsHelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.dont_show_again = False
-        self.setWindowTitle("Twitch Command Aliases")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Twitch Command Aliases'))
         self.setModal(True)
 
-        layout = dialog_body(
-            self,
-            title="!bonkhelp aliases",
-            subtitle="All four produce the same response; viewers can use any of them.",
-            width=DIALOG_REGULAR,
-        )
-        layout.addWidget(
-            dialog_card(
-                "<b>!bonkhelp</b> &nbsp;·&nbsp; <b>!bonkcmds</b> &nbsp;·&nbsp; "
-                "<b>!bonkcommands</b> &nbsp;·&nbsp; <b>!bhelp</b>"
-            )
-        )
+        layout = dialog_body(self, title=l10n.tr('!bonkhelp aliases'), subtitle=l10n.tr('All four produce the same response; viewers can use any of them.'), width=DIALOG_REGULAR)
+        layout.addWidget(dialog_card(l10n.tr('<b>!bonkhelp</b> &nbsp;·&nbsp; <b>!bonkcmds</b> &nbsp;·&nbsp; <b>!bonkcommands</b> &nbsp;·&nbsp; <b>!bhelp</b>')))
         layout.addStretch(1)
 
-        self.checkbox = QCheckBox("Don't show this again")
-        ok_btn = QPushButton("OK")
+        self.checkbox = l10n.localized(QCheckBox, l10n.tr("Don't show this again"))
+        ok_btn = l10n.localized(QPushButton, l10n.tr('OK'))
         ok_btn.clicked.connect(self.confirm)
         dialog_footer(self, primary=ok_btn, leading=self.checkbox)
 
@@ -1355,27 +1071,21 @@ class TwitchCommandsHelpDialog(QDialog):
 class HelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle("BonkScanner Help")
+        l10n.display(self, 'setWindowTitle', l10n.tr('BonkScanner Help'))
         self.setModal(True)
 
-        layout = dialog_body(
-            self,
-            title="Quick Help",
-            subtitle=(
-                "Practical notes on the main features, common workflows and "
-                "the behaviour that is not obvious."
-            ),
-            width=DIALOG_WIDE,
-            height=DIALOG_TALL,
-        )
+        layout = dialog_body(self, title=l10n.tr('Quick Help'), subtitle=l10n.tr('Practical notes on the main features, common workflows and the behaviour that is not obvious.'), width=DIALOG_WIDE, height=DIALOG_TALL)
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_language_tab("media/help/help_eng.txt", self._fallback_eng_text()), "ENG")
-        tabs.addTab(self._build_language_tab("media/help/help_ukr.txt", self._fallback_ukr_text()), "UA")
-        tabs.addTab(self._build_language_tab("media/help/help_ru.txt", self._fallback_ru_text()), "RU")
+        filenames = {"en": "eng", "uk": "ukr", "ru": "ru", "fr": "fr", "es": "es", "de": "de", "pt": "pt"}
+        for code, caption in SUPPORTED_LANGUAGES.items():
+            path = f"media/help/help_{filenames[code]}.txt"
+            fallback = l10n.tr("Help file could not be loaded: {path}", path=path)
+            tabs.addTab(self._build_language_tab(path, str(fallback)), caption)
+        tabs.setCurrentIndex(list(SUPPORTED_LANGUAGES).index(localization().translator.language))
         layout.addWidget(tabs, 1)
 
-        close_btn = QPushButton("Close")
+        close_btn = l10n.localized(QPushButton, l10n.tr('Close'))
         close_btn.clicked.connect(self.accept)
         dialog_footer(self, secondary=close_btn)
 
@@ -1386,7 +1096,7 @@ class HelpDialog(QDialog):
 
         content = QTextEdit()
         content.setReadOnly(True)
-        content.setHtml(self._render_help_html(self._load_help_text(relative_path, fallback_text)))
+        l10n.display(content, 'setHtml', self._render_help_html(self._load_help_text(relative_path, fallback_text)))
         layout.addWidget(content)
         return tab
 
@@ -1508,7 +1218,7 @@ _SETTINGS_LABEL_WIDTH = 120
 
 
 def _settings_group_label(text: str) -> QLabel:
-    label = QLabel(str(text).upper())
+    label = l10n.localized(QLabel, l10n.transform(text, str.upper))
     label.setObjectName("sectionEyebrow")
     return label
 
@@ -1525,7 +1235,7 @@ def _settings_grid(rows) -> QGridLayout:
     grid.setVerticalSpacing(8)
     for index, (caption, field) in enumerate(rows):
         row, column = divmod(index, 2)
-        label = QLabel(str(caption))
+        label = l10n.localized(QLabel, l10n.preserve(caption))
         label.setObjectName("rowLabel")
         # Left-aligned, on a column wide enough for the longest caption, so the
         # labels share the window's left edge with the group headings and the
@@ -1558,17 +1268,11 @@ class SettingsDialog(QDialog):
         self.settings_header_tabs.setDrawBase(False)
         self.settings_header_tabs.setExpanding(False)
         self.settings_header_tabs.setUsesScrollButtons(False)
-        self.settings_header_tabs.addTab("General")
-        self.settings_header_tabs.addTab("Restart")
-        self.settings_header_tabs.addTab("Data")
-        self.settings_header_tabs.addTab("Support")
-        shell_layout = dialog_body(
-            self,
-            title="Settings",
-            header_widget=self.settings_header_tabs,
-            width=DIALOG_REGULAR,
-            height=DIALOG_TALL,
-        )
+        l10n.tab(self.settings_header_tabs, l10n.tr('General'))
+        l10n.tab(self.settings_header_tabs, l10n.tr('Restart'))
+        l10n.tab(self.settings_header_tabs, l10n.tr('Data'))
+        l10n.tab(self.settings_header_tabs, l10n.tr('Support'))
+        shell_layout = dialog_body(self, title=l10n.tr('Settings'), header_widget=self.settings_header_tabs, width=DIALOG_REGULAR, height=DIALOG_TALL)
 
         self.settings_tabs = QTabWidget(self)
         self.settings_tabs.setObjectName("SettingsTabs")
@@ -1577,7 +1281,7 @@ class SettingsDialog(QDialog):
         self.general_settings_page.setObjectName("GeneralSettingsPage")
         general_page_layout = QVBoxLayout(self.general_settings_page)
         general_page_layout.setContentsMargins(0, 0, 0, 0)
-        general_page_layout.setSpacing(0)
+        general_page_layout.setSpacing(12)
 
         settings_scroll, settings_content, layout = _make_scroll_section()
         settings_scroll.setObjectName("SettingsScroll")
@@ -1585,29 +1289,29 @@ class SettingsDialog(QDialog):
         settings_content.setObjectName("SettingsScrollContent")
         layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(12)
-        general_page_layout.addWidget(settings_scroll)
-        self.settings_tabs.addTab(self.general_settings_page, "General")
+        general_page_layout.addWidget(settings_scroll, 1)
+        l10n.tab(self.settings_tabs, self.general_settings_page, l10n.tr('General'))
 
         self.restart_settings_page = QWidget(self.settings_tabs)
         self.restart_settings_page.setObjectName("RestartSettingsPage")
         restart_page_layout = QVBoxLayout(self.restart_settings_page)
         restart_page_layout.setContentsMargins(0, 0, 0, 0)
-        restart_page_layout.setSpacing(0)
+        restart_page_layout.setSpacing(12)
         restart_scroll, restart_content, restart_layout = _make_scroll_section()
         restart_scroll.setObjectName("RestartSettingsScroll")
         restart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         restart_content.setObjectName("RestartSettingsScrollContent")
         restart_layout.setContentsMargins(0, 0, 4, 0)
         restart_layout.setSpacing(12)
-        restart_page_layout.addWidget(restart_scroll)
-        self.settings_tabs.addTab(self.restart_settings_page, "Restart")
+        restart_page_layout.addWidget(restart_scroll, 1)
+        l10n.tab(self.settings_tabs, self.restart_settings_page, l10n.tr('Restart'))
 
         self.data_storage_page = DataStoragePage(
             request_migration=self._request_data_migration,
             restart_application=self._restart_for_data_migration,
             parent=self.settings_tabs,
         )
-        self.settings_tabs.addTab(self.data_storage_page, "Data")
+        l10n.tab(self.settings_tabs, self.data_storage_page, l10n.tr('Data'))
 
         self.supporter_access_page = SupporterAccessPage(
             controller=getattr(self.master, "supporter_access", None),
@@ -1618,7 +1322,7 @@ class SettingsDialog(QDialog):
             crypto_enabled=bool(CRYPTO_SUPPORT_URL),
             parent=self.settings_tabs,
         )
-        self.settings_tabs.addTab(self.supporter_access_page, "Support")
+        l10n.tab(self.settings_tabs, self.supporter_access_page, l10n.tr('Support'))
         self.settings_tabs.tabBar().hide()
         self.settings_header_tabs.currentChanged.connect(
             self.settings_tabs.setCurrentIndex
@@ -1653,11 +1357,11 @@ class SettingsDialog(QDialog):
         ):
             entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
 
-        layout.addWidget(_settings_group_label("Appearance"))
+        layout.addWidget(_settings_group_label(l10n.tr('Appearance')))
         self.theme_selector = ThemeSelector(self.master)
         self.theme_selector.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
         appearance_form = QFormLayout()
-        appearance_form.addRow("Design:", self.theme_selector)
+        l10n.form_row(appearance_form, l10n.tr('Design:'), self.theme_selector)
         layout.addLayout(appearance_form)
 
         language_heading = _settings_group_label("")
@@ -1667,7 +1371,12 @@ class SettingsDialog(QDialog):
         language_label = QLabel()
         bind_text(language_label, "settings.language")
         language_form = QFormLayout()
-        language_form.addRow(language_label, self.language_selector)
+        language_form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        l10n.form_row(language_form, language_label, self.language_selector)
+        self.game_language_selector = GameLanguageSelector()
+        game_language_label = QLabel()
+        bind_text(game_language_label, "settings.game_language")
+        l10n.form_row(language_form, game_language_label, self.game_language_selector)
         layout.addLayout(language_form)
         language_note = QLabel()
         language_note.setObjectName("dialogHint")
@@ -1675,17 +1384,8 @@ class SettingsDialog(QDialog):
         bind_text(language_note, "settings.language_scope")
         layout.addWidget(language_note)
 
-        layout.addWidget(_settings_group_label("Hotkeys"))
-        layout.addLayout(
-            _settings_grid(
-                (
-                    ("Scan:", self.hotkey_entry),
-                    ("Reset:", self.reset_hotkey_entry),
-                    ("Record:", self.record_hotkey_entry),
-                    ("Overlay layout:", self.overlay_edit_hotkey_entry),
-                )
-            )
-        )
+        layout.addWidget(_settings_group_label(l10n.tr('Hotkeys')))
+        layout.addLayout(_settings_grid(((l10n.tr('Scan:'), self.hotkey_entry), (l10n.tr('Reset:'), self.reset_hotkey_entry), (l10n.tr('Record:'), self.record_hotkey_entry), (l10n.tr('Overlay layout:'), self.overlay_edit_hotkey_entry))))
 
         self.reset_hold_safety_margin_entry = ResetTimingInput()
         self.reset_hold_safety_margin_entry.setRange(
@@ -1699,12 +1399,7 @@ class SettingsDialog(QDialog):
         )
         self.reset_hold_safety_margin_entry.setSuffix(" s")
         self.reset_hold_safety_margin_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
-        self.reset_hold_safety_margin_entry.setToolTip(
-            "Increase this if resets are missed. "
-            "Minimum extra time above the game's reset threshold (Safety Margin). "
-            "Changing this field adjusts the key hold and keeps the current or planned "
-            "game threshold. Lower values leave less tolerance for timing variation."
-        )
+        l10n.display(self.reset_hold_safety_margin_entry, 'setToolTip', l10n.tr("Increase this if resets are missed. Minimum extra time above the game's reset threshold (Safety Margin). Changing this field adjusts the key hold and keeps the current or planned game threshold. Lower values leave less tolerance for timing variation."))
 
         self.reset_hold_duration_entry = ResetTimingInput()
         self.reset_hold_duration_entry.setRange(
@@ -1718,10 +1413,7 @@ class SettingsDialog(QDialog):
         self.reset_hold_duration_entry.setValue(float(config.RESET_HOLD_DURATION))
         self.reset_hold_duration_entry.setSuffix(" s")
         self.reset_hold_duration_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
-        self.reset_hold_duration_entry.setToolTip(
-            "How long BonkScanner physically holds the reset key. Values outside "
-            "the allowed range stay visible and must be corrected before saving."
-        )
+        l10n.display(self.reset_hold_duration_entry, 'setToolTip', l10n.tr('How long BonkScanner physically holds the reset key. Values outside the allowed range stay visible and must be corrected before saving.'))
         self._reset_hold_input_note = ""
         self._timing_save_message = ""
         self._timing_save_error = ""
@@ -1736,10 +1428,7 @@ class SettingsDialog(QDialog):
         self.reset_game_value_label = QLabel()
         self.reset_game_value_label.setObjectName("rowValueMuted")
         self.reset_game_value_label.setMinimumWidth(_SETTINGS_FIELD_WIDTH)
-        self.reset_game_value_label.setToolTip(
-            "The quick_reset_time currently saved in Megabonk's config file. "
-            "It may differ from settings already loaded by the running game."
-        )
+        l10n.display(self.reset_game_value_label, 'setToolTip', l10n.tr("The quick_reset_time currently saved in Megabonk's config file. It may differ from settings already loaded by the running game."))
         self.reset_game_after_label = QLabel()
         self.reset_game_after_label.setObjectName("rowValue")
         self.reset_game_after_label.setWordWrap(True)
@@ -1773,23 +1462,19 @@ class SettingsDialog(QDialog):
         )
         self.record_interval_entry.setSuffix(" s")
         self.record_interval_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
-        self.record_interval_entry.setToolTip(
-            "Recording snapshots use the full player-state read, which runs every "
-            f"{config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS} seconds. Lower input "
-            "is corrected to that minimum."
-        )
+        l10n.display(self.record_interval_entry, 'setToolTip', l10n.tr('Recording snapshots use the full player-state read, which runs every {p0} seconds. Lower input is corrected to that minimum.', p0=config.MIN_RECORDING_SNAPSHOT_INTERVAL_SECONDS))
         self.record_interval_entry.editingFinished.connect(
             self._normalize_record_interval_entry
         )
 
         self._general_layout = layout
-        restart_layout.addWidget(_settings_group_label("Reset timing"))
+        restart_layout.addWidget(_settings_group_label(l10n.tr('Reset timing')))
         reset_form = QGridLayout()
         reset_form.setColumnStretch(0, 1)
         self.reset_game_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        reset_form.addWidget(QLabel("Reset key hold:"), 0, 0)
+        reset_form.addWidget(l10n.localized(QLabel, l10n.tr('Reset key hold:')), 0, 0)
         reset_form.addWidget(self.reset_hold_duration_entry, 0, 1)
-        game_config_caption = QLabel("Game config:")
+        game_config_caption = l10n.localized(QLabel, l10n.tr('Game config:'))
         game_config_caption.setObjectName("dialogHint")
         reset_form.addWidget(game_config_caption, 1, 0)
         reset_form.addWidget(self.reset_game_value_label, 1, 1)
@@ -1798,40 +1483,33 @@ class SettingsDialog(QDialog):
         for label in (self.reset_game_after_label, self.reset_hold_after_label):
             label.setParent(self)
             label.hide()
-        self.reset_timing_status_label = QLabel(restart_content)
+        self.reset_timing_status_label = l10n.localized(QLabel, restart_content)
         self.reset_timing_status_label.setWordWrap(True)
         self.reset_timing_status_label.setTextFormat(Qt.PlainText)
         self.reset_timing_status_label.setObjectName("ResetTimingStatus")
         self.reset_timing_status_label.setMinimumHeight(
             self.reset_timing_status_label.fontMetrics().height() + 20
         )
-        self.advanced_reset_timing = CollapsibleSection("Advanced", expanded=False)
+        self.advanced_reset_timing = CollapsibleSection(l10n.tr('Advanced'), expanded=False)
         advanced_form = QGridLayout()
         advanced_form.setColumnStretch(0, 1)
-        advanced_form.addWidget(QLabel("Extra hold time:"), 0, 0)
+        advanced_form.addWidget(l10n.localized(QLabel, l10n.tr('Extra hold time:')), 0, 0)
         advanced_form.addWidget(self.reset_hold_safety_margin_entry, 0, 1)
         self.advanced_reset_timing.body_layout.addLayout(advanced_form)
         self.advanced_reset_timing.body_layout.addWidget(self.reset_minimum_label)
-        self.reset_timing_hint = dialog_info_card(
-            "Reset key hold includes the game's reset time plus extra hold time."
-            "<br><b>Recommended:</b> 0.01 s in the game + 0.05 s extra = 0.06 s key hold."
-        )
+        self.reset_timing_hint = dialog_info_card(l10n.tr("Reset key hold includes the game's reset time plus extra hold time.<br><b>Recommended:</b> 0.01 s in the game + 0.05 s extra = 0.06 s key hold."))
         self.reset_timing_hint.setParent(restart_content)
         self.reset_timing_limits_label.setParent(self)
         self.reset_timing_limits_label.hide()
         restart_layout.addWidget(self.advanced_reset_timing)
-        self.recommended_reset_btn = QPushButton("Use recommended values…")
+        self.recommended_reset_btn = l10n.localized(QPushButton, l10n.tr('Use recommended values…'))
         self.recommended_reset_btn.clicked.connect(self._apply_recommended_reset_timing)
-        restart_layout.addWidget(_settings_group_label("Scanning"))
-        self.stop_scanning_on_player_movement_var = QCheckBox(
-            "Stop scanning when player moves"
-        )
+        restart_layout.addWidget(_settings_group_label(l10n.tr('Scanning')))
+        self.stop_scanning_on_player_movement_var = l10n.localized(QCheckBox, l10n.tr('Stop scanning when player moves'))
         self.stop_scanning_on_player_movement_var.setChecked(
             bool(getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True))
         )
-        self.stop_scanning_on_player_movement_var.setToolTip(
-            "While Auto-Reroll is active, pressing W, A, S, D or Space pauses it immediately."
-        )
+        l10n.display(self.stop_scanning_on_player_movement_var, 'setToolTip', l10n.tr('While Auto-Reroll is active, pressing W, A, S, D or Space pauses it immediately.'))
         restart_layout.addWidget(self.stop_scanning_on_player_movement_var)
 
 
@@ -1841,17 +1519,17 @@ class SettingsDialog(QDialog):
         self.reset_hold_safety_margin_entry.valueChanged.connect(
             self._on_reset_margin_changed
         )
-        layout.addWidget(_settings_group_label("Recording"))
+        layout.addWidget(_settings_group_label(l10n.tr('Recording')))
         recording_form = QFormLayout()
-        recording_form.addRow("Snapshot every:", self.record_interval_entry)
+        l10n.form_row(recording_form, l10n.tr('Snapshot every:'), self.record_interval_entry)
         layout.addLayout(recording_form)
 
-        layout.addWidget(_settings_group_label("On start"))
-        self.auto_start_recording_var = QCheckBox("Auto-start recording")
+        layout.addWidget(_settings_group_label(l10n.tr('On start')))
+        self.auto_start_recording_var = l10n.localized(QCheckBox, l10n.tr('Auto-start recording'))
         self.auto_start_recording_var.setChecked(bool(getattr(config, "AUTO_START_RECORDING", False)))
         layout.addWidget(self.auto_start_recording_var)
 
-        self.show_obs_reminder_on_start_scanner_var = QCheckBox("Show OBS reminder on Start Scanner")
+        self.show_obs_reminder_on_start_scanner_var = l10n.localized(QCheckBox, l10n.tr('Show OBS reminder on Start Scanner'))
         self.show_obs_reminder_on_start_scanner_var.setChecked(
             bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
         )
@@ -1859,23 +1537,23 @@ class SettingsDialog(QDialog):
 
         layout.addStretch(1)
 
-        support_card, buttons = self._make_support_card(settings_content)
+        support_card, buttons = self._make_support_card(self.general_settings_page)
         self.patreon_btn, self.crypto_btn, self.github_btn, self.discord_btn = buttons
-        layout.addWidget(support_card)
+        general_page_layout.addWidget(support_card)
         restart_layout.addStretch(1)
         restart_layout.addWidget(self.reset_timing_hint)
         restart_layout.addWidget(self.reset_timing_status_label)
-        restart_support_card, _ = self._make_support_card(restart_content)
-        restart_layout.addWidget(restart_support_card)
+        restart_support_card, _ = self._make_support_card(self.restart_settings_page)
+        restart_page_layout.addWidget(restart_support_card)
         data_support_card, _ = self._make_support_card(self.data_storage_page)
         self.data_storage_page.layout().addWidget(data_support_card)
 
         # Update checking lives in the always-visible footer. Settings keeps one
         # clear job and one primary action instead of duplicating that control.
-        self.save_btn = QPushButton("Save")
+        self.save_btn = l10n.localized(QPushButton, l10n.tr('Save'))
         self.save_btn.clicked.connect(self._on_primary_action)
-        self.save_btn.setToolTip(self._localization.text("settings.save_hint"))
-        self.cancel_btn = QPushButton("Cancel")
+        l10n.display(self.save_btn, 'setToolTip', self._localization.text('settings.save_hint'))
+        self.cancel_btn = l10n.localized(QPushButton, l10n.tr('Cancel'))
         self.cancel_btn.clicked.connect(self.reject)
         bind_text(self.cancel_btn, "common.cancel")
         dialog_footer(self, primary=self.save_btn, secondary=self.cancel_btn,
@@ -1897,6 +1575,7 @@ class SettingsDialog(QDialog):
             spinbox.valueChanged.connect(self._mark_general_settings_dirty)
         self.theme_selector.currentIndexChanged.connect(self._mark_general_settings_dirty)
         self.language_selector.currentIndexChanged.connect(self._mark_general_settings_dirty)
+        self.game_language_selector.currentIndexChanged.connect(self._mark_general_settings_dirty)
         for checkbox in (
             self.stop_scanning_on_player_movement_var,
             self.auto_start_recording_var,
@@ -1923,11 +1602,7 @@ class SettingsDialog(QDialog):
             self.settings_header_tabs.setTabText(index, caption)
             self.settings_tabs.setTabText(index, caption)
         # Navigation must fit longer translations as well as English.
-        margins = self.layout().contentsMargins()
-        self.setMinimumWidth(max(
-            DIALOG_REGULAR,
-            self.settings_header_tabs.sizeHint().width() + margins.left() + margins.right(),
-        ))
+        fit_dialog_header(self, self.settings_header_tabs)
         self._on_settings_tab_changed(self.settings_tabs.currentIndex())
 
     def _make_support_card(self, parent: QWidget):
@@ -1937,14 +1612,11 @@ class SettingsDialog(QDialog):
         support_layout.setContentsMargins(12, 10, 12, 12)
         support_layout.setSpacing(8)
 
-        support_label = QLabel("Support", support_card)
+        support_label = l10n.localized(QLabel, l10n.tr('Support'), support_card)
         support_label.setObjectName("SupportSectionLabel")
         support_layout.addWidget(support_label)
 
-        support_note = QLabel(
-            "Support the project or join the BonkScanner community.",
-            support_card,
-        )
+        support_note = l10n.localized(QLabel, l10n.tr('Support the project or join the BonkScanner community.'), support_card)
         support_note.setObjectName("SupportSectionNote")
         support_note.setWordWrap(True)
         support_layout.addWidget(support_note)
@@ -1978,7 +1650,7 @@ class SettingsDialog(QDialog):
         )
         crypto_btn.setEnabled(bool(CRYPTO_SUPPORT_URL))
         if not CRYPTO_SUPPORT_URL:
-            crypto_btn.setToolTip("Crypto support page is coming soon.")
+            l10n.display(crypto_btn, 'setToolTip', l10n.tr('Crypto support page is coming soon.'))
         for button in (
             patreon_btn,
             crypto_btn,
@@ -1996,7 +1668,7 @@ class SettingsDialog(QDialog):
         icon_path: str,
         callback,
     ) -> QPushButton:
-        button = QPushButton(text)
+        button = l10n.localized(QPushButton, text)
         button.setObjectName(object_name)
         button.setIcon(QIcon(resource_path(icon_path)))
         button.setIconSize(
@@ -2030,13 +1702,7 @@ class SettingsDialog(QDialog):
             self.general_settings_page, self.restart_settings_page
         )
         has_general_edits = bool(self._general_settings_dirty)
-        self.save_btn.setText(
-            self._localization.text("common.save_changes")
-            if not on_editable_page and has_general_edits
-            else self._localization.text("common.done")
-            if not on_editable_page
-            else self._localization.text("common.save")
-        )
+        l10n.display(self.save_btn, 'setText', self._localization.text('common.save_changes') if not on_editable_page and has_general_edits else self._localization.text('common.done') if not on_editable_page else self._localization.text('common.save'))
         self.cancel_btn.setVisible(on_editable_page or has_general_edits)
         # Key actions are explicit and immediate. Keep Support free of a dialog
         # default so Return in its key field can only reach Activate, while the
@@ -2083,17 +1749,7 @@ class SettingsDialog(QDialog):
         from app.data_storage import MigrationActionResult, request_migration
 
         if self._general_settings_dirty:
-            save_first = ask_app_confirmation(
-                self,
-                title="Save settings first?",
-                subtitle="Data storage",
-                message=(
-                    "Your settings contain unsaved changes. Save them before "
-                    "scheduling the data migration?"
-                ),
-                confirm_text="Save changes",
-                note="The migration will not be scheduled if you cancel.",
-            )
+            save_first = ask_app_confirmation(self, title=l10n.tr('Save settings first?'), subtitle=l10n.tr('Data storage'), message=l10n.tr('Your settings contain unsaved changes. Save them before scheduling the data migration?'), confirm_text='Save changes', note='The migration will not be scheduled if you cancel.')
             if not save_first:
                 return MigrationActionResult(
                     False, "cancelled", "Migration was not scheduled."
@@ -2142,15 +1798,12 @@ class SettingsDialog(QDialog):
         self._reloading_general_settings = True
         self.theme_selector.reload()
         self.language_selector.reload()
+        self.game_language_selector.reload()
         self._timing_save_message = self._timing_save_error = ""
-        self.hotkey_entry.setText(str(config.HOTKEY))
-        self.reset_hotkey_entry.setText(str(config.RESET_HOTKEY))
-        self.record_hotkey_entry.setText(
-            str(getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"))
-        )
-        self.overlay_edit_hotkey_entry.setText(
-            str(getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9") or "f9")
-        )
+        l10n.display(self.hotkey_entry, 'setText', str(config.HOTKEY))
+        l10n.display(self.reset_hotkey_entry, 'setText', str(config.RESET_HOTKEY))
+        l10n.display(self.record_hotkey_entry, 'setText', str(getattr(config, 'PLAYER_STATS_RECORD_HOTKEY', 'f8')))
+        l10n.display(self.overlay_edit_hotkey_entry, 'setText', str(getattr(config, 'IN_GAME_OVERLAY_EDIT_HOTKEY', 'f9') or 'f9'))
         reset_hold_safety_margin = round(
             float(config.RESET_HOLD_SAFETY_MARGIN),
             2,
@@ -2269,8 +1922,8 @@ class SettingsDialog(QDialog):
         self.reset_timing_status_label.setStyleSheet(
             f"QLabel {{ background: {background}; color: {foreground}; "
             "border-radius: 6px; padding: 10px 12px; }")
-        self.reset_timing_status_label.setText(f"{icon}  {message}" if message else "")
-        self.reset_timing_status_label.setToolTip(message)
+        l10n.display(self.reset_timing_status_label, 'setText', f'{icon}  {message}' if message else '')
+        l10n.display(self.reset_timing_status_label, 'setToolTip', message)
         self.reset_timing_status_label.setVisible(bool(message))
         self.reset_timing_hint.setVisible(not bool(message))
         if not message:
@@ -2283,10 +1936,10 @@ class SettingsDialog(QDialog):
             self.save_btn.setEnabled(not blocked)
             # Validation remains visible even when edits were made on another tab.
             if blocked and self.settings_tabs.currentWidget() is not self.restart_settings_page:
-                self.reset_timing_status_label.setToolTip(message)
-                self.save_btn.setToolTip(message + " Open Restart to review.")
+                l10n.display(self.reset_timing_status_label, 'setToolTip', message)
+                l10n.display(self.save_btn, 'setToolTip', message + ' Open Restart to review.')
             else:
-                self.save_btn.setToolTip(self._localization.text("settings.save_hint"))
+                l10n.display(self.save_btn, 'setToolTip', self._localization.text('settings.save_hint'))
 
     def _apply_recommended_reset_timing(self) -> None:
         try:
@@ -2295,17 +1948,8 @@ class SettingsDialog(QDialog):
             self._timing_save_error = f"Could not read game config: {exc}"
             self._set_reset_status("error", self._timing_save_error)
             return
-        note = (
-            "Game config is already at 0.01 s. Megabonk can stay open."
-            if game.success and game.value == config.MIN_GAME_QUICK_RESET_TIME else
-            "Close Megabonk before applying. The game reads this value on its next launch."
-        )
-        if not ask_app_confirmation(
-            self, title="Apply recommended values?", subtitle="Reset timing",
-            message="Game config: 0.01 s<br>Extra hold time: 0.05 s<br>Reset key hold: 0.06 s",
-            confirm_text="Apply",
-            note=note + " Other Settings edits stay unsaved.",
-        ):
+        note = l10n.tr('Game config is already at 0.01 s. Megabonk can stay open.') if game.success and game.value == config.MIN_GAME_QUICK_RESET_TIME else l10n.tr('Close Megabonk before applying. The game reads this value on its next launch.')
+        if not ask_app_confirmation(self, title=l10n.tr('Apply recommended values?'), subtitle=l10n.tr('Reset timing'), message=l10n.tr('Game config: 0.01 s<br>Extra hold time: 0.05 s<br>Reset key hold: 0.06 s'), confirm_text='Apply', note=note + ' Other Settings edits stay unsaved.'):
             return
         result = config.apply_recommended_reset_timing(self._detect_game_running)
         if not result.success:
@@ -2422,11 +2066,7 @@ class SettingsDialog(QDialog):
             game_read = config.read_game_quick_reset_time()
         except Exception as exc:
             game_read = config.GameConfigReadResult(False, reason=str(exc))
-        self.reset_game_value_label.setText(
-            f"{game_read.value:.2f} s"
-            if game_read.success and game_read.value is not None
-            else "Unavailable"
-        )
+        l10n.display(self.reset_game_value_label, 'setText', f'{game_read.value:.2f} s' if game_read.success and game_read.value is not None else l10n.tr('Unavailable'))
         edited = self._reset_timing_is_edited()
         if not edited:
             # Save preserves newer live timing when these fields were not edited.
@@ -2446,23 +2086,11 @@ class SettingsDialog(QDialog):
             game_after = None
         self._preview_game_value = game_after
         self._preview_margin = margin
-        self.reset_game_after_label.setText(
-            "Unavailable" if game_after is None else
-            f"{game_after:.2f} s (unchanged)" if game_after == game_read.value else
-            f"{game_read.value:.2f} s → {game_after:.2f} s"
-        )
-        self.reset_hold_after_label.setText(f"{scanner_hold:.2f} s")
-        self.reset_minimum_label.setText(
-            self._reset_hold_input_note
-            + f"Minimum hold: {minimum_hold:.2f} s "
-            f"(game minimum {config.MIN_GAME_QUICK_RESET_TIME:.2f} s + extra {margin:.2f} s)."
-        )
+        l10n.display(self.reset_game_after_label, 'setText', l10n.tr('Unavailable') if game_after is None else l10n.tr('{p0:.2f} s (unchanged)', p0=game_after) if game_after == game_read.value else f'{game_read.value:.2f} s → {game_after:.2f} s')
+        l10n.display(self.reset_hold_after_label, 'setText', f'{scanner_hold:.2f} s')
+        l10n.display(self.reset_minimum_label, 'setText', self._reset_hold_input_note + f'Minimum hold: {minimum_hold:.2f} s (game minimum {config.MIN_GAME_QUICK_RESET_TIME:.2f} s + extra {margin:.2f} s).')
         actual_extra = None if game_after is None else round(scanner_hold - game_after, 2)
-        self.reset_timing_limits_label.setText(
-            "Actual extra hold time cannot be checked." if actual_extra is None else
-            "The hold is below the saved game threshold; it will be checked before Auto-Reroll."
-            if actual_extra < 0 else f"Actual extra hold time after Save: {actual_extra:.2f} s."
-        )
+        l10n.display(self.reset_timing_limits_label, 'setText', l10n.tr('Actual extra hold time cannot be checked.') if actual_extra is None else l10n.tr('The hold is below the saved game threshold; it will be checked before Auto-Reroll.') if actual_extra < 0 else l10n.tr('Actual extra hold time after Save: {p0:.2f} s.', p0=actual_extra))
         blocked = edited and (
             not game_read.success or game_read.value is None
             or (not scanner_only and (game_running or bool(detection_error)))
@@ -2510,11 +2138,7 @@ class SettingsDialog(QDialog):
         else:
             reason = "Windows did not accept the browser request."
         if not opened:
-            QMessageBox.warning(
-                self,
-                "Could Not Open Link",
-                f"BonkScanner could not open this page.\n\n{reason}",
-            )
+            QMessageBox.warning(self, l10n.tr('Could Not Open Link'), l10n.tr('BonkScanner could not open this page.\n\n{p0}', p0=reason))
 
     def save(self, *, close_dialog: bool = True) -> bool:
         if isinstance(self, SettingsDialog):
@@ -2565,11 +2189,7 @@ class SettingsDialog(QDialog):
                 round(_read_numeric(self.reset_hold_duration_entry), 2),
             )
         except (TypeError, ValueError, OverflowError):
-            QMessageBox.warning(
-                self,
-                "Invalid Settings",
-                "Reset Hold Duration must be a valid number.",
-            )
+            QMessageBox.warning(self, l10n.tr('Invalid Settings'), l10n.tr('Reset Hold Duration must be a valid number.'))
             return False
 
         try:
@@ -2578,11 +2198,7 @@ class SettingsDialog(QDialog):
                 int(_read_numeric(self.record_interval_entry)),
             )
         except (TypeError, ValueError, OverflowError):
-            QMessageBox.warning(
-                self,
-                "Invalid Settings",
-                "Snapshot interval must be a valid number.",
-            )
+            QMessageBox.warning(self, l10n.tr('Invalid Settings'), l10n.tr('Snapshot interval must be a valid number.'))
             return False
 
         initial_duration = round(
@@ -2671,6 +2287,9 @@ class SettingsDialog(QDialog):
         language_selector = getattr(self, "language_selector", None)
         if language_selector is not None:
             settings_updates[LANGUAGE_CONFIG_KEY] = language_selector.currentData()
+        game_language_selector = getattr(self, "game_language_selector", None)
+        if game_language_selector is not None:
+            settings_updates[GAME_LANGUAGE_CONFIG_KEY] = game_language_selector.currentData()
         if timing_changed:
             settings_updates.update(
                 {
@@ -2736,7 +2355,7 @@ class SettingsDialog(QDialog):
             except Exception as exc:
                 runtime_errors.append(f"{name}: {type(exc).__name__}: {exc}")
 
-        if language_selector is not None:
+        if language_selector is not None or game_language_selector is not None:
             apply_runtime_step("language", localization().apply_saved_language)
 
         apply_theme = getattr(self.master, "apply_visual_theme", None)
@@ -2816,13 +2435,7 @@ class SettingsDialog(QDialog):
                 )
             except Exception:
                 pass
-            QMessageBox.warning(
-                self,
-                "Settings Saved with Warnings",
-                "The settings were saved, but some live parts could not be refreshed. "
-                "Restart BonkScanner before relying on the new values.\n\n"
-                + "\n".join(runtime_errors),
-            )
+            QMessageBox.warning(self, l10n.tr('Settings Saved with Warnings'), 'The settings were saved, but some live parts could not be refreshed. Restart BonkScanner before relying on the new values.\n\n' + '\n'.join(runtime_errors))
 
         # `self.accept()`, unguarded. This was `if hasattr(self, "accept") ...
         # elif hasattr(self, "destroy"): self.destroy()`, and the `elif` was the
@@ -2864,7 +2477,7 @@ class TwitchCommandSettingsDialog(QDialog):
     def __init__(self, parent, master=None):
         super().__init__(parent)
         self.master = master or parent
-        self.setWindowTitle("Twitch Command Settings")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Twitch Command Settings'))
         self.setModal(True)
 
         self.stat_checkboxes: dict[str, QCheckBox] = {}
@@ -2875,13 +2488,7 @@ class TwitchCommandSettingsDialog(QDialog):
         self.template_pool_entries: dict[str, QPlainTextEdit] = {}
         self._init_guard = True
 
-        outer_layout = dialog_body(
-            self,
-            title="Twitch Command Settings",
-            subtitle="What each command answers with, and what the bot says on its own.",
-            width=DIALOG_WIDE,
-            height=DIALOG_TALL,
-        )
+        outer_layout = dialog_body(self, title=l10n.tr('Twitch Command Settings'), subtitle=l10n.tr('What each command answers with, and what the bot says on its own.'), width=DIALOG_WIDE, height=DIALOG_TALL)
 
         self.tabs = QTabWidget()
         outer_layout.addWidget(self.tabs, 1)
@@ -2918,24 +2525,22 @@ class TwitchCommandSettingsDialog(QDialog):
             entry_layout.setContentsMargins(12, 12, 12, 12)
             entry_layout.setSpacing(8)
 
-            heading = QLabel(label_text.rstrip(":"), card)
+            heading = l10n.localized(QLabel, label_text.rstrip(':'), card)
             heading.setObjectName("tableRowName")
             entry_layout.addWidget(heading)
 
             current_val = config.TWITCH_BOT.get("templates", {}).get(key, default_val)
             entry = QLineEdit(current_val, card)
-            entry.setAccessibleName(f"{label_text.rstrip(':')} response template")
+            l10n.display(entry, 'setAccessibleName', l10n.tr('{p0} response template', p0=label_text.rstrip(':')))
             self.templates_entries[key] = entry
             entry_layout.addWidget(entry)
-            help_lbl = QLabel(help_text, card)
+            help_lbl = l10n.localized(QLabel, help_text, card)
             help_lbl.setObjectName("dialogHint")
             help_lbl.setWordWrap(True)
             entry_layout.addWidget(help_lbl)
 
             if key == "weapons":
-                self.weapons_include_globals_cb = QCheckBox(
-                    "Include global stats (extended weapon output)", card,
-                )
+                self.weapons_include_globals_cb = l10n.localized(QCheckBox, l10n.tr('Include global stats (extended weapon output)'), card)
                 self.weapons_include_globals_cb.setChecked(
                     config.TWITCH_BOT.get("weapons_include_globals", False)
                 )
@@ -2944,7 +2549,7 @@ class TwitchCommandSettingsDialog(QDialog):
             templates_scroll_layout.addWidget(card)
 
         templates_scroll_layout.addStretch(1)
-        self.tabs.addTab(tab_templates, "Response Templates")
+        l10n.tab(self.tabs, tab_templates, l10n.tr('Response Templates'))
 
         # === TAB 2: Advanced Commands ===
         tab_advanced = QWidget()
@@ -2953,9 +2558,9 @@ class TwitchCommandSettingsDialog(QDialog):
         tab_advanced_layout.addWidget(adv_scroll)
 
         # -- !stats section --
-        stats_group = CollapsibleSection("!stats Command", expanded=False)
+        stats_group = CollapsibleSection(l10n.tr('!stats Command'), expanded=False)
         stats_layout = stats_group.body_layout
-        stats_layout.addWidget(QLabel("Select which stats appear in the {stats} placeholder:"))
+        stats_layout.addWidget(l10n.localized(QLabel, l10n.tr('Select which stats appear in the {{stats}} placeholder:')))
 
         stats_config_layout = QGridLayout()
         stats_config_layout.setContentsMargins(5, 5, 5, 5)
@@ -2965,7 +2570,7 @@ class TwitchCommandSettingsDialog(QDialog):
         selected_stats = set(config.TWITCH_BOT.get("selected_stats", config.DEFAULT_TWITCH_BOT["selected_stats"]))
 
         for index, label in enumerate(all_stats):
-            checkbox = QCheckBox(label)
+            checkbox = l10n.localized(QCheckBox, label)
             checkbox.setChecked(label in selected_stats)
             checkbox.stateChanged.connect(self.on_stat_toggled)
             self.stat_checkboxes[label] = checkbox
@@ -2979,20 +2584,15 @@ class TwitchCommandSettingsDialog(QDialog):
         stats_tpl_val = config.TWITCH_BOT.get("templates", {}).get("stats", "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
         self.stats_tpl_entry = QLineEdit(stats_tpl_val)
         self.templates_entries["stats"] = self.stats_tpl_entry
-        stats_form.addRow("Response template:", self.stats_tpl_entry)
+        l10n.form_row(stats_form, l10n.tr('Response template:'), self.stats_tpl_entry)
         stats_layout.addLayout(stats_form)
 
-        stats_help = QLabel(
-            "<span style='color: #9CA3AF; font-size: 11px;'>"
-            "Available tags: <b>{stats}</b> (auto-generated list of checked stats above), "
-            "<b>{Damage}</b>, <b>{XP Gain}</b>, <b>{Luck}</b>, <b>{Difficulty}</b>, <b>{Size}</b>, etc."
-            "</span>"
-        )
+        stats_help = l10n.localized(QLabel, l10n.tr("<span style='color: #9CA3AF; font-size: 11px;'>Available tags: <b>{{stats}}</b> (auto-generated list of checked stats above), <b>{{Damage}}</b>, <b>{{XP Gain}}</b>, <b>{{Luck}}</b>, <b>{{Difficulty}}</b>, <b>{{Size}}</b>, etc.</span>"))
         stats_help.setWordWrap(True)
         stats_layout.addWidget(stats_help)
 
         stats_reset_layout = QHBoxLayout()
-        self.twitch_stats_reset_btn = QPushButton("Reset to Default Stats")
+        self.twitch_stats_reset_btn = l10n.localized(QPushButton, l10n.tr('Reset to Default Stats'))
         self.twitch_stats_reset_btn.clicked.connect(self._reset_twitch_stats_to_default)
         stats_reset_layout.addWidget(self.twitch_stats_reset_btn)
         stats_reset_layout.addStretch(1)
@@ -3007,32 +2607,19 @@ class TwitchCommandSettingsDialog(QDialog):
         # three are one window now (`ui/dialogs/tracked_items`). What is left
         # here is the one thing that is genuinely about this command -- the
         # response template.
-        twitch_tracked_group = CollapsibleSection(
-            "!session Command Settings",
-            expanded=False,
-        )
+        twitch_tracked_group = CollapsibleSection(l10n.tr('!session Command Settings'), expanded=False)
         twitch_tracked_layout = twitch_tracked_group.body_layout
-        twitch_tracked_layout.addWidget(
-            QLabel(
-                "Tracked item counters for !session are configured in the "
-                "Tracked Items window, on the Session Stats tab."
-            )
-        )
+        twitch_tracked_layout.addWidget(l10n.localized(QLabel, l10n.tr('Tracked item counters for !session are configured in the Tracked Items window, on the Session Stats tab.')))
 
         twitch_tracked_layout.addSpacing(10)
         session_form = QFormLayout()
         session_tpl_val = config.TWITCH_BOT.get("templates", {}).get("session", config.DEFAULT_TWITCH_BOT["templates"]["session"])
         self.session_tpl_entry = QLineEdit(session_tpl_val)
         self.templates_entries["session"] = self.session_tpl_entry
-        session_form.addRow("Response template:", self.session_tpl_entry)
+        l10n.form_row(session_form, l10n.tr('Response template:'), self.session_tpl_entry)
         twitch_tracked_layout.addLayout(session_form)
 
-        session_help = QLabel(
-            "<span style='color: #9CA3AF; font-size: 11px;'>"
-            "Available tags: <b>{items}</b> (the tracked items configured above), "
-            "<b>{resets}</b>, <b>{seeds}</b>, <b>{seed_rate}</b>."
-            "</span>"
-        )
+        session_help = l10n.localized(QLabel, l10n.tr("<span style='color: #9CA3AF; font-size: 11px;'>Available tags: <b>{{items}}</b> (the tracked items configured above), <b>{{resets}}</b>, <b>{{seeds}}</b>, <b>{{seed_rate}}</b>.</span>"))
         session_help.setWordWrap(True)
         twitch_tracked_layout.addWidget(session_help)
         twitch_tracked_layout.addSpacing(10)
@@ -3041,16 +2628,16 @@ class TwitchCommandSettingsDialog(QDialog):
         adv_scroll_layout.addSpacing(15)
 
         # -- !disabled section --
-        disabled_group = CollapsibleSection("!disabled Command Settings", expanded=False)
+        disabled_group = CollapsibleSection(l10n.tr('!disabled Command Settings'), expanded=False)
         disabled_layout = disabled_group.body_layout
-        disabled_layout.addWidget(QLabel("Select key items to display when globally disabled in lobby:"))
+        disabled_layout.addWidget(l10n.localized(QLabel, l10n.tr('Select key items to display when globally disabled in lobby:')))
 
         self.disabled_search_input = QLineEdit()
-        self.disabled_search_input.setPlaceholderText("Search / Filter items...")
+        l10n.display(self.disabled_search_input, 'setPlaceholderText', l10n.tr('Search / Filter items...'))
         self.disabled_search_input.textChanged.connect(self.filter_disabled_items)
         disabled_layout.addWidget(self.disabled_search_input)
 
-        self.show_all_disabled_items_cb = QCheckBox("Show all items")
+        self.show_all_disabled_items_cb = l10n.localized(QCheckBox, l10n.tr('Show all items'))
         self.show_all_disabled_items_cb.setChecked(False)
         self.show_all_disabled_items_cb.stateChanged.connect(self.filter_disabled_items)
         disabled_layout.addWidget(self.show_all_disabled_items_cb)
@@ -3122,10 +2709,10 @@ class TwitchCommandSettingsDialog(QDialog):
         for idx, d_name in enumerate(sorted_display_names):
             is_disabled_ingame = d_name.lower() in disabled_in_game_set
             if is_disabled_ingame:
-                cb = QCheckBox(f"🚫 {d_name}")
+                cb = l10n.localized(QCheckBox, f'🚫 {d_name}')
                 cb.setStyleSheet("color: #FB7185; font-weight: bold; background: transparent;")
             else:
-                cb = QCheckBox(d_name)
+                cb = l10n.localized(QCheckBox, d_name)
             cb.setProperty("is_disabled_ingame", is_disabled_ingame)
             cb.setChecked(d_name in highlighted_disabled)
             self.disabled_item_checkboxes[d_name] = cb
@@ -3145,14 +2732,10 @@ class TwitchCommandSettingsDialog(QDialog):
         disabled_tpl_val = config.TWITCH_BOT.get("templates", {}).get("disabled", "Disabled Items: {items}")
         self.disabled_tpl_entry = QLineEdit(disabled_tpl_val)
         self.templates_entries["disabled"] = self.disabled_tpl_entry
-        disabled_form.addRow("Response template:", self.disabled_tpl_entry)
+        l10n.form_row(disabled_form, l10n.tr('Response template:'), self.disabled_tpl_entry)
         disabled_layout.addLayout(disabled_form)
 
-        disabled_help = QLabel(
-            "<span style='color: #9CA3AF; font-size: 11px;'>"
-            "Available tags: <b>{items}</b> (comma-separated list of selected items that are currently disabled)"
-            "</span>"
-        )
+        disabled_help = l10n.localized(QLabel, l10n.tr("<span style='color: #9CA3AF; font-size: 11px;'>Available tags: <b>{{items}}</b> (comma-separated list of selected items that are currently disabled)</span>"))
         disabled_help.setWordWrap(True)
         disabled_layout.addWidget(disabled_help)
 
@@ -3161,7 +2744,7 @@ class TwitchCommandSettingsDialog(QDialog):
         self.twitch_advanced_sections_group = CollapsibleSectionGroup(
             (stats_group, twitch_tracked_group, disabled_group)
         )
-        self.tabs.addTab(tab_advanced, "Advanced Commands")
+        l10n.tab(self.tabs, tab_advanced, l10n.tr('Advanced Commands'))
 
         # === TAB 3: Announcers ===
         tab_announcers = QWidget()
@@ -3180,14 +2763,10 @@ class TwitchCommandSettingsDialog(QDialog):
 
         stage_ann_layout = QVBoxLayout()
         stage_ann_layout.addWidget(stage_ann_entry)
-        stage_ann_help = QLabel(
-            "<span style='color: #9CA3AF; font-size: 11px;'>"
-            "Tags: {stage}, {kills}, {time}, {next_stage}"
-            "</span>"
-        )
+        stage_ann_help = l10n.localized(QLabel, l10n.tr("<span style='color: #9CA3AF; font-size: 11px;'>Tags: {{stage}}, {{kills}}, {{time}}, {{next_stage}}</span>"))
         stage_ann_help.setWordWrap(True)
         stage_ann_layout.addWidget(stage_ann_help)
-        announcers_form.addRow("Stage Transition:", stage_ann_layout)
+        l10n.form_row(announcers_form, l10n.tr('Stage Transition:'), stage_ann_layout)
 
         # The two One Ring rows are pools, one phrase per line, so they get a
         # `QPlainTextEdit` rather than the `QLineEdit` every other template uses
@@ -3195,26 +2774,8 @@ class TwitchCommandSettingsDialog(QDialog):
         # through it. They are registered in their own dict for the same reason:
         # `save`/`reset_to_defaults` walk `templates_entries` with `text()` and
         # `setText()`, which a plain-text edit does not have.
-        announcers_form.addRow(
-            "The One Ring:",
-            self._build_pool_row(
-                "one_ring_announcement",
-                "One phrase per line, drawn at random, recent lines skipped. "
-                "Tags: {streamer}, {stage}, {time} -- note that the bot usually "
-                "posts from your own account, so a line naming {streamer} reads "
-                "as you talking about yourself unless you run a separate bot "
-                "account.",
-            ),
-        )
-        announcers_form.addRow(
-            "The One Ring (duplicate):",
-            self._build_pool_row(
-                "one_ring_duplicate_announcement",
-                "Fires on the second ring and every one after it. "
-                "Tags: {streamer}, {stage}, {time}, {count} -- and a line that "
-                "names no count must stay true for any number of rings.",
-            ),
-        )
+        l10n.form_row(announcers_form, l10n.tr('The One Ring:'), self._build_pool_row('one_ring_announcement', 'One phrase per line, drawn at random, recent lines skipped. Tags: {streamer}, {stage}, {time} -- note that the bot usually posts from your own account, so a line naming {streamer} reads as you talking about yourself unless you run a separate bot account.'))
+        l10n.form_row(announcers_form, l10n.tr('The One Ring (duplicate):'), self._build_pool_row('one_ring_duplicate_announcement', 'Fires on the second ring and every one after it. Tags: {streamer}, {stage}, {time}, {count} -- and a line that names no count must stay true for any number of rings.'))
 
         ann_scroll_layout.addLayout(announcers_form)
 
@@ -3227,17 +2788,17 @@ class TwitchCommandSettingsDialog(QDialog):
         self.commands_announcement_interval_spin.setSuffix(" min")
 
         ann_extra_form = QFormLayout()
-        ann_extra_form.addRow("Commands interval:", self.commands_announcement_interval_spin)
+        l10n.form_row(ann_extra_form, l10n.tr('Commands interval:'), self.commands_announcement_interval_spin)
         ann_scroll_layout.addLayout(ann_extra_form)
 
         ann_scroll_layout.addStretch(1)
-        self.tabs.addTab(tab_announcers, "Announcers")
+        l10n.tab(self.tabs, tab_announcers, l10n.tr('Announcers'))
 
-        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn = l10n.localized(QPushButton, l10n.tr('Reset to Defaults'))
         reset_btn.clicked.connect(self.reset_to_defaults)
-        save_btn = QPushButton("Save Settings")
+        save_btn = l10n.localized(QPushButton, l10n.tr('Save Settings'))
         save_btn.clicked.connect(self.save)
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = l10n.localized(QPushButton, l10n.tr('Cancel'))
         cancel_btn.clicked.connect(self.reject)
         dialog_footer(
             self, primary=save_btn, secondary=cancel_btn, destructive=reset_btn
@@ -3262,9 +2823,7 @@ class TwitchCommandSettingsDialog(QDialog):
 
         layout = QVBoxLayout()
         layout.addWidget(entry)
-        help_label = QLabel(
-            f"<span style='color: #9CA3AF; font-size: 11px;'>{help_text}</span>"
-        )
+        help_label = l10n.localized(QLabel, f"<span style='color: #9CA3AF; font-size: 11px;'>{help_text}</span>")
         help_label.setWordWrap(True)
         layout.addWidget(help_label)
         return layout
@@ -3275,7 +2834,7 @@ class TwitchCommandSettingsDialog(QDialog):
         selected = [label for label, cb in self.stat_checkboxes.items() if cb.isChecked()]
         parts = [f"{abbreviate_stat_label(name)}: {{{name}}}" for name in selected]
         new_tpl = "Live Stats: " + " | ".join(parts)
-        self.stats_tpl_entry.setText(new_tpl)
+        l10n.display(self.stats_tpl_entry, 'setText', new_tpl)
 
     def reset_to_defaults(self):
         self._init_guard = True
@@ -3284,7 +2843,7 @@ class TwitchCommandSettingsDialog(QDialog):
         for label, cb in self.stat_checkboxes.items():
             cb.setChecked(label in default_selected)
 
-        self.stats_tpl_entry.setText(config.DEFAULT_TWITCH_BOT["templates"]["stats"])
+        l10n.display(self.stats_tpl_entry, 'setText', config.DEFAULT_TWITCH_BOT['templates']['stats'])
 
         for cb in self.disabled_item_checkboxes.values():
             cb.setChecked(False)
@@ -3296,7 +2855,7 @@ class TwitchCommandSettingsDialog(QDialog):
 
         defaults = config.DEFAULT_TWITCH_BOT["templates"]
         for key, entry in self.templates_entries.items():
-            entry.setText(defaults.get(key, ""))
+            l10n.display(entry, 'setText', defaults.get(key, ''))
         for key, entry in self.template_pool_entries.items():
             entry.setPlainText(defaults.get(key, ""))
         self.commands_announcement_interval_spin.setValue(
@@ -3308,7 +2867,7 @@ class TwitchCommandSettingsDialog(QDialog):
         default_selected = set(config.DEFAULT_TWITCH_BOT["selected_stats"])
         for label, cb in self.stat_checkboxes.items():
             cb.setChecked(label in default_selected)
-        self.stats_tpl_entry.setText(config.DEFAULT_TWITCH_BOT["templates"]["stats"])
+        l10n.display(self.stats_tpl_entry, 'setText', config.DEFAULT_TWITCH_BOT['templates']['stats'])
 
     def filter_disabled_items(self):
         text = self.disabled_search_input.text().strip().lower()
@@ -3340,7 +2899,7 @@ class TwitchCommandSettingsDialog(QDialog):
     def save(self):
         selected_stats = [label for label, cb in self.stat_checkboxes.items() if cb.isChecked()]
         if not selected_stats:
-            QMessageBox.warning(self, "Invalid Settings", "At least one stat must be selected.")
+            QMessageBox.warning(self, l10n.tr('Invalid Settings'), l10n.tr('At least one stat must be selected.'))
             return
 
         config.TWITCH_BOT["selected_stats"] = selected_stats

@@ -16,6 +16,8 @@ the fault ``ui/metric_table.py`` was written to fix elsewhere in this tab.
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
@@ -25,6 +27,7 @@ from core.stats.formatters import format_player_stat_value
 from projections import scrubber as model_module
 from projections.timeline_axis import AXIS_PROGRESS, TimelineAxisProjection
 from ui.timeline_visuals import (
+    stage_caption,
     MARKER_STRIP_HEIGHT,
     MARKER_TOOLTIP_MAX_LINES,
     RUN_A_COLOR,
@@ -105,6 +108,11 @@ class RecordingScrubber(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(False)
         self.setCursor(Qt.PointingHandCursor)
+        l10n.RefreshBinding(self, self._on_language_changed)
+
+    def _on_language_changed(self):
+        self._invalidate_static_layer()
+        self.update()
 
     # -- state ------------------------------------------------------------
 
@@ -320,7 +328,7 @@ class RecordingScrubber(QWidget):
         if event.type() == QEvent.ToolTip:
             text = self._marker_tooltip_at(event.pos())
             if text:
-                QToolTip.showText(event.globalPos(), text, self)
+                QToolTip.showText(event.globalPos(), str(text), self)
                 return True
         return super().event(event)
 
@@ -414,7 +422,7 @@ class RecordingScrubber(QWidget):
         from ui.powerup_timeline import place_powerup_readout
         track = self._track_rect()
         bands = self._model.stages
-        caption = f"{bands[0].label} · {_format_span(bands[0].elapsed_seconds)}" if bands else "STAGES NOT RECORDED"
+        caption = f'{stage_caption(bands[0])} · {_format_span(bands[0].elapsed_seconds)}' if bands else l10n.tr('STAGES NOT RECORDED')
         self._powerup_header_rect = place_powerup_readout(
             self._powerup_readout, track, caption, self._small_font(),
             caption_left=self._x_of(bands[0].start) if bands else track.left())
@@ -485,7 +493,7 @@ class RecordingScrubber(QWidget):
     def _paint_placeholder(self, painter: QPainter, track: QRectF) -> None:
         painter.setPen(_MUTED_TEXT)
         painter.setFont(self._small_font())
-        painter.drawText(track, Qt.AlignCenter, "No recording loaded")
+        painter.drawText(track, Qt.AlignCenter, l10n.tr('No recording loaded'))
 
     def _small_font(self) -> QFont:
         font = QFont(self.font())
@@ -501,11 +509,7 @@ class RecordingScrubber(QWidget):
             # and false claim.
             painter.setPen(_MUTED_TEXT)
             painter.setFont(self._small_font())
-            painter.drawText(
-                QRectF(track.left() + 7.0, track.top() + 2.0, track.width(), _BAND_LABEL_HEIGHT),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                "STAGES NOT RECORDED",
-            )
+            painter.drawText(QRectF(track.left() + 7.0, track.top() + 2.0, track.width(), _BAND_LABEL_HEIGHT), Qt.AlignLeft | Qt.AlignVCenter, l10n.tr('STAGES NOT RECORDED'))
             return
         painter.setFont(self._small_font())
         for band in bands:
@@ -516,7 +520,7 @@ class RecordingScrubber(QWidget):
                 painter,
                 area,
                 fill=_BAND_TOP if band.stage_index is not None else _BAND_BOTTOM,
-                text=f"{band.label} · {_format_span(band.elapsed_seconds)}",
+                text=f"{stage_caption(band)} · {_format_span(band.elapsed_seconds)}",
                 font=self._small_font(),
                 header_exclusion=self._powerup_header_rect,
             )
@@ -613,7 +617,7 @@ class RecordingScrubber(QWidget):
             return
         painter.setPen(_MUTED_TEXT)
         painter.setFont(self._small_font())
-        painter.drawText(self._plot_rect(), Qt.AlignCenter, "NO SERIES SELECTED")
+        painter.drawText(self._plot_rect(), Qt.AlignCenter, l10n.tr('NO SERIES SELECTED'))
 
     def _paint_caps(self, painter: QPainter) -> None:
         for x0, x1, y, colour, _label in self._cached_caps:

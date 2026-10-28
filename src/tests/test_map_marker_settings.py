@@ -102,8 +102,8 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
             copy = " ".join(
                 label.text() for label in dialog.merchant_row.findChildren(QLabel)
             )
-            self.assertIn("names and prices", copy)
-            self.assertIn("Reopen the shop to refresh them", copy)
+            self.assertIn("items and prices", copy)
+            self.assertIn("Visit the shop again to update them", copy)
         finally:
             dialog.deleteLater()
 
@@ -280,7 +280,7 @@ class MapMarkerSettingsDialogTests(unittest.TestCase):
             note = next(
                 label
                 for label in dialog.findChildren(QLabel)
-                if label.text().startswith("Add one exact marker")
+                if label.text().startswith("Assign a marker to a shortcut")
             )
             self.assertGreater(note.width(), 500)
             self.assertGreaterEqual(note.height(), note.heightForWidth(note.width()))

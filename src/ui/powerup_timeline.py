@@ -11,6 +11,8 @@ from PySide6.QtWidgets import QWidget
 from core.powerup_history import POWERUPS
 from projections.powerup_history import PowerupProjection, duration_label, time_label
 from ui.shared import resource_path
+from ui import i18n as l10n
+from core.localization_context import using_translator
 
 
 def paint_powerups(painter, projection, plot, duration, *, axis_projection=None,
@@ -53,10 +55,10 @@ def paint_powerups(painter, projection, plot, duration, *, axis_projection=None,
         y = (plot.bottom() - 19.0 + lane * 5.0 if lane_height == POWERUP_LANE_HEIGHT
              else strip.top() + (lane + .5) * lane_height / 4)
         ranges[span.effect_id].append((x1, x2))
-        elapsed = duration_label(span.seconds) if span.seconds >= 1 else f"{span.seconds:.3f} s"
+        elapsed = time_label(span.seconds) if span.seconds >= 1 else str(l10n.tr("{value:.3f} s", value=span.seconds))
         hit_height = min(8.0, lane_height / 4)
         hits.append((QRectF(x1 - 2, y - hit_height / 2, x2 - x1 + 4, hit_height),
-                     f"{names[span.effect_id]}  {time_label(span.start_axis)} → "
+                     f"{l10n.game('powerups', names[span.effect_id])}  {time_label(span.start_axis)} → "
                      f"{time_label(span.end_axis)} · {elapsed}"))
     # Pauses and Clock can project distinct observations onto the same pixels.
     # Union their visible footprints before applying alpha, while keeping exact
@@ -115,7 +117,14 @@ class PowerupTimelineRow(QWidget):
         self._hits = ()
         self._header_font = None
         self._ink_center = 8.5
+        self._last_state = None
+        l10n.RefreshBinding(self, self._refresh_language)
         self.hide()
+
+    def _refresh_language(self):
+        if self._last_state:
+            args, kwargs = self._last_state
+            self.set_state(*args, **kwargs)
 
     def set_header_font(self, font):
         if font == self._header_font:
@@ -135,6 +144,7 @@ class PowerupTimelineRow(QWidget):
 
     def set_state(self, projection: PowerupProjection, capture_a, capture_b=None,
                   *, axis_a=0.0, axis_b=None):
+        self._last_state = ((projection, capture_a, capture_b), {"axis_a": axis_a, "axis_b": axis_b})
         available = projection.history is not None and bool(projection.observations)
         totals = projection.totals(capture_a, capture_b) if available else {}
         counts = projection.counts(capture_a, capture_b) if available else {}
@@ -149,15 +159,16 @@ class PowerupTimelineRow(QWidget):
                 count_label += "+"
             label = ("—" if seconds is None else
                      f"×{count_label} · {int(seconds) // 60}:{int(seconds) % 60:02d}")
-            tooltip = projection.tooltip(effect_id, capture_a, capture_b) if available else "Power-up data unavailable"
+            with using_translator(l10n.active_translator()):
+                tooltip = projection.tooltip(effect_id, capture_a, capture_b) if available else str(l10n.tr("Power-up data unavailable"))
             if available:
                 if capture_b is None:
-                    tooltip += f"\nObserved uptime through A ({time_label(axis_a)})."
+                    tooltip += str(l10n.tr("\nObserved uptime through A ({time}).", time=time_label(axis_a)))
                     effect = active.get(effect_id)
                     if effect is not None:
-                        tooltip += f"\nActive interval known at A: {time_label(effect.start_axis)} → {time_label(effect.end_axis)}"
+                        tooltip += str(l10n.tr("\nActive interval known at A: {start} → {end}", start=time_label(effect.start_axis), end=time_label(effect.end_axis)))
                     elif projection.observed_at(capture_a):
-                        tooltip += "\nInactive at A."
+                        tooltip += str(l10n.tr("\nInactive at A."))
                 else:
                     low, high = sorted((axis_a, axis_b if axis_b is not None else axis_a))
                     tooltip += f"\nA–B {time_label(low)} → {time_label(high)}"
@@ -172,7 +183,7 @@ class PowerupTimelineRow(QWidget):
         metrics = QFontMetricsF(self._header_font or self.font())
         width = sum(19 + metrics.horizontalAdvance(entry[2]) + 13 for entry in self.entries)
         if self.note:
-            width += metrics.horizontalAdvance(self.note) + 4
+            width += metrics.horizontalAdvance(str(l10n.term(self.note))) + 4
         self.setFixedSize(ceil(width), 17)
 
     def tooltip_at(self, point):
@@ -206,10 +217,10 @@ class PowerupTimelineRow(QWidget):
         painter.setOpacity(1.0)
         if self.note:
             painter.setPen(QColor("#94A3B8"))
-            painter.drawText(QRectF(x, 0, self.width() - x, 17), Qt.AlignLeft | Qt.AlignVCenter, self.note)
+            painter.drawText(QRectF(x, 0, self.width() - x, 17), Qt.AlignLeft | Qt.AlignVCenter, str(l10n.term(self.note)))
             hits.append((QRectF(x, 0, self.width() - x, 17),
-                         "Power-up data unavailable" if self.note == "No data" else
-                         "Power-up state was not observed at this point. Hover an effect for coverage details."))
+                         str(l10n.tr("Power-up data unavailable")) if self.note == "No data" else
+                         str(l10n.tr("Power-up state was not observed at this point. Hover an effect for coverage details."))))
         self._hits = tuple(hits)
         painter.end()
 

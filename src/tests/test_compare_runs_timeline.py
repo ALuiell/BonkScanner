@@ -816,7 +816,7 @@ def test_recording_chooser_replaces_workspace_and_uses_available_height() -> Non
     assert second_row.findChild(QLabel, "RecordingRowName").text() == "950k"
     assert (
         second_row.findChild(QLabel, "RecordingRowMeta").text()
-        == "2026-07-14 20:58:58  ·  713 snapshots  ·  02:37:47"
+        == "2026-07-14 20:58:58  ·  Snapshots: 713  ·  02:37:47"
     )
     assert second_row.findChild(QProgressBar, "RecordingRowBar").value() == 1000
 

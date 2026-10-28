@@ -163,7 +163,7 @@ flat_history = PowerupHistory(tuple(PowerupObservation(i, i, 0, 'run', True,
 from projections.powerup_history import PowerupProjection
 recordings._scrubber.set_powerups(PowerupProjection(flat_history))
 recordings._scrubber.grab()
-assert any('Clock' in text and '0m 05s' in text and rect.width() >= 6
+assert any('Clock' in text and '00:05' in text and rect.width() >= 6
            for rect, text in recordings._scrubber._powerup_hits)
 short_history = PowerupHistory((PowerupObservation(0, 0, 0, 'run', True, ()),
     PowerupObservation(1, 1, 1, 'run', True, (RecordedEffect(4, .25, .5),))))

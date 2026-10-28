@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
+from ui.localization import localization
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
 from core.stats.weapon_tracker import (
     WEAPON_TRACKER_METRICS,
@@ -29,11 +30,18 @@ from core.stats.weapon_tracker import (
 )
 from ui.run_toggle import IN_GAME_OVERLAY_CAPTIONS
 from ui.dialogs.map_markers import MapMarkerSettingsDialog
-from ui.dialogs.shell import DIALOG_REGULAR, dialog_body, dialog_footer
-from ui.settings_card import SettingsCard, build_workspace
+from ui.dialogs.shell import DIALOG_REGULAR, dialog_footer
+from ui.settings_card import build_workspace
 from ui.shared import LabeledSwitch, _make_scroll_section, resource_path
 from ui.styles import _set_widget_style_role
-from ui.tab_hero import STATE_OFF, STATE_OK, STATE_WARN, TabHero
+from ui.tab_hero import STATE_OFF, STATE_OK, STATE_WARN
+
+
+from ui.overlay_localization import (
+    text as ot, bind as obind, widget as ow, game_widget, combo_item,
+    localized_dialog_body as dialog_body, OverlaySettingsCard as SettingsCard,
+    OverlayTabHero as TabHero, RefreshBinding,
+)
 
 
 WEAPON_TRACKER_LAYOUT_DEBOUNCE_MS = 100
@@ -99,7 +107,7 @@ class InGameWidgetSettingsDialog(QDialog):
     def __init__(self, parent_mixin: Any, parent: QWidget | None = None):
         super().__init__(parent)
         self.parent_mixin = parent_mixin
-        self.setWindowTitle("Stats shown by the Stats widget")
+        obind(self, 'Stats shown by the Stats widget', method='setWindowTitle')
 
         layout = dialog_body(
             self,
@@ -118,18 +126,18 @@ class InGameWidgetSettingsDialog(QDialog):
 
         self.stats_checkboxes: dict[str, QCheckBox] = {}
         for index, label in enumerate(config.ALL_STAT_LABELS):
-            cb = QCheckBox(label)
+            cb = game_widget(QCheckBox(label), "stats", label)
             cb.setChecked(label in selected_stats)
             cb.stateChanged.connect(self._save_settings)
             self.stats_checkboxes[label] = cb
-            grid_layout.addWidget(cb, index // 4, index % 4)
+            grid_layout.addWidget(cb, index // 2, index % 2)
 
         layout.addWidget(grid_widget)
         layout.addStretch(1)
 
-        self.stats_reset_btn = QPushButton("Reset to Default Stats")
+        self.stats_reset_btn = ow(QPushButton("Reset to Default Stats"))
         self.stats_reset_btn.clicked.connect(self._reset_stats_to_default)
-        close_btn = QPushButton("Close")
+        close_btn = ow(QPushButton("Close"))
         close_btn.clicked.connect(self.accept)
         dialog_footer(self, primary=close_btn, destructive=self.stats_reset_btn)
 
@@ -165,7 +173,7 @@ class WeaponTrackerSettingsDialog(QDialog):
     def __init__(self, parent_mixin: Any, parent: QWidget | None = None):
         super().__init__(parent)
         self.parent_mixin = parent_mixin
-        self.setWindowTitle("Weapon Tracker settings")
+        obind(self, 'Weapon Tracker settings', method='setWindowTitle')
 
         layout = dialog_body(
             self,
@@ -183,16 +191,16 @@ class WeaponTrackerSettingsDialog(QDialog):
         self.metric_checkboxes: dict[str, QCheckBox] = {}
         for index, key in enumerate(WEAPON_TRACKER_METRIC_ORDER):
             caption = WEAPON_TRACKER_METRICS[key].player_stat_label
-            checkbox = QCheckBox(caption, grid_widget)
+            checkbox = game_widget(QCheckBox(caption, grid_widget), "stats", caption)
             checkbox.setChecked(key in selected)
             self.metric_checkboxes[key] = checkbox
             grid_layout.addWidget(checkbox, index // 2, index % 2)
         layout.addWidget(grid_widget)
         layout.addStretch(1)
 
-        cancel_btn = QPushButton("Cancel", self)
+        cancel_btn = ow(QPushButton("Cancel", self))
         cancel_btn.clicked.connect(self.reject)
-        save_btn = QPushButton("Save", self)
+        save_btn = ow(QPushButton("Save", self))
         save_btn.clicked.connect(self._save_settings)
         dialog_footer(self, secondary=cancel_btn, primary=save_btn)
 
@@ -235,6 +243,14 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
     refresh_in_game_overlay_hotkey_ui(parent_mixin)
     refresh_in_game_overlay_tab_state(parent_mixin)
 
+    def refresh_language():
+        refresh_in_game_overlay_hotkey_ui(parent_mixin)
+        refresh_in_game_overlay_stats_summary(parent_mixin)
+        refresh_weapon_tracker_settings_summary(parent_mixin)
+        refresh_map_marker_settings_summary(parent_mixin)
+        refresh_in_game_overlay_tab_state(parent_mixin)
+    RefreshBinding(parent_mixin.tab_in_game_overlay, refresh_language)
+
     # Both the target-window line and the status badge depend on live window
     # state. Refresh them together so WAITING does not remain after the game
     # comes to the foreground and the overlay becomes visible.
@@ -256,9 +272,7 @@ def _build_igo_hero(parent_mixin: Any) -> TabHero:
     )
     parent_mixin.igo_auto_start_cb = parent_mixin.igo_hero.auto_switch
     parent_mixin.igo_auto_start_cb.setChecked(config.IN_GAME_OVERLAY.get("auto_start", False))
-    parent_mixin.igo_auto_start_cb.setToolTip(
-        "Start the transparent overlay automatically when the application starts."
-    )
+    obind(parent_mixin.igo_auto_start_cb, 'Start the transparent overlay automatically when the application starts.', method='setToolTip')
     parent_mixin.igo_auto_start_cb.stateChanged.connect(parent_mixin._on_igo_settings_changed)
 
     parent_mixin.igo_toggle_btn = parent_mixin.igo_hero.run_toggle
@@ -303,7 +317,7 @@ def _build_igo_layout_card(parent_mixin: Any, column) -> None:
     )
     hotkey_layout.addWidget(parent_mixin.igo_hotkey_entry)
     hotkey_layout.addStretch(1)
-    form.addRow("Edit hotkey:", hotkey_row)
+    form.addRow(ow(QLabel("Edit hotkey:")), hotkey_row)
 
     window_row = QWidget()
     window_row.setObjectName("fieldRow")
@@ -320,7 +334,7 @@ def _build_igo_layout_card(parent_mixin: Any, column) -> None:
     parent_mixin.igo_target_window_label = QLabel("", window_row)
     parent_mixin.igo_target_window_label.setObjectName("fieldSuffix")
     window_layout.addWidget(parent_mixin.igo_target_window_label)
-    form.addRow("Target window:", window_row)
+    form.addRow(ow(QLabel("Target window:")), window_row)
 
     # The form takes the width it needs and the tip takes the right-hand end of
     # the same card. Card 1 has two short rows in it; stretched across the tab it
@@ -361,7 +375,7 @@ def _build_igo_tip(parent_mixin: Any) -> QFrame:
     tip_layout.setContentsMargins(12, 11, 12, 11)
     tip_layout.setSpacing(4)
 
-    title = QLabel("◎ LAYOUT SHORTCUT", tip)
+    title = ow(QLabel("◎ LAYOUT SHORTCUT", tip))
     title.setObjectName("tipCardTitle")
     tip_layout.addWidget(title)
 
@@ -406,12 +420,12 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
     for index, title in enumerate(("Widget", "", "Scale", "Options")):
         if not title:
             continue
-        header = QLabel(title)
+        header = ow(QLabel(title))
         header.setObjectName("tableHeader")
         table.addWidget(header, 0, index)
 
     for row, (widget_id, label, attribute) in enumerate(IN_GAME_WIDGET_ROWS, start=1):
-        name = _IgoRowNameLabel(label)
+        name = ow(_IgoRowNameLabel(label))
         name.setObjectName("tableRowName")
         table.addWidget(name, row, 0)
 
@@ -444,7 +458,7 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
     # ``InGameOverlayWindow``; markers instead live in a Full Map anchored layer.
     marker_row = len(IN_GAME_WIDGET_ROWS) + 1
     marker_cfg = config.IN_GAME_OVERLAY["map_markers"]
-    marker_name = _IgoRowNameLabel("Map Activity Markers")
+    marker_name = ow(_IgoRowNameLabel("Map Activity Markers"))
     marker_name.setObjectName("tableRowName")
     table.addWidget(marker_name, marker_row, 0)
 
@@ -467,7 +481,7 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
     table.addWidget(parent_mixin.igo_map_markers_scale_spin, marker_row, 2)
 
     marker_options, marker_options_row = _options_row()
-    marker_settings_btn = QPushButton("Settings")
+    marker_settings_btn = ow(QPushButton("Settings"))
     marker_settings_btn.clicked.connect(
         lambda: _open_map_marker_settings_dialog(parent_mixin)
     )
@@ -478,9 +492,7 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
         QIcon(resource_path("media/premium_access_icon.svg")).pixmap(16, 16)
     )
     parent_mixin.igo_map_markers_premium_icon.setFixedSize(16, 16)
-    parent_mixin.igo_map_markers_premium_icon.setToolTip(
-        "Premium minimap markers and Shady Guy stock memory"
-    )
+    obind(parent_mixin.igo_map_markers_premium_icon, 'Premium minimap markers and Shady Guy stock memory', method='setToolTip')
     marker_options_row.addWidget(parent_mixin.igo_map_markers_premium_icon)
     parent_mixin.igo_map_markers_summary = QLabel()
     parent_mixin.igo_map_markers_summary.setObjectName("tableRowEmpty")
@@ -499,23 +511,26 @@ def refresh_map_marker_settings_summary(parent_mixin: Any) -> None:
         return
     marker_cfg = config.IN_GAME_OVERLAY.get("map_markers", {}) or {}
     count = len(marker_cfg.get("hotkeys", []))
-    hotkeys = f"{count} hotkey" if count == 1 else f"{count} hotkeys"
-    mode = (
-        "Auto on"
-        if marker_cfg.get("automatic_discovery", False)
-        else "Manual only"
+    hotkeys = (
+        (f"{count} hotkey" if count == 1 else f"{count} hotkeys")
+        if localization().translator.language == "en" else ot("Hotkeys: {count}", count=count)
     )
-    style = "Classic" if marker_cfg.get("style") == "classic" else "New style"
+    mode = (
+        ot("Auto on")
+        if marker_cfg.get("automatic_discovery", False)
+        else ot("Manual only")
+    )
+    style = ot("Classic") if marker_cfg.get("style") == "classic" else ot("New style")
     has_premium = getattr(parent_mixin, "_has_premium_access", lambda: False)
     if not has_premium():
-        premium = "2 Premium options"
+        premium = ot("2 Premium options")
     else:
         premium_parts = []
         if marker_cfg.get("minimap_enabled", True):
-            premium_parts.append("Minimap")
+            premium_parts.append(ot("Minimap"))
         if marker_cfg.get("merchant_memory_enabled", True):
-            premium_parts.append("Shady memory")
-        premium = " + ".join(premium_parts) if premium_parts else "Premium off"
+            premium_parts.append(ot("Shady memory"))
+        premium = " + ".join(premium_parts) if premium_parts else ot("Premium off")
     summary.setText(f"{mode} · {style} · {hotkeys} · {premium}")
 
 
@@ -634,7 +649,7 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
         # then value/mode controls, and boolean switches last.
         parent_mixin.igo_luck_layout_combo = QComboBox()
         for caption, value in (("Column", "column"), ("Row", "row")):
-            parent_mixin.igo_luck_layout_combo.addItem(caption, value)
+            combo_item(parent_mixin.igo_luck_layout_combo, caption, value)
         parent_mixin.igo_luck_layout_combo.setCurrentIndex(
             max(0, parent_mixin.igo_luck_layout_combo.findData(
                 settings.get("expected_layout", "column")))
@@ -655,14 +670,14 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
             "Expected", bool(settings.get("show_expected", False)),
             parent_mixin._on_igo_settings_changed,
         )
-        parent_mixin.igo_luck_expected_cb.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
+        obind(parent_mixin.igo_luck_expected_cb, LUCK_RARITY_MODEL_ATTRIBUTION, method="setToolTip")
         row.addWidget(parent_mixin.igo_luck_expected_cb)
         row.addStretch(1)
         return holder
 
     if widget_id == "event_timer":
         holder, row = _options_row()
-        row.addWidget(QLabel("Warn at"))
+        row.addWidget(ow(QLabel("Warn at")))
         parent_mixin.igo_event_warning_spin = QSpinBox()
         parent_mixin.igo_event_warning_spin.setRange(1, 300)
         parent_mixin.igo_event_warning_spin.setMaximumWidth(78)
@@ -679,7 +694,7 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
 
     if widget_id == "stats":
         holder, row = _options_row()
-        parent_mixin.igo_widget_settings_btn = QPushButton("Choose stats…")
+        parent_mixin.igo_widget_settings_btn = ow(QPushButton("Choose stats…"))
         parent_mixin.igo_widget_settings_btn.clicked.connect(
             parent_mixin._open_igo_widget_settings_dialog
         )
@@ -694,17 +709,15 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
     if widget_id == "build_progression":
         holder, row = _options_row()
         settings = config.IN_GAME_OVERLAY["widgets"]["build_progression"]
-        configure = QPushButton("Configure build…")
+        configure = ow(QPushButton("Configure build…"))
         configure.clicked.connect(parent_mixin._open_build_progression_dialog)
         row.addWidget(configure)
         parent_mixin.igo_build_max_rows_spin = QSpinBox()
         parent_mixin.igo_build_max_rows_spin.setRange(1, 20)
         parent_mixin.igo_build_max_rows_spin.setValue(int(settings.get("max_rows", 5)))
         parent_mixin.igo_build_max_rows_spin.valueChanged.connect(parent_mixin._on_igo_settings_changed)
-        parent_mixin.igo_build_max_rows_spin.setPrefix("Rows ")
-        parent_mixin.igo_build_max_rows_spin.setToolTip(
-            "Limits remaining and failed rows. Completed rows are appended when enabled."
-        )
+        obind(parent_mixin.igo_build_max_rows_spin, 'Rows ', method='setPrefix')
+        obind(parent_mixin.igo_build_max_rows_spin, 'Limits remaining and failed rows. Completed rows are appended when enabled.', method='setToolTip')
         row.addWidget(parent_mixin.igo_build_max_rows_spin)
         parent_mixin.igo_build_completed_cb = _build_checkbox(
             "Completed", bool(settings.get("show_completed", False)), parent_mixin._on_igo_settings_changed
@@ -715,7 +728,7 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
 
     if widget_id == "weapon_tracker":
         holder, row = _options_row()
-        settings_btn = QPushButton("Settings…")
+        settings_btn = ow(QPushButton("Settings…"))
         settings_btn.clicked.connect(
             parent_mixin._open_weapon_tracker_settings_dialog
         )
@@ -728,7 +741,7 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
         row.addWidget(parent_mixin.igo_weapon_tracker_summary_label)
         parent_mixin.igo_weapon_tracker_layout_combo = QComboBox()
         for caption, value in (("Compact", "compact"), ("Detailed", "detailed")):
-            parent_mixin.igo_weapon_tracker_layout_combo.addItem(caption, value)
+            combo_item(parent_mixin.igo_weapon_tracker_layout_combo, caption, value)
         settings = config.IN_GAME_OVERLAY["widgets"]["weapon_tracker"]
         parent_mixin.igo_weapon_tracker_layout_combo.setCurrentIndex(
             max(
@@ -784,7 +797,7 @@ def refresh_in_game_overlay_stats_summary(parent_mixin: Any) -> None:
     if label is None:
         return
     selected = config.IN_GAME_OVERLAY["widgets"]["stats"].get("selected_stats") or []
-    label.setText(f"{len(selected)} selected" if selected else "defaults")
+    label.setText(ot("{count} selected", count=len(selected)) if selected else ot("defaults"))
 
 
 def refresh_weapon_tracker_settings_summary(parent_mixin: Any) -> None:
@@ -793,7 +806,7 @@ def refresh_weapon_tracker_settings_summary(parent_mixin: Any) -> None:
         return
     settings = config.IN_GAME_OVERLAY["widgets"]["weapon_tracker"]
     selected_count = len(settings.get("selected_stats", ()))
-    label.setText(f"{selected_count} stats")
+    label.setText(ot("{count} stats", count=selected_count))
 
 
 def in_game_overlay_hotkey_text() -> str:
@@ -816,8 +829,8 @@ def refresh_in_game_overlay_hotkey_ui(parent_mixin: Any) -> None:
     tip = getattr(parent_mixin, "igo_tip_label", None)
     if tip is not None:
         tip.setText(
-            f"Press <b>{hotkey}</b> to enter layout mode. Drag the widgets over "
-            f"the game, then press <b>{hotkey}</b> or <b>Esc</b> to save and exit."
+            ot("Press <b>{hotkey}</b> to enter layout mode. Drag the widgets over "
+               "the game, then press <b>{hotkey}</b> or <b>Esc</b> to save and exit.", hotkey=hotkey)
         )
 
 
@@ -864,7 +877,7 @@ def refresh_in_game_overlay_target_window(parent_mixin: Any) -> None:
         return
 
     detected = parent_mixin._in_game_overlay_target_geometry() is not None
-    label.setText("Detected" if detected else "Not running")
+    label.setText(ot("Detected") if detected else ot("Not running"))
     label.setProperty("state", STATE_OK if detected else STATE_OFF)
     style = label.style()
     if style is not None:
@@ -888,20 +901,20 @@ def update_in_game_overlay_status_ui(parent_mixin: Any) -> None:
     edit_mode = bool(window is not None and getattr(window, "edit_mode", False))
 
     if edit_mode:
-        hero.set_status("LAYOUT MODE", STATE_WARN)
+        hero.set_status(ot("LAYOUT MODE"), STATE_WARN)
     elif wanted and visible:
-        hero.set_status("RUNNING", STATE_OK)
+        hero.set_status(ot("RUNNING"), STATE_OK)
     elif wanted:
         # Asked for and not on screen. Usually benign -- the overlay hides
         # itself whenever the game is not focused -- so it is a warning, not an
         # error, and the subtitle says which of the two this is.
         hero.set_status(
-            "WAITING",
+            ot("WAITING"),
             STATE_WARN,
-            detail="Overlay is on, but the game window is not in front.",
+            detail=ot("Overlay is on, but the game window is not in front."),
         )
     else:
-        hero.set_status("STOPPED", STATE_OFF)
+        hero.set_status(ot("STOPPED"), STATE_OFF)
 
     toggle = getattr(parent_mixin, "igo_toggle_btn", None)
     if toggle is not None:
@@ -911,7 +924,7 @@ def update_in_game_overlay_status_ui(parent_mixin: Any) -> None:
 
 
 def _build_checkbox(label: str, checked: bool, handler, *, parent=None) -> QCheckBox:
-    checkbox = QCheckBox(label, parent)
+    checkbox = ow(QCheckBox(label, parent))
     checkbox.setChecked(checked)
     checkbox.stateChanged.connect(handler)
     return checkbox
