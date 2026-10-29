@@ -13,13 +13,15 @@ reach a widget through them.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from core.luck_rarity import (
     LUCK_RARITY_ORDER,
     calculate_luck_rarity_probabilities,
     format_expected_count,
     format_luck_rarity_percent,
 )
-from projections import formatting
+from ui import formatting
 from ui.shared import _set_text
 
 
@@ -43,31 +45,29 @@ def set_stage_summary_labels(labels, rows) -> None:
     rows = rows or default_rows
     for labels_by_column, row in zip(labels, rows):
         if isinstance(labels_by_column, dict):
-            labels_by_column["stage"].setText(str(row["label"]).replace("Stage ", ""))
-            labels_by_column["time"].setText(row["time"])
-            labels_by_column["kills"].setText(row["kills"])
-            labels_by_column["items"].setText(row["items"])
+            l10n.display(labels_by_column['stage'], 'setText', str(row['label']).replace('Stage ', ''))
+            l10n.display(labels_by_column['time'], 'setText', row['time'])
+            l10n.display(labels_by_column['kills'], 'setText', row['kills'])
+            l10n.display(labels_by_column['items'], 'setText', row['items'])
         else:
-            labels_by_column.setText(
-                f"{row['label']}: Kills {row['kills']} | Time {row['time']} | Items {row['items']}"
-            )
+            l10n.display(labels_by_column, 'setText', l10n.tr('{p0}: Kills {p1} | Time {p2} | Items {p3}', p0=row['label'], p1=row['kills'], p2=row['time'], p3=row['items']))
 
 
 #: The Item Rarity explanation and the legacy/fallback Chests explanation.
 #: Live Chests now supplies a precise status because its strict completeness
 #: gate can also be waiting on factual counters or a fast/slow coverage match.
 EXPECTED_COUNTS_UNAVAILABLE_TEXT = (
-    "Needs the app running from the start of the run for an accurate count."
+    l10n.tr("Needs the app running from the start of the run for an accurate count.")
 )
 
 CHEST_EXPECTED_STATUS_TEXT = {
-    "pending": "Waiting for the initial Expected chest baseline.",
+    "pending": l10n.tr("Waiting for the initial Expected chest baseline."),
     "baseline_missed": (
-        "Expected tracking began after a normal chest was already opened."
+        l10n.tr("Expected tracking began after a normal chest was already opened.")
     ),
-    "counters_unavailable": "Waiting for complete chest counters.",
+    "counters_unavailable": l10n.tr("Waiting for complete chest counters."),
     "coverage_mismatch": (
-        "Chest counters are syncing; Expected is temporarily unavailable."
+        l10n.tr("Chest counters are syncing; Expected is temporarily unavailable.")
     ),
 }
 
@@ -93,10 +93,7 @@ def set_loot_rarity_card_values(labels, luck_value, loot_stats) -> None:
             continue
         _set_text(row["chance"], format_luck_rarity_percent(probabilities.get(rarity)))
         if available:
-            counts = (
-                f"{int(actual.get(rarity, 0))} "
-                f"(exp {format_expected_count(expected.get(rarity))})"
-            )
+            counts = l10n.tr("{actual} (expected {expected})", actual=int(actual.get(rarity, 0)), expected=format_expected_count(expected.get(rarity)))
         else:
             counts = "--"
         _set_text(row["counts"], counts)

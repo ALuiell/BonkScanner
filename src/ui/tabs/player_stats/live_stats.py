@@ -49,6 +49,8 @@ namespace hides until it is removed.
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from typing import Callable, Sequence
 
 from PySide6.QtCore import QEvent, QSize, Qt
@@ -103,7 +105,7 @@ from ui.tabs.player_stats.summary_cards import (
     set_loot_rarity_card_values,
     set_stage_summary_labels,
 )
-from projections import formatting
+from ui import formatting
 from projections.build_progression import build_progression_payload
 from ui.dialogs.build_progression import show_build_progression_help
 
@@ -257,6 +259,23 @@ class _ResponsiveCardGrid(QWidget):
         self._cards.append(card)
         self._reflow(self.width())
 
+    def fit_localized_stat_names(self):
+        """Keep compact stat names readable and reflow fewer cards per row."""
+        def refresh():
+            labels = [label for card in self._cards
+                      for label in card.findChildren(QLabel, "LiveStatsCompactStatName")]
+            width = max([160] + [label.fontMetrics().horizontalAdvance(label.text()) + 90
+                                 for label in labels])
+            if l10n.localization().translator.game_language == "en":
+                width = 160
+            for card in self._cards:
+                card.setFixedWidth(width)
+            self._minimum_card_width = width
+            self._columns = 0
+            self._reflow(self.width())
+            self.updateGeometry()
+        self._localized_sizing = l10n.RefreshBinding(self, refresh)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._reflow(event.size().width())
@@ -329,7 +348,7 @@ class _BuildProgressionRow(QFrame):
         layout.setContentsMargins(10, 7, 10, 7)
         layout.setSpacing(8)
 
-        self.symbol = QLabel("·")
+        self.symbol = l10n.localized(QLabel, '·')
         self.symbol.setObjectName("BuildProgressionSymbol")
         self.symbol.setAlignment(Qt.AlignCenter)
         self.symbol.setFixedWidth(18)
@@ -355,15 +374,15 @@ class _BuildProgressionRow(QFrame):
             self.setProperty("status", status)
             self.style().unpolish(self)
             self.style().polish(self)
-        self.symbol.setText(str(row.get("symbol") or "·"))
-        self.name.setText(str(row.get("label") or ""))
+        l10n.display(self.symbol, 'setText', str(row.get('symbol') or '·'))
+        l10n.display(self.name, 'setText', str(row.get('label') or ''))
         self.name.setStyleSheet(
             f"color: {row.get('label_color') or '#E4E9F0'}; background: transparent;"
         )
         name_font = self.name.font()
         name_font.setStrikeOut(status == "banished")
         self.name.setFont(name_font)
-        self.value.setText(str(row.get("value") or ""))
+        l10n.display(self.value, 'setText', str(row.get('value') or ''))
         # Once Required is met, the deadline has done its job.  Keeping an
         # overdue delta or target clock on a green row made it read as both
         # complete and late; if the value regresses, the evaluator restores
@@ -387,7 +406,7 @@ class _BuildProgressionRow(QFrame):
         else:
             self.symbol.setStyleSheet("")
             self.deadline.setStyleSheet("")
-        self.deadline.setText(timing)
+        l10n.display(self.deadline, 'setText', timing)
         self.deadline.setVisible(bool(timing))
         self.setVisible(True)
 
@@ -497,20 +516,20 @@ class LiveStatsTab:
         if group is None or not isinstance(labels, dict):
             return
         title, values = self.format_live_powerups_card(stats)
-        group.setTitle(title)
+        l10n.display(group, 'setTitle', title)
         for effect_name, label in labels.items():
-            _set_text(label, f"{effect_name}: {values.get(effect_name, '--')}")
+            _set_text(label, l10n.tr('{name}: {value}', name=l10n.game('powerups', effect_name), value=values.get(effect_name, '--')))
 
     def format_live_powerups_card(self, stats) -> tuple[str, dict[str, str]]:
         values = {name: "--" for name in ("Rage", "Clock", "Shield", "Stonks")}
-        title = "Powerups"
+        title = l10n.tr('Powerups')
 
         snapshot_reader = getattr(self._live_run_tracker(), "powerups_snapshot", None)
         snapshot = snapshot_reader() if callable(snapshot_reader) else None
         if getattr(snapshot, "available", False):
             pm_display = str(getattr(snapshot, "powerup_multiplier_display", "--") or "--")
             if pm_display != "--":
-                title = f"Powerups (PM {pm_display})"
+                title = l10n.tr('Powerups (PM {p0})', p0=pm_display)
             active_by_name = {
                 str(getattr(effect, "name", "")): effect
                 for effect in getattr(snapshot, "active", ()) or ()
@@ -549,7 +568,7 @@ class LiveStatsTab:
 
         pm_display = str(getattr(stat, "display_value", "") or "").strip()
         if pm_display:
-            title = f"Powerups (PM {pm_display})"
+            title = l10n.tr('Powerups (PM {p0})', p0=pm_display)
         standard_duration = formatting.format_seconds_compact(15.0 * powerup_multiplier)
         clock_duration = formatting.format_seconds_compact(12.0 * powerup_multiplier)
         values["Rage"] = f"-- ({standard_duration}s)"
@@ -605,18 +624,18 @@ class LiveStatsTab:
         self._items_section.collapse()
         self._ensure_live_snapshot_store().reset_for_new_match()
         self._items_section.update((), items_text=items_text)
-        _set_text(self._chests_per_minute_label, "Average chests/min: --")
+        _set_text(self._chests_per_minute_label, l10n.tr('Average chests/min: --'))
         self._apply_live_powerups_card(None)
-        _set_text(self._in_game_time_label, "In-Game Time: --")
-        _set_text(self._mob_kills_label, "Mob Kills: --")
-        _set_text(self._kps_averages_label, "KPS: --")
-        _set_text(self._level_label, "Level: --")
+        _set_text(self._in_game_time_label, l10n.tr('In-Game Time: --'))
+        _set_text(self._mob_kills_label, l10n.tr('Mob Kills: --'))
+        _set_text(self._kps_averages_label, l10n.tr('KPS: --'))
+        _set_text(self._level_label, l10n.tr('Level: --'))
         set_chests_card_values(
             self._chests_card_values,
             None,
         )
         set_loot_rarity_card_values(self._loot_rarity_card_values, None, None)
-        _set_text(self._new_items_label, "Live snapshot")
+        _set_text(self._new_items_label, l10n.tr('Live snapshot'))
         update_banishes_section(
             getattr(self, "_banishes_view", None), self._banishes_label, ()
         )
@@ -705,7 +724,7 @@ class LiveStatsTab:
         if new_items_text is not None:
             _set_text(self._new_items_label, new_items_text)
         else:
-            _set_text(self._new_items_label, "Live snapshot")
+            _set_text(self._new_items_label, l10n.tr('Live snapshot'))
         update_banishes_section(
             getattr(self, "_banishes_view", None), self._banishes_label, banishes
         )
@@ -895,28 +914,23 @@ class LiveStatsTab:
             },
         )
         if not payload.get("configured"):
-            header.setText("Build Progression")
-            progress.setText("NOT CONFIGURED")
+            l10n.display(header, 'setText', l10n.tr('Build Progression'))
+            l10n.display(progress, 'setText', l10n.tr('NOT CONFIGURED'))
             clock.clear()
             clock.hide()
-            empty.setText(
-                "No active build yet. Create or import a build, then set it active; the "
-                "same checklist will appear here, in overlays, and in Twitch chat."
-            )
+            l10n.display(empty, 'setText', l10n.tr('No active build yet. Create or import a build, then set it active; the same checklist will appear here, in overlays, and in Twitch chat.'))
             empty.show()
             complete.hide()
             footer.hide()
             self._hide_build_progression_rows()
             return
-        header.setText(str(payload.get("name") or "Build Progression"))
-        progress.setText(str(payload.get("progress") or "0/0"))
+        l10n.display(header, 'setText', str(payload.get('name') or 'Build Progression'))
+        l10n.display(progress, 'setText', str(payload.get('progress') or '0/0'))
         clock.clear()
         clock.hide()
 
         if not payload.get("available"):
-            empty.setText(
-                "Waiting for an active run. Every new run starts this checklist clean."
-            )
+            l10n.display(empty, 'setText', l10n.tr('Waiting for an active run. Every new run starts this checklist clean.'))
             empty.show()
             complete.hide()
             footer.hide()
@@ -925,14 +939,10 @@ class LiveStatsTab:
         if payload.get("complete"):
             empty.hide()
             if payload.get("late_complete"):
-                complete.setText(
-                    f"!  BUILD COMPLETE  ·  {payload.get('completion_time') or '--:--'}"
-                )
+                l10n.display(complete, 'setText', l10n.tr('!  BUILD COMPLETE  ·  {p0}', p0=payload.get('completion_time') or '--:--'))
                 complete.setStyleSheet("color: #F97316;")
             else:
-                complete.setText(
-                    f"✓  BUILD COMPLETE  ·  {payload.get('completion_time') or '--:--'}"
-                )
+                l10n.display(complete, 'setText', l10n.tr('✓  BUILD COMPLETE  ·  {p0}', p0=payload.get('completion_time') or '--:--'))
                 complete.setStyleSheet("")
             complete.show()
             footer.hide()
@@ -951,7 +961,7 @@ class LiveStatsTab:
             bool(row.get("complete")) for row in rows
         )
         remaining_count = max(0, len(rows) - completed_count)
-        footer.setText(f"{remaining_count} remaining  ·  {completed_count} completed")
+        l10n.display(footer, 'setText', l10n.tr('{p0} remaining  ·  {p1} completed', p0=remaining_count, p1=completed_count))
         footer.show()
 
     def _ensure_build_progression_rows(self, count: int) -> None:
@@ -1043,7 +1053,7 @@ class LiveStatsTab:
         player_layout = QVBoxLayout(self._root)
         player_scroll, _player_content, player_content_layout = _make_scroll_section()
         player_layout.addWidget(player_scroll)
-        self._status_label = QLabel("Waiting for game...")
+        self._status_label = l10n.localized(QLabel, l10n.tr('Waiting for game...'))
         player_content_layout.addWidget(self._status_label)
         # Step-18 pilot: the timeline strip is a component, not four more
         # attributes on the shared `self`. Its seven collaborators are named
@@ -1092,7 +1102,7 @@ class LiveStatsTab:
         live_main_layout.setContentsMargins(0, 0, 0, 0)
         live_main_layout.setSpacing(14)
 
-        items_group = QGroupBox("Items")
+        items_group = l10n.localized(QGroupBox, l10n.tr('Items'))
         items_group.setObjectName("LiveStatsItems")
         items_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         items_group.setMinimumWidth(220)
@@ -1102,7 +1112,7 @@ class LiveStatsTab:
 
         items_meta = QHBoxLayout()
         items_meta.setContentsMargins(0, 0, 0, 0)
-        items_rarity_label = QLabel("")
+        items_rarity_label = l10n.localized(QLabel, '')
         items_rarity_label.setTextFormat(Qt.RichText)
         items_rarity_label.setObjectName("ItemsRaritySummary")
         items_rarity_label.setStyleSheet("font-size: 12px; background: transparent;")
@@ -1111,7 +1121,7 @@ class LiveStatsTab:
         items_meta.addStretch(1)
         items_sort_combo = CompactItemsSortComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
-            items_sort_combo.addItem(label, mode)
+            l10n.combo_item(items_sort_combo, l10n.term(label), mode)
         items_sort_combo.setCurrentIndex(
             items_sort_combo.findData(ITEM_SORT_RARITY_DESC)
         )
@@ -1156,10 +1166,10 @@ class LiveStatsTab:
         banishes_layout = QVBoxLayout(banishes_section)
         banishes_layout.setContentsMargins(*BANISHES_SECTION_MARGINS)
         banishes_layout.setSpacing(4)
-        banishes_title = QLabel("BANISHES")
+        banishes_title = l10n.localized(QLabel, l10n.tr('BANISHES'))
         banishes_title.setObjectName("LiveStatsBanishesTitle")
         banishes_layout.addWidget(banishes_title)
-        self._banishes_label = QLabel("No banishes yet")
+        self._banishes_label = l10n.localized(QLabel, l10n.tr('No banishes yet'))
         self._banishes_label.setObjectName("LiveStatsBanishesText")
         self._banishes_label.setTextFormat(Qt.RichText)
         self._banishes_label.setWordWrap(True)
@@ -1189,19 +1199,19 @@ class LiveStatsTab:
         )
         items_layout.addWidget(banishes_section)
 
-        chest_rate_group = QGroupBox("Run Summary", live_main)
+        chest_rate_group = l10n.localized(QGroupBox, l10n.tr('Run Summary'), live_main)
         chest_rate_group.setObjectName("LiveStatsRunSummary")
         chest_rate_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         chest_rate_layout = QVBoxLayout(chest_rate_group)
-        self._chests_per_minute_label = QLabel("Average chests/min: --")
+        self._chests_per_minute_label = l10n.localized(QLabel, l10n.tr('Average chests/min: --'))
         chest_rate_layout.addWidget(self._chests_per_minute_label)
-        self._in_game_time_label = QLabel("In-Game Time: --")
+        self._in_game_time_label = l10n.localized(QLabel, l10n.tr('In-Game Time: --'))
         chest_rate_layout.addWidget(self._in_game_time_label)
-        self._mob_kills_label = QLabel("Mob Kills: --")
+        self._mob_kills_label = l10n.localized(QLabel, l10n.tr('Mob Kills: --'))
         chest_rate_layout.addWidget(self._mob_kills_label)
-        self._kps_averages_label = QLabel("KPS: --")
+        self._kps_averages_label = l10n.localized(QLabel, l10n.tr('KPS: --'))
         chest_rate_layout.addWidget(self._kps_averages_label)
-        self._level_label = QLabel("Level: --")
+        self._level_label = l10n.localized(QLabel, l10n.tr('Level: --'))
         chest_rate_layout.addWidget(self._level_label)
         for label in (
             self._chests_per_minute_label,
@@ -1218,7 +1228,7 @@ class LiveStatsTab:
             self._kps_averages_label,
             self._level_label,
         )
-        live_stage_summary_group = QGroupBox("Stage Summary", live_main)
+        live_stage_summary_group = l10n.localized(QGroupBox, l10n.tr('Stage Summary'), live_main)
         live_stage_summary_group.setObjectName("LiveStatsStageSummary")
         live_stage_summary_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         live_stage_summary_layout = QGridLayout(live_stage_summary_group)
@@ -1226,16 +1236,16 @@ class LiveStatsTab:
         live_stage_summary_layout.setHorizontalSpacing(10)
         live_stage_summary_layout.setVerticalSpacing(4)
         for column, header in enumerate(("Stage", "Time", "Kills", "Items")):
-            label = QLabel(header)
+            label = l10n.localized(QLabel, l10n.term(header))
             label.setStyleSheet("font-weight: 700; color: #F3F4F6; background: transparent;")
             label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             live_stage_summary_layout.addWidget(label, 0, column)
         self._stage_summary_labels = []
         for index in range(4):
-            stage_label = QLabel(str(index + 1))
-            time_label = QLabel("--")
-            kills_label = QLabel("--")
-            items_label = QLabel("--")
+            stage_label = l10n.localized(QLabel, str(index + 1))
+            time_label = l10n.localized(QLabel, '--')
+            kills_label = l10n.localized(QLabel, '--')
+            items_label = l10n.localized(QLabel, '--')
             items_label.setTextFormat(Qt.RichText)
             stage_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             for value_label in (time_label, kills_label, items_label):
@@ -1257,12 +1267,12 @@ class LiveStatsTab:
         live_stage_summary_layout.setColumnStretch(1, 2)
         live_stage_summary_layout.setColumnStretch(2, 1)
         live_stage_summary_layout.setColumnStretch(3, 1)
-        self._powerups_group = QGroupBox("Powerups", live_main)
+        self._powerups_group = l10n.localized(QGroupBox, l10n.tr('Powerups'), live_main)
         self._powerups_group.setObjectName("LiveStatsPowerups")
         self._powerups_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self._powerup_labels = {}
         for effect_name in ("Rage", "Clock", "Shield", "Stonks"):
-            label = QLabel(f"{effect_name}: --", self._powerups_group)
+            label = l10n.localized(QLabel, l10n.tr('{name}: {value}', name=l10n.game('powerups', effect_name), value='--'), self._powerups_group)
             label.setWordWrap(True)
             _apply_summary_label_padding(label)
             self._powerup_labels[effect_name] = label
@@ -1280,14 +1290,12 @@ class LiveStatsTab:
         self._detail_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         player_stats_tab = QWidget()
         player_stats_tab_layout = QVBoxLayout(player_stats_tab)
-        self._stats_expanded_toggle = LabeledSwitch("Expanded")
+        self._stats_expanded_toggle = l10n.localized(LabeledSwitch, l10n.tr('Expanded'))
         self._stats_expanded_toggle.setObjectName("LiveStatsExpandedToggle")
         self._stats_expanded_toggle.setChecked(
             bool(config.user_config.get(LIVE_STATS_EXPANDED_CONFIG_KEY, False))
         )
-        self._stats_expanded_toggle.setToolTip(
-            "Show full stat names in Stats, Chaos, Shrines, and Passives"
-        )
+        l10n.display(self._stats_expanded_toggle, 'setToolTip', l10n.tr('Show full stat names in Stats, Chaos, Shrines, and Passives'))
         self._detail_tabs.setHeaderControl(self._stats_expanded_toggle)
         player_stats_scroll, _player_stats_scroll_content, player_stats_scroll_layout = _make_scroll_section()
         player_stats_tab_layout.addWidget(player_stats_scroll)
@@ -1319,12 +1327,12 @@ class LiveStatsTab:
                 compact_stat_layout.setContentsMargins(0, 0, 0, 0)
                 compact_stat_layout.setSpacing(5)
 
-                name_label = QLabel(abbreviate_stat_label(spec.label))
+                name_label = l10n.localized(QLabel, l10n.stat(abbreviate_stat_label(spec.label)))
                 name_label.setObjectName("LiveStatsCompactStatName")
                 compact_stat_layout.addWidget(name_label)
                 compact_stat_layout.addStretch(1)
 
-                value_label = QLabel("--")
+                value_label = l10n.localized(QLabel, '--')
                 value_label.setObjectName("LiveStatsCompactStatValue")
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 compact_stat_layout.addWidget(value_label)
@@ -1332,6 +1340,8 @@ class LiveStatsTab:
                 compact_rows_layout.addWidget(compact_stat)
             group_layout.addWidget(compact_rows)
             compact_stats_grid.add_card(stat_group)
+
+        compact_stats_grid.fit_localized_stat_names()
 
         expanded_stats_grid = _ResponsiveCardGrid(
             minimum_card_width=300,
@@ -1348,15 +1358,15 @@ class LiveStatsTab:
             group_layout.setHorizontalSpacing(6)
             group_layout.setVerticalSpacing(3)
             for spec in group:
-                name_label = QLabel(spec.label)
+                name_label = l10n.localized(QLabel, l10n.game("stats", spec.label))
                 name_label.setObjectName("LiveStatsExpandedStatName")
-                value_label = QLabel("--")
+                value_label = l10n.localized(QLabel, '--')
                 value_label.setObjectName("LiveStatsExpandedStatValue")
                 value_label.setMinimumWidth(max(48, LIVE_STATS_VALUE_WIDTH - 16))
                 _apply_player_stat_value_baseline(value_label, spec.value_format)
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self._stat_value_rows[spec.label] = value_label
-                group_layout.addRow(name_label, value_label)
+                l10n.form_row(group_layout, name_label, value_label)
             expanded_stats_grid.add_card(stat_group)
 
         compact_stats_grid.setVisible(False)
@@ -1392,14 +1402,14 @@ class LiveStatsTab:
         loot_grid.setHorizontalSpacing(8)
         loot_grid.setVerticalSpacing(8)
 
-        chests_group = QGroupBox("Chests (Expected = key procs)")
+        chests_group = l10n.localized(QGroupBox, l10n.tr('Chests (Expected = key procs)'))
         chests_group_layout = QVBoxLayout(chests_group)
         chests_card, self._chests_card_values = _build_chests_stats_card()
         chests_card.setObjectName("StatCardInner")
         chests_group_layout.addWidget(chests_card)
         loot_grid.addWidget(chests_group, 0, 0)
 
-        rarity_group = QGroupBox("Item Rarity (Expected = items by tier)")
+        rarity_group = l10n.localized(QGroupBox, l10n.tr('Item Rarity (Expected = items by tier)'))
         rarity_group_layout = QVBoxLayout(rarity_group)
         rarity_card, self._loot_rarity_card_values = _build_loot_rarity_card()
         rarity_card.setObjectName("StatCardInner")
@@ -1413,7 +1423,7 @@ class LiveStatsTab:
 
         weapons_tab = QWidget()
         weapons_tab_layout = QVBoxLayout(weapons_tab)
-        weapons_status_label = QLabel("Waiting for weapon data...")
+        weapons_status_label = l10n.localized(QLabel, l10n.tr('Waiting for weapon data...'))
         weapons_status_label.setWordWrap(True)
         weapons_tab_layout.addWidget(weapons_status_label)
         player_weapons_scroll, _player_weapons_scroll_content, player_weapons_scroll_layout = _make_scroll_section()
@@ -1421,7 +1431,7 @@ class LiveStatsTab:
         weapons_tab_layout.addWidget(player_weapons_scroll)
         tomes_tab = QWidget()
         tomes_tab_layout = QVBoxLayout(tomes_tab)
-        tomes_status_label = QLabel("Waiting for tome data...")
+        tomes_status_label = l10n.localized(QLabel, l10n.tr('Waiting for tome data...'))
         tomes_status_label.setWordWrap(True)
         tomes_tab_layout.addWidget(tomes_status_label)
         player_tomes_scroll, _player_tomes_scroll_content, player_tomes_scroll_layout = _make_scroll_section()
@@ -1429,7 +1439,7 @@ class LiveStatsTab:
         tomes_tab_layout.addWidget(player_tomes_scroll)
         chaos_tab = QWidget()
         chaos_tab_layout = QVBoxLayout(chaos_tab)
-        chaos_status_label = QLabel("Waiting for Chaos Tome data...")
+        chaos_status_label = l10n.localized(QLabel, l10n.tr('Waiting for Chaos Tome data...'))
         chaos_status_label.setWordWrap(True)
         chaos_tab_layout.addWidget(chaos_status_label)
         player_chaos_scroll, _player_chaos_scroll_content, player_chaos_scroll_layout = _make_scroll_section()
@@ -1437,7 +1447,7 @@ class LiveStatsTab:
         chaos_tab_layout.addWidget(player_chaos_scroll)
         shrine_tab = QWidget()
         shrine_tab_layout = QVBoxLayout(shrine_tab)
-        shrine_status_label = QLabel("Waiting for Charge Shrine data...")
+        shrine_status_label = l10n.localized(QLabel, l10n.tr('Waiting for Charge Shrine data...'))
         shrine_status_label.setWordWrap(True)
         shrine_tab_layout.addWidget(shrine_status_label)
         player_shrine_scroll, _player_shrine_content, player_shrine_scroll_layout = _make_scroll_section()
@@ -1445,9 +1455,7 @@ class LiveStatsTab:
         shrine_tab_layout.addWidget(player_shrine_scroll)
         character_passive_tab = QWidget()
         character_passive_tab_layout = QVBoxLayout(character_passive_tab)
-        character_passive_status_label = QLabel(
-            "Waiting for character passive data..."
-        )
+        character_passive_status_label = l10n.localized(QLabel, l10n.tr('Waiting for character passive data...'))
         character_passive_status_label.setWordWrap(True)
         character_passive_tab_layout.addWidget(character_passive_status_label)
         (
@@ -1459,7 +1467,7 @@ class LiveStatsTab:
         character_passive_tab_layout.addWidget(player_character_passive_scroll)
         damage_sources_tab = QWidget()
         damage_sources_tab_layout = QVBoxLayout(damage_sources_tab)
-        damage_sources_status_label = QLabel("Waiting for damage source data...")
+        damage_sources_status_label = l10n.localized(QLabel, l10n.tr('Waiting for damage source data...'))
         damage_sources_status_label.setWordWrap(True)
         damage_sources_tab_layout.addWidget(damage_sources_status_label)
         player_damage_sources_scroll, _player_damage_sources_scroll_content, player_damage_sources_scroll_layout = _make_scroll_section()
@@ -1471,13 +1479,13 @@ class LiveStatsTab:
         build_progression_layout.setSpacing(10)
 
         build_actions = QHBoxLayout()
-        build_eyebrow = QLabel("LIVE BUILD")
+        build_eyebrow = l10n.localized(QLabel, l10n.tr('LIVE BUILD'))
         build_eyebrow.setObjectName("kpiLabel")
         build_actions.addWidget(build_eyebrow)
         build_actions.addStretch(1)
-        build_help = QPushButton("How it works")
+        build_help = l10n.localized(QPushButton, l10n.tr('How it works'))
         build_help.clicked.connect(lambda: show_build_progression_help(self._root))
-        build_configure = QPushButton("Configure")
+        build_configure = l10n.localized(QPushButton, l10n.tr('Configure'))
         build_configure.setObjectName("primary")
         build_configure.clicked.connect(self._open_build_progression_settings)
         build_actions.addWidget(build_help)
@@ -1492,10 +1500,10 @@ class LiveStatsTab:
 
         build_card_header = QHBoxLayout()
         build_card_header.setSpacing(8)
-        self._build_progression_header = QLabel("Build Progression")
+        self._build_progression_header = l10n.localized(QLabel, l10n.tr('Build Progression'))
         self._build_progression_header.setObjectName("BuildProgressionName")
         build_card_header.addWidget(self._build_progression_header, 1)
-        self._build_progression_progress = QLabel("NOT CONFIGURED")
+        self._build_progression_progress = l10n.localized(QLabel, l10n.tr('NOT CONFIGURED'))
         self._build_progression_progress.setObjectName("BuildProgressionProgress")
         build_card_header.addWidget(self._build_progression_progress)
         self._build_progression_clock = QLabel()
@@ -1576,15 +1584,15 @@ class LiveStatsTab:
         self._stats_expanded_toggle.toggled.connect(
             self._stat_cards.set_expanded_stat_labels
         )
-        self._detail_tabs.addTab(player_stats_tab, "Stats")
-        self._detail_tabs.addTab(loot_tab, "Loot")
-        self._detail_tabs.addTab(weapons_tab, "Weapons")
-        self._detail_tabs.addTab(tomes_tab, "Tomes")
-        self._detail_tabs.addTab(chaos_tab, "Chaos")
-        self._detail_tabs.addTab(shrine_tab, "Shrines")
-        self._detail_tabs.addTab(character_passive_tab, "Passives")
-        self._detail_tabs.addTab(damage_sources_tab, "Damage Sources")
-        self._detail_tabs.addTab(build_progression_tab, "Build Progression")
+        l10n.tab(self._detail_tabs, player_stats_tab, l10n.tr('Stats'))
+        l10n.tab(self._detail_tabs, loot_tab, l10n.tr('Loot'))
+        l10n.tab(self._detail_tabs, weapons_tab, l10n.tr('Weapons'))
+        l10n.tab(self._detail_tabs, tomes_tab, l10n.tr('Tomes'))
+        l10n.tab(self._detail_tabs, chaos_tab, l10n.tr('Chaos'))
+        l10n.tab(self._detail_tabs, shrine_tab, l10n.tr('Shrines'))
+        l10n.tab(self._detail_tabs, character_passive_tab, l10n.tr('Passives'))
+        l10n.tab(self._detail_tabs, damage_sources_tab, l10n.tr('Damage Sources'))
+        l10n.tab(self._detail_tabs, build_progression_tab, l10n.tr('Build Progression'))
         self.refresh_build_progression()
         # QTabWidget otherwise derives the outer page's preferred height from
         # whichever child is current. Stats/Loot are taller than the card tabs,
@@ -1608,7 +1616,7 @@ class LiveStatsTab:
         live_page_layout.setColumnStretch(1, 1)
         live_page_layout.setRowStretch(0, 1)
         player_content_layout.addWidget(live_page)
-        self._tabview.addTab(self._root, "Live Stats")
+        l10n.tab(self._tabview, self._root, l10n.tr('Live Stats'))
         return self
 
     def format_live_powerups(self, stats) -> str:

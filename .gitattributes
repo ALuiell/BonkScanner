@@ -1,4 +1,6 @@
 * text=auto eol=crlf
+# Generated catalogs have byte hashes and deterministic LF exports.
+src/media/localization/game/*.json text eol=lf
 # Retain the recovered diagnostic source bytes in history.
 tools/minimap_diagnostics/*.py -text whitespace=cr-at-eol
 # Immutable recovery checkpoint and later maintained workspace diagnostics.

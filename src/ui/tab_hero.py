@@ -33,6 +33,8 @@ every connect, which is worse than a moment of redundancy.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
@@ -76,7 +78,7 @@ class TabHero(QFrame):
         self.setObjectName("tabHero")
         self.setProperty("tabHero", "true")
 
-        self._subtitle_text = str(subtitle)
+        self._subtitle_text = l10n.preserve(subtitle)
         self._detail_text = ""
 
         layout = QHBoxLayout(self)
@@ -92,18 +94,18 @@ class TabHero(QFrame):
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(9)
-        self._title = QLabel(str(title))
+        self._title = l10n.localized(QLabel, l10n.preserve(title))
         self._title.setObjectName("heroTitle")
         title_row.addWidget(self._title)
 
-        self._badge = QLabel("")
+        self._badge = l10n.localized(QLabel, '')
         self._badge.setObjectName("heroBadge")
         self._badge.setProperty("state", STATE_OFF)
         title_row.addWidget(self._badge)
         title_row.addStretch(1)
         copy_column.addLayout(title_row)
 
-        self._subtitle = QLabel(self._subtitle_text)
+        self._subtitle = l10n.localized(QLabel, self._subtitle_text)
         self._subtitle.setObjectName("heroSubtitle")
         self._subtitle.setWordWrap(True)
         self._subtitle.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
@@ -111,7 +113,7 @@ class TabHero(QFrame):
 
         layout.addLayout(copy_column, 1)
 
-        self._auto_switch = LabeledSwitch(str(auto_text))
+        self._auto_switch = l10n.localized(LabeledSwitch, l10n.preserve(auto_text))
         layout.addWidget(self._auto_switch, 0, Qt.AlignVCenter)
 
         self._run_toggle = RunToggle(*run_captions)
@@ -131,7 +133,7 @@ class TabHero(QFrame):
         else:
             # A missing asset must not leave an unexplained empty square.
             holder.setPixmap(QPixmap())
-            holder.setText("?")
+            l10n.display(holder, 'setText', '?')
         return holder
 
     # -- the parts the tab wires ---------------------------------------------
@@ -153,16 +155,16 @@ class TabHero(QFrame):
         `""` puts the tab's own subtitle back, so an error that clears does not
         leave its explanation behind.
         """
-        self._badge.setText(str(caption))
+        l10n.display(self._badge, 'setText', l10n.preserve(caption))
         _set_badge_state(self._badge, str(state))
-        self._detail_text = str(detail or "")
-        self._subtitle.setText(self._detail_text or self._subtitle_text)
+        self._detail_text = l10n.preserve(detail or "")
+        l10n.display(self._subtitle, 'setText', self._detail_text or self._subtitle_text)
 
     def set_subtitle(self, subtitle: str) -> None:
         """Change the resting subtitle. Visible immediately unless a detail is up."""
-        self._subtitle_text = str(subtitle)
+        self._subtitle_text = l10n.preserve(subtitle)
         if not self._detail_text:
-            self._subtitle.setText(self._subtitle_text)
+            l10n.display(self._subtitle, 'setText', self._subtitle_text)
 
     def status_text(self) -> str:
         return self._badge.text()

@@ -26,6 +26,7 @@ step 25) and the tab, which `gui_layout.py` adds to the tab bar (step 26).
 """
 from __future__ import annotations
 
+
 from collections import deque
 from concurrent.futures import Executor, Future, ThreadPoolExecutor, TimeoutError
 from dataclasses import replace
@@ -37,6 +38,7 @@ from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
+from ui.localization import localization
 from app.map_marker_hotkeys import MapMarkerHotkeyController
 from app.map_marker_tracker import MapMarkerTracker
 from app.shutdown import ShutdownDeadline
@@ -1293,6 +1295,7 @@ class InGameOverlay:
                 active_stage_time_seconds,
                 is_graveyard,
                 live_stats=projection.stats,
+                translator=localization().translator,
             )
             widgets["stats"].set_text(html)
 
@@ -1309,6 +1312,7 @@ class InGameOverlay:
                 warning_seconds,
                 graveyard_main_map_events_active=graveyard_events_active,
                 edit_mode=self.in_game_overlay_window.edit_mode,
+                translator=localization().translator,
             )
             widgets["event_timer"].set_text(html)
 
@@ -1320,6 +1324,7 @@ class InGameOverlay:
             html = build_build_progression_overlay_html(
                 payload,
                 edit_mode=self.in_game_overlay_window.edit_mode,
+                translator=localization().translator,
             )
             widgets["build_progression"].set_text(html)
             widgets["build_progression"].setVisible(
@@ -1339,9 +1344,9 @@ class InGameOverlay:
                 edit_mode = self.in_game_overlay_window.edit_mode
                 rows = ()
                 if not selected_stats:
-                    status_message = "No Weapon Stats Selected"
+                    status_message = 'No Weapon Stats Selected'
                 elif latest_snapshot is None:
-                    status_message = "Waiting for Weapon Data"
+                    status_message = 'Waiting for Weapon Data'
                 else:
                     weapons = tuple(
                         getattr(latest_snapshot, "weapons", ()) or ()
@@ -1350,22 +1355,21 @@ class InGameOverlay:
                         getattr(latest_snapshot, "weapons_available", False)
                     )
                     if not weapons and not weapons_available:
-                        status_message = "Waiting for Weapon Data"
+                        status_message = 'Waiting for Weapon Data'
                     else:
                         rows = calculate_weapon_tracker_rows(
                             weapons,
                             getattr(latest_snapshot, "stats", {}) or {},
                             selected_stats,
                         )
-                        status_message = (
-                            None if rows else "No Matching Weapon Stats"
-                        )
+                        status_message = None if rows else 'No Matching Weapon Stats'
                 html = build_weapon_tracker_overlay_html(
                     rows,
                     layout=weapon_cfg.get("layout", "compact"),
                     show_caps=bool(weapon_cfg.get("show_caps", False)),
                     edit_mode=edit_mode,
                     status_message=status_message,
+                    translator=localization().translator,
                 )
                 weapon_widget.set_text(html)
                 weapon_widget.setVisible(bool(rows) or edit_mode)
@@ -1377,6 +1381,7 @@ class InGameOverlay:
             html = build_powerups_overlay_html(
                 snapshot,
                 edit_mode=self.in_game_overlay_window.edit_mode,
+                translator=localization().translator,
             )
             if html:
                 widgets["powerups"].set_text(html)
@@ -1392,6 +1397,7 @@ class InGameOverlay:
             html = build_item_cooldowns_overlay_html(
                 projection,
                 edit_mode=self.in_game_overlay_window.edit_mode,
+                translator=localization().translator,
             )
             if html:
                 widgets["item_cooldowns"].set_text(html)
@@ -1453,7 +1459,8 @@ class InGameOverlay:
         }
         widget.set_text(
             build_kps_overlay_html_from_values(
-                values, widget_cfg.get("metrics", ["instant"])
+                values, widget_cfg.get("metrics", ["instant"]),
+                translator=localization().translator,
             )
         )
 
@@ -1467,12 +1474,12 @@ class InGameOverlay:
 
         if widget_cfg.get("scanner", {}).get("enabled", False):
             widgets["scanner"].set_text(
-                build_status_indicator_html("Scanner", bool(self._is_scanning()))
+                build_status_indicator_html("Scanner", bool(self._is_scanning()), translator=localization().translator)
             )
 
         if widget_cfg.get("recording", {}).get("enabled", False):
             widgets["recording"].set_text(
-                build_status_indicator_html("REC", bool(self._is_recording()))
+                build_status_indicator_html("REC", bool(self._is_recording()), translator=localization().translator)
             )
 
     def _refresh_in_game_overlay_luck_widget(self, projection=None) -> None:

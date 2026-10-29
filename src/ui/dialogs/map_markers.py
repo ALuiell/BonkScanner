@@ -1,10 +1,17 @@
 """Settings dialogs for manual Full Map activity markers."""
 from __future__ import annotations
 
+from html import escape
+
+from ui.overlay_localization import (
+    text as ot, widget as ow, bind as obind, action_name,
+    combo_item, RefreshBinding, localized_dialog_body,
+)
+
 from copy import deepcopy
 from typing import Any
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QSignalBlocker, QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QKeyEvent, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -88,7 +95,7 @@ def _premium_map_option(checkbox, description, control, parent, *, locked=False)
         if control is not None:
             control.setParent(option)
             control.hide()
-        name = QLabel(checkbox.text(), option)
+        name = ow(QLabel(checkbox.text(), option), checkbox.property("overlay_source"))
         name.setObjectName("PremiumFeatureLockedTitle")
         title.addWidget(name)
     else:
@@ -98,13 +105,13 @@ def _premium_map_option(checkbox, description, control, parent, *, locked=False)
         icon = QLabel(option)
         icon.setPixmap(QIcon(resource_path("media/premium_lock.svg")).pixmap(14, 14))
         title.addWidget(icon)
-        label = QLabel("Requires Premium", option)
+        label = ow(QLabel("Requires Premium", option))
         label.setObjectName("PremiumFeatureLockedStatus")
         title.addWidget(label)
     if control is not None and not locked:
         title.addWidget(control)
     column.addLayout(title)
-    note = QLabel(description, option)
+    note = ow(QLabel(description, option), description)
     note.setObjectName("PremiumFeatureNote")
     note.setContentsMargins(0 if locked else 24, 0, 0, 0)
     note.setAlignment(Qt.AlignLeft | Qt.AlignTop)
@@ -132,10 +139,12 @@ class InputBindingRecorder(QPushButton):
         super().__init__(parent)
         self._binding = normalize_input_binding(binding) or ""
         self._recording = False
+        self._input_message = None
         self.setMinimumHeight(38)
-        self.setToolTip("Click, then press a keyboard key, Middle Mouse, Mouse 4 or Mouse 5.")
+        obind(self,'Click, then press a keyboard key, Middle Mouse, Mouse 4 or Mouse 5.',method='setToolTip')
         self.clicked.connect(self.start_recording)
         self._refresh_text()
+        RefreshBinding(self, self._refresh_language)
 
     @property
     def binding(self) -> str:
@@ -151,7 +160,7 @@ class InputBindingRecorder(QPushButton):
             return
         self._recording = True
         self.setProperty("recording", True)
-        self.setText("Press a key or mouse button…")
+        self._set_message("Press a key or mouse button…")
         self.setFocus(Qt.OtherFocusReason)
         self.style().unpolish(self)
         self.style().polish(self)
@@ -176,12 +185,23 @@ class InputBindingRecorder(QPushButton):
         self.style().polish(self)
 
     def _refresh_text(self) -> None:
-        self.setText(display_input_binding(self._binding) if self._binding else "Record input")
+        self._input_message = None
+        self.setText(display_input_binding(self._binding) if self._binding else ot("Record input"))
+
+    def _set_message(self, source):
+        self._input_message = source
+        self.setText(ot(source))
+
+    def _refresh_language(self):
+        if self._input_message:
+            self.setText(ot(self._input_message))
+        else:
+            self._refresh_text()
 
     def _record(self, candidate: str) -> None:
         normalized = normalize_input_binding(candidate)
         if normalized is None:
-            self.setText("Reserved or unsupported — try another input")
+            self._set_message("Reserved or unsupported — try another input")
             return
         self._binding = normalized
         self._finish_recording()
@@ -236,7 +256,7 @@ class InputBindingRecorder(QPushButton):
             Qt.ForwardButton: "mouse5",
         }.get(event.button())
         if token is None:
-            self.setText("Use Middle Mouse, Mouse 4 or Mouse 5")
+            self._set_message("Use Middle Mouse, Mouse 4 or Mouse 5")
         else:
             self._record(token)
         event.accept()
@@ -257,36 +277,35 @@ class MapMarkerBindingDialog(QDialog):
         super().__init__(parent)
         current = dict(binding or {})
         editing = bool(binding)
-        self.setWindowTitle("Edit Marker Hotkey" if editing else "Add Marker Hotkey")
+        obind(self, "Edit Marker Hotkey" if editing else "Add Marker Hotkey", method="setWindowTitle")
         self.setModal(True)
 
-        layout = dialog_body(
+        layout = localized_dialog_body(
             self,
             title="Edit hotkey" if editing else "Add hotkey",
             subtitle="A tap places the selected marker. Holding the same input opens the full marker palette.",
             width=DIALOG_REGULAR,
         )
 
-        input_label = QLabel("1  Input")
+        input_label = ow(QLabel("1  Input"))
         input_label.setObjectName("tableHeader")
         layout.addWidget(input_label)
         self.input_recorder = InputBindingRecorder(current.get("input", ""))
         layout.addWidget(self.input_recorder)
-        layout.addWidget(
-            dialog_note(
-                "Supported: keyboard, Middle Mouse, Mouse 4 and Mouse 5. "
-                "Tab, Escape, Left/Right click, wheel and plain movement keys stay reserved."
-            )
-        )
+        layout.addWidget(ow(dialog_note('Supported: keyboard, Middle Mouse, Mouse 4 and Mouse 5. Tab, Escape, Left/Right click, wheel and plain movement keys stay reserved.')))
 
-        activity_label = QLabel("2  Activity")
+        activity_label = ow(QLabel("2  Activity"))
         activity_label.setObjectName("tableHeader")
         layout.addWidget(activity_label)
         self.action_combo = QComboBox()
         for index, action in enumerate(MAP_MARKER_ACTIONS):
             if index in (4, 8):
                 self.action_combo.insertSeparator(self.action_combo.count())
-            self.action_combo.addItem(_action_icon(action), action.display_name, action.id)
+            self.action_combo.addItem(_action_icon(action), action_name(action), action.id)
+            def refresh_caption(index=self.action_combo.count() - 1, action=action):
+                with QSignalBlocker(self.action_combo):
+                    self.action_combo.setItemText(index, action_name(action))
+            RefreshBinding(self.action_combo, refresh_caption)
         requested_action = current.get("action", "")
         requested_index = self.action_combo.findData(requested_action)
         self.action_combo.setCurrentIndex(requested_index if requested_index >= 0 else 0)
@@ -295,9 +314,9 @@ class MapMarkerBindingDialog(QDialog):
         layout.addWidget(self.action_combo)
 
         layout.addStretch(1)
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = ow(QPushButton("Cancel"))
         cancel_btn.clicked.connect(self.reject)
-        self.save_btn = QPushButton("Save Hotkey")
+        self.save_btn = ow(QPushButton("Save Hotkey"))
         self.save_btn.clicked.connect(self._save)
         self.save_btn.setEnabled(bool(self.input_recorder.binding))
         self.input_recorder.bindingChanged.connect(
@@ -337,14 +356,14 @@ class MapMarkerSettingsDialog(QDialog):
         binding_dialog_factory=MapMarkerBindingDialog,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Map Activity Markers")
+        obind(self,'Map Activity Markers',method='setWindowTitle')
         self.setModal(True)
         self._bindings = deepcopy(normalize_map_marker_hotkeys(bindings))
         self._binding_dialog_factory = binding_dialog_factory
         self._has_premium_access = bool(has_premium_access)
         self._open_support_settings = open_support_settings
 
-        layout = dialog_body(
+        layout = localized_dialog_body(
             self,
             title="Map Activity Markers",
             subtitle="Configure manual placement and optionally enable automatic discovery for supported activities.",
@@ -357,8 +376,8 @@ class MapMarkerSettingsDialog(QDialog):
         explanation_layout = QHBoxLayout(explanation)
         explanation_layout.setContentsMargins(14, 11, 14, 11)
         explanation_layout.setSpacing(18)
-        tap = QLabel("<b>Tap</b><br>Place the assigned marker")
-        hold = QLabel("<b>Hold</b><br>Open all marker types")
+        tap = ow(QLabel("<b>Tap</b><br>Place the assigned marker"))
+        hold = ow(QLabel("<b>Hold</b><br>Open all marker types"))
         for label in (tap, hold):
             label.setTextFormat(Qt.RichText)
             explanation_layout.addWidget(label, 1)
@@ -376,17 +395,17 @@ class MapMarkerSettingsDialog(QDialog):
         automatic_layout = QVBoxLayout(automatic_option)
         automatic_layout.setContentsMargins(0, 0, 0, 0)
         automatic_layout.setSpacing(3)
-        self.automatic_discovery_cb = QCheckBox(
+        self.automatic_discovery_cb = ow(QCheckBox(
             "Automatically mark discovered activities"
-        )
+        ))
         self.automatic_discovery_cb.setObjectName("automaticDiscoveryCheck")
         self.automatic_discovery_cb.setChecked(bool(automatic_discovery))
         automatic_layout.addWidget(self.automatic_discovery_cb)
-        automatic_note = QLabel(
+        automatic_note = ow(QLabel(
             "Adds supported activities after the game's interaction system detects "
             "them. Discovered microwaves also show their remaining uses. Off keeps "
             "manual hotkeys only."
-        )
+        ))
         automatic_note.setObjectName("dialogNote")
         automatic_note.setWordWrap(True)
         automatic_layout.addWidget(automatic_note)
@@ -400,14 +419,14 @@ class MapMarkerSettingsDialog(QDialog):
         appearance_layout = QVBoxLayout(appearance_option)
         appearance_layout.setContentsMargins(0, 0, 0, 0)
         appearance_layout.setSpacing(3)
-        self.classic_style_cb = QCheckBox("Use classic circle marker style")
+        self.classic_style_cb = ow(QCheckBox("Use classic circle marker style"))
         self.classic_style_cb.setObjectName("classicMarkerStyleCheck")
         self.classic_style_cb.setChecked(str(style).lower() == "classic")
         appearance_layout.addWidget(self.classic_style_cb)
-        appearance_note = QLabel(
+        appearance_note = ow(QLabel(
             "Uses colored circles with dark activity symbols instead of detailed "
             "pictograms."
-        )
+        ))
         appearance_note.setObjectName("dialogNote")
         appearance_note.setWordWrap(True)
         appearance_layout.addWidget(appearance_note)
@@ -430,7 +449,7 @@ class MapMarkerSettingsDialog(QDialog):
             premium_options.setSpacing(12)
         premium_layout.addLayout(premium_options)
 
-        self.minimap_enabled_switch = QCheckBox("Minimap markers")
+        self.minimap_enabled_switch = ow(QCheckBox("Minimap markers"))
         self.minimap_enabled_switch.setChecked(bool(minimap_enabled))
         self.minimap_scale_spin = QDoubleSpinBox(premium_card)
         self.minimap_scale_spin.setRange(0.5, 2.0)
@@ -453,7 +472,7 @@ class MapMarkerSettingsDialog(QDialog):
         row_divider.setVisible(self._has_premium_access)
         premium_options.addWidget(row_divider)
 
-        self.merchant_memory_switch = QCheckBox("Shady Guy stock memory")
+        self.merchant_memory_switch = ow(QCheckBox("Shady Guy stock memory"))
         self.merchant_memory_switch.setChecked(bool(merchant_memory_enabled))
         self.merchant_stock_display_combo = QComboBox(premium_card)
         for label, value in (
@@ -461,13 +480,8 @@ class MapMarkerSettingsDialog(QDialog):
             ("Always", "always"),
             ("Near cursor", "cursor"),
         ):
-            self.merchant_stock_display_combo.addItem(label, value)
-        self.merchant_stock_display_combo.setToolTip(
-            "Nearby merchants share one stock card.\n"
-            "Smart: avoids overlapping cards; hover to expand crowded groups.\n"
-            "Always: keeps grouped stock lists visible where space allows.\n"
-            "Near cursor: shows the nearest merchant's group and highlights its stock."
-        )
+            combo_item(self.merchant_stock_display_combo, label, value)
+        obind(self.merchant_stock_display_combo,"Nearby merchants share one stock card.\nSmart: avoids overlapping cards; hover to expand crowded groups.\nAlways: keeps grouped stock lists visible where space allows.\nNear cursor: shows the nearest merchant's group and highlights its stock.",method='setToolTip')
         requested_display = str(merchant_stock_display).lower()
         display_index = self.merchant_stock_display_combo.findData(requested_display)
         self.merchant_stock_display_combo.setCurrentIndex(
@@ -525,9 +539,9 @@ class MapMarkerSettingsDialog(QDialog):
         header = QWidget()
         header_row = QHBoxLayout(header)
         header_row.setContentsMargins(12, 0, 12, 0)
-        hotkey_header = QLabel("Hotkey")
-        marker_header = QLabel("Marker")
-        action_header = QLabel("Actions")
+        hotkey_header = ow(QLabel("Hotkey"))
+        marker_header = ow(QLabel("Marker"))
+        action_header = ow(QLabel("Actions"))
         for label in (hotkey_header, marker_header, action_header):
             label.setObjectName("tableHeader")
         hotkey_header.setFixedWidth(126)
@@ -543,12 +557,12 @@ class MapMarkerSettingsDialog(QDialog):
         self.bindings_layout.setSpacing(8)
         layout.addWidget(scroll, 1)
 
-        self.add_btn = QPushButton("+  Add Hotkey")
+        self.add_btn = ow(QPushButton("+  Add Hotkey"))
         self.add_btn.clicked.connect(lambda: self._open_editor(None))
 
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = ow(QPushButton("Cancel"))
         cancel_btn.clicked.connect(self.reject)
-        save_btn = QPushButton("Save")
+        save_btn = ow(QPushButton("Save"))
         save_btn.clicked.connect(self.accept)
         dialog_footer(
             self,
@@ -557,6 +571,7 @@ class MapMarkerSettingsDialog(QDialog):
             leading=self.add_btn,
         )
         self._refresh_rows()
+        RefreshBinding(self, self._refresh_rows)
 
     @property
     def bindings(self) -> list[dict[str, str]]:
@@ -604,9 +619,9 @@ class MapMarkerSettingsDialog(QDialog):
             empty.setObjectName("card")
             empty_layout = QVBoxLayout(empty)
             empty_layout.setContentsMargins(18, 24, 18, 24)
-            title = QLabel("No marker hotkeys yet")
+            title = ow(QLabel("No marker hotkeys yet"))
             title.setObjectName("emptyTitle")
-            note = QLabel("Add one exact marker for a quick tap; holding it will still expose the complete palette.")
+            note = ow(QLabel("Add one exact marker for a quick tap; holding it will still expose the complete palette."))
             note.setObjectName("dialogNote")
             note.setWordWrap(True)
             note.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
@@ -650,15 +665,15 @@ class MapMarkerSettingsDialog(QDialog):
         layout.addWidget(icon)
 
         marker = QLabel(
-            f"<span style='color:{action.color};'>●</span>&nbsp; {action.display_name}"
+            f"<span style='color:{action.color};'>●</span>&nbsp; {escape(action_name(action))}"
         )
         marker.setTextFormat(Qt.RichText)
         marker.setMinimumWidth(210)
         layout.addWidget(marker, 1)
 
-        edit_btn = QPushButton("Edit")
+        edit_btn = ow(QPushButton("Edit"))
         edit_btn.clicked.connect(lambda _checked=False, row_index=index: self._open_editor(row_index))
-        remove_btn = QPushButton("Remove")
+        remove_btn = ow(QPushButton("Remove"))
         remove_btn.setObjectName("danger")
         remove_btn.clicked.connect(lambda _checked=False, row_index=index: self._remove(row_index))
         layout.addWidget(edit_btn)
@@ -683,8 +698,8 @@ class MapMarkerSettingsDialog(QDialog):
             if duplicate is not None:
                 QMessageBox.warning(
                     self,
-                    "Hotkey Already Assigned",
-                    f"{display_input_binding(candidate['input'])} already places another marker. Edit that row instead.",
+                    ot("Hotkey Already Assigned"),
+                    ot("{hotkey} already places another marker. Edit that row instead.", hotkey=display_input_binding(candidate["input"])),
                 )
                 return
             if index is None:

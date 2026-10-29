@@ -37,6 +37,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 
 from ui.segmented_toggle import ROLE_GO, ROLE_HALT, SegmentedToggle
+from ui.localization import bind_text
 
 # The caption pairs, as `(start, stop)`, named here rather than written inline
 # on both sides of the channel. That is not tidiness: the failure this control
@@ -69,6 +70,8 @@ class RunToggle(SegmentedToggle):
         self.activated.connect(lambda _key: self.toggle_requested.emit())
         self._text = self._start_text
         self.set_active("start")
+        bind_text(self.segment("start"), "scanner.start", prefix="▶  ")
+        bind_text(self.segment("stop"), "scanner.stop", prefix="■  ")
 
     # -- the owner's port -----------------------------------------------------
 

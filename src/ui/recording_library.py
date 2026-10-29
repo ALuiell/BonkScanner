@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QListWidgetItem, QProgressBar, QVBoxLayout, QWidget
 
-from projections import formatting
+from ui import formatting
 
 
 class RecordingLibraryRow(QWidget):
@@ -48,7 +50,7 @@ class RecordingLibraryRow(QWidget):
     def set_metadata(self, vod, *, longest_seconds: int, live: bool = False) -> None:
         """Update an existing row; live duration changes must not rebuild lists."""
         self.metadata = vod
-        name = str(getattr(vod, "name", "") or "Unnamed recording")
+        name = str(getattr(vod, "name", "") or "") or l10n.tr("Unnamed recording")
         created_label = str(getattr(vod, "created_label", "") or "")
         snapshot_count = max(0, int(getattr(vod, "snapshot_count", 0) or 0))
         duration_seconds = max(0, int(getattr(vod, "duration_seconds", 0) or 0))
@@ -57,13 +59,13 @@ class RecordingLibraryRow(QWidget):
         if signature == self._display_signature:
             return
         self._display_signature = signature
-        self._name_label.setText(name)
-        parts = [f"{snapshot_count} snapshots", formatting.format_duration(duration_seconds)]
+        l10n.display(self._name_label, 'setText', name)
+        parts = [l10n.tr("Snapshots: {count}", count=snapshot_count), formatting.format_duration(duration_seconds)]
         if live:
-            parts.insert(0, "LIVE")
+            parts.insert(0, l10n.tr("In progress"))
         elif created_label and created_label not in name:
             parts.insert(0, created_label)
-        self._meta_label.setText("  ·  ".join(parts))
+        l10n.display(self._meta_label, 'setText', l10n.join('  ·  ', parts))
         self._bar.setValue(round(min(1.0, duration_seconds / longest) * 1000))
 
 

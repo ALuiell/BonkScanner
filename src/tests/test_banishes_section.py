@@ -35,10 +35,12 @@ def test_banishes_are_rarity_chips_and_empty_state_is_plain_text() -> None:
         ("Golden Tome", "tagNeutral"),
     ]
 
+    chips = chips_container.findChildren(QLabel)
     view.update(())
     app.processEvents()
 
     assert not label.isHidden()
     assert label.text() == "No banishes yet"
     assert chips_container.isHidden()
-    assert chips_container.layout().count() == 0
+    assert chips_container.layout().count() == len(chips)
+    assert all(chip.isHidden() for chip in chips)

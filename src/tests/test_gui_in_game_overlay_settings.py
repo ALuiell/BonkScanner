@@ -483,7 +483,7 @@ class WeaponTrackerSettingsDialogTests(unittest.TestCase):
         self.assertEqual(
             parent.igo_map_markers_summary.text(),
             "Manual only · New style · 0 hotkeys · "
-            "Minimap + Shady memory",
+            "Minimap + Saved stock",
         )
 
 

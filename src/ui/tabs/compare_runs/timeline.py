@@ -6,6 +6,8 @@ that pixmap, so 120 Hz pointer input never rebuilds a model or a curve.
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from dataclasses import dataclass
 from math import isfinite
 
@@ -29,6 +31,7 @@ from projections.timeline_axis import (
     snapshot_times,
 )
 from ui.timeline_visuals import (
+    stage_caption,
     ENDED_FILL,
     RUN_A_COLOR,
     RUN_B_COLOR,
@@ -130,7 +133,7 @@ class CompareRunsTimeline(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setFixedHeight(_NORMAL_HEIGHT)
         self.setMouseTracking(False)
-        self.setToolTip("Drag to compare both recordings at the same position")
+        l10n.display(self, 'setToolTip', l10n.tr('Drag to compare both recordings at the same position'))
 
         empty = scrubber_model.ScrubberModel(count=0)
         self._lane_a = _Lane((), empty, (), ())
@@ -152,6 +155,11 @@ class CompareRunsTimeline(QWidget):
         self._static_layer: QPixmap | None = None
         self._marker_hits: tuple[tuple[QRectF, str], ...] = ()
         self._static_rebuilds = 0
+        l10n.RefreshBinding(self, self._on_language_changed)
+
+    def _on_language_changed(self):
+        self._cache_key = None
+        self.update()
 
     @property
     def axis_mode(self) -> str:
@@ -433,7 +441,7 @@ class CompareRunsTimeline(QWidget):
                 if not row.isHidden():
                     tooltip = row.tooltip_at(QPointF(event.pos()) - QPointF(row.pos()))
                     if tooltip:
-                        QToolTip.showText(event.globalPos(), tooltip, self)
+                        QToolTip.showText(event.globalPos(), str(tooltip), self)
                         return True
             for rect, text in self._marker_hits:
                 if rect.contains(QPointF(event.pos())):
@@ -463,7 +471,7 @@ class CompareRunsTimeline(QWidget):
         rects = self._lane_rects()
         for side, lane, rect in zip(("a", "b"), (self._lane_a, self._lane_b), rects):
             bands = lane.model.stages
-            caption = bands[0].label if bands else "STAGES NOT RECORDED"
+            caption = stage_caption(bands[0]) if bands else l10n.tr('STAGES NOT RECORDED')
             if side == "b" and bands and not self._compact:
                 delta = self._stage_deltas.get(bands[0].stage_index)
                 if delta is not None:
@@ -510,7 +518,7 @@ class CompareRunsTimeline(QWidget):
             )
             if not lane.snapshots:
                 painter.setPen(MUTED)
-                painter.drawText(rect, Qt.AlignCenter, "Select a recording")
+                painter.drawText(rect, Qt.AlignCenter, l10n.tr('Select a recording'))
                 continue
             self._paint_stages(painter, lane, rect, stage_color, side)
             self._paint_caps(painter, lane, rect)
@@ -538,11 +546,7 @@ class CompareRunsTimeline(QWidget):
                     ENDED,
                 )
                 painter.setPen(MUTED)
-                painter.drawText(
-                    QRectF(start, rect.top(), rect.right() - start, rect.height()),
-                    Qt.AlignCenter,
-                    "RUN ENDED",
-                )
+                painter.drawText(QRectF(start, rect.top(), rect.right() - start, rect.height()), Qt.AlignCenter, l10n.tr('RUN ENDED'))
         self._marker_hits = tuple(hits)
 
     def _paint_stages(
@@ -556,16 +560,7 @@ class CompareRunsTimeline(QWidget):
         if not lane.model.stages:
             painter.setPen(MUTED)
             painter.setFont(self._small_font())
-            painter.drawText(
-                QRectF(
-                    rect.left() + 7.0,
-                    rect.top(),
-                    rect.width(),
-                    self._stage_label_height(),
-                ),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                "STAGES NOT RECORDED",
-            )
+            painter.drawText(QRectF(rect.left() + 7.0, rect.top(), rect.width(), self._stage_label_height()), Qt.AlignLeft | Qt.AlignVCenter, l10n.tr('STAGES NOT RECORDED'))
             return
         painter.setFont(self._small_font(bold=True))
         for band in lane.model.stages:
@@ -576,7 +571,7 @@ class CompareRunsTimeline(QWidget):
             left = self._x(rect, lane.positions[start])
             right = self._x(rect, lane.positions[end])
             area = QRectF(left, rect.top(), max(right - left, 1.0), rect.height())
-            text = band.label
+            text = stage_caption(band)
             if not self._compact and side == "B" and band.stage_index is not None:
                 delta = self._stage_deltas.get(band.stage_index)
                 if delta is not None:
@@ -603,18 +598,9 @@ class CompareRunsTimeline(QWidget):
             }
             missing = sorted(stages_a - stages_b)
             if missing:
-                labels = ", ".join(f"Stage {stage + 1}" for stage in missing)
+                labels = ", ".join(str(l10n.tr("Stage {p0}", p0=stage + 1)) for stage in missing)
                 painter.setPen(MUTED)
-                painter.drawText(
-                    QRectF(
-                        rect.left() + 6.0,
-                        rect.top(),
-                        rect.width() - 12.0,
-                        self._stage_label_height(),
-                    ),
-                    Qt.AlignRight | Qt.AlignVCenter,
-                    f"{labels} not reached",
-                )
+                painter.drawText(QRectF(rect.left() + 6.0, rect.top(), rect.width() - 12.0, self._stage_label_height()), Qt.AlignRight | Qt.AlignVCenter, l10n.tr('{p0} not reached', p0=labels))
 
     def _paint_series(self, painter: QPainter, lane: _Lane, rect: QRectF) -> None:
         plot = rect.adjusted(

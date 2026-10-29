@@ -25,7 +25,10 @@ from core.luck_rarity import (
     LUCK_RARITY_ORDER,
     format_expected_count,
 )
-from core.stats.weapon_tracker import WeaponTrackerRow
+from core.stats.weapon_tracker import WeaponTrackerRow, WEAPON_TRACKER_METRICS
+from core.localization import Translator
+from core.overlay_localization import overlay_text as _msg
+from core.overlay_localization import OVERLAY_MESSAGE_KEYS
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {
@@ -65,6 +68,7 @@ def build_weapon_tracker_overlay_html(
     show_caps: bool = False,
     edit_mode: bool = False,
     status_message: str | None = None,
+    translator: Translator | None = None,
 ) -> str:
     """Render the approved text-only Weapon Tracker Qt rich text."""
     if not rows and not edit_mode:
@@ -74,11 +78,11 @@ def build_weapon_tracker_overlay_html(
     if edit_mode:
         parts.append(
             f"<div style='color:{HEADER_COLOR}; text-shadow:{TEXT_SHADOW}; "
-            "font-weight:bold; margin-bottom:3px;'>Weapons</div>"
+            f"font-weight:bold; margin-bottom:3px;'>{escape(_msg(translator, 'Weapons'))}</div>"
         )
 
     if not rows:
-        message = escape(str(status_message or "No Matching Weapon Stats"))
+        message = escape(_msg(translator, status_message or "No Matching Weapon Stats"))
         parts.append(
             f"<div style='color:#94a3b8; text-shadow:{TEXT_SHADOW};'>"
             f"{message}</div>"
@@ -86,27 +90,28 @@ def build_weapon_tracker_overlay_html(
         return "".join(parts)
 
     if layout == "detailed":
-        parts.append(_build_detailed_weapon_tracker_html(rows, show_caps=show_caps))
+        parts.append(_build_detailed_weapon_tracker_html(rows, show_caps=show_caps, translator=translator))
     else:
-        parts.append(_build_compact_weapon_tracker_html(rows, show_caps=show_caps))
+        parts.append(_build_compact_weapon_tracker_html(rows, show_caps=show_caps, translator=translator))
     return "".join(parts)
 
 
 def _build_compact_weapon_tracker_html(
     rows: tuple[WeaponTrackerRow, ...],
     *, show_caps: bool = False,
+    translator: Translator | None = None,
 ) -> str:
     rendered_rows = []
     for row in rows:
         metrics = []
         for metric in row.metrics:
             metrics.append(
-                f"<span style='color:#94a3b8'>{escape(str(metric.label))}</span> "
-                f"<span style='color:#16e7ff'>{escape(metric.overlay_value(show_caps))}</span>"
+                f"<span style='color:#94a3b8'>{escape(_metric_label(translator, metric))}</span> "
+                f"<span style='color:#16e7ff'>{escape(_metric_value(translator, metric, show_caps))}</span>"
             )
         rendered_rows.append(
             "<tr>"
-            f"<td style='color:#ffffff; padding-right:10px'>{escape(row.name)}</td>"
+            f"<td style='color:#ffffff; padding-right:10px'>{escape(_game_name(translator, 'weapons', row.name))}</td>"
             f"<td>{' <span style=\"color:#64748b\">·</span> '.join(metrics)}</td>"
             "</tr>"
         )
@@ -119,28 +124,29 @@ def _build_compact_weapon_tracker_html(
 def _build_detailed_weapon_tracker_html(
     rows: tuple[WeaponTrackerRow, ...],
     *, show_caps: bool = False,
+    translator: Translator | None = None,
 ) -> str:
     rendered_weapons = []
     for row in rows:
         metric_rows = "".join(
             "<tr>"
-            f"<td style='color:#94a3b8; padding-right:10px'>{escape(str(metric.label))}</td>"
-            f"<td style='color:#16e7ff'>{escape(metric.overlay_value(show_caps))}</td>"
+            f"<td style='color:#94a3b8; padding-right:10px'>{escape(_metric_label(translator, metric))}</td>"
+            f"<td style='color:#16e7ff'>{escape(_metric_value(translator, metric, show_caps))}</td>"
             "</tr>"
             for metric in row.metrics
         )
         rendered_weapons.append(
             f"<table cellspacing='0' cellpadding='0' style='text-shadow:{TEXT_SHADOW};'>"
             "<tr>"
-            f"<td colspan='2' style='color:#ffffff; padding-top:2px'>{escape(row.name)} "
-            f"<span style='color:#94a3b8'>Lv.{escape(str(row.level))}</span></td>"
+            f"<td colspan='2' style='color:#ffffff; padding-top:2px'>{escape(_game_name(translator, 'weapons', row.name))} "
+            f"<span style='color:#94a3b8'>{escape(_msg(translator, 'Lv.{level}', level=row.level))}</span></td>"
             "</tr>"
             f"{metric_rows}</table>"
         )
     return "<br>".join(rendered_weapons)
 
 
-def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: bool = False) -> str:
+def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: bool = False, translator: Translator | None = None) -> str:
     """Minimal frameless HUD markup for Qt's limited rich-text renderer.
 
     This is painted by ``QLabel``, not a browser. Qt rich text supports tables
@@ -150,19 +156,19 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
     version can continue using modern CSS in ``overlay.js``.
     """
     if not payload.get("configured"):
-        return "<div style='color:#8c96a8'>Build not configured</div>" if edit_mode else ""
+        return f"<div style='color:#8c96a8'>{escape(_msg(translator, 'Build not configured'))}</div>" if edit_mode else ""
     if not payload.get("available"):
-        return "<div style='color:#8c96a8'>Waiting for live run</div>" if edit_mode else ""
+        return f"<div style='color:#8c96a8'>{escape(_msg(translator, 'Waiting for live run'))}</div>" if edit_mode else ""
     shadow = TEXT_SHADOW
     if payload.get("complete"):
         if payload.get("late_complete"):
             return (
                 f"<div style='color:#F97316;font-weight:800;text-shadow:{shadow}'>"
-                f"! BUILD COMPLETE · {escape(str(payload.get('completion_time') or '--:--'))}</div>"
+                f"! {escape(_msg(translator, 'BUILD COMPLETE'))} · {escape(str(payload.get('completion_time') or '--:--'))}</div>"
             )
         return (
             f"<div style='color:#59d890;font-weight:800;text-shadow:{shadow}'>"
-            f"✓ BUILD COMPLETE · {escape(str(payload.get('completion_time') or '--:--'))}</div>"
+            f"✓ {escape(_msg(translator, 'BUILD COMPLETE'))} · {escape(str(payload.get('completion_time') or '--:--'))}</div>"
         )
     colors = {
         "unknown": "#8c96a8", "neutral": "#d7dde5", "warning": "#f1c861",
@@ -177,7 +183,7 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
             rows.append(
                 "<tr><td colspan='4' style='padding-top:4px;padding-bottom:2px;'>"
                 f"<span style='color:#708096;font-size:9px;text-shadow:{shadow};font-weight:800'>"
-                f"{section_labels.get(kind, 'PROGRESS')}</span></td></tr>"
+                f"{escape(_msg(translator, section_labels.get(kind, 'PROGRESS')))}</span></td></tr>"
             )
         last_kind = kind
         status = str(row.get("status") or "unknown")
@@ -201,7 +207,8 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
             if status in {"unknown", "neutral"} and not is_late and not min_in_progress
             else str(row.get("symbol") or "")
         )
-        timing = escape(str(row.get("time") or ""))
+        timing_text = str(row.get("time") or "")
+        timing = escape(_msg(translator, timing_text) if timing_text in OVERLAY_MESSAGE_KEYS else timing_text)
         label_color = str(row.get("label_color") or "#d7dde5")
         if not (
             len(label_color) == 7
@@ -209,7 +216,15 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
             and all(char in "0123456789abcdefABCDEF" for char in label_color[1:])
         ):
             label_color = "#d7dde5"
-        label = escape(str(row.get("label") or "--"))
+        raw_label = str(row.get("label") or "--")
+        if translator is not None:
+            category = {"item": "items", "stat": "stats", "progress": "progress"}.get(kind, "")
+            target = str(row.get("target") or raw_label)
+            if category == "progress" and translator.language != "en":
+                raw_label = _msg(translator, target)
+            elif category in {"items", "stats"} and translator.game_language != "en":
+                raw_label = translator.game_name(category, target)
+        label = escape(raw_label)
         if row.get("banished"):
             label = f"<s>{label}</s>"
         rows.append(
@@ -224,7 +239,8 @@ def build_build_progression_overlay_html(payload: dict[str, Any], *, edit_mode: 
             f"{timing}</td>"
             "</tr>"
         )
-    title = escape(str(payload.get("name") or "Build Progression"))
+    title_text = str(payload.get("name") or "Build Progression")
+    title = escape(_msg(translator, title_text) if title_text == "Build Progression" else title_text)
     progress = escape(str(payload.get("progress") or "0/0"))
     return (
         f"<div style='color:#fff;text-shadow:{shadow};font-weight:700'>"
@@ -267,6 +283,8 @@ _GRAVEYARD_STAGE_DURATION_SECONDS = GRAVEYARD_STAGE_DURATION_SECONDS
 def build_kps_overlay_html_from_values(
     values: dict[str, int | None],
     metrics_cfg: list[str] | tuple[str, ...],
+    *,
+    translator: Translator | None = None,
 ) -> str:
     """Render KPS values supplied by an immutable runtime projection."""
     sep = f"<span style='color: #94a3b8; text-shadow: {TEXT_SHADOW};'> | </span>"
@@ -277,6 +295,7 @@ def build_kps_overlay_html_from_values(
         if metric_info is None:
             continue
         method_name, label = metric_info
+        label = escape(_msg(translator, label))
         value = values.get(_KPS_VALUE_KEYS[method_name])
         value_text = f"{value}" if value is not None else "--"
         spans.append(
@@ -294,11 +313,11 @@ _KPS_VALUE_KEYS = {
 }
 
 
-def build_status_indicator_html(label: str, is_active: bool) -> str:
+def build_status_indicator_html(label: str, is_active: bool, *, translator: Translator | None = None) -> str:
     color = "#22c55e" if is_active else "#ef4444"
     return (
         f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>"
-        f"{label} &#9679;</span>"
+        f"{escape(_msg(translator, label))} &#9679;</span>"
     )
 
 
@@ -438,6 +457,7 @@ def build_powerups_overlay_html(
     *,
     edit_mode: bool = False,
     current_run_time_seconds: float | None = None,
+    translator: Translator | None = None,
 ) -> str:
     """Build overlay HTML for active powerups.
 
@@ -449,13 +469,13 @@ def build_powerups_overlay_html(
         if edit_mode:
             return (
                 f"<span style='color: {HEADER_COLOR}; opacity: 0.5; "
-                f"text-shadow: {TEXT_SHADOW};'>Powerups (preview)</span>"
+                f"text-shadow: {TEXT_SHADOW};'>{escape(_msg(translator, 'Powerups (preview)'))}</span>"
             )
         return ""
 
     pm_display = str(getattr(snapshot, "powerup_multiplier_display", "--") or "--")
-    header = f"Powerups (PM {pm_display})" if pm_display != "--" else "Powerups"
-    lines = [f"<span style='color: {HEADER_COLOR}; text-shadow: {TEXT_SHADOW};'>{header}</span>"]
+    header = _msg(translator, "Powerups (PM {value})", value=pm_display) if pm_display != "--" else _msg(translator, "Powerups")
+    lines = [f"<span style='color: {HEADER_COLOR}; text-shadow: {TEXT_SHADOW};'>{escape(header)}</span>"]
 
     for effect in active:
         name = str(getattr(effect, "name", "?"))
@@ -463,7 +483,7 @@ def build_powerups_overlay_html(
         pickup_ui = getattr(effect, "pickup_ui", None)
         expires_ui = getattr(effect, "expires_ui", None)
         secs = int(round(remaining))
-        time_str = f"{secs}s"
+        time_str = _msg(translator, "{value}s", value=secs)
 
         if pickup_ui is not None and expires_ui is not None:
             detail = f"{pickup_ui} → {expires_ui} ({time_str})"
@@ -473,7 +493,7 @@ def build_powerups_overlay_html(
         color = CRITICAL_COLOR if remaining < 5 else POWERUP_COLORS.get(name, FALLBACK_COLOR)
         lines.append(
             f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>"
-            f"{name}: {detail}</span>"
+            f"{escape(_game_name(translator, 'powerups', name))}: {escape(detail)}</span>"
         )
 
     return "<br>".join(lines)
@@ -511,6 +531,7 @@ def build_item_cooldowns_overlay_html(
     projection: Any,
     *,
     edit_mode: bool = False,
+    translator: Translator | None = None,
 ) -> str:
     """The countdown to each timed item's next trigger.
 
@@ -539,7 +560,7 @@ def build_item_cooldowns_overlay_html(
         if snapshot is None or not getattr(snapshot, "readings", ()):
             return (
                 f"<span style='color: {HEADER_COLOR}; opacity: 0.5; "
-                f"text-shadow: {TEXT_SHADOW};'>Item Cooldowns (preview)</span>"
+                f"text-shadow: {TEXT_SHADOW};'>{escape(_msg(translator, 'Item Cooldowns (preview)'))}</span>"
             )
     elif getattr(projection, "run_completed", False):
         return ""
@@ -554,7 +575,7 @@ def build_item_cooldowns_overlay_html(
         return ""
 
     lines = [
-        f"<span style='color: {HEADER_COLOR}; text-shadow: {TEXT_SHADOW};'>Cooldowns</span>"
+        f"<span style='color: {HEADER_COLOR}; text-shadow: {TEXT_SHADOW};'>{escape(_msg(translator, 'Cooldowns'))}</span>"
     ]
     for reading in readings:
         name = str(getattr(reading, "name", "?"))
@@ -576,7 +597,7 @@ def build_item_cooldowns_overlay_html(
         # second read `0s`, which is what "about to fire" should look like.
         lines.append(
             f"<span style='color: {colour}; text-shadow: {TEXT_SHADOW};'>"
-            f"{escape(name)}: {int(remaining)}s</span>"
+            f"{escape(_game_name(translator, 'items', name))}: {escape(_msg(translator, '{value}s', value=int(remaining)))}</span>"
         )
 
     return "<br>".join(lines)
@@ -675,6 +696,7 @@ def build_stats_overlay_html(
     is_graveyard: bool,
     *,
     live_stats: dict | None = None,
+    translator: Translator | None = None,
 ) -> str:
     if snapshot is None:
         return ""
@@ -692,6 +714,9 @@ def build_stats_overlay_html(
     if not rows:
         return ""
 
+    if translator is not None and translator.game_language != "en":
+        for row in rows:
+            row["display_label"] = translator.game_name("stats", row["label"])
     label_width_px = _calculate_stats_label_width_px(rows)
     html_rows = []
     for row in rows:
@@ -724,10 +749,12 @@ def build_event_timer_overlay_html(
     warning_seconds: int = 15,
     graveyard_main_map_events_active: bool = False,
     edit_mode: bool = False,
+    *,
+    translator: Translator | None = None,
 ) -> str:
     preview_html = (
         f"<span style='color: {HEADER_COLOR}; opacity: 0.5; "
-        f"text-shadow: {TEXT_SHADOW};'>Event Timer (preview)</span>"
+        f"text-shadow: {TEXT_SHADOW};'>{escape(_msg(translator, 'Event Timer (preview)'))}</span>"
     )
     if is_graveyard:
         if not graveyard_main_map_events_active:
@@ -777,7 +804,7 @@ def build_event_timer_overlay_html(
             if end_rem <= remaining_time <= start_rem:
                 return (
                     f"<span style='color: {CRITICAL_COLOR}; text-shadow: {TEXT_SHADOW}; "
-                    f"font-weight: bold;'>Wave Active</span>"
+                    f"font-weight: bold;'>{escape(_msg(translator, 'Wave Active'))}</span>"
                 )
 
     # Check upcoming warnings next
@@ -792,11 +819,28 @@ def build_event_timer_overlay_html(
     if upcoming_events:
         upcoming_events.sort()
         _diff, ev_type, start_rem = upcoming_events[0]
-        label = "Boss" if ev_type == "boss" else "Wave"
+        message = "Boss at {time}" if ev_type == "boss" else "Wave at {time}"
         event_time = _format_event_clock(start_rem)
         return (
             f"<span style='color: #ff9f1c; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>"
-            f"{label} at {event_time}</span>"
+            f"{escape(_msg(translator, message, time=event_time))}</span>"
         )
 
     return preview_html if edit_mode else ""
+
+
+def _game_name(translator, category, name):
+    return translator.game_name(category, name) if translator is not None and translator.game_language != "en" else name
+
+
+def _metric_label(translator, metric):
+    if translator is None or translator.game_language == "en":
+        return str(metric.label)
+    return translator.game_name("stats", WEAPON_TRACKER_METRICS[metric.key].player_stat_label)
+
+
+def _metric_value(translator, metric, show_caps):
+    value = metric.overlay_value(show_caps)
+    if translator is None or translator.language == "en":
+        return value
+    return value.replace("(HC)", "(" + _msg(translator, "HC") + ")").replace("(SC)", "(" + _msg(translator, "SC") + ")")

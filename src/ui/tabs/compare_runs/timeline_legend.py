@@ -1,6 +1,8 @@
 """Compact, allocation-free readout for the curves visible in Compare Runs."""
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from core.stat_labels import abbreviate_stat_label
@@ -21,17 +23,17 @@ class _GameLegendItem(QFrame):
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(5)
 
-        self._name = QLabel("Game")
+        self._name = l10n.localized(QLabel, l10n.tr('Game'))
         self._name.setObjectName("CompareRunsTimelineLegendName")
         self._value_a = _SeriesLegendItem._make_value("A")
-        self._arrow = QLabel("→")
+        self._arrow = l10n.localized(QLabel, '→')
         self._arrow.setObjectName("CompareRunsTimelineLegendArrow")
         self._value_b = _SeriesLegendItem._make_value("B")
-        self._separator = QLabel("·")
+        self._separator = l10n.localized(QLabel, '·')
         self._separator.setObjectName("CompareRunsTimelineLegendSeparator")
-        self._delta = QLabel("Δ --")
+        self._delta = l10n.localized(QLabel, 'Δ --')
         self._delta.setObjectName("CompareRunsTimelineLegendDelta")
-        self._delta.setToolTip("Game-time difference: Run A minus Run B")
+        l10n.display(self._delta, 'setToolTip', l10n.tr('Game-time difference: Run A minus Run B'))
 
         layout.addWidget(self._name)
         layout.addSpacing(2)
@@ -57,17 +59,17 @@ class _SeriesLegendItem(QFrame):
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(5)
 
-        self._dot = QLabel("●")
+        self._dot = l10n.localized(QLabel, '●')
         self._dot.setObjectName("CompareRunsTimelineLegendDot")
         self._name = QLabel()
         self._name.setObjectName("CompareRunsTimelineLegendName")
         self._value_a = self._make_value("A")
-        self._arrow = QLabel("→")
+        self._arrow = l10n.localized(QLabel, '→')
         self._arrow.setObjectName("CompareRunsTimelineLegendArrow")
         self._value_b = self._make_value("B")
-        self._delta = QLabel("Δ --")
+        self._delta = l10n.localized(QLabel, 'Δ --')
         self._delta.setObjectName("CompareRunsTimelineLegendDelta")
-        self._delta.setToolTip("Difference: Run B minus Run A")
+        l10n.display(self._delta, 'setToolTip', l10n.tr('Difference: Run B minus Run A'))
 
         layout.addWidget(self._dot)
         layout.addWidget(self._name)
@@ -75,14 +77,14 @@ class _SeriesLegendItem(QFrame):
         layout.addWidget(self._value_a)
         layout.addWidget(self._arrow)
         layout.addWidget(self._value_b)
-        self._separator = QLabel("·")
+        self._separator = l10n.localized(QLabel, '·')
         self._separator.setObjectName("CompareRunsTimelineLegendSeparator")
         layout.addWidget(self._separator)
         layout.addWidget(self._delta)
 
     @staticmethod
     def _make_value(side: str) -> QLabel:
-        label = QLabel(f"{side} --")
+        label = l10n.localized(QLabel, f'{side} --')
         label.setObjectName("CompareRunsTimelineLegendValue")
         label.setProperty("side", side)
         return label
@@ -90,7 +92,7 @@ class _SeriesLegendItem(QFrame):
     def set_key(self, key: str) -> None:
         self._set_text(
             self._name,
-            abbreviate_stat_label(scrubber_model.series_label(key)),
+            l10n.stat(abbreviate_stat_label(scrubber_model.series_label(key))),
         )
         accent = timeline_series_accent_role((key,))
         if self._dot.property("accentRole") != accent:
@@ -107,7 +109,7 @@ class _SeriesLegendItem(QFrame):
     @staticmethod
     def _set_text(label: QLabel, text: str) -> None:
         if label.text() != text:
-            label.setText(text)
+            l10n.display(label, 'setText', text)
 
 
 class CompareRunsTimelineLegend(QWidget):
@@ -123,7 +125,7 @@ class CompareRunsTimelineLegend(QWidget):
 
         self._game = _GameLegendItem(self)
         self._flow.addWidget(self._game)
-        self._empty = QLabel("No curves selected")
+        self._empty = l10n.localized(QLabel, l10n.tr('No curves selected'))
         self._empty.setObjectName("CompareRunsTimelineLegendEmpty")
         self._flow.addWidget(self._empty)
 

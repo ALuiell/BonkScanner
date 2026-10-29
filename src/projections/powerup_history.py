@@ -4,6 +4,8 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass
 
+from core.localization_context import text as _lt, game_name as _game_name
+
 from core.powerup_history import MAX_OBSERVATION_GAP, POWERUPS, PowerupHistory
 
 
@@ -337,32 +339,29 @@ class PowerupProjection:
         low, high = (float("-inf"), capture_a) if capture_b is None else sorted((capture_a, capture_b))
         count = self.counts(capture_a, capture_b)[effect_id]
         unattributed = self.unattributed_clock_events(capture_a, capture_b) if effect_id == 4 else 0
-        lines = [f"{name} · {duration_label(total)}",
-                 f"Observed pickups: {count}{'+' if unattributed else ''}"]
+        lines = [f'{_game_name("powerups", name)} · {duration_label(total)}', _lt('Observed pickups: {p0}{p1}', p0=count, p1='+' if unattributed else '')]
         if effect_id == 4:
             excluded = bisect_right(self._warudo_times, high) - bisect_right(self._warudo_times, low)
-            lines.append(f"Confirmed Clock pickups: {count}; excluded Za Warudo activations: {excluded}.")
+            lines.append(_lt('Confirmed Clock pickups: {p0}; excluded Za Warudo activations: {p1}.', p0=count, p1=excluded))
             if unattributed:
-                lines.append(f"Unattributed TimeFreeze events: {unattributed}. "
-                             "'+' marks a confirmed minimum; actual Clock pickups may be higher.")
-                lines.append("Clock attribution is pending, unavailable or ambiguous; TimeFreeze alone is not a pickup.")
-            lines.append("Uptime includes all observed TimeFreeze, including Za Warudo.")
-        lines.append("Repeat pickups count when expiry increases; several pickups between polls may count as one.")
-        lines.append("Pickups with unknown timing count at first observation; A–B excludes its earlier endpoint.")
+                lines.append(_lt("Unattributed TimeFreeze events: {p0}. '+' marks a confirmed minimum; actual Clock pickups may be higher.", p0=unattributed))
+                lines.append(_lt('Clock attribution is pending, unavailable or ambiguous; TimeFreeze alone is not a pickup.'))
+            lines.append(_lt('Uptime includes all observed TimeFreeze, including Za Warudo.'))
+        lines.append(_lt('Repeat pickups count when expiry increases; several pickups between polls may count as one.'))
+        lines.append(_lt('Pickups with unknown timing count at first observation; A–B excludes its earlier endpoint.'))
         for span in self.intervals:
             if span.effect_id == effect_id and span.end_capture > low and span.start_capture < high:
                 first = self.axis_at_capture(max(low, span.start_capture))
                 last = self.axis_at_capture(min(high, span.end_capture))
                 lines.append(f"{time_label(first)} → {time_label(last)}")
         if not self.complete(capture_a, capture_b):
-            lines.append("Partial observations; unobserved time is not counted.")
+            lines.append(_lt('Partial observations; unobserved time is not counted.'))
             observed = [(max(start, low), min(end, high)) for start, end in self.coverage
                         if end >= low and start <= high]
             for start, end in observed[:12]:
-                lines.append(f"Observed: {time_label(self.axis_at_capture(start))} → "
-                             f"{time_label(self.axis_at_capture(end))}")
+                lines.append(_lt('Observed: {p0} → {p1}', p0=time_label(self.axis_at_capture(start)), p1=time_label(self.axis_at_capture(end))))
             if len(observed) > 12:
-                lines.append(f"… {len(observed) - 12} further observed sections")
+                lines.append(_lt('… {p0} further observed sections', p0=len(observed) - 12))
         return "\n".join(lines)
 
     def axis_at_capture(self, capture):

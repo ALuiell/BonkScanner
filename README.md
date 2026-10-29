@@ -232,6 +232,14 @@ The app includes settings for scanner and reset hotkeys, recording behavior,
 overlay editing, reset timing, snapshot intervals, update checks, support access,
 and other feature-specific options.
 
+The interface supports English, Ukrainian, Russian, French, Spanish, German,
+and Portuguese. In **Settings → General**, choose the interface language and,
+optionally, a separate language for game terminology. Game names default to
+English; choose **Same as interface** to link the two languages. Save to update
+the desktop interface, in-game widgets, and OBS overlay. Built-in help is available
+in all seven languages. Game terms use MegaBonk's own language resources;
+custom names and chat message templates keep their original text.
+
 <details>
 <summary><strong>Reset timing and configuration notes</strong></summary>
 

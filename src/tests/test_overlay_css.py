@@ -38,20 +38,13 @@ class StageSummarySizingTests(unittest.TestCase):
         self.assertIn("min-width: var(--widget-natural-width, 0)", panel)
         self.assertIn("min-width: 0 !important", custom_panel)
 
-    def test_stage_summary_reserves_the_same_width_in_both_layout_modes(self) -> None:
+    def test_stage_summary_keeps_column_reservations_and_fits_localized_headers(self) -> None:
         panel = self._rule(".stage-summary-widget")
-        absolute_wrapper = self._rule(
-            '.widget-wrapper[data-id="stage_summary"]:not(.custom-size-active)'
-        )
-
-        natural_width = re.search(
-            r"--widget-natural-width:\s*calc\((\d+)px", panel
-        )
-        wrapper_width = re.search(r"min-width:\s*calc\((\d+)px", absolute_wrapper)
-        self.assertIsNotNone(natural_width)
-        self.assertIsNotNone(wrapper_width)
+        table = self._rule(".stage-table")
+        self.assertIn("--widget-natural-width: max-content", panel)
         self.assertIn("width: var(--widget-natural-width)", panel)
-        self.assertEqual(natural_width.group(1), wrapper_width.group(1))
+        for minimum in (48, 78, 88):
+            self.assertIn(f"minmax(calc({minimum}px * var(--scale)), max-content)", table)
 
     def test_each_item_slot_reserves_two_digit_width(self) -> None:
         counts = self._rule(".stage-item-counts")

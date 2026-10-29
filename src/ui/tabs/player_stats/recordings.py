@@ -31,6 +31,8 @@ Note for whoever moves this again: ``ui.tabs.player_stats.recordings`` is in
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
@@ -137,7 +139,8 @@ from ui.tabs.player_stats.summary_cards import (
     set_loot_rarity_card_values,
     set_stage_summary_labels,
 )
-from projections import formatting, scrubber as scrubber_model
+from ui import formatting
+from projections import scrubber as scrubber_model
 from ui.timeline_controls import (
     TIMELINE_SERIES_GROUPS,
     TimelineSeriesSlots,
@@ -297,11 +300,11 @@ class _RecordingTitleLabel(QLabel):
     def __init__(self, text: str) -> None:
         super().__init__(text)
         self.setTextFormat(Qt.PlainText)
-        self.setToolTip(text)
+        l10n.display(self, 'setToolTip', text)
 
     def setText(self, text: str) -> None:
-        super().setText(text)
-        self.setToolTip(text)
+        l10n.display(super(), 'setText', text)
+        l10n.display(self, 'setToolTip', text)
 
     def minimumSizeHint(self) -> QSize:
         return QSize(0, super().minimumSizeHint().height())
@@ -357,10 +360,7 @@ class _StageChapterCard(QFrame):
         self.stage_number = int(stage_number)
         self.setObjectName("StageChapterCard")
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip(
-            "Click moves point A to this stage\n"
-            "Shift+click sets point B for the full stage range"
-        )
+        l10n.display(self, 'setToolTip', l10n.tr('Click moves point A to this stage\nShift+click sets point B for the full stage range'))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(11, 9, 11, 10)
         layout.setSpacing(3)
@@ -368,20 +368,20 @@ class _StageChapterCard(QFrame):
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(7)
-        title = QLabel(f"Stage {self.stage_number}")
+        title = l10n.localized(QLabel, l10n.tr('Stage {p0}', p0=self.stage_number))
         title.setObjectName("StageChapterTitle")
-        time_label = QLabel("--")
+        time_label = l10n.localized(QLabel, '--')
         time_label.setObjectName("StageChapterTime")
         title_row.addWidget(title)
         title_row.addWidget(time_label)
         title_row.addStretch(1)
         layout.addLayout(title_row)
 
-        kills_label = QLabel("--")
+        kills_label = l10n.localized(QLabel, '--')
         kills_label.setObjectName("StageChapterKills")
         layout.addWidget(kills_label)
 
-        items_label = QLabel("--")
+        items_label = l10n.localized(QLabel, '--')
         items_label.setObjectName("StageChapterItems")
         items_label.setTextFormat(Qt.RichText)
         layout.addWidget(items_label)
@@ -392,7 +392,7 @@ class _StageChapterCard(QFrame):
         # card puts it in the title instead, so it is written to a label the
         # card owns but does not display.
         self.value_labels = {
-            "stage": QLabel(str(self.stage_number)),
+            "stage": l10n.localized(QLabel, str(self.stage_number)),
             "time": time_label,
             "kills": kills_label,
             "items": items_label,
@@ -723,18 +723,15 @@ class RecordingsTab:
                 placeholder = QListWidgetItem()
                 placeholder.setFlags(Qt.NoItemFlags)
                 self._list_frame.addItem(placeholder)
-            placeholder.setText("No recordings match this search" if query else "No saved recordings")
+            l10n.display(placeholder, 'setText', l10n.tr('No recordings match this search') if query else l10n.tr('No saved recordings'))
         elif placeholder is not None:
             self._list_frame.takeItem(self._list_frame.row(placeholder))
 
     def _refresh_library_footer(self, vods) -> None:
         """Refresh the library totals and availability of its cleanup action."""
-        _set_text(
-            self._library_summary_label,
-            f"{len(vods)} recordings  ·  {_format_bytes(library_size_bytes(vods))}",
-        )
+        _set_text(self._library_summary_label, l10n.tr('{p0} recordings  ·  {p1}', p0=len(vods), p1=_format_bytes(library_size_bytes(vods))))
         if self._cleanup_btn is not None:
-            self._cleanup_btn.setText("Recording cleanup")
+            l10n.display(self._cleanup_btn, 'setText', l10n.tr('Recording cleanup'))
             self._cleanup_btn.setEnabled(bool(vods))
         self._refresh_recordings_chooser()
 
@@ -796,7 +793,7 @@ class RecordingsTab:
         omission: the callback this replaced only ever wrote *this* status
         label on a failed refresh.
         """
-        _set_text(self._status_label, f"Could not refresh recordings: {error}")
+        _set_text(self._status_label, l10n.tr('Could not refresh recordings: {p0}', p0=error))
     def toggle_recordings_chooser(self):
         next_expanded = not bool(self._chooser_expanded)
         self.set_recordings_chooser_expanded(next_expanded, guided=False)
@@ -852,13 +849,9 @@ class RecordingsTab:
             chevron = (
                 LIBRARY_TOGGLE_OPEN_CHEVRON if expanded else LIBRARY_TOGGLE_CLOSED_CHEVRON
             )
-            button.setText(f"{chevron}  {count}")
+            l10n.display(button, 'setText', f'{chevron}  {count}')
             button.setChecked(expanded)
-            button.setToolTip(
-                f"Hide recordings library ({count})"
-                if expanded
-                else f"Recordings library ({count})"
-            )
+            l10n.display(button, 'setToolTip', l10n.tr('Hide recordings library ({p0})', p0=count) if expanded else l10n.tr('Recordings library ({p0})', p0=count))
 
     # -- drawer width -------------------------------------------------------
     #
@@ -969,7 +962,7 @@ class RecordingsTab:
         self._stage_range_anchor_index = None
         self._stage_range_anchor_number = None
         self._set_vod_loading_state(True)
-        _set_text(self._status_label, "Reading recording…")
+        _set_text(self._status_label, l10n.tr('Reading recording…'))
         is_live = bool(state is not None and state.status == RECORDING)
         self._live_auto_sync = is_live
         self._live_follow = is_live
@@ -980,7 +973,7 @@ class RecordingsTab:
         def finish(prepared, error) -> None:
             if error is not None:
                 self._clear_loaded_vod_selection()
-                _set_text(self._status_label, f"Could not load recording: {error}")
+                _set_text(self._status_label, l10n.tr('Could not load recording: {p0}', p0=error))
                 self._set_vod_loading_state(False)
                 return
             if prepared is None:
@@ -1170,7 +1163,7 @@ class RecordingsTab:
                 self._live_prepare_request = None
             if error is not None or prepared is None:
                 if error is not None:
-                    _set_text(self._status_label, f"Could not sync recording: {error}")
+                    _set_text(self._status_label, l10n.tr('Could not sync recording: {p0}', p0=error))
                 return
             newest = self._library.state_for(path)
             current_state = state
@@ -1276,19 +1269,13 @@ class RecordingsTab:
         visible = live and (pending > 0 or not self._live_follow)
         self._live_sync_button.setVisible(visible)
         if not self._live_auto_sync and pending:
-            self._live_sync_button.setText(f"Sync {pending}")
+            l10n.display(self._live_sync_button, 'setText', l10n.tr('Sync {p0}', p0=pending))
         else:
-            self._live_sync_button.setText("Go Live")
+            l10n.display(self._live_sync_button, 'setText', l10n.tr('Go Live'))
         if live and self._loaded_vod is not None and not self._load_in_progress:
             metadata = self._loaded_vod.metadata
             pending_text = f" · {pending} new" if pending else ""
-            _set_text(
-                self._status_label,
-                "LIVE"
-                f"{pending_text} · {metadata.created_label} · "
-                f"{len(self._loaded_vod.snapshots)} snapshots · "
-                f"{formatting.format_duration(metadata.duration_seconds)}",
-            )
+            _set_text(self._status_label, l10n.tr('LIVE{p0} · {p1} · {p2} snapshots · {p3}', p0=pending_text, p1=metadata.created_label, p2=len(self._loaded_vod.snapshots), p3=formatting.format_duration(metadata.duration_seconds)))
     def refresh_loaded_vod_ui(self, *, update_slider: bool = True, prepared=None):
         if self._loaded_vod is None:
             return
@@ -1303,10 +1290,7 @@ class RecordingsTab:
             if metadata_path is not None and self._is_live_path(metadata_path)
             else ""
         )
-        _set_text(
-            self._status_label,
-            f"{live_prefix}{metadata.created_label}  ·  {snapshot_count} snapshots  ·  {duration}",
-        )
+        _set_text(self._status_label, l10n.tr('{p0}{p1}  ·  {p2} snapshots  ·  {p3}', p0=live_prefix, p1=metadata.created_label, p2=snapshot_count, p3=duration))
 
         if snapshot_count:
             self._scrubber.setEnabled(True)
@@ -1545,8 +1529,7 @@ class RecordingsTab:
                      and index == len(vod.snapshots) - 1 and bool(projection.observations))
         if live_tail:
             capture, axis = projection.latest_capture, projection.latest_axis
-            _set_text(self._position_label,
-                      f"{index + 1} / {len(vod.snapshots)} · LIVE {formatting.format_elapsed_time(axis)}")
+            _set_text(self._position_label, l10n.tr('{p0} / {p1} · LIVE {p2}', p0=index + 1, p1=len(vod.snapshots), p2=formatting.format_elapsed_time(axis)))
             _set_text(self._compare_hint_label,
                       '<b style="color:#38BDF8;">A</b> '
                       f'<span style="color:#8A94A3;">{formatting.format_elapsed_time(axis)}</span>')
@@ -1774,9 +1757,7 @@ class RecordingsTab:
         container.setUpdatesEnabled(False)
         try:
             if self._compare_detail_empty_label is None:
-                self._compare_detail_empty_label = QLabel(
-                    "No item changes in this segment"
-                )
+                self._compare_detail_empty_label = l10n.localized(QLabel, l10n.tr('No item changes in this segment'))
                 self._compare_detail_empty_label.setObjectName("itemChipNote")
                 layout.addWidget(self._compare_detail_empty_label)
             if not rows:
@@ -1803,7 +1784,7 @@ class RecordingsTab:
         if self._loaded_vod is None or self._name_entry is None:
             return
         if self._is_active_path(self._loaded_vod.metadata.path):
-            _set_text(self._status_label, "An active recording cannot be renamed")
+            _set_text(self._status_label, l10n.tr('An active recording cannot be renamed'))
             return
         new_name = _read_text(self._name_entry).strip()
         try:
@@ -1817,7 +1798,7 @@ class RecordingsTab:
             # The field stays open on failure: the name it holds is the one the
             # user typed, and closing it would throw that away to show them the
             # old heading beside the complaint.
-            _set_text(self._status_label, f"Could not rename recording: {exc}")
+            _set_text(self._status_label, l10n.tr('Could not rename recording: {p0}', p0=exc))
             return
         self._set_renaming(False)
         self.refresh_loaded_vod_ui(
@@ -1840,8 +1821,8 @@ class RecordingsTab:
         self._stage_range_anchor_number = None
         _clear_text_input(self._name_entry)
         self._set_renaming(False)
-        _set_text(self._title_label, "No recording selected")
-        _set_text(self._status_label, "Select a recording")
+        _set_text(self._title_label, l10n.tr('No recording selected'))
+        _set_text(self._status_label, l10n.tr('Select a recording'))
         self._scrubber.setEnabled(False)
         self._scrubber.set_pin(None)
         self._scrubber.set_model(scrubber_model.ScrubberModel(count=0))
@@ -1925,14 +1906,14 @@ class RecordingsTab:
                 excluded_paths={active_path} if active_path is not None else None,
             )
         except Exception as exc:
-            _set_text(self._status_label, f"Could not clean recordings: {exc}")
+            _set_text(self._status_label, l10n.tr('Could not clean recordings: {p0}', p0=exc))
             return
 
         if selected_path is not None and not selected_path.exists():
             self._clear_loaded_vod_selection()
 
         self.refresh_vods_list()
-        message = f"[*] Removed {result.removed} recordings with snapshot count below {threshold}."
+        message = l10n.tr('[*] Removed {p0} recordings with snapshot count below {p1}.', p0=result.removed, p1=threshold)
         skipped = result.skipped_active + result.skipped_locked
         if skipped:
             message += f" Skipped {skipped} active or locked recording(s)."
@@ -1941,7 +1922,7 @@ class RecordingsTab:
         if self._loaded_vod is None:
             return
         if self._is_active_path(self._loaded_vod.metadata.path):
-            _set_text(self._status_label, "An active recording cannot be deleted")
+            _set_text(self._status_label, l10n.tr('An active recording cannot be deleted'))
             return
         dialog = ConfirmDeleteRecordingDialog(self._window(), self._loaded_vod.metadata.name)
         try:
@@ -1957,7 +1938,7 @@ class RecordingsTab:
         try:
             delete_vod(path)
         except Exception as exc:
-            _set_text(self._status_label, f"Could not delete recording: {exc}")
+            _set_text(self._status_label, l10n.tr('Could not delete recording: {p0}', p0=exc))
             return
         self._clear_loaded_vod_selection()
         self.refresh_vods_list()
@@ -2155,7 +2136,7 @@ class RecordingsTab:
         self._select_btn.setObjectName("RecordingPlaqueLibrary")
         self._select_btn.setCheckable(True)
         self._select_btn.setCursor(Qt.PointingHandCursor)
-        self._select_btn.setToolTip("Recordings library")
+        l10n.display(self._select_btn, 'setToolTip', l10n.tr('Recordings library'))
         self._select_btn.clicked.connect(self.toggle_recordings_chooser)
         title_row.addWidget(self._select_btn)
         self._detail_loading_spinner = self._select_btn.spinner
@@ -2164,22 +2145,22 @@ class RecordingsTab:
         title_row.addWidget(self._title_label)
         # Same secondary action as Edit in Templates: a real shared icon and
         # explicit label, rather than a font glyph whose shape varies by OS.
-        self._rename_btn = QPushButton("Rename")
+        self._rename_btn = l10n.localized(QPushButton, l10n.tr('Rename'))
         self._rename_btn.setObjectName("RecordingPlaqueRename")
         _apply_button_icon(self._rename_btn, "media/edit_icon.svg", 18)
-        self._rename_btn.setToolTip("Rename this recording")
+        l10n.display(self._rename_btn, 'setToolTip', l10n.tr('Rename this recording'))
         self._rename_btn.setCursor(Qt.PointingHandCursor)
         self._rename_btn.setEnabled(False)
         self._rename_btn.clicked.connect(self.begin_rename)
         title_row.addWidget(self._rename_btn)
-        self._delete_btn = QPushButton("Delete")
+        self._delete_btn = l10n.localized(QPushButton, l10n.tr('Delete'))
         self._delete_btn.setObjectName("RecordingPlaqueDelete")
-        self._delete_btn.setToolTip("Delete this recording")
+        l10n.display(self._delete_btn, 'setToolTip', l10n.tr('Delete this recording'))
         self._delete_btn.setCursor(Qt.PointingHandCursor)
         self._delete_btn.setEnabled(False)
         self._delete_btn.clicked.connect(self.delete_selected_vod)
         title_row.addWidget(self._delete_btn)
-        self._live_auto_sync_checkbox = QCheckBox("Auto-sync")
+        self._live_auto_sync_checkbox = l10n.localized(QCheckBox, l10n.tr('Auto-sync'))
         self._live_auto_sync_checkbox.setObjectName("RecordingLiveAutoSync")
         self._live_auto_sync_checkbox.setChecked(True)
         self._live_auto_sync_checkbox.setVisible(False)
@@ -2187,7 +2168,7 @@ class RecordingsTab:
             self._on_live_auto_sync_toggled
         )
         title_row.addWidget(self._live_auto_sync_checkbox)
-        self._live_sync_button = QPushButton("Go Live")
+        self._live_sync_button = l10n.localized(QPushButton, l10n.tr('Go Live'))
         self._live_sync_button.setObjectName("RecordingGoLive")
         self._live_sync_button.setVisible(False)
         self._live_sync_button.clicked.connect(self._on_live_sync_clicked)
@@ -2204,7 +2185,7 @@ class RecordingsTab:
         title_row.addStretch(1)
         text_column.addLayout(title_row)
 
-        self._status_label = QLabel("Select a recording")
+        self._status_label = l10n.localized(QLabel, l10n.tr('Select a recording'))
         self._status_label.setObjectName("RecordingPlaqueStatus")
         self._status_label.setWordWrap(True)
         text_column.addWidget(self._status_label)
@@ -2280,13 +2261,13 @@ class RecordingsTab:
         row.addWidget(self._powerups_checkbox)
         row.addStretch(1)
         # Keep the selected times visible; interaction help has its own trigger.
-        self._compare_hint_label = QLabel("")
+        self._compare_hint_label = l10n.localized(QLabel, '')
         self._compare_hint_label.setObjectName("RecordingScrubberCompareHint")
         self._compare_hint_label.setTextFormat(Qt.RichText)
         row.addWidget(self._compare_hint_label)
         self._timeline_help_button = build_recording_timeline_help_button()
         row.addWidget(self._timeline_help_button)
-        self._position_label = QLabel("--")
+        self._position_label = l10n.localized(QLabel, '--')
         self._position_label.setObjectName("RecordingScrubberPosition")
         self._position_label.setProperty("timelinePosition", True)
         row.addWidget(self._position_label)
@@ -2473,7 +2454,7 @@ class RecordingsTab:
         )
         self._tab.setObjectName("RecordingsPage")
         self._tab.destroyed.connect(self._on_tab_destroyed)
-        self._tabview.addTab(self._tab, "Recordings")
+        l10n.tab(self._tabview, self._tab, l10n.tr('Recordings'))
 
     def _on_tab_destroyed(self, *_args) -> None:
         self._disposed = True
@@ -2534,10 +2515,7 @@ class RecordingsTab:
             self._snapshot_throttle = UiUpdateThrottle(
                 qt_context=self._scrubber
             )
-        self._scrubber.setToolTip(
-            "LMB / Shift+LMB drags A  ·  Shift+RMB drags compare point B\n"
-            "← → step (Shift × 10)  ·  Home / End  ·  B pins  ·  Esc clears B"
-        )
+        l10n.display(self._scrubber, 'setToolTip', l10n.tr('LMB / Shift+LMB drags A  ·  Shift+RMB drags compare point B\n← → step (Shift × 10)  ·  Home / End  ·  B pins  ·  Esc clears B'))
         self._scrubber.setEnabled(False)
         self._scrubber.indexChanged.connect(self.on_scrub_index_changed)
         self._scrubber.pinChanged.connect(self.on_scrub_pin_changed)
@@ -2548,12 +2526,12 @@ class RecordingsTab:
         legend_row = QHBoxLayout()
         legend_row.setContentsMargins(0, 0, 0, 0)
         legend_row.setSpacing(8)
-        self._legend_label = QLabel("--")
+        self._legend_label = l10n.localized(QLabel, '--')
         self._legend_label.setObjectName("RecordingScrubberLegend")
         self._legend_label.setTextFormat(Qt.RichText)
         legend_row.addWidget(self._legend_label)
         legend_row.addStretch(1)
-        self._legend_meta_label = QLabel("")
+        self._legend_meta_label = l10n.localized(QLabel, '')
         self._legend_meta_label.setObjectName("RecordingScrubberMeta")
         self._legend_meta_label.setTextFormat(Qt.RichText)
         self._legend_meta_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -2585,7 +2563,7 @@ class RecordingsTab:
         recordings_main_scroll.setWidget(recordings_main)
         recordings_page_layout.addWidget(recordings_main_scroll, 0, 0)
 
-        vod_items_group = QGroupBox("Items")
+        vod_items_group = l10n.localized(QGroupBox, l10n.tr('Items'))
         vod_items_group.setObjectName("LiveStatsItems")
         vod_items_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         vod_items_group.setMinimumWidth(220)
@@ -2597,7 +2575,7 @@ class RecordingsTab:
         # once items exist, a compact row of coloured dots and counts appears.
         vod_items_meta = QHBoxLayout()
         vod_items_meta.setContentsMargins(0, 0, 0, 0)
-        vods_items_rarity_label = QLabel("")
+        vods_items_rarity_label = l10n.localized(QLabel, '')
         vods_items_rarity_label.setObjectName("ItemsRaritySummary")
         vods_items_rarity_label.setTextFormat(Qt.RichText)
         vods_items_rarity_label.setVisible(False)
@@ -2605,7 +2583,7 @@ class RecordingsTab:
         vod_items_meta.addStretch(1)
         vods_items_sort_combo = CompactItemsSortComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
-            vods_items_sort_combo.addItem(label, mode)
+            l10n.combo_item(vods_items_sort_combo, l10n.term(label), mode)
         vods_items_sort_combo.setCurrentIndex(
             vods_items_sort_combo.findData(ITEM_SORT_RARITY_DESC)
         )
@@ -2659,10 +2637,10 @@ class RecordingsTab:
         vod_banishes_layout = QVBoxLayout(vod_banishes_section)
         vod_banishes_layout.setContentsMargins(*BANISHES_SECTION_MARGINS)
         vod_banishes_layout.setSpacing(4)
-        vod_banishes_title = QLabel("BANISHES")
+        vod_banishes_title = l10n.localized(QLabel, l10n.tr('BANISHES'))
         vod_banishes_title.setObjectName("LiveStatsBanishesTitle")
         vod_banishes_layout.addWidget(vod_banishes_title)
-        self._banishes_label = QLabel("No banishes yet")
+        self._banishes_label = l10n.localized(QLabel, l10n.tr('No banishes yet'))
         self._banishes_label.setObjectName("LiveStatsBanishesText")
         self._banishes_label.setTextFormat(Qt.RichText)
         self._banishes_label.setWordWrap(True)
@@ -2718,7 +2696,7 @@ class RecordingsTab:
         # preview -- moved into Compare Details, which now appears only when a
         # pin is set. Without a pin it was comparing against the *previous*
         # snapshot, a ten-second delta nobody asked for.
-        self._compare_details_group = QGroupBox("Compare Details")
+        self._compare_details_group = l10n.localized(QGroupBox, l10n.tr('Compare Details'))
         vod_compare_details_layout = QVBoxLayout(self._compare_details_group)
         # One header row, as in the mockup: the A -> B span and the segment's
         # totals on the left, the control that drops the anchor's counterpart
@@ -2730,7 +2708,7 @@ class RecordingsTab:
         compare_header_layout = QHBoxLayout(compare_header)
         compare_header_layout.setContentsMargins(0, 0, 0, 0)
         compare_header_layout.setSpacing(8)
-        self._compare_details_summary_label = QLabel("--")
+        self._compare_details_summary_label = l10n.localized(QLabel, '--')
         self._compare_details_summary_label.setObjectName("CompareSegmentHeadline")
         self._compare_details_summary_label.setTextFormat(Qt.RichText)
         self._compare_details_summary_label.setWordWrap(True)
@@ -2741,7 +2719,7 @@ class RecordingsTab:
         # the user is looking when they are done with the segment.
         # Its own rule rather than `SmallGhostButton`: the ghost palette is for
         # controls that should stay quiet, and this one is the way out of a mode.
-        self._compare_clear_button = QPushButton("Clear B")
+        self._compare_clear_button = l10n.localized(QPushButton, l10n.tr('Clear B'))
         self._compare_clear_button.setObjectName("CompareSegmentClear")
         self._compare_clear_button.clicked.connect(self.clear_vod_compare_start)
         compare_header_layout.addWidget(
@@ -2779,19 +2757,17 @@ class RecordingsTab:
         recordings_main_layout.addWidget(self._detail_tabs)
         vod_stats_tab = QWidget()
         vod_stats_tab_layout = QVBoxLayout(vod_stats_tab)
-        self._detail_tabs.addTab(vod_stats_tab, "Stats")
+        l10n.tab(self._detail_tabs, vod_stats_tab, l10n.tr('Stats'))
         # In the tab bar's corner rather than a row of its own inside the Stats
         # page: one checkbox was costing a full-width strip above the grid, on
         # a tab where vertical space is what the stat cards are competing for.
         # Match Live Stats: one shared mode for Stats and the roll-card panels.
-        self._stats_expanded_toggle = LabeledSwitch("Expanded")
+        self._stats_expanded_toggle = l10n.localized(LabeledSwitch, l10n.tr('Expanded'))
         self._stats_expanded_toggle.setObjectName("LiveStatsExpandedToggle")
         self._stats_expanded_toggle.setChecked(
             bool(config.user_config.get(LIVE_STATS_EXPANDED_CONFIG_KEY, False))
         )
-        self._stats_expanded_toggle.setToolTip(
-            "Show full stat names in Stats, Chaos, Shrines, and Passives"
-        )
+        l10n.display(self._stats_expanded_toggle, 'setToolTip', l10n.tr('Show full stat names in Stats, Chaos, Shrines, and Passives'))
         self._detail_tabs.setHeaderControl(self._stats_expanded_toggle)
         vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
         vod_stats_tab_layout.addWidget(vods_scroll)
@@ -2823,12 +2799,12 @@ class RecordingsTab:
                 compact_stat_layout.setContentsMargins(0, 0, 0, 0)
                 compact_stat_layout.setSpacing(5)
 
-                name_label = QLabel(abbreviate_stat_label(spec.label))
+                name_label = l10n.localized(QLabel, l10n.stat(abbreviate_stat_label(spec.label)))
                 name_label.setObjectName("LiveStatsCompactStatName")
                 compact_stat_layout.addWidget(name_label)
                 compact_stat_layout.addStretch(1)
 
-                value_label = QLabel("--")
+                value_label = l10n.localized(QLabel, '--')
                 value_label.setObjectName("LiveStatsCompactStatValue")
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 compact_stat_layout.addWidget(value_label)
@@ -2837,6 +2813,8 @@ class RecordingsTab:
             group_layout.addWidget(compact_rows)
             compact_stats_grid.add_card(stat_group)
             yield None
+
+        compact_stats_grid.fit_localized_stat_names()
 
         expanded_stats_grid = _ResponsiveCardGrid(
             minimum_card_width=300,
@@ -2853,15 +2831,15 @@ class RecordingsTab:
             group_layout.setHorizontalSpacing(6)
             group_layout.setVerticalSpacing(3)
             for spec in group:
-                name_label = QLabel(spec.label)
+                name_label = l10n.localized(QLabel, l10n.game("stats", spec.label))
                 name_label.setObjectName("LiveStatsExpandedStatName")
-                value_label = QLabel("--")
+                value_label = l10n.localized(QLabel, '--')
                 value_label.setObjectName("LiveStatsExpandedStatValue")
                 value_label.setMinimumWidth(max(48, LIVE_STATS_VALUE_WIDTH - 16))
                 _apply_player_stat_value_baseline(value_label, spec.value_format)
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self._rows[spec.label] = value_label
-                group_layout.addRow(name_label, value_label)
+                l10n.form_row(group_layout, name_label, value_label)
             expanded_stats_grid.add_card(stat_group)
             yield None
 
@@ -2882,7 +2860,7 @@ class RecordingsTab:
 
         vod_loot_tab = QWidget()
         vod_loot_tab_layout = QVBoxLayout(vod_loot_tab)
-        self._detail_tabs.addTab(vod_loot_tab, "Loot")
+        l10n.tab(self._detail_tabs, vod_loot_tab, l10n.tr('Loot'))
         vod_loot_scroll, _vod_loot_scroll_content, vod_loot_scroll_layout = (
             _make_scroll_section()
         )
@@ -2892,7 +2870,7 @@ class RecordingsTab:
         vod_loot_grid.setHorizontalSpacing(8)
         vod_loot_grid.setVerticalSpacing(8)
 
-        vod_chests_group = QGroupBox("Chests (Expected = key procs)")
+        vod_chests_group = l10n.localized(QGroupBox, l10n.tr('Chests (Expected = key procs)'))
         vod_chests_group_layout = QVBoxLayout(vod_chests_group)
         vod_chests_card, self._chests_card_values = _build_chests_stats_card(
             include_chests_per_minute=True
@@ -2902,7 +2880,7 @@ class RecordingsTab:
         self._chests_per_minute_label = self._chests_card_values["chests_per_minute"]
         vod_loot_grid.addWidget(vod_chests_group, 0, 0)
 
-        vod_rarity_group = QGroupBox("Item Rarity (Expected = items by tier)")
+        vod_rarity_group = l10n.localized(QGroupBox, l10n.tr('Item Rarity (Expected = items by tier)'))
         vod_rarity_group_layout = QVBoxLayout(vod_rarity_group)
         vod_rarity_card, self._loot_rarity_card_values = _build_loot_rarity_card()
         vod_rarity_card.setObjectName("StatCardInner")
@@ -2917,7 +2895,7 @@ class RecordingsTab:
 
         vod_weapons_tab = QWidget()
         vod_weapons_tab_layout = QVBoxLayout(vod_weapons_tab)
-        vods_weapons_status_label = QLabel("Select a recording")
+        vods_weapons_status_label = l10n.localized(QLabel, l10n.tr('Select a recording'))
         vods_weapons_status_label.setWordWrap(True)
         vod_weapons_tab_layout.addWidget(vods_weapons_status_label)
         vod_weapons_scroll, _vod_weapons_scroll_content, vod_weapons_scroll_layout = _make_scroll_section()
@@ -2925,7 +2903,7 @@ class RecordingsTab:
         vod_weapons_tab_layout.addWidget(vod_weapons_scroll)
         vod_tomes_tab = QWidget()
         vod_tomes_tab_layout = QVBoxLayout(vod_tomes_tab)
-        vods_tomes_status_label = QLabel("Select a recording")
+        vods_tomes_status_label = l10n.localized(QLabel, l10n.tr('Select a recording'))
         vods_tomes_status_label.setWordWrap(True)
         vod_tomes_tab_layout.addWidget(vods_tomes_status_label)
         vod_tomes_scroll, _vod_tomes_scroll_content, vod_tomes_scroll_layout = _make_scroll_section()
@@ -2933,7 +2911,7 @@ class RecordingsTab:
         vod_tomes_tab_layout.addWidget(vod_tomes_scroll)
         vod_chaos_tab = QWidget()
         vod_chaos_tab_layout = QVBoxLayout(vod_chaos_tab)
-        vods_chaos_status_label = QLabel("Select a recording")
+        vods_chaos_status_label = l10n.localized(QLabel, l10n.tr('Select a recording'))
         vods_chaos_status_label.setWordWrap(True)
         vod_chaos_tab_layout.addWidget(vods_chaos_status_label)
         vod_chaos_scroll, _vod_chaos_scroll_content, vod_chaos_scroll_layout = _make_scroll_section()
@@ -2941,7 +2919,7 @@ class RecordingsTab:
         vod_chaos_tab_layout.addWidget(vod_chaos_scroll)
         vod_shrine_tab = QWidget()
         vod_shrine_tab_layout = QVBoxLayout(vod_shrine_tab)
-        vods_shrine_status_label = QLabel("Select a recording")
+        vods_shrine_status_label = l10n.localized(QLabel, l10n.tr('Select a recording'))
         vods_shrine_status_label.setWordWrap(True)
         vod_shrine_tab_layout.addWidget(vods_shrine_status_label)
         vod_shrine_scroll, _vod_shrine_content, vod_shrine_scroll_layout = _make_scroll_section()
@@ -2949,7 +2927,7 @@ class RecordingsTab:
         vod_shrine_tab_layout.addWidget(vod_shrine_scroll)
         vod_character_passive_tab = QWidget()
         vod_character_passive_tab_layout = QVBoxLayout(vod_character_passive_tab)
-        vods_character_passive_status_label = QLabel("Select a recording")
+        vods_character_passive_status_label = l10n.localized(QLabel, l10n.tr('Select a recording'))
         vods_character_passive_status_label.setWordWrap(True)
         vod_character_passive_tab_layout.addWidget(
             vods_character_passive_status_label
@@ -2965,7 +2943,7 @@ class RecordingsTab:
         )
         vod_damage_sources_tab = QWidget()
         vod_damage_sources_tab_layout = QVBoxLayout(vod_damage_sources_tab)
-        vods_damage_sources_status_label = QLabel("Select a recording")
+        vods_damage_sources_status_label = l10n.localized(QLabel, l10n.tr('Select a recording'))
         vods_damage_sources_status_label.setWordWrap(True)
         vod_damage_sources_tab_layout.addWidget(vods_damage_sources_status_label)
         vod_damage_sources_scroll, _vod_damage_sources_scroll_content, vod_damage_sources_scroll_layout = _make_scroll_section()
@@ -2999,14 +2977,14 @@ class RecordingsTab:
         self._detail_tabs.currentChanged.connect(
             lambda _index: self._on_detail_tab_changed()
         )
-        self._detail_tabs.addTab(vod_weapons_tab, "Weapons")
-        self._detail_tabs.addTab(vod_tomes_tab, "Tomes")
+        l10n.tab(self._detail_tabs, vod_weapons_tab, l10n.tr('Weapons'))
+        l10n.tab(self._detail_tabs, vod_tomes_tab, l10n.tr('Tomes'))
         yield None
-        self._detail_tabs.addTab(vod_chaos_tab, "Chaos")
-        self._detail_tabs.addTab(vod_shrine_tab, "Shrines")
+        l10n.tab(self._detail_tabs, vod_chaos_tab, l10n.tr('Chaos'))
+        l10n.tab(self._detail_tabs, vod_shrine_tab, l10n.tr('Shrines'))
         yield None
-        self._detail_tabs.addTab(vod_character_passive_tab, "Passives")
-        self._detail_tabs.addTab(vod_damage_sources_tab, "Damage Sources")
+        l10n.tab(self._detail_tabs, vod_character_passive_tab, l10n.tr('Passives'))
+        l10n.tab(self._detail_tabs, vod_damage_sources_tab, l10n.tr('Damage Sources'))
         yield None
         self._detail_tabs.setMinimumHeight(self._detail_tabs.sizeHint().height())
         yield None
@@ -3030,7 +3008,7 @@ class RecordingsTab:
         recordings_page_layout.setRowStretch(0, 1)
         yield None
 
-        self._chooser_group = QGroupBox("Recordings")
+        self._chooser_group = l10n.localized(QGroupBox, l10n.tr('Recordings'))
         self._chooser_group.setVisible(False)
         self._chooser_group.setMinimumWidth(RECORDINGS_LIST_MIN_WIDTH)
         self._chooser_group.setMaximumWidth(RECORDINGS_LIST_MAX_WIDTH + 40)
@@ -3039,7 +3017,7 @@ class RecordingsTab:
 
         self._search_entry = QLineEdit()
         self._search_entry.setObjectName("RecordingsSearch")
-        self._search_entry.setPlaceholderText("Search by name…")
+        l10n.display(self._search_entry, 'setPlaceholderText', l10n.tr('Search by name…'))
         self._search_entry.setClearButtonEnabled(True)
         self._search_entry.textChanged.connect(self.on_recordings_search_changed)
         chooser_layout.addWidget(self._search_entry)
@@ -3049,7 +3027,7 @@ class RecordingsTab:
         self._sort_combo = QComboBox()
         self._sort_combo.setObjectName("RecordingsSortCombo")
         for mode, label in RECORDING_SORT_LABELS.items():
-            self._sort_combo.addItem(label, mode)
+            l10n.combo_item(self._sort_combo, l10n.term(label), mode)
         saved_index = self._sort_combo.findData(recording_sort_mode())
         if saved_index >= 0:
             self._sort_combo.setCurrentIndex(saved_index)
@@ -3075,32 +3053,30 @@ class RecordingsTab:
         footer_layout.setContentsMargins(0, 8, 0, 0)
         footer_layout.setSpacing(7)
 
-        self._library_summary_label = QLabel("--")
+        self._library_summary_label = l10n.localized(QLabel, '--')
         self._library_summary_label.setObjectName("RecordingsLibrarySummary")
         footer_layout.addWidget(self._library_summary_label)
 
         threshold_row = QHBoxLayout()
         threshold_row.setContentsMargins(0, 0, 0, 0)
         threshold_row.setSpacing(6)
-        threshold_row.addWidget(QLabel("Keep at least"))
+        threshold_row.addWidget(l10n.localized(QLabel, l10n.tr('Keep at least')))
         self._min_snapshots_spin = QSpinBox()
         self._min_snapshots_spin.setObjectName("RecordingsMinimumSnapshots")
         self._min_snapshots_spin.setRange(0, 9999)
         self._min_snapshots_spin.setValue(minimum_snapshot_count())
         self._min_snapshots_spin.valueChanged.connect(self.on_minimum_snapshot_count_changed)
         threshold_row.addWidget(self._min_snapshots_spin)
-        threshold_row.addWidget(QLabel("snapshots"))
+        threshold_row.addWidget(l10n.localized(QLabel, l10n.tr('snapshots')))
         threshold_row.addStretch(1)
         footer_layout.addLayout(threshold_row)
 
-        threshold_hint = QLabel(
-            "Applied when a run ends, and used as the threshold below."
-        )
+        threshold_hint = l10n.localized(QLabel, l10n.tr('Applied when a run ends, and used as the threshold below.'))
         threshold_hint.setObjectName("RecordingsLibraryHint")
         threshold_hint.setWordWrap(True)
         footer_layout.addWidget(threshold_hint)
 
-        self._cleanup_btn = QPushButton("Recording cleanup")
+        self._cleanup_btn = l10n.localized(QPushButton, l10n.tr('Recording cleanup'))
         self._cleanup_btn.setObjectName("danger")
         self._cleanup_btn.clicked.connect(self.cleanup_recordings_by_snapshot_count)
         footer_layout.addWidget(self._cleanup_btn, 0, Qt.AlignLeft)

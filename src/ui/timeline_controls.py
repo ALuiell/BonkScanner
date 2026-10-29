@@ -1,6 +1,8 @@
 """Shared series-slot menu and presentation for both recording timelines."""
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from collections.abc import Callable
 
 from PySide6.QtWidgets import QMenu, QPushButton
@@ -91,11 +93,11 @@ def build_timeline_series_menu(
         return lambda _checked=False: on_selected(slot_index, tuple(keys))
 
     menu = QMenu(button)
-    menu.addAction("None").triggered.connect(select(scrubber_model.EMPTY_SLOT))
+    l10n.menu_action(menu, l10n.tr('None')).triggered.connect(select(scrubber_model.EMPTY_SLOT))
     menu.addSeparator()
     for key in (scrubber_model.KILLS_SERIES, scrubber_model.ITEMS_SERIES):
         menu.addAction(scrubber_model.series_label(key)).triggered.connect(select((key,)))
-    menu.addAction("PM + PDC").triggered.connect(select(POWERUP_PAIR))
+    l10n.menu_action(menu, l10n.tr('PM + PDC')).triggered.connect(select(POWERUP_PAIR))
     menu.addSeparator()
     allowed = set(scrubber_model.available_series_keys())
     for title, labels in TIMELINE_SERIES_GROUPS:
@@ -277,9 +279,9 @@ class TimelineSeriesSlots:
 
 def refresh_timeline_slot_button(button: QPushButton, slot_index: int, keys) -> None:
     keys = tuple(keys)
-    button.setText(slot_button_text(keys))
-    button.setToolTip(f"Timeline series slot {slot_index + 1}")
-    button.setAccessibleName(f"Timeline series slot {slot_index + 1}: {button.text()}")
+    l10n.display(button, 'setText', slot_button_text(keys))
+    l10n.display(button, 'setToolTip', l10n.tr('Timeline series slot {p0}', p0=slot_index + 1))
+    l10n.display(button, 'setAccessibleName', l10n.tr('Timeline series slot {p0}: {p1}', p0=slot_index + 1, p1=button.text()))
     button.setProperty("timelineSlot", True)
     accent = timeline_series_accent_role(keys)
     if button.property("accentRole") != accent:
@@ -357,10 +359,10 @@ def build_timeline_cap_checkboxes(on_changed) -> dict:
     saved = set(configured_timeline_caps())
     checkboxes = {}
     for key in TIMELINE_CAP_KEYS:
-        checkbox = QCheckBox(TIMELINE_CAP_LABELS[key])
+        checkbox = l10n.localized(QCheckBox, TIMELINE_CAP_LABELS[key])
         checkbox.setObjectName("TimelineCapToggle")
         checkbox.setProperty("capKey", key)
-        checkbox.setToolTip(TIMELINE_CAP_TOOLTIPS[key])
+        l10n.display(checkbox, 'setToolTip', TIMELINE_CAP_TOOLTIPS[key])
         checkbox.setChecked(key in saved)
         checkbox.stateChanged.connect(lambda _state: on_changed())
         checkboxes[key] = checkbox
@@ -379,9 +381,9 @@ def checked_timeline_caps(checkboxes: dict) -> tuple[str, ...]:
 def build_timeline_powerups_checkbox(shared, on_changed):
     from PySide6.QtWidgets import QCheckBox
 
-    checkbox = QCheckBox("Powerups")
+    checkbox = l10n.localized(QCheckBox, l10n.tr('Powerups'))
     checkbox.setObjectName("TimelineCapToggle")
-    checkbox.setToolTip("Show powerup activity lanes, observed pickup counts and uptime")
+    l10n.display(checkbox, 'setToolTip', l10n.tr('Show powerup activity lanes, observed pickup counts and uptime'))
     checkbox.setChecked(shared.powerups_enabled)
     checkbox.toggled.connect(on_changed)
     return checkbox
@@ -407,10 +409,10 @@ def build_recording_timeline_help_button():
     button.setStyleSheet("padding: 0px;")
     button.setIcon(QIcon(resource_path("media/help_icon.svg")))
     button.setIconSize(QSize(18, 18))
-    button.setAccessibleName("Timeline controls help")
-    button.setToolTip("Click or drag: move A\nShift+LMB: move A\nShift+RMB: set B\nEsc: clear B")
+    l10n.display(button, 'setAccessibleName', l10n.tr('Timeline controls help'))
+    l10n.display(button, 'setToolTip', l10n.tr('Click or drag: move A\nShift+LMB: move A\nShift+RMB: set B\nEsc: clear B'))
     menu = QMenu(button)
-    instruction = QLabel(button.toolTip())
+    instruction = l10n.localized(QLabel, button.toolTip())
     instruction.setStyleSheet("padding: 10px;")
     action = QWidgetAction(menu)
     action.setDefaultWidget(instruction)

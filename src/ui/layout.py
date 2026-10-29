@@ -14,6 +14,8 @@ reasons still applies.
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import os
 from functools import partial
 
@@ -66,6 +68,8 @@ from ui.dialogs import (
 )
 
 from app import config
+from ui.localization import bind_text
+from ui.overlay_localization import bind_overlay_tab
 
 
 def _is_tab_active(tabview, label: str) -> bool:
@@ -94,7 +98,9 @@ def _is_tab_active(tabview, label: str) -> bool:
     current_index = tabview.currentIndex()
     if current_index < 0:
         return False
-    return tabview.tabText(current_index) == label
+    page = tabview.widget(current_index) if isinstance(tabview, QTabWidget) else None
+    identity = page.property("translation_tab_id") if page is not None else None
+    return identity == label if identity is not None else l10n.tab_identity(tabview, current_index) == label
 
 
 class TabRouter:
@@ -146,7 +152,7 @@ class TabRouter:
         current_index = left_tabview.currentIndex()
         if current_index < 0:
             return
-        tab_name = left_tabview.tabText(current_index)
+        tab_name = l10n.tab_identity(left_tabview, current_index)
         if tab_name not in {"Templates", "Scores"}:
             return
         evaluation_mode = "scores" if tab_name == "Scores" else "templates"
@@ -193,16 +199,16 @@ class TabRouter:
             compare_runs_view.ensure_compare_runs_chooser_for_empty_selection()
 
     def is_live_stats_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), "Live Stats")
+        return _is_tab_active(self._tabview(), l10n.tr('Live Stats'))
 
     def is_overlay_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), "OBS Overlay")
+        return _is_tab_active(self._tabview(), l10n.tr('OBS Overlay'))
 
     def is_recordings_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), "Recordings")
+        return _is_tab_active(self._tabview(), l10n.tr('Recordings'))
 
     def is_compare_runs_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), "Compare Runs")
+        return _is_tab_active(self._tabview(), l10n.tr('Compare Runs'))
 
     # `RecordingsListView`'s single operation (`app/player_stats_view.py`).
     # The underscore is the protocol's, not a privacy claim: `vod_capture` and
@@ -267,7 +273,7 @@ def build_layout(app):
 
     _build_header(app, content_layout)
     if reason := config.profile_read_only_reason():
-        notice = QLabel(f"Read-only profile · {reason}")
+        notice = l10n.localized(QLabel, l10n.tr('Read-only profile · {p0}', p0=reason))
         notice.setObjectName("dialogHint")
         notice.setWordWrap(True)
         content_layout.addWidget(notice)
@@ -286,7 +292,7 @@ def build_layout(app):
     timeline_series_slots = TimelineSeriesSlots()
     app._recordings_view = _build_recordings_view(app, timeline_series_slots)
     app._compare_runs_view = _build_compare_runs_view(app, timeline_series_slots)
-    app.tabview.addTab(app._overlay.build(), "OBS Overlay")
+    l10n.tab(app.tabview, app._overlay.build(), l10n.tr('OBS Overlay'))
     # The ~240 lines that built the Twitch tab's widgets are
     # `TwitchTab.build()`'s now (step 23b).
     app._twitch_tab = _build_twitch_tab(app)
@@ -298,7 +304,9 @@ def build_layout(app):
     # nothing about it moves here: only the call site, hoisted to the
     # builder list it belongs in, in the position that keeps the tab bar's
     # order identical.
-    app.tabview.addTab(app._in_game_overlay.build(), "In-Game Overlay")
+    overlay_page = app._in_game_overlay.build()
+    l10n.tab(app.tabview, overlay_page, l10n.tr('In-Game Overlay'))
+    bind_overlay_tab(app.tabview, overlay_page)
     for index in range(app.tabview.count()):
         app.tabview.widget(index).setObjectName("mainTabPage")
 
@@ -328,12 +336,12 @@ def _build_header(app, parent_layout):
                 pixmap.scaled(34, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
         else:
-            logo_label.setText("BONK")
+            l10n.display(logo_label, 'setText', 'BONK')
     else:
-        logo_label.setText("BONK")
+        l10n.display(logo_label, 'setText', 'BONK')
     header.addWidget(logo_label, 0, Qt.AlignVCenter)
 
-    title = QLabel("BonkScanner")
+    title = l10n.localized(QLabel, 'BonkScanner')
     title.setObjectName("appTitle")
     title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     header.addWidget(title, 0, Qt.AlignVCenter)
@@ -393,7 +401,7 @@ def _build_header(app, parent_layout):
     app.status_dot.setProperty("state", "idle")
     status_pair_layout.addWidget(app.status_dot, 0, Qt.AlignVCenter)
 
-    app.status_label = QLabel("IDLE")
+    app.status_label = l10n.localized(QLabel, l10n.tr('IDLE'))
     app.status_label.setObjectName("statusText")
     app.status_label.setProperty("state", "idle")
     app.status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -409,7 +417,7 @@ def _build_header(app, parent_layout):
     app.rec_flag = RecordingFlag()
     header.addWidget(app.rec_flag, 0, Qt.AlignVCenter)
 
-    app.session_meta_label = QLabel("Session 00:00:00")
+    app.session_meta_label = l10n.localized(QLabel, l10n.tr('Session 00:00:00'))
     app.session_meta_label.setObjectName("sessionMeta")
     header.addWidget(app.session_meta_label, 0, Qt.AlignVCenter)
 
@@ -444,9 +452,9 @@ def _build_left_tabs(app, splitter):
 
     # The `«` collapse control rides in the tab bar's corner, next to the
     # Templates/Scores pills, exactly where the mockup places it.
-    collapse_btn = QPushButton("«")
+    collapse_btn = l10n.localized(QPushButton, '«')
     collapse_btn.setObjectName("railToggle")
-    collapse_btn.setToolTip("Collapse")
+    l10n.display(collapse_btn, 'setToolTip', l10n.tr('Collapse'))
     collapse_btn.setFixedSize(30, 30)
     app.left_tabview.setCornerWidget(collapse_btn, Qt.TopRightCorner)
     expanded_layout.addWidget(app.left_tabview)
@@ -521,8 +529,8 @@ def _rail_mode(app) -> tuple[str, list[tuple[str, str, bool]], bool]:
     the mode cannot change underneath it.
     """
     if config.EVALUATION_MODE == "scores":
-        return "SCORES", app._templates_panel.rail_tier_entries(), True
-    return "TEMPLATES", _template_rail_entries(), False
+        return l10n.transform(l10n.tr("Scores"), str.upper), app._templates_panel.rail_tier_entries(), True
+    return l10n.tr("TEMPLATES"), _template_rail_entries(), False
 
 
 def _template_rail_entries() -> list[tuple[str, str, bool]]:
@@ -884,9 +892,9 @@ def _build_collapsed_rail(app):
     rail_layout.setContentsMargins(0, 0, 0, 0)
     rail_layout.setSpacing(10)
 
-    expand_btn = QPushButton("»")
+    expand_btn = l10n.localized(QPushButton, '»')
     expand_btn.setObjectName("railToggle")
-    expand_btn.setToolTip("Expand")
+    l10n.display(expand_btn, 'setToolTip', l10n.tr('Expand'))
     expand_btn.setFixedSize(44, 30)
     rail_layout.addWidget(expand_btn, 0, Qt.AlignHCenter)
 
@@ -896,7 +904,7 @@ def _build_collapsed_rail(app):
     panel_layout.setContentsMargins(6, 12, 6, 12)
     panel_layout.setSpacing(10)
 
-    eyebrow = _VerticalRailLabel("TEMPLATES")
+    eyebrow = l10n.localized(_VerticalRailLabel, l10n.tr("TEMPLATES"))
     eyebrow_font = eyebrow.font()
     eyebrow_font.setPointSize(8)
     eyebrow_font.setBold(True)
@@ -915,9 +923,9 @@ def _build_collapsed_rail(app):
     # Both states of this button are a glyph in a square: `+` here, an 18px
     # pencil in Scores mode. `railAdd` gives it the icon-square geometry the
     # rail's other two controls already have, in the primary blue.
-    add_btn = QPushButton("+")
+    add_btn = l10n.localized(QPushButton, '+')
     add_btn.setObjectName("railAdd")
-    add_btn.setToolTip("Add template")
+    l10n.display(add_btn, 'setToolTip', l10n.tr('Add template'))
     add_btn.setFixedSize(34, 34)
     panel_layout.addWidget(add_btn, 0, Qt.AlignHCenter)
 
@@ -1025,19 +1033,19 @@ def _rebuild_rail_dots(rail, app) -> None:
     the panel to reach its checkbox.
     """
     eyebrow_text, entries, is_scores = _rail_mode(app)
-    rail._eyebrow.setText(eyebrow_text)
+    l10n.display(rail._eyebrow, 'setText', eyebrow_text)
     # The eyebrow paints rotated, so its *height* is the text's width --
     # `sizeHint` recomputes from the new string only if geometry is invalidated.
     rail._eyebrow.updateGeometry()
 
     if is_scores:
-        rail._add_btn.setText("")
+        l10n.display(rail._add_btn, 'setText', '')
         _apply_button_icon(rail._add_btn, "media/edit_icon.svg", 18)
-        rail._add_btn.setToolTip("Edit score system")
+        l10n.display(rail._add_btn, 'setToolTip', l10n.tr('Edit score system'))
     else:
         rail._add_btn.setIcon(QIcon())
-        rail._add_btn.setText("+")
-        rail._add_btn.setToolTip("Add template")
+        l10n.display(rail._add_btn, 'setText', '+')
+        l10n.display(rail._add_btn, 'setToolTip', l10n.tr('Add template'))
 
     _clear_layout(rail._dots_layout)
     panel = app._templates_panel
@@ -1056,9 +1064,9 @@ def _rebuild_rail_dots(rail, app) -> None:
         tile.setChecked(is_active)
         tile.setCursor(Qt.PointingHandCursor)
         tile.setFixedSize(34, 34)
-        tile.setToolTip(
-            name if is_scores else f"{name}\nDrag to reorder · Click to enable/disable"
-        )
+        caption = (l10n.preset_name(name) if is_scores
+                   else l10n.template_name(config.TEMPLATES[index]))
+        l10n.display(tile, 'setToolTip', caption if is_scores else l10n.tr('{p0}\nDrag to reorder · Click to enable/disable', p0=caption))
         tile.setStyleSheet(_rail_tile_stylesheet(color_hex, is_active))
 
         tile_layout = QHBoxLayout(tile)
@@ -1242,7 +1250,7 @@ def _build_logs_tab(app):
         on_target_gaps_changed=_save_show_target_gaps,
     )
     logs_layout.addWidget(app.log_box)
-    app.tabview.addTab(app.tab_logs, "Logs")
+    l10n.tab(app.tabview, app.tab_logs, l10n.tr('Logs'))
 
 
 
@@ -1261,16 +1269,16 @@ def _build_header_controls(app, controls):
     app.toggle_btn.toggle_requested.connect(app._scanner.toggle_main_loop)
     controls.addWidget(app.toggle_btn)
 
-    app.settings_btn = QPushButton("")
+    app.settings_btn = l10n.localized(QPushButton, '')
     app.settings_btn.setObjectName("iconBtn")
     _apply_button_icon(app.settings_btn, "media/settings_icon.png", 20)
-    app.settings_btn.setToolTip("Settings")
+    bind_text(app.settings_btn, "common.settings", method="setToolTip")
     app.settings_btn.clicked.connect(app.open_settings_dialog)
 
-    app.help_btn = QPushButton("")
+    app.help_btn = l10n.localized(QPushButton, '')
     app.help_btn.setObjectName("iconBtn")
     _apply_button_icon(app.help_btn, "media/help_icon.svg", 20)
-    app.help_btn.setToolTip("Help")
+    bind_text(app.help_btn, "common.help", method="setToolTip")
     app.help_btn.clicked.connect(app.open_help_dialog)
 
     controls.addWidget(app.help_btn)
@@ -1336,7 +1344,7 @@ def _build_twitch_tab(app):
     from ui.tabs.twitch import TwitchTab
 
     view = TwitchTab()
-    app.tabview.addTab(view.build(), "Twitch Bot")
+    l10n.tab(app.tabview, view.build(), l10n.tr('Twitch Bot'))
     return view
 
 
@@ -1366,20 +1374,7 @@ def _build_templates_panel(app):
     """
     from ui.tabs.templates import TemplatesPanel
 
-    view = TemplatesPanel(
-        left_tabview=app.left_tabview,
-        window=lambda: app.window,
-        sync_filters=app._template_filters.sync,
-        template_dialog=TemplateDialog,
-        template_manager_dialog=TemplateManagerDialog,
-        delete_dialog=DeleteDialog,
-        scores_settings_dialog=ScoresSettingsDialog,
-        scores_help_dialog=ScoresHelpDialog,
-        no_custom_templates_message=lambda parent: QMessageBox.information(
-            parent, "No Custom Templates", "There are no custom templates to delete."
-        ),
-        report_error=app.log,
-    )
+    view = TemplatesPanel(left_tabview=app.left_tabview, window=lambda: app.window, sync_filters=app._template_filters.sync, template_dialog=TemplateDialog, template_manager_dialog=TemplateManagerDialog, delete_dialog=DeleteDialog, scores_settings_dialog=ScoresSettingsDialog, scores_help_dialog=ScoresHelpDialog, no_custom_templates_message=lambda parent: QMessageBox.information(parent, l10n.tr('No Custom Templates'), l10n.tr('There are no custom templates to delete.')), report_error=app.log)
     view.build()
     return view
 

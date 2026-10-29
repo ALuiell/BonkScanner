@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import os
 import sys
 
@@ -93,8 +95,8 @@ class MegabonkApp:
         # reused for a widget in the next dialog.
         self._settings_dialog = None
 
-        suffix = " — Read-only profile" if config.profile_read_only_reason() else ""
-        self.setWindowTitle(f"BonkScanner v{CURRENT_VERSION}{suffix}")
+        suffix = l10n.tr(' — Read-only profile') if config.profile_read_only_reason() else ''
+        l10n.display(self, 'setWindowTitle', l10n.tr('BonkScanner v{p0}{p1}', p0=CURRENT_VERSION, p1=suffix))
         self.resize(1320, 830)
         # Keep the comfortable desktop size as the default, but let users on
         # portrait displays (especially with OS scaling) shrink the window far
@@ -1147,7 +1149,7 @@ class MegabonkApp:
         return self._ensure_qt_application()
 
     def setWindowTitle(self, title: str) -> None:
-        self.window.setWindowTitle(title)
+        l10n.display(self.window, 'setWindowTitle', title)
 
     def resize(self, width: int, height: int) -> None:
         self.window.resize(width, height)

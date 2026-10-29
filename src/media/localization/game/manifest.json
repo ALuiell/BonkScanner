@@ -1,0 +1,384 @@
+{
+  "extractor": "scripts/extract_game_localization.py",
+  "game": "MegaBonk",
+  "locales": {
+    "de": {
+      "custom_format_culture_code": "",
+      "empty_entries": [],
+      "entry_count": 1127,
+      "game_locale_code": "de",
+      "game_locale_name": "German (de)",
+      "missing_entries": [
+        {
+          "id": "7246286251130880",
+          "key": "FROG2_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7246287580725248",
+          "key": "FROG3_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245048663015424",
+          "key": "SHADYBLUE_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245127121666048",
+          "key": "SHADYGOLD_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245054711201792",
+          "key": "SHADYPINK_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "65443442656935936",
+          "key": "SYNC_ACH",
+          "table": "SettingsUi"
+        }
+      ],
+      "smart_entry_count": 247,
+      "table_count": 51,
+      "use_custom_formatter": false
+    },
+    "en": {
+      "custom_format_culture_code": "",
+      "empty_entries": [
+        {
+          "id": "7245048663015424",
+          "key": "SHADYBLUE_DESC",
+          "table": "Hats"
+        }
+      ],
+      "entry_count": 1129,
+      "game_locale_code": "en",
+      "game_locale_name": "English (en)",
+      "missing_entries": [
+        {
+          "id": "7246286251130880",
+          "key": "FROG2_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7246287580725248",
+          "key": "FROG3_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245127121666048",
+          "key": "SHADYGOLD_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245054711201792",
+          "key": "SHADYPINK_DESC",
+          "table": "Hats"
+        }
+      ],
+      "smart_entry_count": 247,
+      "table_count": 51,
+      "use_custom_formatter": false
+    },
+    "es": {
+      "custom_format_culture_code": "",
+      "empty_entries": [],
+      "entry_count": 1127,
+      "game_locale_code": "es",
+      "game_locale_name": "Spanish (es)",
+      "missing_entries": [
+        {
+          "id": "7246286251130880",
+          "key": "FROG2_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7246287580725248",
+          "key": "FROG3_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245048663015424",
+          "key": "SHADYBLUE_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245127121666048",
+          "key": "SHADYGOLD_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245054711201792",
+          "key": "SHADYPINK_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "65443442656935936",
+          "key": "SYNC_ACH",
+          "table": "SettingsUi"
+        }
+      ],
+      "smart_entry_count": 247,
+      "table_count": 51,
+      "use_custom_formatter": false
+    },
+    "fr": {
+      "custom_format_culture_code": "",
+      "empty_entries": [],
+      "entry_count": 1127,
+      "game_locale_code": "fr",
+      "game_locale_name": "French (fr)",
+      "missing_entries": [
+        {
+          "id": "7246286251130880",
+          "key": "FROG2_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7246287580725248",
+          "key": "FROG3_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245048663015424",
+          "key": "SHADYBLUE_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245127121666048",
+          "key": "SHADYGOLD_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245054711201792",
+          "key": "SHADYPINK_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "65443442656935936",
+          "key": "SYNC_ACH",
+          "table": "SettingsUi"
+        }
+      ],
+      "smart_entry_count": 247,
+      "table_count": 51,
+      "use_custom_formatter": false
+    },
+    "pt": {
+      "custom_format_culture_code": "",
+      "empty_entries": [],
+      "entry_count": 1127,
+      "game_locale_code": "pt",
+      "game_locale_name": "Portuguese (pt)",
+      "missing_entries": [
+        {
+          "id": "7246286251130880",
+          "key": "FROG2_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7246287580725248",
+          "key": "FROG3_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245048663015424",
+          "key": "SHADYBLUE_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245127121666048",
+          "key": "SHADYGOLD_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245054711201792",
+          "key": "SHADYPINK_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "65443442656935936",
+          "key": "SYNC_ACH",
+          "table": "SettingsUi"
+        }
+      ],
+      "smart_entry_count": 247,
+      "table_count": 51,
+      "use_custom_formatter": false
+    },
+    "ru": {
+      "custom_format_culture_code": "",
+      "empty_entries": [],
+      "entry_count": 1127,
+      "game_locale_code": "ru",
+      "game_locale_name": "Russian (ru)",
+      "missing_entries": [
+        {
+          "id": "7246286251130880",
+          "key": "FROG2_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7246287580725248",
+          "key": "FROG3_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245048663015424",
+          "key": "SHADYBLUE_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245127121666048",
+          "key": "SHADYGOLD_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245054711201792",
+          "key": "SHADYPINK_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "65443442656935936",
+          "key": "SYNC_ACH",
+          "table": "SettingsUi"
+        }
+      ],
+      "smart_entry_count": 247,
+      "table_count": 51,
+      "use_custom_formatter": false
+    },
+    "uk": {
+      "custom_format_culture_code": "",
+      "empty_entries": [],
+      "entry_count": 1125,
+      "game_locale_code": "uk",
+      "game_locale_name": "Ukrainian (uk)",
+      "missing_entries": [
+        {
+          "id": "64811551847219200",
+          "key": "SYNC_ACH_HEADER",
+          "table": "DynamicWindows"
+        },
+        {
+          "id": "7246286251130880",
+          "key": "FROG2_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7246287580725248",
+          "key": "FROG3_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245048663015424",
+          "key": "SHADYBLUE_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245127121666048",
+          "key": "SHADYGOLD_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "7245054711201792",
+          "key": "SHADYPINK_DESC",
+          "table": "Hats"
+        },
+        {
+          "id": "53282717406724096",
+          "key": "CRYPT_DESC",
+          "table": "Maps"
+        },
+        {
+          "id": "65443442656935936",
+          "key": "SYNC_ACH",
+          "table": "SettingsUi"
+        }
+      ],
+      "smart_entry_count": 247,
+      "table_count": 51,
+      "use_custom_formatter": false
+    }
+  },
+  "outputs": {
+    "de.json": {
+      "bytes": 173531,
+      "sha256": "0c0942ad9cb3ba834ae5b55b085eb40595c52dd125599fc1ddf4c899648c79a0"
+    },
+    "en.json": {
+      "bytes": 169587,
+      "sha256": "01902c37bf493783c82243ec72d6e9d0aa825a8b229c3abfc435733dee648b2d"
+    },
+    "es.json": {
+      "bytes": 173638,
+      "sha256": "0b98efbae6a96516b2683d83cadb33ce5d6cabb5c14e940cb2c0bcfd0beee419"
+    },
+    "fr.json": {
+      "bytes": 174516,
+      "sha256": "09b14f57b63e2c7c1541bae60fff6bf6721eea6acc628b6987ca2ea217479015"
+    },
+    "pt.json": {
+      "bytes": 172632,
+      "sha256": "995a8f37b4efc845c8613a92c87e60b65c2140dad4a5accbcd00fad4022d9300"
+    },
+    "ru.json": {
+      "bytes": 193042,
+      "sha256": "abcc694d8c6620c35447ec2175aa345b55fc7a918a289f5b5fe3758e0946dc2b"
+    },
+    "shared.json": {
+      "bytes": 55218,
+      "sha256": "5823a1e52ce6645ac029f74bb7064a13fb814b6fc333f9230dabec640df99b57"
+    },
+    "uk.json": {
+      "bytes": 193168,
+      "sha256": "ac3a61c7b1948bee2880f6a75baca20bf613984c1c5973acfe6f290dd8d834a6"
+    }
+  },
+  "schema_version": 1,
+  "shared_entry_count": 1133,
+  "shared_table_count": 51,
+  "sources": {
+    "Megabonk_Data/StreamingAssets/aa/StandaloneWindows64/localization-assets-shared_assets_all.bundle": {
+      "bytes": 23696,
+      "sha256": "e019ee56c0d08145c94374bf1694b068e255fb90aa1ba7e184863c0e20fad41e"
+    },
+    "Megabonk_Data/StreamingAssets/aa/StandaloneWindows64/localization-locales_assets_all.bundle": {
+      "bytes": 3499,
+      "sha256": "b2d11e0161bed2cffc798249135fbbda04f43e544beafbf471490996ab306fa8"
+    },
+    "Megabonk_Data/StreamingAssets/aa/StandaloneWindows64/localization-string-tables-english(en)_assets_all.bundle": {
+      "bytes": 31716,
+      "sha256": "67fc28f87e5369ee37f587c944042c0938b218291e8f74757247e12859e85d35"
+    },
+    "Megabonk_Data/StreamingAssets/aa/StandaloneWindows64/localization-string-tables-french(fr)_assets_all.bundle": {
+      "bytes": 33753,
+      "sha256": "78181a12c9da801f5f7156ba3192bb797e6163dfba100a0558e58f603d7a86e0"
+    },
+    "Megabonk_Data/StreamingAssets/aa/StandaloneWindows64/localization-string-tables-german(de)_assets_all.bundle": {
+      "bytes": 33815,
+      "sha256": "525c12f9e42f6e70bcd1b92362af43b213f54a3b093f6484659b05d933eed728"
+    },
+    "Megabonk_Data/StreamingAssets/aa/StandaloneWindows64/localization-string-tables-portuguese(pt)_assets_all.bundle": {
+      "bytes": 33082,
+      "sha256": "bd8827738de781bd00c76b197c9f75f18185489086a257fd8b283f2c2718015a"
+    },
+    "Megabonk_Data/StreamingAssets/aa/StandaloneWindows64/localization-string-tables-russian(ru)_assets_all.bundle": {
+      "bytes": 35336,
+      "sha256": "e3cec3fab792d39448cf8e4c33028d216aeb78eb7c8fbd579082229110631482"
+    },
+    "Megabonk_Data/StreamingAssets/aa/StandaloneWindows64/localization-string-tables-spanish(es)_assets_all.bundle": {
+      "bytes": 33258,
+      "sha256": "b4c5c66405aae9c33d84ef94cae0929bd96f4141646602e9a77264fd90469981"
+    },
+    "Megabonk_Data/StreamingAssets/aa/StandaloneWindows64/localization-string-tables-ukrainian(uk)_assets_all.bundle": {
+      "bytes": 35931,
+      "sha256": "c1b7f4712ad798334d71d319f26d3aedf2667b997ce92a39f9c3e29a300f3084"
+    }
+  },
+  "steam_app_id": "3405340",
+  "steam_build_id": "21750826",
+  "unitypy_version": "1.25.4"
+}

@@ -452,4 +452,34 @@ const liveState = {
   console.log("ok: weapon tracker route, style and independent cap presentation");
 }
 
+if (process.argv[2]) {
+  const catalogs = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  const made = makeContext({ pathname: "/overlay/weapon_tracker" });
+  const widget = { id: "weapon_tracker", enabled: true, order: 1,
+    selected_stats: ["damage"], show_header: true };
+  const state = { ...liveState, widgets: { weapon_tracker: widget },
+    weapon_tracker: { available: true, rows: [{ name: "Fire Staff", level: 4,
+      metrics: [{ key: "damage", label: "DMG", display_value: "123" }] }] } };
+  const pristine = JSON.stringify(state);
+  for (const localization of catalogs) {
+    // A reconnect holds the last numeric frame while fresh copy still follows
+    // the language. Both the original name and the metric key remain stable.
+    made.t.render({ ...state, localization });
+    made.t.render({ ...state, status: "reconnecting", weapon_tracker: {}, localization });
+    const html = made.rootEl.innerHTML;
+    assert.ok(html.includes(localization.game.weapons["Fire Staff"]));
+    assert.ok(html.includes(localization.game.stats.DMG));
+    assert.ok(html.includes("<strong>123</strong>"));
+    assert.ok(html.includes(localization.messages["Weapon Tracker"]));
+    assert.equal(made.ctx.document.documentElement.lang, localization.language);
+    assert.equal(JSON.stringify(state), pristine);
+  }
+  const hostile = structuredClone(catalogs[1]);
+  hostile.game.weapons["Fire Staff"] = '<img src=x onerror="bad">';
+  made.t.render({ ...state, localization: hostile });
+  assert.ok(!made.rootEl.innerHTML.includes('<img src=x'));
+  assert.ok(made.rootEl.innerHTML.includes('&lt;img src=x'));
+  console.log("ok: UI/game language combinations, held frame, canonical IDs and escaped game names");
+}
+
 console.log("\nall overlay.js checks passed");

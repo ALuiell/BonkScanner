@@ -78,6 +78,7 @@ def build_progression_payload(
             {
                 "id": row.id,
                 "kind": row.kind.value,
+                "target": row.target,
                 "label": (
                     abbreviate_stat_label(row.target)
                     if row.kind.value == "stat"

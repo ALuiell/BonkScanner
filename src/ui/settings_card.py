@@ -16,6 +16,8 @@ a group box title has nowhere to put.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
@@ -139,7 +141,7 @@ class SettingsCard(QFrame):
         header_row.setSpacing(10)
 
         if number is not None:
-            badge = QLabel(str(number))
+            badge = l10n.localized(QLabel, str(number))
             badge.setObjectName("settingsCardNumber")
             badge.setAlignment(Qt.AlignCenter)
             badge.setFixedSize(22, 22)
@@ -148,7 +150,7 @@ class SettingsCard(QFrame):
         copy_column = QVBoxLayout()
         copy_column.setContentsMargins(0, 0, 0, 0)
         copy_column.setSpacing(1)
-        self._title = QLabel(str(title))
+        self._title = l10n.localized(QLabel, l10n.preserve(title))
         self._title.setObjectName("settingsCardTitle")
         copy_column.addWidget(self._title)
         # Parented to `header` at construction, which is not cosmetic: a
@@ -157,7 +159,7 @@ class SettingsCard(QFrame):
         # that layout is not installed on a widget yet, so it has no parent to
         # hand down. `test_startup_window_order` caught eight of these, one per
         # card, and it caught them the second time too.
-        self._subtitle = QLabel(str(subtitle), header)
+        self._subtitle = l10n.localized(QLabel, l10n.preserve(subtitle), header)
         self._subtitle.setObjectName("settingsCardSubtitle")
         self._subtitle.setWordWrap(True)
         copy_column.addWidget(self._subtitle)
@@ -189,5 +191,5 @@ class SettingsCard(QFrame):
         return self._action
 
     def set_subtitle(self, subtitle: str) -> None:
-        self._subtitle.setText(str(subtitle))
+        l10n.display(self._subtitle, 'setText', l10n.preserve(subtitle))
         self._subtitle.setVisible(bool(subtitle))
