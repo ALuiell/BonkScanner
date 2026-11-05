@@ -25,9 +25,9 @@ class DesktopThemeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_missing_selection_defaults_to_halloween_and_saved_original_survives_reload(self):
+    def test_missing_selection_defaults_to_original_and_saved_choices_survive_reload(self):
         with patch.object(config, "user_config", {}):
-            self.assertEqual(selected_theme(), "halloween")
+            self.assertEqual(selected_theme(), "original")
             with tempfile.TemporaryDirectory() as folder:
                 repository = ConfigRepository(Path(folder) / "config.json")
                 repository.load()
@@ -36,11 +36,15 @@ class DesktopThemeTests(unittest.TestCase):
                 self.assertEqual(selected_theme(), "original")
                 config.user_config[THEME_CONFIG_KEY] = "halloween"
                 self.assertEqual(selected_theme(), "halloween")
+                self.assertTrue(repository.commit({THEME_CONFIG_KEY: "halloween"}).success)
+                config.user_config.clear()
+                config.user_config.update(repository.load().snapshot)
+                self.assertEqual(selected_theme(), "halloween")
 
     def test_only_boolean_legacy_original_selection_is_accepted(self):
         for value in (None, "false", "true", 1, [], {}):
             with self.subTest(value=value), patch.object(config, "user_config", {LEGACY_THEME_CONFIG_KEY: value}):
-                self.assertEqual(selected_theme(), "halloween")
+                self.assertEqual(selected_theme(), "original")
 
     def test_original_sheet_is_unchanged_and_halloween_preserves_behavior_colors(self):
         original = build_qt_app_stylesheet("check.svg")
