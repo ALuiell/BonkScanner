@@ -52,6 +52,8 @@ points -- ``refresh_player_stats_timeline_ui`` and
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt
@@ -132,9 +134,9 @@ class RecordingTimelineView:
         # disappeared exactly when the user wanted it -- while recording, to
         # stop without reaching for the mouse. Beside the control it is true in
         # every state.
-        hotkey_hint = QLabel(config.PLAYER_STATS_RECORD_HOTKEY.upper())
+        hotkey_hint = l10n.localized(QLabel, config.PLAYER_STATS_RECORD_HOTKEY.upper())
         hotkey_hint.setObjectName("hotkeyHint")
-        self._timeline_label = QLabel("Live stats")
+        self._timeline_label = l10n.localized(QLabel, l10n.tr('Live stats'))
         controls.addWidget(self._record_btn)
         controls.addWidget(hotkey_hint, 0, Qt.AlignVCenter)
         controls.addStretch(1)
@@ -153,7 +155,7 @@ class RecordingTimelineView:
             self._throttle.cancel()
             self._throttle = UiUpdateThrottle(qt_context=self._slider)
 
-        self._slider_time_label = QLabel("Timeline: live stats")
+        self._slider_time_label = l10n.localized(QLabel, l10n.tr('Timeline: live stats'))
         content_layout.addWidget(self._slider_time_label)
 
         # Render the true state immediately, because nothing else will.
@@ -219,31 +221,27 @@ class RecordingTimelineView:
             prefix = f"Recording {recorder.elapsed_label()} | "
             if snapshot_count:
                 mode = snapshots[selected].time_label if selected is not None else "--"
-                self._timeline_label.setText(f"{prefix}{snapshot_count} snapshots | {mode}")
+                l10n.display(self._timeline_label, 'setText', l10n.tr('{p0}{p1} snapshots | {p2}', p0=prefix, p1=snapshot_count, p2=mode))
             elif waiting_mode == RuntimeGameMode.PAUSED_IN_GAME.value:
-                self._timeline_label.setText(f"{prefix}Paused in game")
+                l10n.display(self._timeline_label, 'setText', l10n.tr('{p0}Paused in game', p0=prefix))
             else:
-                self._timeline_label.setText(f"{prefix}No snapshots")
+                l10n.display(self._timeline_label, 'setText', l10n.tr('{p0}No snapshots', p0=prefix))
         elif recording_armed:
-            self._timeline_label.setText("Recording armed | waiting for run")
+            l10n.display(self._timeline_label, 'setText', l10n.tr('Recording armed | waiting for run'))
         else:
-            self._timeline_label.setText("Live stats")
+            l10n.display(self._timeline_label, 'setText', l10n.tr('Live stats'))
 
         if recorder.is_recording and snapshot_count:
             first = snapshots[0].time_label
             last = snapshots[-1].time_label
             current = snapshots[selected].time_label if selected is not None else "--"
-            self._slider_time_label.setText(
-                f"Timeline: {first} - {last} | Selected: {current}"
-            )
+            l10n.display(self._slider_time_label, 'setText', l10n.tr('Timeline: {p0} - {p1} | Selected: {p2}', p0=first, p1=last, p2=current))
         elif recorder.is_recording:
-            self._slider_time_label.setText(
-                f"Timeline: recording {recorder.elapsed_label()} | waiting for first snapshot"
-            )
+            l10n.display(self._slider_time_label, 'setText', l10n.tr('Timeline: recording {p0} | waiting for first snapshot', p0=recorder.elapsed_label()))
         elif recording_armed:
-            self._slider_time_label.setText("Timeline: recording armed | waiting for run")
+            l10n.display(self._slider_time_label, 'setText', l10n.tr('Timeline: recording armed | waiting for run'))
         else:
-            self._slider_time_label.setText("Timeline: live stats")
+            l10n.display(self._slider_time_label, 'setText', l10n.tr('Timeline: live stats'))
 
     # -- commands -------------------------------------------------------------
 
@@ -263,7 +261,7 @@ class RecordingTimelineView:
         self._requested_index = index
         # Immediate and cheap, so the caption tracks the drag; selecting the
         # snapshot re-renders the whole Live Stats tab, so that is coalesced.
-        self._slider_time_label.setText(self._timeline_range_text(index))
+        l10n.display(self._slider_time_label, 'setText', self._timeline_range_text(index))
         source_id = id(snapshots)
         self._throttle.request(
             lambda: self._select_snapshot(index, source_id=source_id)

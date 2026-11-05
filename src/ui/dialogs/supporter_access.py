@@ -7,6 +7,8 @@ the access contract exposes: activate, check now and remove the saved key.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from datetime import datetime
 
 from PySide6.QtCore import QSize, Qt
@@ -34,7 +36,7 @@ def _format_timestamp(value: datetime | None, *, date_only: bool = False) -> str
         local_value = value.astimezone()
     except (OSError, ValueError):
         local_value = value
-    return local_value.strftime("%d %b %Y" if date_only else "%d %b %Y, %H:%M")
+    return local_value.strftime("%Y-%m-%d" if date_only else "%Y-%m-%d %H:%M")
 
 
 def _repolish(widget: QWidget) -> None:
@@ -78,14 +80,14 @@ class SupporterAccessPage(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root.setSpacing(12)
 
         scroll = QScrollArea(self)
         scroll.setObjectName("SupporterAccessScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        root.addWidget(scroll)
+        root.addWidget(scroll, 1)
 
         content = QWidget(scroll)
         content.setObjectName("SupporterAccessContent")
@@ -94,7 +96,7 @@ class SupporterAccessPage(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(10)
 
-        access_eyebrow = QLabel("YOUR ACCESS", content)
+        access_eyebrow = l10n.localized(QLabel, l10n.tr('YOUR ACCESS'), content)
         access_eyebrow.setObjectName("sectionEyebrow")
         layout.addWidget(access_eyebrow)
 
@@ -109,7 +111,7 @@ class SupporterAccessPage(QWidget):
         state_row.setContentsMargins(0, 0, 0, 0)
         state_row.setSpacing(10)
 
-        self.access_icon = QLabel(self.access_card)
+        self.access_icon = l10n.localized(QLabel, self.access_card)
         self.access_icon.setObjectName("SupportAccessIcon")
         self.access_icon.setAlignment(Qt.AlignCenter)
         self.access_icon.setFixedSize(34, 34)
@@ -120,16 +122,16 @@ class SupporterAccessPage(QWidget):
         state_copy = QVBoxLayout()
         state_copy.setContentsMargins(0, 0, 0, 0)
         state_copy.setSpacing(2)
-        self.access_title = QLabel(self.access_card)
+        self.access_title = l10n.localized(QLabel, self.access_card)
         self.access_title.setObjectName("SupportAccessTitle")
-        self.access_message = QLabel(self.access_card)
+        self.access_message = l10n.localized(QLabel, self.access_card)
         self.access_message.setObjectName("SupportAccessMessage")
         self.access_message.setWordWrap(True)
         state_copy.addWidget(self.access_title)
         state_copy.addWidget(self.access_message)
         state_row.addLayout(state_copy, 1)
 
-        self.status_badge = QLabel(self.access_card)
+        self.status_badge = l10n.localized(QLabel, self.access_card)
         self.status_badge.setObjectName("SupportAccessStatus")
         self.status_badge.setAlignment(Qt.AlignCenter)
         state_row.addWidget(self.status_badge, 0, Qt.AlignTop)
@@ -140,7 +142,7 @@ class SupporterAccessPage(QWidget):
         entry_layout = QVBoxLayout(self.key_entry_panel)
         entry_layout.setContentsMargins(0, 0, 0, 0)
         entry_layout.setSpacing(7)
-        entry_label = QLabel("SUPPORTER KEY", self.key_entry_panel)
+        entry_label = l10n.localized(QLabel, l10n.tr('SUPPORTER KEY'), self.key_entry_panel)
         entry_label.setObjectName("SupportAccessFieldLabel")
         entry_layout.addWidget(entry_label)
         entry_row = QHBoxLayout()
@@ -149,18 +151,15 @@ class SupporterAccessPage(QWidget):
         self.key_entry = QLineEdit(self.key_entry_panel)
         self.key_entry.setObjectName("SupporterKeyEntry")
         self.key_entry.setEchoMode(QLineEdit.Password)
-        self.key_entry.setPlaceholderText("Paste your BSK_ supporter key")
+        l10n.display(self.key_entry, 'setPlaceholderText', l10n.tr('Paste your BSK_ supporter key'))
         self.key_entry.setClearButtonEnabled(True)
-        self.key_entry.setAccessibleName("Supporter key")
+        l10n.display(self.key_entry, 'setAccessibleName', l10n.tr('Supporter key'))
         entry_row.addWidget(self.key_entry, 1)
-        self.activate_button = QPushButton("Activate", self.key_entry_panel)
+        self.activate_button = l10n.localized(QPushButton, l10n.tr('Activate'), self.key_entry_panel)
         self.activate_button.setObjectName("SupportActivateButton")
         entry_row.addWidget(self.activate_button)
         entry_layout.addLayout(entry_row)
-        storage_note = QLabel(
-            "The complete key is stored securely and is not shown again.",
-            self.key_entry_panel,
-        )
+        storage_note = l10n.localized(QLabel, l10n.tr('The complete key is stored securely and is not shown again.'), self.key_entry_panel)
         storage_note.setObjectName("SupportAccessHint")
         storage_note.setWordWrap(True)
         entry_layout.addWidget(storage_note)
@@ -177,9 +176,9 @@ class SupporterAccessPage(QWidget):
         key_display_layout = QHBoxLayout(key_display)
         key_display_layout.setContentsMargins(10, 7, 10, 7)
         key_display_layout.setSpacing(8)
-        key_caption = QLabel("KEY", key_display)
+        key_caption = l10n.localized(QLabel, l10n.tr('KEY'), key_display)
         key_caption.setObjectName("SupportKeyCaption")
-        self.key_hint = QLabel(key_display)
+        self.key_hint = l10n.localized(QLabel, key_display)
         self.key_hint.setObjectName("SupportKeyHint")
         self.key_hint.setTextInteractionFlags(Qt.TextSelectableByMouse)
         key_display_layout.addWidget(key_caption)
@@ -190,10 +189,10 @@ class SupporterAccessPage(QWidget):
         metadata_row.setContentsMargins(0, 0, 0, 0)
         metadata_row.setSpacing(8)
         checked_box, self.checked_value = self._metadata_box(
-            "LAST CHECKED", self.saved_key_panel
+            l10n.tr("LAST CHECKED"), self.saved_key_panel
         )
         expiry_box, self.expiry_value = self._metadata_box(
-            "ACCESS UNTIL", self.saved_key_panel
+            l10n.tr("ACCESS UNTIL"), self.saved_key_panel
         )
         metadata_row.addWidget(checked_box, 1)
         metadata_row.addWidget(expiry_box, 1)
@@ -202,17 +201,17 @@ class SupporterAccessPage(QWidget):
         action_row = QHBoxLayout()
         action_row.setContentsMargins(0, 0, 0, 0)
         action_row.setSpacing(8)
-        self.check_button = QPushButton("Check now", self.saved_key_panel)
+        self.check_button = l10n.localized(QPushButton, l10n.tr('Check now'), self.saved_key_panel)
         self.check_button.setObjectName("SupportCheckButton")
         action_row.addWidget(self.check_button)
         action_row.addStretch(1)
-        self.remove_button = QPushButton("", self.saved_key_panel)
+        self.remove_button = l10n.localized(QPushButton, '', self.saved_key_panel)
         self.remove_button.setObjectName("SupportRemoveButton")
         self.remove_button.setIcon(QIcon(resource_path("media/delete_icon.svg")))
         self.remove_button.setIconSize(QSize(16, 16))
         self.remove_button.setFixedSize(34, 34)
-        self.remove_button.setToolTip("Remove saved supporter key")
-        self.remove_button.setAccessibleName("Remove saved supporter key")
+        l10n.display(self.remove_button, 'setToolTip', l10n.tr('Remove saved supporter key'))
+        l10n.display(self.remove_button, 'setAccessibleName', l10n.tr('Remove saved supporter key'))
         action_row.addWidget(self.remove_button)
         saved_layout.addLayout(action_row)
         card_layout.addWidget(self.saved_key_panel)
@@ -223,7 +222,7 @@ class SupporterAccessPage(QWidget):
         guide_section_layout.setContentsMargins(0, 0, 0, 0)
         guide_section_layout.setSpacing(8)
 
-        guide_eyebrow = QLabel("HOW TO GET ACCESS", self.access_guide_section)
+        guide_eyebrow = l10n.localized(QLabel, l10n.tr('HOW TO GET ACCESS'), self.access_guide_section)
         guide_eyebrow.setObjectName("sectionEyebrow")
         guide_section_layout.addWidget(guide_eyebrow)
 
@@ -232,60 +231,61 @@ class SupporterAccessPage(QWidget):
         guide_layout = QVBoxLayout(self.access_guide)
         guide_layout.setContentsMargins(10, 8, 10, 8)
         guide_layout.setSpacing(4)
-        for number, text in (
-            ("1", "Support BonkScanner via Patreon or Crypto."),
-            ("2", "Receive your personal BSK_ supporter key."),
-            ("3", "Paste it above and press Activate."),
-        ):
+        for number, text in (('1', l10n.tr('Support BonkScanner via Patreon or Crypto.')), ('2', l10n.tr('Receive your personal BSK_ supporter key.')), ('3', l10n.tr('Paste it above and press Activate.'))):
             guide_layout.addWidget(
                 self._guide_step(number, text, self.access_guide),
             )
         guide_section_layout.addWidget(self.access_guide)
         layout.addWidget(self.access_guide_section)
+        layout.addStretch(1)
 
-        support_eyebrow = QLabel("GET A SUPPORTER KEY", content)
+        # Payment and community links stay visible while access details scroll.
+        self.support_links_panel = QWidget(self)
+        self.support_links_panel.setObjectName("SupporterPinnedLinks")
+        links_layout = QVBoxLayout(self.support_links_panel)
+        links_layout.setContentsMargins(4, 0, 4, 0)
+        links_layout.setSpacing(10)
+        root.addWidget(self.support_links_panel)
+
+        support_eyebrow = l10n.localized(QLabel, l10n.tr('GET A SUPPORTER KEY'), self.support_links_panel)
         support_eyebrow.setObjectName("sectionEyebrow")
-        layout.addWidget(support_eyebrow)
+        links_layout.addWidget(support_eyebrow)
 
-        support_note = QLabel(
-            "BonkScanner remains free. Choose a support method to receive a "
-            "personal key for optional supporter features.",
-            content,
-        )
+        support_note = l10n.localized(QLabel, l10n.tr('BonkScanner remains free. Choose a support method to receive a personal key for optional supporter features.'), self.support_links_panel)
         support_note.setObjectName("SupportSectionNote")
         support_note.setWordWrap(True)
-        layout.addWidget(support_note)
+        links_layout.addWidget(support_note)
 
         support_method_row = QHBoxLayout()
         support_method_row.setContentsMargins(0, 0, 0, 0)
         support_method_row.setSpacing(10)
         patreon_card, self.patreon_btn = self._support_method_card(
             platform="patreon",
-            title="Patreon",
-            description="Monthly supporter membership.",
-            button_text="Open Patreon",
+            title=l10n.tr('Patreon'),
+            description=l10n.tr('Monthly supporter membership.'),
+            button_text=l10n.tr('Open Patreon'),
             icon_path="media/patreon_logo.svg",
             callback=open_patreon,
         )
         crypto_card, self.crypto_btn = self._support_method_card(
             platform="crypto",
-            title="Crypto",
-            description="One-time direct support.",
-            button_text="Open Crypto",
+            title=l10n.tr('Crypto'),
+            description=l10n.tr('One-time direct support.'),
+            button_text=l10n.tr('Open Crypto'),
             icon_path="media/crypto_coins.svg",
             callback=open_crypto,
         )
         support_method_row.addWidget(patreon_card, 1)
         support_method_row.addWidget(crypto_card, 1)
-        layout.addLayout(support_method_row)
+        links_layout.addLayout(support_method_row)
 
         self.crypto_btn.setEnabled(bool(crypto_enabled))
         if not crypto_enabled:
-            self.crypto_btn.setToolTip("Crypto support page is coming soon.")
+            l10n.display(self.crypto_btn, 'setToolTip', l10n.tr('Crypto support page is coming soon.'))
 
-        links_label = QLabel("PROJECT LINKS", content)
+        links_label = l10n.localized(QLabel, l10n.tr('PROJECT LINKS'), self.support_links_panel)
         links_label.setObjectName("SupportLinksLabel")
-        layout.addWidget(links_label)
+        links_layout.addWidget(links_label)
 
         links_row = QHBoxLayout()
         links_row.setContentsMargins(0, 0, 0, 0)
@@ -298,8 +298,7 @@ class SupporterAccessPage(QWidget):
         )
         links_row.addWidget(self.github_btn, 1)
         links_row.addWidget(self.discord_btn, 1)
-        layout.addLayout(links_row)
-        layout.addStretch(1)
+        links_layout.addLayout(links_row)
 
         self.key_entry.textChanged.connect(self._sync_action_states)
         self.key_entry.returnPressed.connect(self.activate_key)
@@ -328,9 +327,9 @@ class SupporterAccessPage(QWidget):
         box_layout = QVBoxLayout(box)
         box_layout.setContentsMargins(9, 7, 9, 7)
         box_layout.setSpacing(3)
-        label = QLabel(caption, box)
+        label = l10n.localized(QLabel, caption, box)
         label.setObjectName("SupportMetaLabel")
-        value = QLabel("—", box)
+        value = l10n.localized(QLabel, '—', box)
         value.setObjectName("SupportMetaValue")
         box_layout.addWidget(label)
         box_layout.addWidget(value)
@@ -348,13 +347,13 @@ class SupporterAccessPage(QWidget):
         step_layout.setContentsMargins(0, 0, 0, 0)
         step_layout.setSpacing(7)
 
-        number_label = QLabel(number, step)
+        number_label = l10n.localized(QLabel, number, step)
         number_label.setObjectName("SupportGuideNumber")
         number_label.setAlignment(Qt.AlignCenter)
         number_label.setFixedSize(18, 18)
         step_layout.addWidget(number_label, 0, Qt.AlignTop)
 
-        text_label = QLabel(text, step)
+        text_label = l10n.localized(QLabel, text, step)
         text_label.setObjectName("SupportGuideStepText")
         text_label.setWordWrap(True)
         step_layout.addWidget(text_label, 1)
@@ -377,16 +376,16 @@ class SupporterAccessPage(QWidget):
         card_layout.setContentsMargins(12, 11, 12, 12)
         card_layout.setSpacing(5)
 
-        title_label = QLabel(title, card)
+        title_label = l10n.localized(QLabel, title, card)
         title_label.setObjectName("SupportMethodTitle")
-        description_label = QLabel(description, card)
+        description_label = l10n.localized(QLabel, description, card)
         description_label.setObjectName("SupportMethodDescription")
         description_label.setWordWrap(True)
         card_layout.addWidget(title_label)
         card_layout.addWidget(description_label)
         card_layout.addStretch(1)
 
-        button = QPushButton(button_text, card)
+        button = l10n.localized(QPushButton, button_text, card)
         button.setObjectName(
             "SupportPatreonPrimary"
             if platform == "patreon"
@@ -404,7 +403,7 @@ class SupporterAccessPage(QWidget):
         icon_path: str,
         callback,
     ) -> QPushButton:
-        button = QPushButton(text)
+        button = l10n.localized(QPushButton, text)
         button.setObjectName("SupportSecondaryLink")
         button.setIcon(QIcon(resource_path(icon_path)))
         button.setIconSize(QSize(15, 15))
@@ -440,14 +439,7 @@ class SupporterAccessPage(QWidget):
     def remove_key(self) -> None:
         if self._controller is None or self._state is None:
             return
-        confirmed = QMessageBox.question(
-            self,
-            "Remove Supporter Key",
-            "Remove the saved supporter key from this PC?\n\n"
-            "Premium features will be disabled immediately.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        confirmed = QMessageBox.question(self, l10n.tr('Remove Supporter Key'), l10n.tr('Remove the saved supporter key from this PC?\n\nPremium features will be disabled immediately.'), QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if confirmed == QMessageBox.Yes:
             self._controller.remove_key()
 
@@ -457,22 +449,18 @@ class SupporterAccessPage(QWidget):
     def _render_state(self, state) -> None:
         self._state = state
         presentation = self._presentation(state)
-        self.access_title.setText(presentation[0])
-        self.status_badge.setText(presentation[1])
+        l10n.display(self.access_title, 'setText', presentation[0])
+        l10n.display(self.status_badge, 'setText', presentation[1])
         self.status_badge.setProperty("tone", presentation[2])
         _repolish(self.status_badge)
 
         if state is None:
-            self.access_message.setText(
-                "Supporter access is unavailable in this application context."
-            )
+            l10n.display(self.access_message, 'setText', l10n.tr('Supporter access is unavailable in this application context.'))
             has_key = False
             checking = False
             active = False
         else:
-            self.access_message.setText(
-                str(getattr(state, "message", "") or presentation[3])
-            )
+            l10n.display(self.access_message, 'setText', l10n.status_message(getattr(state, 'message', ''), presentation[3]))
             has_key = bool(getattr(state, "has_key", False))
             checking = bool(getattr(state, "checking", False))
             active = bool(getattr(state, "active", False))
@@ -480,14 +468,10 @@ class SupporterAccessPage(QWidget):
         self.key_entry_panel.setVisible(not has_key)
         self.saved_key_panel.setVisible(has_key)
         if has_key:
-            self.key_hint.setText(str(getattr(state, "key_hint", "") or "Saved key"))
-            self.checked_value.setText(
-                _format_timestamp(getattr(state, "checked_at", None))
-            )
+            l10n.display(self.key_hint, 'setText', getattr(state, 'key_hint', '') or l10n.tr('Saved key'))
+            l10n.display(self.checked_value, 'setText', _format_timestamp(getattr(state, 'checked_at', None)))
             expiry = getattr(state, "expires_at", None)
-            self.expiry_value.setText(
-                _format_timestamp(expiry, date_only=True) if expiry else "No expiry"
-            )
+            l10n.display(self.expiry_value, 'setText', _format_timestamp(expiry, date_only=True) if expiry else l10n.tr('No expiry'))
         if has_key and not checking:
             self.key_entry.clear()
 
@@ -509,105 +493,105 @@ class SupporterAccessPage(QWidget):
     def _presentation(state) -> tuple[str, str, str, str]:
         if state is None:
             return (
-                "Supporter access unavailable",
-                "UNAVAILABLE",
+                l10n.tr('Supporter access unavailable'),
+                l10n.tr('UNAVAILABLE'),
                 "neutral",
-                "Supporter access is unavailable.",
+                l10n.tr('Supporter access is unavailable.'),
             )
         if bool(getattr(state, "checking", False)):
             return (
-                "Checking supporter access",
-                "CHECKING",
+                l10n.tr('Checking supporter access'),
+                l10n.tr('CHECKING'),
                 "checking",
-                "Contacting the supporter service…",
+                l10n.tr('Contacting the supporter service…'),
             )
         status = str(getattr(state, "status", "") or "")
         presentations = {
             "no_key": (
-                "Add your supporter key",
-                "NO KEY",
+                l10n.tr('Add your supporter key'),
+                l10n.tr('NO KEY'),
                 "neutral",
-                "Enter the personal key you received after supporting BonkScanner.",
+                l10n.tr('Enter the personal key you received after supporting BonkScanner.'),
             ),
             "unchecked": (
-                "Saved supporter key",
-                "NOT CHECKED",
+                l10n.tr('Saved supporter key'),
+                l10n.tr('NOT CHECKED'),
                 "neutral",
-                "The saved key has not been checked yet.",
+                l10n.tr('The saved key has not been checked yet.'),
             ),
             "active_subscription": (
-                "Premium subscription",
-                "ACTIVE",
+                l10n.tr('Premium subscription'),
+                l10n.tr('ACTIVE'),
                 "active",
-                "Premium subscription is active.",
+                l10n.tr('Premium subscription is active.'),
             ),
             "active_supporter": (
-                "Supporter access",
-                "ACTIVE",
+                l10n.tr('Supporter access'),
+                l10n.tr('ACTIVE'),
                 "active",
-                "Supporter privileges are active.",
+                l10n.tr('Supporter privileges are active.'),
             ),
             "cached_valid": (
-                "Premium access",
-                "OFFLINE READY",
+                l10n.tr('Premium access'),
+                l10n.tr('OFFLINE READY'),
                 "cached",
-                "Using recently verified access while the service is unavailable.",
+                l10n.tr('Using recently verified access while the service is unavailable.'),
             ),
             "expired": (
-                "Access expired",
-                "EXPIRED",
+                l10n.tr('Access expired'),
+                l10n.tr('EXPIRED'),
                 "warning",
-                "This access period has expired.",
+                l10n.tr('This access period has expired.'),
             ),
             "invalid": (
-                "Key not recognized",
-                "INVALID",
+                l10n.tr('Key not recognized'),
+                l10n.tr('INVALID'),
                 "danger",
-                "This supporter key was not recognized.",
+                l10n.tr('This supporter key was not recognized.'),
             ),
             "inactive": (
-                "Plan inactive",
-                "INACTIVE",
+                l10n.tr('Plan inactive'),
+                l10n.tr('INACTIVE'),
                 "warning",
-                "The assigned plan is currently inactive.",
+                l10n.tr('The assigned plan is currently inactive.'),
             ),
             "no_access": (
-                "No access plan",
-                "NO ACCESS",
+                l10n.tr('No access plan'),
+                l10n.tr('NO ACCESS'),
                 "warning",
-                "This key has no active access plan.",
+                l10n.tr('This key has no active access plan.'),
             ),
             "pending": (
-                "Access pending",
-                "PENDING",
+                l10n.tr('Access pending'),
+                l10n.tr('PENDING'),
                 "neutral",
-                "This access period has not started yet.",
+                l10n.tr('This access period has not started yet.'),
             ),
             "revoked": (
-                "Access revoked",
-                "REVOKED",
+                l10n.tr('Access revoked'),
+                l10n.tr('REVOKED'),
                 "danger",
-                "This supporter key has been revoked.",
+                l10n.tr('This supporter key has been revoked.'),
             ),
             "suspended": (
-                "Access suspended",
-                "SUSPENDED",
+                l10n.tr('Access suspended'),
+                l10n.tr('SUSPENDED'),
                 "danger",
-                "Supporter access is suspended.",
+                l10n.tr('Supporter access is suspended.'),
             ),
             "offline_unknown": (
-                "Could not verify access",
-                "OFFLINE",
+                l10n.tr('Could not verify access'),
+                l10n.tr('OFFLINE'),
                 "warning",
-                "The supporter service could not be reached.",
+                l10n.tr('The supporter service could not be reached.'),
             ),
         }
         return presentations.get(
             status,
             (
-                "Supporter access",
-                "UNKNOWN",
+                l10n.tr('Supporter access'),
+                l10n.tr('UNKNOWN'),
                 "neutral",
-                "Supporter access has not been checked.",
+                l10n.tr('Supporter access has not been checked.'),
             ),
         )

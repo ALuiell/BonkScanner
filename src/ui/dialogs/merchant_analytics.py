@@ -1,6 +1,8 @@
 """Non-modal Shady Guy lifetime analytics window."""
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
@@ -46,36 +48,29 @@ class MerchantAnalyticsWindow(QDialog):
             item.item_id: QColor(ITEM_RARITY_COLOR_MAP[item.rarity])
             for item in ITEMS if item.rarity in ITEM_RARITY_COLOR_MAP
         }
-        self.setWindowTitle("Shady Guy Analytics")
+        l10n.display(self, 'setWindowTitle', l10n.tr('Shady Guy Analytics'))
         self.setModal(False)
 
         self._status = QLabel()
         self._status.setObjectName("dialogSubtitle")
-        layout = dialog_body(
-            self,
-            title="Shady Guy Analytics",
-            subtitle="Lifetime item availability from the merchants you have viewed.",
-            title_trailing=self._status,
-            width=DIALOG_WIDE,
-            height=DIALOG_TALL,
-        )
+        layout = dialog_body(self, title=l10n.tr('Shady Guy Analytics'), subtitle=l10n.tr('Lifetime item availability from the merchants you have viewed.'), title_trailing=self._status, width=DIALOG_WIDE, height=DIALOG_TALL)
 
         filters = QHBoxLayout()
         self._family = QComboBox()
-        self._family.addItem("All map families", None)
-        self._family.addItem("Forest / Desert", "forest_desert")
-        self._family.addItem("Graveyard", "graveyard")
+        l10n.combo_item(self._family, l10n.tr('All map families'), None)
+        l10n.combo_item(self._family, l10n.tr('Forest / Desert'), 'forest_desert')
+        l10n.combo_item(self._family, l10n.tr('Graveyard'), 'graveyard')
         self._stage = QComboBox()
-        self._stage.addItem("All stages", None)
+        l10n.combo_item(self._stage, l10n.tr('All stages'), None)
         for stage in range(1, 5):
-            self._stage.addItem(f"Stage {stage}", stage)
+            l10n.combo_item(self._stage, l10n.tr('Stage {p0}', p0=stage), stage)
         self._item_sort = CompactItemsSortComboBox()
-        self._item_sort.addItem("Most offered", "default")
-        self._item_sort.addItem("Rarity: high to low", "rarity_desc")
-        self._item_sort.addItem("Rarity: low to high", "rarity_asc")
+        l10n.combo_item(self._item_sort, l10n.tr('Most offered'), 'default')
+        l10n.combo_item(self._item_sort, l10n.tr('Rarity: high to low'), 'rarity_desc')
+        l10n.combo_item(self._item_sort, l10n.tr('Rarity: low to high'), 'rarity_asc')
         self._item_sort.setCurrentIndex(self._item_sort.findData("rarity_desc"))
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search item name or ID")
+        l10n.display(self._search, 'setPlaceholderText', l10n.tr('Search item name or ID'))
         for widget in (self._family, self._stage, self._item_sort):
             widget.currentIndexChanged.connect(self.refresh)
             filters.addWidget(widget)
@@ -88,10 +83,10 @@ class MerchantAnalyticsWindow(QDialog):
         totals = QGridLayout(summary)
         totals.setContentsMargins(16, 12, 16, 12)
         totals.setHorizontalSpacing(24)
-        self._merchants = QLabel("0")
-        self._offers = QLabel("0")
+        self._merchants = l10n.localized(QLabel, '0')
+        self._offers = l10n.localized(QLabel, '0')
         for column, caption in enumerate(("MERCHANTS VIEWED", "OFFERS RECORDED", "MERCHANT RARITIES")):
-            label = QLabel(caption)
+            label = l10n.localized(QLabel, caption)
             label.setObjectName("kpiLabel")
             totals.addWidget(label, 0, column)
         for value in (self._merchants, self._offers):
@@ -106,7 +101,7 @@ class MerchantAnalyticsWindow(QDialog):
             badge.setCheckable(True)
             badge.setAutoDefault(False)
             badge.setCursor(Qt.PointingHandCursor)
-            badge.setToolTip(f"Filter by {name} merchants. Click again to show all rarities.")
+            l10n.display(badge, 'setToolTip', l10n.tr('Filter by {p0} merchants. Click again to show all rarities.', p0=name))
             badge.setStyleSheet(
                 f"QPushButton {{ color: {color}; background: #161D25; border: 1px solid transparent;"
                 " border-radius: 6px; padding: 6px 9px; min-width: 0; }"
@@ -122,9 +117,7 @@ class MerchantAnalyticsWindow(QDialog):
         layout.addWidget(summary)
 
         self._table = QTableWidget(0, 3)
-        self._table.setHorizontalHeaderLabels(
-            ("Item", "Offers", "% of viewed merchants")
-        )
+        l10n.table_headers(self._table, (l10n.tr('Item'), l10n.tr('Offers'), l10n.tr('% of viewed merchants')))
         self._table.setShowGrid(False)
         self._table.setStyleSheet("QTableWidget::item { border-bottom: 1px solid #1D2730; padding: 6px 12px; }")
         self._table.verticalHeader().setDefaultSectionSize(38)
@@ -140,14 +133,14 @@ class MerchantAnalyticsWindow(QDialog):
             self._table.setColumnWidth(column, width)
         layout.addWidget(self._table, 1)
 
-        data = QPushButton("Data")
+        data = l10n.localized(QPushButton, l10n.tr('Data'))
         menu = QMenu(data)
-        menu.addAction("Export JSON…", self._export)
-        menu.addAction("Open data folder", self._open_folder)
+        l10n.menu_action(menu, l10n.tr('Export JSON…'), self._export)
+        l10n.menu_action(menu, l10n.tr('Open data folder'), self._open_folder)
         menu.addSeparator()
-        menu.addAction("Clear history…", self._clear)
+        l10n.menu_action(menu, l10n.tr('Clear history…'), self._clear)
         data.setMenu(menu)
-        close = QPushButton("Close")
+        close = l10n.localized(QPushButton, l10n.tr('Close'))
         close.clicked.connect(self.close)
         dialog_footer(
             self,
@@ -174,15 +167,15 @@ class MerchantAnalyticsWindow(QDialog):
         premium = bool(self._app.has_premium_access())
         status = self._service.status()
         if status.error:
-            status_text = "Collection paused · Storage error"
+            status_text = l10n.tr('Collection paused · Storage error')
         elif enabled and premium:
-            status_text = f"Collection active · {status.session_recorded} recorded this session"
+            status_text = l10n.tr('Collection active · {p0} recorded this session', p0=status.session_recorded)
         elif enabled:
-            status_text = "Collection paused · Premium required"
+            status_text = l10n.tr('Collection paused · Premium required')
         else:
-            status_text = "Collection off"
-        self._status.setText(status_text)
-        self._status.setToolTip(status.error or "Manage collection in Session Stats. Saved history remains available.")
+            status_text = l10n.tr('Collection off')
+        l10n.display(self._status, 'setText', status_text)
+        l10n.display(self._status, 'setToolTip', status.error or l10n.tr('Manage collection in Session Stats. Saved history remains available.'))
 
         map_family = self._family.currentData()
         stage = self._stage.currentData()
@@ -206,11 +199,11 @@ class MerchantAnalyticsWindow(QDialog):
             merchant_rarity=merchant_rarity,
             search=search,
         )
-        self._merchants.setText(f"{snapshot.merchants:,}")
-        self._offers.setText(f"{snapshot.offers:,}")
+        l10n.display(self._merchants, 'setText', f'{snapshot.merchants:,}')
+        l10n.display(self._offers, 'setText', f'{snapshot.offers:,}')
         rarity_values = dict(snapshot.rarity_counts)
         for name, badge in self._rarities.items():
-            badge.setText(f"{name.title()} {rarity_values.get(name, 0):,}")
+            l10n.display(badge, 'setText', f'{name.title()} {rarity_values.get(name, 0):,}')
         rows = snapshot.rows
         if item_sort in ("rarity_desc", "rarity_asc"):
             ranks = {item.item_id: ITEM_RARITY_SORT_ORDER.get(item.rarity) for item in ITEMS}
@@ -229,12 +222,9 @@ class MerchantAnalyticsWindow(QDialog):
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                item.setToolTip(f"{row.display_name} · ID {row.item_id}")
+                l10n.display(item, 'setToolTip', l10n.tr('{p0} · ID {p1}', p0=row.display_name, p1=row.item_id))
                 if column == 2:
-                    item.setToolTip(
-                        f"Available at {row.merchant_count:,} of {snapshot.merchants:,} viewed merchants"
-                        " matching the current filters."
-                    )
+                    l10n.display(item, 'setToolTip', l10n.tr('Available at {p0:,} of {p1:,} viewed merchants matching the current filters.', p0=row.merchant_count, p1=snapshot.merchants))
                 if column:
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 elif row.item_id in self._item_colors:
@@ -262,38 +252,20 @@ class MerchantAnalyticsWindow(QDialog):
         else:
             reason = "Windows did not accept the folder request."
         if not opened:
-            show_app_notice(
-                self,
-                title="Could not open folder",
-                subtitle="Shady Guy analytics",
-                message=f"BonkScanner could not open this folder.\n\n{folder}\n\n{reason}",
-                danger=True,
-            )
+            show_app_notice(self, title=l10n.tr('Could not open folder'), subtitle=l10n.tr('Shady Guy analytics'), message=l10n.tr('BonkScanner could not open this folder.\n\n{p0}\n\n{p1}', p0=folder, p1=reason), danger=True)
 
     def _export(self) -> None:
-        filename, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Shady Guy analytics",
-            str(Path(self._service.store.path.parent) / "shady_guy_analytics.json"),
-            "JSON files (*.json)",
-        )
+        filename, _ = QFileDialog.getSaveFileName(self, l10n.tr('Export Shady Guy analytics'), str(Path(self._service.store.path.parent) / 'shady_guy_analytics.json'), 'JSON files (*.json)')
         if not filename:
             return
         try:
             self._service.export_json(filename)
         except Exception as exc:
-            QMessageBox.warning(self, "Export failed", str(exc))
+            QMessageBox.warning(self, l10n.tr('Export failed'), str(exc))
 
     def _clear(self) -> None:
         status = self._service.status()
-        answer = QMessageBox.question(
-            self,
-            "Clear Shady Guy history",
-            f"Delete {status.total_recorded:,} saved merchant observations?\n\n"
-            "Collection will be turned off.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        answer = QMessageBox.question(self, l10n.tr('Clear Shady Guy history'), l10n.tr('Delete {p0:,} saved merchant observations?\n\nCollection will be turned off.', p0=status.total_recorded), QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
         self._toggle_collection(False)
@@ -302,7 +274,7 @@ class MerchantAnalyticsWindow(QDialog):
         try:
             self._service.clear()
         except Exception as exc:
-            QMessageBox.warning(self, "Clear failed", str(exc))
+            QMessageBox.warning(self, l10n.tr('Clear failed'), str(exc))
         self.refresh()
 
 
@@ -330,7 +302,7 @@ def set_merchant_analytics_collection(app, enabled: bool, *, parent=None) -> boo
         )
     )
     if not result.success:
-        QMessageBox.warning(parent, "Shady Guy Analytics", result.reason)
+        QMessageBox.warning(parent, l10n.tr('Shady Guy Analytics'), result.reason)
         return current
     config.MERCHANT_ANALYTICS_ENABLED = enabled
     config.user_config["MERCHANT_ANALYTICS_ENABLED"] = enabled

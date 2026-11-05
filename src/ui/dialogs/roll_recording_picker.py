@@ -1,6 +1,8 @@
 """Recording selection and a cancellable, bounded loading lane for Roll Analytics."""
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from pathlib import Path
 import weakref
 
@@ -30,11 +32,11 @@ class RollRecordingPicker(QWidget):
         self.combo = QComboBox(self)
         self.combo.setMinimumContentsLength(16)
         self.combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.combo.setToolTip("Choose a saved recording; active recordings are excluded.")
+        l10n.display(self.combo, 'setToolTip', l10n.tr('Choose a saved recording; active recordings are excluded.'))
         self.combo.currentIndexChanged.connect(self._choose_current)
-        self.latest_button = QPushButton("Latest saved", self)
+        self.latest_button = l10n.localized(QPushButton, l10n.tr('Latest saved'), self)
         self.latest_button.clicked.connect(self._latest)
-        self.open_button = QPushButton("Open file…", self)
+        self.open_button = l10n.localized(QPushButton, l10n.tr('Open file…'), self)
         self.open_button.clicked.connect(self._browse)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -89,7 +91,7 @@ class RollRecordingPicker(QWidget):
         try:
             self.combo.clear()
             for entry in entries:
-                self.combo.addItem(f"{entry.name} · {entry.created_label}", str(entry.path))
+                l10n.combo_item(self.combo, f'{entry.name} · {entry.created_label}', str(entry.path))
             selected = self.combo.findData(old_path) if old_path else -1
             if old_path and selected < 0:
                 # An explicitly opened external file need not be in the app library.
@@ -109,9 +111,7 @@ class RollRecordingPicker(QWidget):
             self._choose_current()
 
     def _browse(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select recording", str(self.path.parent) if self.path else "", "BonkScanner recordings (*.jsonl)",
-        )
+        path, _ = QFileDialog.getOpenFileName(self, l10n.tr('Select recording'), str(self.path.parent) if self.path else '', 'BonkScanner recordings (*.jsonl)')
         if path:
             self.select_path(Path(path))
 
@@ -143,7 +143,7 @@ class RollRecordingPicker(QWidget):
             self.combo.blockSignals(False)
         self.combo.blockSignals(True)
         self.combo.setCurrentIndex(selected)
-        self.combo.setToolTip(str(path))
+        l10n.display(self.combo, 'setToolTip', str(path))
         self.combo.blockSignals(False)
         self.loading = True
         self.changed.emit()

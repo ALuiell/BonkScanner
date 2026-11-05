@@ -35,6 +35,7 @@ import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 import gui_run_control
 import gui_scanner
 from app import config
+from core.game_state import MapGenerationState, RuntimeGameMode, RuntimeGameState
 from infra.keyboard_run_control import KeyboardRunControlProvider
 from tests.support.scanner import (
     AliveThread,
@@ -716,6 +717,125 @@ class ScanLifecycleTests(unittest.TestCase):
         self.assertIn(
             ("[*] Scan started. Looking for selected target...", None), scanner.calls["log"]
         )
+
+    def test_found_target_hotkey_only_resets_the_confirmed_map_once(self) -> None:
+        scenarios = (
+            "double", "disabled", "single", "held", "slow",
+            "focus", "changed", "movement", "stop", "timeout",
+        )
+        for scenario in scenarios:
+            with self.subTest(scenario=scenario):
+                self._exercise_found_target_hotkey(scenario)
+
+    def _exercise_found_target_hotkey(self, scenario: str) -> None:
+        restart = MagicMock()
+        timers = []
+
+        def schedule(delay, callback):
+            if delay:
+                timers.append(callback)
+            else:
+                callback()
+
+        scanner, run_control = build_pair(provider=SimpleNamespace(restart_run=restart), schedule=schedule)
+        keyboard = FakeKeyboardModule()
+        scanner.scanner_thread = AliveThread()
+        scanner.is_running = scanner.is_ready_to_start = True
+        scanner.scan_event.set()
+        state = MapGenerationState(map_seed=123, current_map_ptr=1, current_stage_ptr=2)
+        new_state = MapGenerationState(map_seed=456, current_map_ptr=3, current_stage_ptr=4)
+        stats = {"Moais": 4}
+        second_stats = {"Moais": 5}
+        checked_stats = []
+        next_map = TimeoutError("unchanged") if scenario == "timeout" else second_stats
+        ready = MagicMock(side_effect=[stats, next_map])
+        scanner.client = SimpleNamespace(
+            memory=SimpleNamespace(_pm=SimpleNamespace(process_id=101)),
+            last_ready_state=state,
+            wait_for_map_ready=ready,
+            get_map_generation_state=lambda *, strict: new_state if scenario == "changed" else state,
+            get_runtime_activity_state=lambda: RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
+        )
+        run_control.is_game_window_active = lambda _name: True
+        run_control.wait_for_game_window_focus = lambda _name: True
+        foreground_pid = 101
+
+        def read_foreground_pid(_name):
+            if scenario == "stop" and sent_gesture:
+                scanner.stop_event.set()
+            return foreground_pid
+
+        run_control.foreground_game_process_id = read_foreground_pid
+        def confirm_target(_name):
+            if len(checked_stats) == 2:
+                scanner.stop_event.set()
+            return True
+
+        run_control.handle_confirmed_target_window = confirm_target
+        sent_gesture = False
+        iterations = 0
+        original_wait = scanner.scan_event.wait
+
+        def evaluate(current, _templates, *, context):
+            checked_stats.append(current)
+            return {"name": "Perfect", "color": "GREEN"}
+
+        def emit_scan_key(event_type):
+            keyboard.hook_calls[0](
+                SimpleNamespace(scan_code=keyboard.key_to_scan_codes("f6")[0], event_type=event_type)
+            )
+
+        def wait(timeout):
+            nonlocal sent_gesture, foreground_pid, iterations
+            iterations += 1
+            if iterations > 3:
+                self.fail(f"Scanner did not finish the scenario: {scanner.calls['log']}")
+            if scanner.pause_reason == "target_found" and not sent_gesture:
+                sent_gesture = True
+                emit_scan_key("down")
+                self.assertEqual(scanner.is_running, scenario == "disabled")
+                if scenario != "held":
+                    emit_scan_key("up")
+                if scenario != "single":
+                    clock[0] += 0.6 if scenario == "slow" else 0.2
+                    emit_scan_key("down")
+                    emit_scan_key("up")
+                for callback in timers:
+                    callback()
+                if scenario == "focus":
+                    foreground_pid = None
+                if scenario == "movement":
+                    run_control.is_player_movement_pressed = lambda: True
+            if scanner.pause_reason == "manual":
+                scanner.stop_event.set()
+                scanner.scan_event.set()
+            return original_wait(timeout)
+
+        scanner.scan_event.wait = wait
+        clock = [1.0]
+        with patch.dict(config.user_config, {"FORCE_RESET_ON_DOUBLE_TAP": scenario != "disabled"}), \
+                patch.object(config, "HOTKEY", "f6"), \
+                patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True), \
+                patch.object(config, "TOTAL_REROLLS", 0), \
+                patch.object(time, "monotonic", lambda: clock[0]), \
+                patch.object(gui_run_control, "keyboard", keyboard), \
+                patch.object(gui_scanner, "adapt_map_stats", lambda raw: raw), \
+                patch.object(gui_scanner, "evaluate_candidate", evaluate):
+            run_control.setup_hotkeys()
+            self.addCleanup(run_control.stop_hotkeys)
+            scanner._run_background_loop()
+
+        if scenario in ("double", "timeout"):
+            restart.assert_called_once_with()
+            self.assertTrue(ready.call_args.kwargs["require_change"])
+            self.assertEqual(ready.call_args.kwargs["previous_state"], state)
+            self.assertEqual(ready.call_args.kwargs["previous_stats"], stats)
+            self.assertEqual(checked_stats, [stats, second_stats] if scenario == "double" else [stats])
+        else:
+            restart.assert_not_called()
+            self.assertFalse(ready.call_args.kwargs["require_change"])
+            resumed = scenario in ("single", "held", "slow")
+            self.assertEqual(ready.call_count, 2 if resumed else 1)
 
     def test_hotkey_refuses_late_forest_and_desert_stages(self) -> None:
         for stage_index in (2, 3, 4):

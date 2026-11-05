@@ -17,6 +17,7 @@ from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication, QLabel
 
 from app import config
+from app.config_repository import ConfigRepository
 from ui.dialogs import GameResetTimeNoticeDialog, SettingsDialog
 
 
@@ -34,7 +35,8 @@ class ResetTimingSyncTests(unittest.TestCase):
         self.running = False
         self.stack.enter_context(patch.object(config, "get_game_config_path", return_value=str(self.game_path)))
         self.stack.enter_context(patch.object(config, "config_path", str(self.scanner_path)))
-        self.stack.enter_context(patch.object(config, "_repository", None))
+        self.repository = ConfigRepository(self.scanner_path)
+        self.stack.enter_context(patch.object(config, "_repository", self.repository))
         self.stack.enter_context(patch.object(config, "user_config", deepcopy(config.user_config)))
         for name in (
             "HOTKEY", "RESET_HOTKEY", "PLAYER_STATS_RECORD_HOTKEY", "IN_GAME_OVERLAY_EDIT_HOTKEY",
@@ -57,6 +59,7 @@ class ResetTimingSyncTests(unittest.TestCase):
         config.RESET_HOLD_SAFETY_MARGIN = margin
         config.user_config.update(RESET_HOLD_DURATION=hold, RESET_HOLD_SAFETY_MARGIN=margin)
         self.scanner_path.write_text(json.dumps(config.user_config), encoding="utf-8")
+        self.repository.load()
         master = SimpleNamespace(is_game_running=lambda: self.running)
         dialog = SettingsDialog(None, master=master)
         self.notice = self.stack.enter_context(patch.object(SettingsDialog, "_show_game_reset_notice"))
@@ -99,6 +102,26 @@ class ResetTimingSyncTests(unittest.TestCase):
         with patch.object(dialog, "save", wraps=dialog.save) as save:
             dialog._on_primary_action()
         save.assert_called_once_with()
+
+    def test_double_press_reset_is_opt_in_and_persists_as_a_scanner_setting(self):
+        self.running = True
+        config.user_config.pop("FORCE_RESET_ON_DOUBLE_TAP", None)
+        dialog = self.make_dialog()
+        dialog.show_page("restart")
+        original_game = self.game_path.read_bytes()
+        checkbox = dialog.force_reset_on_double_tap_var
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(checkbox))
+        self.assertFalse(checkbox.isChecked())
+        checkbox.click()
+        self.assertTrue(dialog.save(close_dialog=False))
+        self.assertIs(json.loads(self.scanner_path.read_text())["FORCE_RESET_ON_DOUBLE_TAP"], True)
+        checkbox.setChecked(False)
+        dialog.reload_from_config()
+        self.assertTrue(checkbox.isChecked())
+        checkbox.click()
+        self.assertTrue(dialog.save(close_dialog=False))
+        self.assertIs(json.loads(self.scanner_path.read_text())["FORCE_RESET_ON_DOUBLE_TAP"], False)
+        self.assertEqual(self.game_path.read_bytes(), original_game)
 
     def test_tab_switches_preserve_reset_draft_and_refresh_game_status(self):
         self.running = True

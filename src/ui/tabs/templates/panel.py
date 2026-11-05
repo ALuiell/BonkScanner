@@ -50,6 +50,8 @@ the app.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from copy import deepcopy
 from typing import Callable
 
@@ -103,16 +105,22 @@ class _ElidedLabel(QLabel):
 
     def __init__(self, text: str) -> None:
         super().__init__()
+        self._message = l10n.preserve(text)
         self._full_text = str(text)
+        l10n.RefreshBinding(self, self._refresh_message)
+
+    def _refresh_message(self):
+        self._full_text = str(self._message)
         super().setText(self._full_text)
+        self.updateGeometry()
 
     @property
     def full_text(self) -> str:
         return self._full_text
 
     def setText(self, text: str) -> None:
-        self._full_text = str(text)
-        super().setText(self._full_text)
+        self._message = l10n.preserve(text)
+        self._refresh_message()
 
     def minimumSizeHint(self) -> QSize:
         hint = super().minimumSizeHint()
@@ -125,8 +133,8 @@ class _ElidedLabel(QLabel):
             self._full_text, Qt.ElideRight, available
         )
         if self.text() != displayed:
-            super().setText(displayed)
-        self.setToolTip(self._full_text if displayed != self._full_text else "")
+            l10n.display(super(), 'setText', displayed)
+        l10n.display(self, 'setToolTip', self._full_text if displayed != self._full_text else '')
 
 
 class _DragHandle(QWidget):
@@ -209,7 +217,7 @@ class _TemplateRow(QFrame):
         self.checkbox.setChecked(bool(active))
         layout.addWidget(self.checkbox)
 
-        self.name_label = QLabel(str(template.get("name", "")))
+        self.name_label = l10n.localized(QLabel, l10n.template_name(template))
         self.name_label.setObjectName("TemplateName")
         self.name_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
         layout.addWidget(self.name_label)
@@ -395,7 +403,7 @@ class _ScoreTierRow(QFrame):
         self.checkbox.setChecked(bool(active))
         layout.addWidget(self.checkbox)
 
-        self.name_label = QLabel(tier.upper())
+        self.name_label = l10n.localized(QLabel, l10n.preset_name(tier, uppercase=True))
         self.name_label.setObjectName("ScoreTierName")
         self.name_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
         layout.addWidget(self.name_label)
@@ -411,7 +419,7 @@ class _ScoreTierRow(QFrame):
         self._apply_style()
 
     def set_summary(self, threshold: float) -> None:
-        self.meta_label.setText(f"{_format_number(threshold)}+")
+        l10n.display(self.meta_label, 'setText', f'{_format_number(threshold)}+')
 
     def _apply_style(self, *_args) -> None:
         checked = self.checkbox.isChecked()
@@ -481,7 +489,7 @@ class _ScoreValueRow(QFrame):
 
         line = QHBoxLayout()
         line.setContentsMargins(0, 0, 0, 0)
-        self.name_label = QLabel(label)
+        self.name_label = l10n.localized(QLabel, l10n.term(label))
         self.name_label.setObjectName("ScoreValueLabel")
         line.addWidget(self.name_label)
         line.addStretch(1)
@@ -491,7 +499,7 @@ class _ScoreValueRow(QFrame):
         layout.addLayout(line)
 
         if note:
-            note_label = QLabel(note)
+            note_label = l10n.localized(QLabel, note)
             note_label.setObjectName("ScoresInlineNote")
             note_label.setWordWrap(True)
             layout.addWidget(note_label)
@@ -503,7 +511,7 @@ class _ScoreValueRow(QFrame):
             text, tone = f"−{_format_number(abs(value))}", "negative"
         else:
             text, tone = "0  ·  ignored", "ignored"
-        self.value_label.setText(text)
+        l10n.display(self.value_label, 'setText', text)
         self.value_label.setProperty("tone", tone)
         self.value_label.style().unpolish(self.value_label)
         self.value_label.style().polish(self.value_label)
@@ -518,35 +526,30 @@ class _ScoresOverview(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        points_card, points_layout = _scores_card(
-            "Shrine Points",
-            "Positive rewards  ·  0 ignores  ·  Negative penalizes",
-        )
+        points_card, points_layout = _scores_card(l10n.tr('Shrine Points'), l10n.tr('Positive rewards  ·  0 ignores  ·  Negative penalizes'))
         self.point_rows = {
-            "moais": _ScoreValueRow("Moais"),
-            "shady": _ScoreValueRow("Shady"),
-            "boss": _ScoreValueRow("Boss"),
-            "magnet": _ScoreValueRow("Magnet"),
-            "challenges": _ScoreValueRow("Challenges"),
+            "moais": _ScoreValueRow(l10n.tr('Moais')),
+            "shady": _ScoreValueRow(l10n.tr('Shady')),
+            "boss": _ScoreValueRow(l10n.tr('Boss')),
+            "magnet": _ScoreValueRow(l10n.tr('Magnet')),
+            "challenges": _ScoreValueRow(l10n.tr('Challenges')),
         }
         for row in self.point_rows.values():
             points_layout.addWidget(row)
         layout.addWidget(points_card)
 
-        bonus_card, bonus_layout = _scores_card("Whole-map bonus")
+        bonus_card, bonus_layout = _scores_card(l10n.tr('Whole-map bonus'))
         self.bonus_label = QLabel()
         self.bonus_label.setObjectName("ScoresBonusValue")
         self.bonus_label.setWordWrap(True)
         bonus_layout.addWidget(self.bonus_label)
-        bonus_note = QLabel("Applied after shrine points are summed.")
+        bonus_note = l10n.localized(QLabel, l10n.tr('Applied after shrine points are summed.'))
         bonus_note.setObjectName("ScoresSectionHint")
         bonus_note.setWordWrap(True)
         bonus_layout.addWidget(bonus_note)
         layout.addWidget(bonus_card)
 
-        example_card, example_layout = _scores_card(
-            "Example score", object_name="ScoresExampleCard"
-        )
+        example_card, example_layout = _scores_card(l10n.tr('Example score'), object_name='ScoresExampleCard')
         self.example_formula = QLabel()
         self.example_formula.setObjectName("ScoresExampleFormula")
         self.example_formula.setWordWrap(True)
@@ -555,7 +558,7 @@ class _ScoresOverview(QWidget):
         self.example_result.setObjectName("ScoresExampleResult")
         self.example_result.setWordWrap(True)
         example_layout.addWidget(self.example_result)
-        example_note = QLabel("ⓘ  Perfect+ also requires 2 Microwaves.")
+        example_note = l10n.localized(QLabel, l10n.tr('ⓘ  Perfect+ also requires 2 Microwaves.'))
         example_note.setObjectName("ScoresExampleNote")
         example_note.setWordWrap(True)
         example_layout.addWidget(example_note)
@@ -569,10 +572,7 @@ class _ScoresOverview(QWidget):
         multipliers = config.SCORES_SYSTEM.get("multipliers", {}).get("microwave", {})
         one = float(multipliers.get("1", 1.0))
         two = float(multipliers.get("2", 1.25))
-        self.bonus_label.setText(
-            f"1 Microwave ×{_format_number(one)}     "
-            f"2 Microwaves ×{_format_number(two)}"
-        )
+        l10n.display(self.bonus_label, 'setText', l10n.tr('1 Microwave ×{p0}     2 Microwaves ×{p1}', p0=_format_number(one), p1=_format_number(two)))
 
         counts = {
             "moais": 4,
@@ -590,14 +590,10 @@ class _ScoresOverview(QWidget):
             _format_signed_term(value, index == 0)
             for index, value in enumerate(contributions)
         )
-        self.example_formula.setText(f"{expression} = {_format_number(base_score)}")
+        l10n.display(self.example_formula, 'setText', f'{expression} = {_format_number(base_score)}')
         tier = _example_score_tier(final_score)
         tier_color = _tier_color(tier) if tier in TIERS else "#8A94A3"
-        self.example_result.setText(
-            f"{_format_number(base_score)} × {_format_number(two)} = "
-            f"{_format_number(final_score)}  →  "
-            f"<span style='color:{tier_color}'>{tier.upper()}</span>"
-        )
+        l10n.display(self.example_result, 'setText', l10n.tr("{base} × {factor} = {result} → <span style='color:{color}'>{tier}</span>", base=_format_number(base_score), factor=_format_number(two), result=_format_number(final_score), color=tier_color, tier=l10n.preset_name(tier, uppercase=True)))
 
     # Retains the old label-shaped seam used by lightweight component tests.
     def setHtml(self, _html: str) -> None:
@@ -863,16 +859,16 @@ class TemplatesPanel:
         templates_layout.addWidget(self._scrollable_templates, 1)
 
         buttons = QHBoxLayout()
-        self.add_btn = QPushButton("Add")
+        self.add_btn = l10n.localized(QPushButton, l10n.tr('Add'))
         self.add_btn.setObjectName("primary")
         _apply_button_icon(self.add_btn, "media/add_icon.svg", 18)
         self.add_btn.clicked.connect(self.add_template_dialog)
-        self.edit_btn = QPushButton("Edit")
+        self.edit_btn = l10n.localized(QPushButton, l10n.tr('Edit'))
         _apply_button_icon(self.edit_btn, "media/edit_icon.svg", 18)
         self.edit_btn.clicked.connect(self.edit_template_dialog)
-        self.del_btn = QPushButton("")
+        self.del_btn = l10n.localized(QPushButton, '')
         self.del_btn.setObjectName("danger")
-        self.del_btn.setToolTip("Delete")
+        l10n.display(self.del_btn, 'setToolTip', l10n.tr('Delete'))
         _apply_button_icon(self.del_btn, "media/delete_icon.svg", 18)
         self.del_btn.clicked.connect(self.del_template_dialog)
         buttons.addWidget(self.add_btn, 1)
@@ -880,7 +876,7 @@ class TemplatesPanel:
         self.del_btn.setFixedWidth(44)
         buttons.addWidget(self.del_btn)
         templates_layout.addLayout(buttons)
-        self._left_tabview.addTab(self._tab_templates, "Templates")
+        l10n.tab(self._left_tabview, self._tab_templates, l10n.tr('Templates'))
 
     def _build_scores_tab(self) -> None:
         self._tab_scores = QWidget()
@@ -898,9 +894,7 @@ class TemplatesPanel:
         surface_layout.setContentsMargins(4, 4, 4, 4)
         surface_layout.setSpacing(10)
 
-        tiers_card, tiers_layout = _scores_card(
-            "Stop tiers", "The scanner stops at any enabled tier."
-        )
+        tiers_card, tiers_layout = _scores_card(l10n.tr('Stop tiers'), l10n.tr('The scanner stops at any enabled tier.'))
         self._scores_templates_layout = QVBoxLayout()
         self._scores_templates_layout.setContentsMargins(0, 4, 0, 0)
         self._scores_templates_layout.setSpacing(4)
@@ -914,16 +908,16 @@ class TemplatesPanel:
         scores_layout.addWidget(scroll, 1)
 
         buttons = QHBoxLayout()
-        self.scores_help_btn = QPushButton("Score Guide")
+        self.scores_help_btn = l10n.localized(QPushButton, l10n.tr('Score Guide'))
         _apply_button_icon(self.scores_help_btn, "media/help_icon.svg", 18)
         self.scores_help_btn.clicked.connect(self.open_scores_help_dialog)
         buttons.addWidget(self.scores_help_btn, 2)
-        self.edit_scores_btn = QPushButton("Edit")
+        self.edit_scores_btn = l10n.localized(QPushButton, l10n.tr('Edit'))
         _apply_button_icon(self.edit_scores_btn, "media/edit_icon.svg", 18)
         self.edit_scores_btn.clicked.connect(self.open_scores_settings_dialog)
         buttons.addWidget(self.edit_scores_btn, 1)
         scores_layout.addLayout(buttons)
-        self._left_tabview.addTab(self._tab_scores, "Scores")
+        l10n.tab(self._left_tabview, self._tab_scores, l10n.tr('Scores'))
 
     # -- what the filters ask ----------------------------------------------
 
@@ -1286,7 +1280,7 @@ class TemplatesPanel:
         if hasattr(self._scores_desc_label, "refresh_from_config"):
             self._scores_desc_label.refresh_from_config()
         else:
-            self._scores_desc_label.setHtml("<br>".join(_score_system_lines()))
+            l10n.display(self._scores_desc_label, 'setHtml', '<br>'.join(_score_system_lines()))
 
     def open_scores_settings_dialog(self) -> None:
         dialog = self._scores_settings_dialog(self._window())
@@ -1305,13 +1299,7 @@ class TemplatesPanel:
 
 
 def _format_template_conditions_inline(template: dict) -> str:
-    conditions = format_template_conditions(template)
-    return (
-        conditions
-        .replace("S+M:", "S+M")
-        .replace("Micro:", "Mic")
-        .replace("Boss:", "Boss")
-    )
+    return format_template_conditions(template)
 
 
 def _scores_card(
@@ -1325,11 +1313,11 @@ def _scores_card(
     layout = QVBoxLayout(card)
     layout.setContentsMargins(12, 10, 12, 12)
     layout.setSpacing(6)
-    title_label = QLabel(title)
+    title_label = l10n.localized(QLabel, title)
     title_label.setObjectName("ScoresSectionTitle")
     layout.addWidget(title_label)
     if hint:
-        hint_label = QLabel(hint)
+        hint_label = l10n.localized(QLabel, hint)
         hint_label.setObjectName("ScoresSectionHint")
         hint_label.setWordWrap(True)
         layout.addWidget(hint_label)

@@ -644,6 +644,7 @@ def _seed_child_config(
             }
         )
     repository = ConfigRepository(config_dir / "config.json")
+    repository.load()
     saved = repository.commit(seed)
     if not saved.success:
         raise OSError(saved.reason)

@@ -30,6 +30,8 @@ content scrolls and therefore has no natural height to be.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from html import escape
 
 from PySide6.QtCore import Qt
@@ -104,7 +106,7 @@ def dialog_body(
         head_layout.setContentsMargins(0, 0, 0, 0)
         head_layout.setSpacing(2)
 
-        title_label = QLabel(str(title), head)
+        title_label = l10n.localized(QLabel, l10n.preserve(title), head)
         title_label.setObjectName("dialogTitle")
         if title_trailing is None:
             head_layout.addWidget(title_label)
@@ -121,7 +123,7 @@ def dialog_body(
             head_layout.addWidget(title_row)
 
         if subtitle:
-            subtitle_label = QLabel(str(subtitle), head)
+            subtitle_label = l10n.localized(QLabel, l10n.preserve(subtitle), head)
             subtitle_label.setObjectName("dialogSubtitle")
             subtitle_label.setWordWrap(True)
             head_layout.addWidget(subtitle_label)
@@ -205,7 +207,7 @@ def dialog_card(text: str) -> QFrame:
     layout = QVBoxLayout(card)
     layout.setContentsMargins(14, 12, 14, 12)
     layout.setSpacing(0)
-    body = QLabel(str(text), card)
+    body = l10n.localized(QLabel, l10n.preserve(text), card)
     body.setObjectName("dialogCardText")
     body.setWordWrap(True)
     body.setTextFormat(Qt.RichText)
@@ -220,7 +222,7 @@ def dialog_info_card(text: str) -> QFrame:
     layout = QVBoxLayout(card)
     layout.setContentsMargins(14, 12, 14, 12)
     layout.setSpacing(0)
-    body = QLabel(str(text), card)
+    body = l10n.localized(QLabel, l10n.preserve(text), card)
     body.setObjectName("dialogCardText")
     body.setWordWrap(True)
     body.setTextFormat(Qt.RichText)
@@ -235,7 +237,7 @@ def dialog_danger_card(text: str) -> QFrame:
     layout = QVBoxLayout(card)
     layout.setContentsMargins(14, 12, 14, 12)
     layout.setSpacing(0)
-    body = QLabel(str(text), card)
+    body = l10n.localized(QLabel, l10n.preserve(text), card)
     body.setObjectName("dialogCardText")
     body.setWordWrap(True)
     body.setTextFormat(Qt.RichText)
@@ -243,9 +245,15 @@ def dialog_danger_card(text: str) -> QFrame:
     return card
 
 
+def fit_dialog_header(dialog, header, *, base_width=DIALOG_REGULAR):
+    """Keep translated navigation readable within the shared dialog sizing policy."""
+    margins = dialog.layout().contentsMargins()
+    dialog.setMinimumWidth(max(base_width, header.sizeHint().width() + margins.left() + margins.right()))
+
+
 def dialog_note(text: str, *, parent: QWidget | None = None) -> QLabel:
     """A muted line under the content -- the "you can turn this off" sentence."""
-    note = QLabel(str(text), parent)
+    note = l10n.localized(QLabel, l10n.preserve(text), parent)
     note.setObjectName("dialogNote")
     note.setWordWrap(True)
     note.setTextFormat(Qt.RichText)
@@ -266,19 +274,19 @@ class AppNoticeDialog(QDialog):
         button_text: str = "Close",
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(str(title))
+        l10n.display(self, 'setWindowTitle', l10n.preserve(title))
         self.setModal(True)
         body = dialog_body(
             self,
-            title=str(title),
-            subtitle=str(subtitle),
+            title=l10n.preserve(title),
+            subtitle=l10n.preserve(subtitle),
             width=DIALOG_REGULAR,
         )
-        rendered = escape(str(message)).replace("\n", "<br>")
+        rendered = l10n.transform(l10n.preserve(message), lambda value: escape(value).replace("\n", "<br>"))
         body.addWidget(
             dialog_danger_card(rendered) if danger else dialog_info_card(rendered)
         )
-        close_button = QPushButton(str(button_text))
+        close_button = l10n.localized(QPushButton, l10n.term(button_text))
         close_button.clicked.connect(self.accept)
         dialog_footer(self, primary=close_button)
 
@@ -299,23 +307,23 @@ class AppConfirmDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.confirmed = False
-        self.setWindowTitle(str(title))
+        l10n.display(self, 'setWindowTitle', l10n.preserve(title))
         self.setModal(True)
         body = dialog_body(
             self,
-            title=str(title),
-            subtitle=str(subtitle),
+            title=l10n.preserve(title),
+            subtitle=l10n.preserve(subtitle),
             width=DIALOG_REGULAR,
         )
-        rendered = escape(str(message)).replace("\n", "<br>")
+        rendered = l10n.transform(l10n.preserve(message), lambda value: escape(value).replace("\n", "<br>"))
         body.addWidget(
             dialog_danger_card(rendered) if destructive else dialog_info_card(rendered)
         )
         if note:
-            body.addWidget(dialog_note(escape(str(note)).replace("\n", "<br>")))
-        cancel_button = QPushButton("Cancel")
+            body.addWidget(dialog_note(l10n.transform(l10n.preserve(note), lambda value: escape(value).replace("\n", "<br>"))))
+        cancel_button = l10n.localized(QPushButton, l10n.tr('Cancel'))
         cancel_button.clicked.connect(self.reject)
-        confirm_button = QPushButton(str(confirm_text))
+        confirm_button = l10n.localized(QPushButton, l10n.preserve(confirm_text))
         confirm_button.clicked.connect(self._confirm)
         if destructive:
             dialog_footer(

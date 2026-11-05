@@ -3,9 +3,12 @@ import sys
 
 CREDENTIAL_TARGET = "BonkScanner/TwitchOAuthToken"
 CREDENTIAL_USERNAME = "twitch_oauth_token"
+_session_token: str | None = None
 
 
 def get_twitch_oauth_token() -> str:
+    if _session_token is not None:
+        return _session_token
     token = _get_windows_credential()
     if token:
         return token
@@ -13,6 +16,11 @@ def get_twitch_oauth_token() -> str:
 
 
 def set_twitch_oauth_token(token: str) -> None:
+    global _session_token
+    from infra.data_storage import profile_read_only_reason
+    if profile_read_only_reason():
+        _session_token = token
+        return
     if _set_windows_credential(token):
         return
     if _set_keyring_credential(token):
@@ -21,6 +29,11 @@ def set_twitch_oauth_token(token: str) -> None:
 
 
 def delete_twitch_oauth_token() -> None:
+    global _session_token
+    from infra.data_storage import profile_read_only_reason
+    if profile_read_only_reason():
+        _session_token = ""
+        return
     if _delete_windows_credential():
         return
     _delete_keyring_credential()

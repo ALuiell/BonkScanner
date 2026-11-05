@@ -88,7 +88,9 @@ def main():
     except (StorageError, OSError) as exc:
         _show_startup_storage_error(str(exc))
         return
-    install_crash_journal()
+    from infra.data_storage import profile_read_only_reason
+    if not profile_read_only_reason():
+        install_crash_journal()
     restart_requested = False
     try:
         _initialize_configuration()

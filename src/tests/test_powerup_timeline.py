@@ -15,6 +15,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 import src
 from pathlib import Path
 from dataclasses import replace
+from unittest.mock import patch
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtWidgets import QApplication, QTabWidget, QLabel, QWidget
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QImage, QPainter
@@ -68,7 +69,10 @@ tabs.show()
 app.processEvents()
 assert recordings._powerup_row.isVisible()
 assert recordings._powerup_row.entries[0][3]
-assert recordings._powerup_row.entries[0][2] == '0:08'
+assert recordings._powerup_row.entries[0][2] == '×1 · 0:08'
+assert recordings._powerup_row.entries[3][2] == '×0+ · 0:01'
+assert 'confirmed minimum' in recordings._powerup_row.entries[3][4]
+assert 'Observed pickups: 1' in recordings._powerup_row.entries[0][4]
 assert len(recordings._powerup_row.entries) == 4
 assert recordings._powerup_row.parentWidget() is recordings._scrubber
 assert recordings._powerup_row.geometry().bottom() < recordings._scrubber._plot_rect().top()
@@ -89,13 +93,18 @@ old_plot = recordings._scrubber._plot_rect()
 old_path = recordings._scrubber._cached_paths[0][0]
 recordings.set_vod_compare_start(2)
 assert 'A–B 00:04' in recordings._powerup_row.entries[0][4]
-assert recordings._powerup_row.entries[0][2] == '0:06'
+assert recordings._powerup_row.entries[0][2] == '×0 · 0:06'
+assert 'Observed pickups: 0' in recordings._powerup_row.entries[0][4]
 recordings.clear_vod_compare_start()
 slots.set_powerups_enabled(False)
 recordings._scrubber.grab()
 assert recordings._scrubber._plot_rect().height() == old_plot.height() + 23
 assert recordings._scrubber._plot_rect().top() == old_plot.top()
 assert not recordings._powerup_row.isVisible()
+with patch.object(recordings._powerup_row, 'set_state', side_effect=AssertionError('hidden readout rendered')):
+    with patch('ui.tabs.player_stats.recordings.build_axis_projection',
+               side_effect=AssertionError('unchanged axis rebuilt')):
+        recordings._refresh_powerup_timeline(6)
 slots.set_powerups_enabled(True)
 
 compare = CompareRunsTab(tabview=tabs, vod_library=library, is_active=lambda: True,
@@ -115,10 +124,13 @@ app.processEvents()
 compare._timeline.grab()
 assert not compare._powerup_rows['a'].isHidden()
 assert compare._powerup_rows['a'].entries[0][3]
+assert compare._powerup_rows['a'].entries[0][2] == '×1 · 0:08'
 assert compare._powerup_rows['b'].note == 'No data'
 assert all(entry[2] == '—' for entry in compare._powerup_rows['b'].entries)
 compare._set_timeline_compact(True)
 assert compare._powerup_rows['a'].isHidden()
+with patch.object(compare._powerup_rows['a'], 'set_state', side_effect=AssertionError('compact readout rendered')):
+    compare._refresh_powerup_timeline_rows()
 # Compact retains numeric curves even with all four activity lanes enabled.
 from unittest.mock import patch
 import ui.tabs.compare_runs.timeline as timeline_module
@@ -151,7 +163,7 @@ flat_history = PowerupHistory(tuple(PowerupObservation(i, i, 0, 'run', True,
 from projections.powerup_history import PowerupProjection
 recordings._scrubber.set_powerups(PowerupProjection(flat_history))
 recordings._scrubber.grab()
-assert any('Clock' in text and '0m 05s' in text and rect.width() >= 6
+assert any('Clock' in text and '00:05' in text and rect.width() >= 6
            for rect, text in recordings._scrubber._powerup_hits)
 short_history = PowerupHistory((PowerupObservation(0, 0, 0, 'run', True, ()),
     PowerupObservation(1, 1, 1, 'run', True, (RecordedEffect(4, .25, .5),))))
@@ -163,7 +175,7 @@ recordings._scrubber.set_powerups(prepared.powerups)
 recordings._powerup_row.set_state(prepared.powerups, 18, axis_a=18)
 recordings._powerup_row.grab()
 assert not recordings._powerup_row.entries[0][3]
-assert recordings._powerup_row.entries[0][2] == '0:13'
+assert recordings._powerup_row.entries[0][2] == '×1 · 0:13'
 icon_rect, icon_tooltip = recordings._powerup_row._hits[0]
 assert 'Rage' in recordings._scrubber._marker_tooltip_at(icon_rect.center().toPoint() + recordings._powerup_row.pos())
 
@@ -271,9 +283,11 @@ recordings._submit_live_state(latest_state)
 assert recordings._scrubber._live_position == 1.0
 assert 'LIVE' in recordings._position_label.text()
 assert recordings._powerup_row.entries[0][3]
+assert recordings._powerup_row.entries[0][2] == '×2 · 0:13'
 recordings.on_scrub_index_changed(len(snapshots) - 1)
 assert recordings._scrubber._live_position is None
 assert not recordings._powerup_row.entries[0][3]
+assert recordings._powerup_row.entries[0][2] == '×1 · 0:13'
 assert not recordings._live_follow
 
 compare._library = live_library
@@ -285,6 +299,7 @@ compare._vod_a = compare._prepared_sides['a'].vod
 compare._submit_compare_live_state('a', latest_state)
 assert abs(compare._timeline.position - 1.0) < 1e-9
 assert compare._powerup_rows['a'].entries[0][3]
+assert compare._powerup_rows['a'].entries[0][2] == '×2 · 0:13'
 assert compare._powerup_rows['b'].note == 'No data'
 assert all(entry[2] == '—' for entry in compare._powerup_rows['b'].entries)
 print('Qt power-up viewers OK')

@@ -180,4 +180,4 @@ class ResourcePathAnchorTests(unittest.TestCase):
         repository_root = Path(__file__).resolve().parents[2]
         resolved = Path(gui_shared.resource_path("config.json"))
         self.assertEqual(resolved.parent.name, repository_root.name)
-        self.assertEqual(resolved.parent, Path(paths.application_path()))
+        self.assertEqual(resolved.parent, Path(paths.installation_path()))

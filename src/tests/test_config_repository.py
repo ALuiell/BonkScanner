@@ -16,9 +16,15 @@ from app.settings import ConfigRecordingSettings
 
 
 class ConfigRepositoryTests(unittest.TestCase):
+    @staticmethod
+    def loaded_repository(path):
+        repository = ConfigRepository(path)
+        repository.load()
+        return repository
+
     def test_commit_load_snapshot_and_update_are_transactional(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            repository = ConfigRepository(Path(directory) / "config.json")
+            repository = self.loaded_repository(Path(directory) / "config.json")
 
             self.assertTrue(repository.commit({"value": 1}).success)
             self.assertEqual(repository.load().snapshot, {"value": 1})
@@ -29,7 +35,7 @@ class ConfigRepositoryTests(unittest.TestCase):
 
     def test_failed_commit_does_not_replace_runtime_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            repository = ConfigRepository(Path(directory) / "config.json")
+            repository = self.loaded_repository(Path(directory) / "config.json")
             self.assertTrue(repository.commit({"value": 1}).success)
 
             with patch("app.config_repository.os.replace", side_effect=PermissionError("read only")):
@@ -41,7 +47,7 @@ class ConfigRepositoryTests(unittest.TestCase):
     def test_failed_readback_restores_previous_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
-            repository = ConfigRepository(path)
+            repository = self.loaded_repository(path)
             self.assertTrue(repository.commit({"value": 1}).success)
 
             with patch.object(Path, "read_text", side_effect=OSError("readback failed")):
@@ -53,7 +59,7 @@ class ConfigRepositoryTests(unittest.TestCase):
 
     def test_update_config_publishes_only_after_verified_commit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            repository = ConfigRepository(Path(directory) / "config.json")
+            repository = self.loaded_repository(Path(directory) / "config.json")
             self.assertTrue(repository.commit({"value": 1}).success)
             previous = {
                 "repository": config._repository,
@@ -111,7 +117,7 @@ class ConfigRepositoryTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
-            repository = ConfigRepository(path)
+            repository = self.loaded_repository(path)
             self.assertTrue(
                 repository.commit(
                     {

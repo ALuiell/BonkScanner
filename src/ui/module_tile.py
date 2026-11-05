@@ -34,6 +34,8 @@ source, always the tile.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout
 
@@ -65,7 +67,7 @@ class ModuleTile(QFrame):
         layout.setContentsMargins(10, 7, 10, 7)
         layout.setSpacing(8)
 
-        self._switch = LabeledSwitch(text, self)
+        self._switch = l10n.localized(LabeledSwitch, text, self)
         self._switch.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._switch.setFocusPolicy(Qt.NoFocus)
         self._switch.stateChanged.connect(self._on_switch_changed)
@@ -83,7 +85,7 @@ class ModuleTile(QFrame):
         return self._switch.text()
 
     def setText(self, text: str) -> None:
-        self._switch.setText(str(text))
+        l10n.display(self._switch, 'setText', l10n.preserve(text))
 
     def switch(self) -> LabeledSwitch:
         """The inner control. For tests, and for callers needing its geometry."""

@@ -166,6 +166,9 @@ class PlayerStatsView(Protocol):
         renders -- so this repaint costs no read.
         """
 
+    def set_live_stats(self, stats) -> None:
+        """Repaint current stat values without replacing inventory or history."""
+
     def refresh_build_progression(self) -> None:
         """Re-render Build Progression from its shared evaluated snapshot.
 

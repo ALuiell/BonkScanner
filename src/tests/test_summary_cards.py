@@ -274,8 +274,8 @@ class LootRarityCardTests(unittest.TestCase):
 
         set_loot_rarity_card_values(labels, 3.0, self.LOOT)
 
-        self.assertEqual("116 (exp 118)", labels["LEGENDARY"]["counts"].text())
-        self.assertEqual("38 (exp 36)", labels["UNCOMMON"]["counts"].text())
+        self.assertEqual("116 (expected 118)", labels["LEGENDARY"]["counts"].text())
+        self.assertEqual("38 (expected 36)", labels["UNCOMMON"]["counts"].text())
         for rarity in LUCK_RARITY_ORDER:
             self.assertTrue(labels[rarity]["chance"].text().endswith("%"))
         self.assertFalse(labels["status"].isVisible())

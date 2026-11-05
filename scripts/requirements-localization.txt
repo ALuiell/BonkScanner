@@ -1,0 +1,2 @@
+# Maintainer extraction only; not an application runtime dependency.
+UnityPy==1.25.4

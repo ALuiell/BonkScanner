@@ -34,6 +34,8 @@ generic names: once the tab left, that mixin had no callers of any of them.
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from collections import OrderedDict
 from math import isfinite
 from pathlib import Path
@@ -77,7 +79,7 @@ from projections.item_sort import ITEM_SORT_RARITY_DESC
 from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
 from projections.timeline_axis import SnapshotTimeIndex
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
-from ui.recording_library import RecordingLibraryRow, recording_search_text
+from ui.recording_library import recording_search_text, sync_recording_rows
 from ui.shared import (
     FullWidthTabWidget,
     LabeledSwitch,
@@ -91,7 +93,7 @@ from ui.styles import ITEM_SORT_LABELS, RECORDING_SORT_LABELS
 from ui.throttle import UiUpdateThrottle, batched_updates
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from projections import compare_overview
-from projections import formatting
+from ui import formatting
 from projections import scrubber as scrubber_model
 from projections.compare_overview import EMPTY_AXIS_TABLE, EMPTY_LUCK_LOOT
 from projections.formatting import COMPARE_RUN_STAT_LABELS
@@ -400,6 +402,7 @@ class CompareRunsTab:
         self._index_a = None
         self._index_b = None
         self._list_signature = None
+        self._list_refresh_pending = False
         self._chooser_expanded = False
         self._guided_selection_active = False
         self._stats_config_expanded = False
@@ -527,8 +530,11 @@ class CompareRunsTab:
             )
 
     def refresh_compare_runs_list(self, *, refresh_index: bool = True):
-        """Refresh both chooser lists synchronously after the initial build."""
+        """Reuse chooser rows after the initial staged build."""
         if self._disposed:
+            return
+        if self._tab is not None and not self._tab.is_built:
+            self._list_refresh_pending = True
             return
         if self._is_active():
             for side in ("a", "b"):
@@ -585,6 +591,8 @@ class CompareRunsTab:
         if (
             getattr(self._library, "active_state", None) is not None
             and set(existing_paths) == set(by_path)
+            and self._list_signature is not None
+            and self._list_signature[0] == self._compare_runs_sort_mode()
         ):
             vods = [by_path[path] for path in existing_paths]
         selected_a = self._vod_a.metadata.path if self._vod_a is not None else None
@@ -668,8 +676,7 @@ class CompareRunsTab:
             RECORDING_SORT_CONFIG_KEY,
             normalize_recording_sort_mode(self._compare_runs_sort_mode()),
         )
-        self._list_signature = None
-        self.refresh_compare_runs_list()
+        self.refresh_compare_runs_list(refresh_index=False)
 
     def _save_compare_run_config_value(self, label: str, key: str, value) -> bool:
         """Persist one preference without leaking an exception through Qt."""
@@ -727,46 +734,22 @@ class CompareRunsTab:
         *,
         batch_size: int,
     ):
-        list_frame.blockSignals(True)
-        list_frame.clear()
         side = "a" if list_frame is self._run_a_list_frame else "b"
-        self._list_items[side].clear()
-        self._list_rows[side].clear()
-        if not vods:
-            item = QListWidgetItem("No saved recordings")
-            item.setFlags(Qt.NoItemFlags)
-            list_frame.addItem(item)
-            list_frame.blockSignals(False)
-            return
-
-        selected_row = None
         longest_seconds = max(
             (max(0, int(getattr(vod, "duration_seconds", 0) or 0)) for vod in vods),
             default=0,
         )
         self._list_longest_seconds = longest_seconds
-        for row, vod in enumerate(vods):
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, str(vod.path))
-            item.setData(_RECORDING_SEARCH_ROLE, recording_search_text(vod))
-            widget = RecordingLibraryRow(vod, longest_seconds=longest_seconds)
-            widget.set_metadata(
-                vod,
-                longest_seconds=longest_seconds,
-                live=self._is_live_path(vod.path),
-            )
-            item.setSizeHint(widget.sizeHint())
-            list_frame.addItem(item)
-            list_frame.setItemWidget(item, widget)
-            self._list_items[side][str(vod.path)] = item
-            self._list_rows[side][str(vod.path)] = widget
-            if selected_path == vod.path:
-                selected_row = row
-            if batch_size and (row + 1) % batch_size == 0:
-                yield None
-        if selected_row is not None:
-            list_frame.setCurrentRow(selected_row)
-        list_frame.blockSignals(False)
+        yield from sync_recording_rows(
+            list_frame, vods, self._list_items[side], self._list_rows[side],
+            longest_seconds=longest_seconds, is_live=self._is_live_path,
+            batch_size=batch_size, search_role=_RECORDING_SEARCH_ROLE,
+        )
+        selected = self._list_items[side].get(str(selected_path))
+        if selected is not None:
+            blocked = list_frame.blockSignals(True)
+            list_frame.setCurrentItem(selected)
+            list_frame.blockSignals(blocked)
 
     def _filter_compare_run_list(self, side: str) -> None:
         list_frame = self._compare_run_widget(side, "list_frame")
@@ -777,7 +760,9 @@ class CompareRunsTab:
         for row in range(list_frame.count()):
             item = list_frame.item(row)
             searchable = str(item.data(_RECORDING_SEARCH_ROLE) or item.text()).casefold()
-            item.setHidden(bool(needle and needle not in searchable))
+            hidden = bool(needle and needle not in searchable)
+            if item.isHidden() != hidden:
+                item.setHidden(hidden)
 
     def _on_compare_run_selection_changed(self, side: str, current: QListWidgetItem | None):
         if current is None:
@@ -799,7 +784,7 @@ class CompareRunsTab:
         self._live_pending[side] = None
         self._set_compare_run_vod(side, None)
         self._set_compare_run_index(side, None)
-        _set_text(self._compare_run_widget(side, "status_label"), "Reading recording…")
+        _set_text(self._compare_run_widget(side, 'status_label'), l10n.tr('Reading recording…'))
         if self._loading_spinners.get(side) is not None:
             self._loading_spinners[side].setVisible(True)
         self._refresh_compare_live_controls(side)
@@ -893,6 +878,7 @@ class CompareRunsTab:
                 cap_keys=cap_keys,
                 cancelled=cancel_event.is_set,
                 progress=publish_progress,
+                load_recording=getattr(self._library, "load_recording", None),
             )
 
         if callable(self._schedule):
@@ -1042,10 +1028,7 @@ class CompareRunsTab:
                 self._live_requested_revision[side] = None
             if self._disposed or error is not None or prepared is None:
                 if error is not None:
-                    _set_text(
-                        self._compare_run_widget(side, "status_label"),
-                        f"Could not sync recording: {error}",
-                    )
+                    _set_text(self._compare_run_widget(side, 'status_label'), l10n.tr('Could not sync recording: {p0}', p0=error))
                 return
             newest = self._library.state_for(state.path)
             current_state = state
@@ -1152,11 +1135,7 @@ class CompareRunsTab:
         applied_count = len(vod.snapshots) if vod is not None else 0
         pending_count = max(0, len(state.snapshots) - applied_count) if state is not None else 0
         button.setVisible(live and (pending_count > 0 or not self._live_follow))
-        button.setText(
-            f"Sync {pending_count}"
-            if not self._live_auto_sync[side] and pending_count
-            else "Go Live"
-        )
+        l10n.display(button, 'setText', l10n.tr('Sync {p0}', p0=pending_count) if not self._live_auto_sync[side] and pending_count else l10n.tr('Go Live'))
 
     def toggle_compare_runs_chooser(self):
         next_expanded = not bool(self._chooser_expanded)
@@ -1331,6 +1310,8 @@ class CompareRunsTab:
                 projection = PowerupProjection(getattr(vod, "powerup_history", None))
             if self._timeline is not None:
                 self._timeline.set_powerups(side, projection)
+            if not enabled or self._timeline_compact:
+                continue
             snapshot = self._compare_run_snapshot(side)
             if snapshot is None:
                 row.set_state(projection, 0.0)
@@ -1626,8 +1607,8 @@ class CompareRunsTab:
         timeline_label = self._compare_run_widget(side, "timeline_label")
         summary_label = self._compare_run_widget(side, "summary_label")
         if vod is None:
-            _set_text(status_label, "Select a recording")
-            _set_text(timeline_label, "Timeline: --")
+            _set_text(status_label, l10n.tr('Select a recording'))
+            _set_text(timeline_label, l10n.tr('Timeline: --'))
             _set_text(summary_label, "--")
             self._refresh_overview_snapshot_table()
             if self._timeline is None:
@@ -1642,9 +1623,9 @@ class CompareRunsTab:
 
         snapshot_count = len(vod.snapshots)
         if not snapshot_count:
-            _set_text(status_label, f"{vod.metadata.name} | no snapshots")
-            _set_text(timeline_label, "Timeline: --")
-            _set_text(summary_label, "No snapshots")
+            _set_text(status_label, l10n.tr('{p0} | no snapshots', p0=vod.metadata.name))
+            _set_text(timeline_label, l10n.tr('Timeline: --'))
+            _set_text(summary_label, l10n.tr('No snapshots'))
             self._refresh_overview_snapshot_table()
             if slider is not None:
                 slider.setEnabled(False)
@@ -1679,11 +1660,11 @@ class CompareRunsTab:
                     and active_time > final_time
                     and index == snapshot_count - 1
                 )
-        suffix = " · LIVE" if live else (" · Run ended" if ended else "")
+        suffix = l10n.tr(' · LIVE') if live else l10n.tr(' · Run ended') if ended else ''
         if self._timeline is None:
             _set_text(status_label, f"{vod.metadata.name} | {index + 1}/{snapshot_count}")
         else:
-            _set_text(status_label, f"{vod.metadata.name} · {snapshot_count} snapshots{suffix}")
+            _set_text(status_label, l10n.tr('{p0} · {p1} snapshots{p2}', p0=vod.metadata.name, p1=snapshot_count, p2=suffix))
         _set_text(timeline_label, self._compare_run_timeline_text(side))
         _set_text(
             summary_label,
@@ -2169,12 +2150,10 @@ class CompareRunsTab:
         )
         if change_buttons:
             for change_button in change_buttons:
-                change_button.setText("Done" if expanded else "Change")
-                change_button.setToolTip(
-                    "Hide recording library" if expanded else "Choose a recording"
-                )
+                l10n.display(change_button, 'setText', l10n.tr('Done') if expanded else l10n.tr('Change'))
+                l10n.display(change_button, 'setToolTip', l10n.tr('Hide recording library') if expanded else l10n.tr('Choose a recording'))
         elif button is not None:
-            button.setText("Done" if expanded else "Select Runs")
+            l10n.display(button, 'setText', l10n.tr('Done') if expanded else l10n.tr('Select Runs'))
         if swap_btn is not None:
             swap_btn.setEnabled(self._vod_a is not None or self._vod_b is not None)
 
@@ -2185,7 +2164,7 @@ class CompareRunsTab:
         if group is not None:
             group.setVisible(expanded)
         if button is not None:
-            button.setText("Hide stats" if expanded else "Choose stats")
+            l10n.display(button, 'setText', l10n.tr('Hide stats') if expanded else l10n.tr('Choose stats'))
 
     def _refresh_compare_runs_selected_labels(self) -> None:
         _set_text(
@@ -2202,7 +2181,7 @@ class CompareRunsTab:
         if vod is None:
             return "--"
         snapshot_count = len(vod.snapshots)
-        return f"{vod.metadata.name} · {snapshot_count} snapshots"
+        return l10n.tr("{name} · snapshots: {count}", name=vod.metadata.name, count=snapshot_count)
 
     def _save_compare_run_stat_selection(self) -> None:
         self._save_compare_run_config_value(
@@ -2316,13 +2295,13 @@ class CompareRunsTab:
         compare_layout = QVBoxLayout(self._tab)
 
         selected_row = QHBoxLayout()
-        self._select_btn = QPushButton("Select Runs")
+        self._select_btn = l10n.localized(QPushButton, l10n.tr('Select Runs'))
         self._select_btn.setProperty("class", "CompareRunsGhostButton")
         self._select_btn.clicked.connect(self.toggle_compare_runs_chooser)
-        self._swap_btn = QPushButton("Swap")
+        self._swap_btn = l10n.localized(QPushButton, l10n.tr('Swap'))
         self._swap_btn.setProperty("class", "CompareRunsGhostButton")
         self._swap_btn.clicked.connect(self.swap_compare_runs)
-        self._stats_config_btn = QPushButton("Compare Settings")
+        self._stats_config_btn = l10n.localized(QPushButton, l10n.tr('Compare Settings'))
         self._stats_config_btn.setProperty("class", "CompareRunsGhostButton")
         self._stats_config_btn.clicked.connect(self.toggle_compare_runs_stats_config)
         selected_row.addStretch(1)
@@ -2331,15 +2310,15 @@ class CompareRunsTab:
         selected_row.addWidget(self._stats_config_btn)
         compare_layout.addLayout(selected_row)
 
-        self._chooser_group = QGroupBox("Select Recordings")
+        self._chooser_group = l10n.localized(QGroupBox, l10n.tr('Select Recordings'))
         self._chooser_group.setVisible(False)
         chooser_layout = QVBoxLayout(self._chooser_group)
         selector_grid = QGridLayout()
         selector_grid.setContentsMargins(0, 0, 0, 0)
         selector_grid.setHorizontalSpacing(8)
         selector_grid.setVerticalSpacing(6)
-        selector_grid.addWidget(QLabel("Run A"), 0, 0)
-        selector_grid.addWidget(QLabel("Run B"), 0, 1)
+        selector_grid.addWidget(l10n.localized(QLabel, l10n.tr('Run A')), 0, 0)
+        selector_grid.addWidget(l10n.localized(QLabel, l10n.tr('Run B')), 0, 1)
         self._run_a_list_frame = QListWidget()
         self._run_b_list_frame = QListWidget()
         for list_frame in (self._run_a_list_frame, self._run_b_list_frame):
@@ -2358,41 +2337,41 @@ class CompareRunsTab:
         chooser_layout.addLayout(selector_grid)
         compare_layout.addWidget(self._chooser_group)
 
-        self._stats_config_group = QGroupBox("Compare Settings")
+        self._stats_config_group = l10n.localized(QGroupBox, l10n.tr('Compare Settings'))
         self._stats_config_group.setVisible(False)
         settings_layout = QVBoxLayout(self._stats_config_group)
         section_layout = QHBoxLayout()
         # Read once in `__init__` and kept, so the checkboxes and the
         # enabled flags cannot disagree about what was configured.
         configured_sections = self._configured_sections()
-        self._items_checkbox = QCheckBox("Items")
+        self._items_checkbox = l10n.localized(QCheckBox, l10n.tr('Items'))
         self._items_checkbox.setChecked(configured_sections["items"])
         self._items_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
-        self._stage_summary_checkbox = QCheckBox("Stage Summary")
+        self._stage_summary_checkbox = l10n.localized(QCheckBox, l10n.tr('Stage Summary'))
         self._stage_summary_checkbox.setChecked(configured_sections["stage_summary"])
         self._stage_summary_checkbox.stateChanged.connect(
             lambda _state: self.on_compare_run_section_selection_changed()
         )
-        self._weapons_checkbox = QCheckBox("Weapons")
+        self._weapons_checkbox = l10n.localized(QCheckBox, l10n.tr('Weapons'))
         self._weapons_checkbox.setChecked(configured_sections["weapons"])
         self._weapons_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
-        self._tomes_checkbox = QCheckBox("Tomes")
+        self._tomes_checkbox = l10n.localized(QCheckBox, l10n.tr('Tomes'))
         self._tomes_checkbox.setChecked(configured_sections["tomes"])
         self._tomes_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
-        self._chaos_checkbox = QCheckBox("Chaos")
+        self._chaos_checkbox = l10n.localized(QCheckBox, l10n.tr('Chaos'))
         self._chaos_checkbox.setChecked(configured_sections["chaos"])
         self._chaos_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
-        self._shrines_checkbox = QCheckBox("Shrines")
+        self._shrines_checkbox = l10n.localized(QCheckBox, l10n.tr('Shrines'))
         self._shrines_checkbox.setChecked(configured_sections["shrines"])
         self._shrines_checkbox.stateChanged.connect(
             lambda _state: self.on_compare_run_section_selection_changed()
         )
-        self._passives_checkbox = QCheckBox("Passives")
+        self._passives_checkbox = l10n.localized(QCheckBox, l10n.tr('Passives'))
         self._passives_checkbox.setChecked(configured_sections["passives"])
         self._passives_checkbox.stateChanged.connect(
             lambda _state: self.on_compare_run_section_selection_changed()
         )
-        section_layout.addWidget(QLabel("Show in Difference:"))
+        section_layout.addWidget(l10n.localized(QLabel, l10n.tr('Show in Difference:')))
         section_layout.addWidget(self._stage_summary_checkbox)
         section_layout.addWidget(self._items_checkbox)
         section_layout.addWidget(self._weapons_checkbox)
@@ -2415,14 +2394,14 @@ class CompareRunsTab:
         stat_specs = [spec for group in PLAYER_STAT_GROUPS for spec in group]
         selected_defaults = set(configured_compare_run_stat_labels())
         for index, spec in enumerate(stat_specs):
-            checkbox = QCheckBox(spec.label)
+            checkbox = l10n.localized(QCheckBox, spec.label)
             checkbox.setChecked(spec.label in selected_defaults)
             checkbox.stateChanged.connect(lambda _state: self.on_compare_run_stat_selection_changed())
             self._stat_checkboxes[spec.label] = checkbox
             stats_config_layout.addWidget(checkbox, index // 4, index % 4)
         for column in range(4):
             stats_config_layout.setColumnStretch(column, 1)
-        stats_group = QGroupBox("Stats Selector")
+        stats_group = l10n.localized(QGroupBox, l10n.tr('Stats Selector'))
         stats_group.setLayout(stats_config_layout)
         settings_scroll_layout.addWidget(stats_group)
         settings_scroll_layout.addStretch(1)
@@ -2435,7 +2414,7 @@ class CompareRunsTab:
             "Run A",
             "a",
         )
-        diff_group = QGroupBox("Difference")
+        diff_group = l10n.localized(QGroupBox, l10n.tr('Difference'))
         diff_layout = QVBoxLayout(diff_group)
         diff_scroll, _diff_scroll_content, diff_scroll_layout = _make_scroll_section()
         self._diff_overview_group, self._diff_overview_label = self._build_diff_card(
@@ -2492,12 +2471,12 @@ class CompareRunsTab:
         # captions, so whatever the dirty check last saw was written to widgets
         # that no longer exist.
         self._rendered_diff_cards = None
-        self._tabview.addTab(self._tab, "Compare Runs")
+        l10n.tab(self._tabview, self._tab, l10n.tr('Compare Runs'))
 
     def _build_diff_card(self, title: str, initial_text: str):
-        group = QGroupBox(title)
+        group = l10n.localized(QGroupBox, title)
         layout = QVBoxLayout(group)
-        label = QLabel(initial_text)
+        label = l10n.localized(QLabel, initial_text)
         label.setTextFormat(Qt.RichText)
         label.setWordWrap(True)
         _apply_summary_label_padding(label)
@@ -2506,50 +2485,50 @@ class CompareRunsTab:
 
     def _build_diff_table_card(self, title: str):
         """A diff card whose body is a restyled four-column comparison table."""
-        group = QGroupBox(title)
+        group = l10n.localized(QGroupBox, title)
         layout = QVBoxLayout(group)
         view = MetricTableView()
         layout.addWidget(view)
         return group, view
 
     def _build_side_panel(self, title: str, side: str):
-        group = QGroupBox(title)
+        group = l10n.localized(QGroupBox, title)
         layout = QVBoxLayout(group)
-        status_label = QLabel("Select a recording")
+        status_label = l10n.localized(QLabel, l10n.tr('Select a recording'))
         status_label.setTextFormat(Qt.RichText)
         status_label.setWordWrap(True)
         slider = QSlider(Qt.Horizontal)
         slider.setEnabled(False)
         slider.valueChanged.connect(lambda value, run_side=side: self.on_compare_run_slider_changed(run_side, value))
-        timeline_label = QLabel("Timeline: --")
-        summary_label = QLabel("--")
+        timeline_label = l10n.localized(QLabel, l10n.tr('Timeline: --'))
+        summary_label = l10n.localized(QLabel, '--')
         summary_label.setTextFormat(Qt.RichText)
         summary_label.setWordWrap(True)
         _apply_summary_label_padding(status_label, timeline_label, summary_label)
         layout.addWidget(status_label)
         layout.addWidget(slider)
         layout.addWidget(timeline_label)
-        summary_group = QGroupBox("Snapshot")
+        summary_group = l10n.localized(QGroupBox, l10n.tr('Snapshot'))
         summary_layout = QVBoxLayout(summary_group)
         summary_layout.addWidget(summary_label)
-        items_group = QGroupBox("Items")
+        items_group = l10n.localized(QGroupBox, l10n.tr('Items'))
         items_layout = QVBoxLayout(items_group)
-        items_label = QLabel("--")
+        items_label = l10n.localized(QLabel, '--')
         items_label.setTextFormat(Qt.RichText)
         items_label.setWordWrap(True)
         items_layout.addWidget(items_label)
         items_actions = QHBoxLayout()
-        items_toggle_btn = QPushButton("Show all")
+        items_toggle_btn = l10n.localized(QPushButton, l10n.tr('Show all'))
         items_toggle_btn.setProperty("class", "SmallGhostButton")
         items_toggle_btn.clicked.connect(lambda _checked=False, run_side=side: self.toggle_compare_run_items_expanded(run_side))
         items_toggle_btn.setVisible(False)
-        items_rarity_label = QLabel("")
+        items_rarity_label = l10n.localized(QLabel, '')
         items_rarity_label.setTextFormat(Qt.RichText)
         items_rarity_label.setStyleSheet("font-size: 14px; background: transparent;")
         items_rarity_label.setVisible(False)
         items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
-            items_sort_combo.addItem(label, mode)
+            l10n.combo_item(items_sort_combo, l10n.term(label), mode)
         rarity_desc_index = items_sort_combo.findData("rarity_desc")
         if rarity_desc_index >= 0:
             items_sort_combo.setCurrentIndex(rarity_desc_index)
@@ -2571,7 +2550,7 @@ class CompareRunsTab:
         items_actions.addWidget(items_toggle_btn, 0, Qt.AlignLeft)
         items_actions.addWidget(items_rarity_label, 0, Qt.AlignLeft)
         items_actions.addStretch(1)
-        items_actions.addWidget(QLabel("Sort:"))
+        items_actions.addWidget(l10n.localized(QLabel, l10n.tr('Sort:')))
         items_actions.addWidget(items_sort_combo)
         items_layout.addLayout(items_actions)
         layout.addWidget(summary_group)
@@ -2606,7 +2585,7 @@ class CompareRunsTab:
         self._disposed = False
         self._tab.destroyed.connect(self._on_tab_destroyed)
         self._tab.setObjectName("CompareRunsPage")
-        self._tabview.addTab(self._tab, "Compare Runs")
+        l10n.tab(self._tabview, self._tab, l10n.tr('Compare Runs'))
 
     def _on_tab_destroyed(self, _object=None) -> None:
         """Invalidate trailing work without touching widgets being destroyed."""
@@ -2638,18 +2617,16 @@ class CompareRunsTab:
         plaque_a, self._run_a_status_label = self._build_run_plaque("a")
         plaque_b, self._run_b_status_label = self._build_run_plaque("b")
         self._select_btn = self._run_a_change_btn
-        self._swap_btn = QPushButton("Swap")
+        self._swap_btn = l10n.localized(QPushButton, l10n.tr('Swap'))
         self._swap_btn.setObjectName("CompareRunsSwapButton")
         self._swap_btn.clicked.connect(self.swap_compare_runs)
         # The direction governs all seven tabs and the timeline legend, so it is
         # stated once, here, rather than repeated per card -- and it sits on
         # `Swap`, which is the control that reverses it.
-        self._swap_btn.setToolTip("Swap A and B, reversing every delta")
-        direction = QLabel("Δ = A − B")
+        l10n.display(self._swap_btn, 'setToolTip', l10n.tr('Swap A and B, reversing every delta'))
+        direction = l10n.localized(QLabel, 'Δ = A − B')
         direction.setObjectName("CompareRunsDeltaDirection")
-        direction.setToolTip(
-            "Every delta compares run A to run B, so a positive number means run A has more"
-        )
+        l10n.display(direction, 'setToolTip', l10n.tr('Every delta compares run A to run B, so a positive number means run A has more'))
         direction.setAlignment(Qt.AlignCenter)
         swap_column = QVBoxLayout()
         swap_column.setSpacing(2)
@@ -2677,7 +2654,7 @@ class CompareRunsTab:
         self._build_stats_selector(workspace_layout)
         yield None
 
-        timeline_card = QGroupBox("Timeline")
+        timeline_card = l10n.localized(QGroupBox, l10n.tr('Timeline'))
         timeline_card.setObjectName("CompareRunsTimelineCard")
         timeline_layout = QVBoxLayout(timeline_card)
         # The stylesheet's `QGroupBox` padding already insets the card, so the
@@ -2724,19 +2701,17 @@ class CompareRunsTab:
         # see" control as `Expanded` on Live Stats and Recordings, so it uses
         # the same widget; and it belongs beside the readout it resizes, not in
         # a row of series pickers it has nothing to do with.
-        self._compact_timeline_btn = LabeledSwitch("Compact")
+        self._compact_timeline_btn = l10n.localized(LabeledSwitch, l10n.tr('Compact'))
         self._compact_timeline_btn.setObjectName("CompareRunsCompactTimeline")
         self._compact_timeline_btn.setProperty("timelineCompact", True)
         self._compact_timeline_btn.setChecked(self._timeline_compact)
-        self._compact_timeline_btn.setToolTip(
-            "Collapse the timeline into a compact overview strip"
-        )
+        l10n.display(self._compact_timeline_btn, 'setToolTip', l10n.tr('Collapse the timeline into a compact overview strip'))
         self._compact_timeline_btn.toggled.connect(self._set_timeline_compact)
         # The name rides the frame, not a row of its own: it is the card's
         # title, and every other titled card on this tab -- Item differences,
         # Stage comparison, both inventories -- already puts it there. That
         # leaves one control row above the track instead of two.
-        self._timeline_position_label = QLabel("A -- · B --")
+        self._timeline_position_label = l10n.localized(QLabel, 'A -- · B --')
         self._timeline_position_label.setObjectName("CompareRunsTimelinePosition")
         self._timeline_position_label.setProperty("timelinePosition", True)
         self._timeline_position_label.setTextFormat(Qt.RichText)
@@ -2815,7 +2790,11 @@ class CompareRunsTab:
         self._list_signature = None
         # Each recording renders twice, once per chooser side. Batch the rows so
         # a large library cannot freeze the A/B loading ring for the whole pass.
-        yield from self._refresh_compare_runs_list_steps(batch_size=8)
+        while True:
+            self._list_refresh_pending = False
+            yield from self._refresh_compare_runs_list_steps(batch_size=8)
+            if not self._list_refresh_pending:
+                break
         self.refresh_compare_runs_ui()
 
     def _build_run_plaque(self, side: str):
@@ -2825,19 +2804,19 @@ class CompareRunsTab:
         layout = QHBoxLayout(plaque)
         layout.setContentsMargins(11, 8, 9, 8)
         layout.setSpacing(8)
-        badge = QLabel(side.upper())
+        badge = l10n.localized(QLabel, side.upper())
         badge.setObjectName("CompareRunsRunBadge")
         badge.setProperty("side", side.upper())
-        label = QLabel("Select a recording")
+        label = l10n.localized(QLabel, l10n.tr('Select a recording'))
         label.setObjectName("CompareRunsRunName")
         label.setTextFormat(Qt.RichText)
-        change = QPushButton("Change")
+        change = l10n.localized(QPushButton, l10n.tr('Change'))
         change.setObjectName("CompareRunsChangeButton")
         change.setProperty("side", side.upper())
-        change.setToolTip("Choose a recording")
+        l10n.display(change, 'setToolTip', l10n.tr('Choose a recording'))
         change.clicked.connect(self.toggle_compare_runs_chooser)
         setattr(self, f"_run_{side}_change_btn", change)
-        auto_sync = QCheckBox("Auto-sync")
+        auto_sync = l10n.localized(QCheckBox, l10n.tr('Auto-sync'))
         auto_sync.setObjectName("CompareRunsAutoSync")
         auto_sync.setChecked(True)
         auto_sync.setVisible(False)
@@ -2846,7 +2825,7 @@ class CompareRunsTab:
                 run_side, checked
             )
         )
-        sync_button = QPushButton("Go Live")
+        sync_button = l10n.localized(QPushButton, l10n.tr('Go Live'))
         sync_button.setObjectName("CompareRunsGoLive")
         sync_button.setVisible(False)
         sync_button.clicked.connect(
@@ -2872,7 +2851,7 @@ class CompareRunsTab:
         return plaque, label
 
     def _build_chooser(self, parent_layout: QVBoxLayout) -> None:
-        self._chooser_group = QGroupBox("Recording library")
+        self._chooser_group = l10n.localized(QGroupBox, l10n.tr('Recording library'))
         self._chooser_group.setObjectName("CompareRunsChooser")
         self._chooser_group.setVisible(False)
         chooser_layout = QGridLayout(self._chooser_group)
@@ -2880,12 +2859,12 @@ class CompareRunsTab:
         chooser_layout.setHorizontalSpacing(10)
         chooser_layout.setVerticalSpacing(7)
         for column, side in enumerate(("a", "b")):
-            title = QLabel(f"Run {side.upper()}")
+            title = l10n.localized(QLabel, l10n.tr('Run {p0}', p0=side.upper()))
             title.setObjectName("CompareRunsChooserTitle")
             title.setProperty("side", side.upper())
             search = QLineEdit()
             search.setObjectName("CompareRunsChooserSearch")
-            search.setPlaceholderText("Search recordings…")
+            l10n.display(search, 'setPlaceholderText', l10n.tr('Search recordings…'))
             setattr(self, f"_run_{side}_search", search)
             list_frame = QListWidget()
             list_frame.setObjectName("CompareRunsRecordingList")
@@ -2908,7 +2887,7 @@ class CompareRunsTab:
         self._sort_combo = QComboBox()
         self._sort_combo.setObjectName("CompareRunsSortCombo")
         for mode, label in RECORDING_SORT_LABELS.items():
-            self._sort_combo.addItem(label, mode)
+            l10n.combo_item(self._sort_combo, l10n.term(label), mode)
         saved_index = self._sort_combo.findData(recording_sort_mode())
         if saved_index >= 0:
             self._sort_combo.setCurrentIndex(saved_index)
@@ -2918,7 +2897,7 @@ class CompareRunsTab:
         parent_layout.addWidget(self._chooser_group, 1)
 
     def _build_stats_selector(self, parent_layout: QVBoxLayout) -> None:
-        self._stats_config_group = QGroupBox("Choose Stats")
+        self._stats_config_group = l10n.localized(QGroupBox, l10n.tr('Choose Stats'))
         self._stats_config_group.setObjectName("CompareRunsStatsSelector")
         self._stats_config_group.setVisible(False)
         layout = QGridLayout(self._stats_config_group)
@@ -2927,7 +2906,7 @@ class CompareRunsTab:
         specs = [spec for group in PLAYER_STAT_GROUPS for spec in group]
         selected = set(configured_compare_run_stat_labels())
         for index, spec in enumerate(specs):
-            checkbox = QCheckBox(spec.label)
+            checkbox = l10n.localized(QCheckBox, spec.label)
             checkbox.setChecked(spec.label in selected)
             checkbox.stateChanged.connect(
                 lambda _state: self.on_compare_run_stat_selection_changed()
@@ -2961,6 +2940,7 @@ class CompareRunsTab:
         the page carries no delta sign of its own.
         """
         page, _content, layout = self._new_scroll_page()
+        l10n.tab(self._detail_tabs, page, l10n.tr('Overview'))
         self._luck_loot_view = CompareRunsLuckLootView()
         layout.addWidget(self._luck_loot_view)
         yield None
@@ -2980,7 +2960,6 @@ class CompareRunsTab:
         self._snapshot_comparison_table = None
         self._run_a_summary_label = None
         self._run_b_summary_label = None
-        self._detail_tabs.addTab(page, "Overview")
 
     def _jump_to_page(self, title: str) -> None:
         """Hub tiles name their target, so a reordered tab bar cannot mis-jump."""
@@ -2988,7 +2967,7 @@ class CompareRunsTab:
         if tabs is None:
             return
         for index in range(tabs.count()):
-            if tabs.tabText(index) == title:
+            if l10n.tab_identity(tabs, index) == title:
                 tabs.setCurrentIndex(index)
                 return
 
@@ -3000,8 +2979,8 @@ class CompareRunsTab:
         toolbar = QHBoxLayout()
         self._stats_search = QLineEdit()
         self._stats_search.setObjectName("CompareRunsStatsSearch")
-        self._stats_search.setPlaceholderText("Search stats…")
-        choose = QPushButton("Choose stats")
+        l10n.display(self._stats_search, 'setPlaceholderText', l10n.tr('Search stats…'))
+        choose = l10n.localized(QPushButton, l10n.tr('Choose stats'))
         choose.setObjectName("CompareRunsChooseStats")
         choose.clicked.connect(self.toggle_compare_runs_stats_config)
         self._stats_search.textChanged.connect(lambda _text: self._on_stats_filter_changed())
@@ -3018,11 +2997,11 @@ class CompareRunsTab:
         self._diff_stats_group = page
         self._diff_stats_label = None
         self._stats_config_btn = choose
-        self._detail_tabs.addTab(page, "Stats")
+        l10n.tab(self._detail_tabs, page, l10n.tr('Stats'))
 
     def _build_stages_page(self) -> None:
         page, _content, layout = self._new_scroll_page()
-        self._diff_stage_summary_group = QGroupBox("Stage comparison")
+        self._diff_stage_summary_group = l10n.localized(QGroupBox, l10n.tr('Stage comparison'))
         stage_layout = QVBoxLayout(self._diff_stage_summary_group)
         self._diff_stages_table = CompactMetricCardGridView(
             section_capacity=4,
@@ -3035,7 +3014,7 @@ class CompareRunsTab:
         self._diff_stage_summary_group.setObjectName("CompareRunsStageTable")
         layout.addWidget(self._diff_stage_summary_group)
         layout.addStretch(1)
-        self._detail_tabs.addTab(page, "Stages")
+        l10n.tab(self._detail_tabs, page, l10n.tr('Stages'))
 
     def _build_items_page(self) -> None:
         page, _content, layout = self._new_scroll_page()
@@ -3054,24 +3033,24 @@ class CompareRunsTab:
             inventories.addWidget(group, 1)
         layout.addLayout(inventories)
         layout.addStretch(1)
-        self._detail_tabs.addTab(page, "Items")
+        l10n.tab(self._detail_tabs, page, l10n.tr('Items'))
 
     def _build_inventory_panel(self, side: str):
-        group = QGroupBox(f"Run {side.upper()} inventory")
+        group = l10n.localized(QGroupBox, l10n.tr('Run {p0} inventory', p0=side.upper()))
         group.setObjectName("CompareRunsInventory")
         group.setProperty("side", side.upper())
         layout = QVBoxLayout(group)
-        label = QLabel("--")
+        label = l10n.localized(QLabel, '--')
         label.setTextFormat(Qt.RichText)
         label.setWordWrap(True)
-        rarity = QLabel("")
+        rarity = l10n.localized(QLabel, '')
         rarity.setTextFormat(Qt.RichText)
-        toggle = QPushButton("Show all")
+        toggle = l10n.localized(QPushButton, l10n.tr('Show all'))
         toggle.setObjectName("CompareRunsInventoryToggle")
         sort = QComboBox()
         sort.setObjectName("CompareRunsItemsSort")
         for mode, text in ITEM_SORT_LABELS.items():
-            sort.addItem(text, mode)
+            l10n.combo_item(sort, text, mode)
         rarity_index = sort.findData(ITEM_SORT_RARITY_DESC)
         if rarity_index >= 0:
             sort.setCurrentIndex(rarity_index)
@@ -3105,4 +3084,4 @@ class CompareRunsTab:
         setattr(self, table_attr, table)
         layout.addWidget(group)
         layout.addStretch(1)
-        self._detail_tabs.addTab(page, title)
+        l10n.tab(self._detail_tabs, page, title)

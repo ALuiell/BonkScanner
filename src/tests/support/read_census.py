@@ -35,7 +35,7 @@ SRC = REPO / "src"
 sys.path.insert(0, str(SRC))
 
 PLAYER_STATS_CLIENT_METHODS = [
-    "get_player_stats", "get_luck", "get_current_gold", "get_passive_items",
+    "get_player_stats", "get_luck", "get_display_stats", "get_current_gold", "get_passive_items",
     "get_passive_item_count", "get_expected_chest_inputs", "get_live_weapons",
     "get_live_tomes", "get_chaos_tome_level", "get_chaos_tracking_state",
     "get_permanent_stat_modifiers", "get_live_banishes", "get_run_timer",
@@ -105,13 +105,10 @@ OFF_TICK_FILES = [
     "gui_twitch.py",
     "ui/dialogs/__init__.py",
 ]
-# Was 6 until the scanner stopped reading the map twice around a restart:
-# `reroll_map` used to take a `get_map_generation_state`/`get_map_stats` pair
-# before handing over to run control, and `wait_for_map_ready` now returns the
-# stats the scan loop needs, so both of those sites are gone. The ceiling moves
-# down with the population -- a ratchet that keeps the old slack would let the
-# two reads come back unnoticed.
-OFF_TICK_SITE_LIMIT = 4
+# Four existing sites plus two reads for the opt-in double press. That gesture
+# checks run activity and the found map's identity once before sending input.
+# Regular auto-rerolls continue to use the sample from wait_for_map_ready.
+OFF_TICK_SITE_LIMIT = 6
 # get_disabled_items is read on the tick (player_stats_memory.py) and from two
 # off-tick sites -- see plan section 5.
 CROSS_BOUNDARY_METHODS = ["get_disabled_items"]
@@ -131,7 +128,7 @@ _ENROLLABLE_ON_TICK_SOURCE_NAMES = (
     "STAGE_TIMER_CONTEXT", "MOB_KILLS", "PLAYER_LEVEL", "LIVE_WEAPONS",
     "LIVE_TOMES", "LIVE_BANISHES", "LIVE_DAMAGE_SOURCES", "DISABLED_ITEMS",
     "POWERUP_TRACKING_SNAPSHOT", "EXPECTED_CHEST_INPUTS",
-    "CHAOS_TRACKING_STATE", "CHEST_COUNTERS", "LUCK",
+    "CHAOS_TRACKING_STATE", "CHEST_COUNTERS", "LUCK", "DISPLAY_STATS",
     # GameDataClient
     "MAP_GENERATION_STATE", "RUNTIME_GAME_STATE", "RUNTIME_ACTIVITY_STATE",
     "MAP_ACTIVITY_VALUES",

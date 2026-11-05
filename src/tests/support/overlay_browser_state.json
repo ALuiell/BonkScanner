@@ -1,0 +1,235 @@
+{
+  "status": "live",
+  "run_id": "screenshot-demo",
+  "canvas_width": 1280,
+  "canvas_height": 720,
+  "style": {
+    "scale": 1
+  },
+  "widgets": {
+    "stats": {
+      "id": "stats",
+      "enabled": true,
+      "order": 0,
+      "x": 20,
+      "y": 20,
+      "scale": 1.05,
+      "show_header": true,
+      "layout": "detailed",
+      "background_opacity": 0.22
+    },
+    "weapon_tracker": {
+      "id": "weapon_tracker",
+      "enabled": true,
+      "order": 1,
+      "x": 650,
+      "y": 20,
+      "scale": 1.05,
+      "show_header": true,
+      "layout": "detailed",
+      "background_opacity": 0.22
+    },
+    "tracked_items": {
+      "id": "tracked_items",
+      "enabled": true,
+      "order": 2,
+      "x": 650,
+      "y": 220,
+      "scale": 1.05,
+      "show_header": true,
+      "layout": "detailed",
+      "background_opacity": 0.22
+    },
+    "stage_summary": {
+      "id": "stage_summary",
+      "enabled": true,
+      "order": 3,
+      "x": 20,
+      "y": 410,
+      "scale": 1.05,
+      "show_header": true,
+      "layout": "detailed",
+      "background_opacity": 0.22
+    },
+    "kps": {
+      "id": "kps",
+      "enabled": true,
+      "order": 4,
+      "x": 650,
+      "y": 380,
+      "scale": 1.05,
+      "show_header": true,
+      "layout": "detailed",
+      "background_opacity": 0.22
+    },
+    "banishes": {
+      "id": "banishes",
+      "enabled": true,
+      "order": 5,
+      "x": 650,
+      "y": 525,
+      "scale": 1.05,
+      "show_header": true,
+      "layout": "detailed",
+      "background_opacity": 0.22
+    }
+  },
+  "stats": [
+    {
+      "label": "Max HP",
+      "display_label": "HP",
+      "value": "999,999% / 10x"
+    },
+    {
+      "label": "Damage",
+      "display_label": "DMG",
+      "value": "185%"
+    },
+    {
+      "label": "Crit Chance",
+      "display_label": "Crit",
+      "value": "45%"
+    },
+    {
+      "label": "Crit Damage",
+      "display_label": "CritDMG",
+      "value": "280%"
+    },
+    {
+      "label": "Attack Speed",
+      "display_label": "AS",
+      "value": "160%"
+    },
+    {
+      "label": "Projectile Count",
+      "display_label": "Proj",
+      "value": "5"
+    },
+    {
+      "label": "Projectile Speed",
+      "display_label": "ProjSpeed",
+      "value": "130%"
+    },
+    {
+      "label": "Movement Speed",
+      "display_label": "MS",
+      "value": "125%"
+    },
+    {
+      "label": "Luck",
+      "display_label": "Luck",
+      "value": "82"
+    },
+    {
+      "label": "XP Gain",
+      "display_label": "XP",
+      "value": "250%"
+    },
+    {
+      "label": "Pickup Range",
+      "display_label": "Pickup",
+      "value": "175%"
+    },
+    {
+      "label": "Powerup Multiplier",
+      "display_label": "PM",
+      "value": "2x"
+    }
+  ],
+  "tracked_items": [
+    {
+      "id": "a",
+      "label": "Anvil",
+      "count": 3
+    },
+    {
+      "id": "b",
+      "label": "Holy Book",
+      "count": 2
+    },
+    {
+      "id": "c",
+      "label": "Backpack",
+      "count": 5
+    }
+  ],
+  "kps": {
+    "current": 12.4,
+    "minute_avg": 10.8,
+    "five_minute_avg": 9.6,
+    "run_avg": 8.2
+  },
+  "stage_summary": [
+    {
+      "stage": "1",
+      "time": "59:59",
+      "kills": "999,999",
+      "items": [
+        {
+          "rarity": "COMMON",
+          "count": 99
+        },
+        {
+          "rarity": "UNCOMMON",
+          "count": 99
+        },
+        {
+          "rarity": "RARE",
+          "count": 99
+        },
+        {
+          "rarity": "LEGENDARY",
+          "count": 99
+        }
+      ]
+    },
+    {
+      "stage": "2",
+      "time": "04:00",
+      "kills": "2,156",
+      "items": []
+    }
+  ],
+  "banishes": [
+    "Beer",
+    "Anvil",
+    "Backpack"
+  ],
+  "weapon_tracker": {
+    "available": true,
+    "rows": [
+      {
+        "name": "Fire Staff",
+        "level": 7,
+        "metrics": [
+          {
+            "key": "damage",
+            "label": "DMG",
+            "display_value": "185"
+          },
+          {
+            "key": "projectile_count",
+            "label": "Proj",
+            "display_value": "5"
+          }
+        ]
+      },
+      {
+        "name": "Katana",
+        "level": 5,
+        "metrics": [
+          {
+            "key": "damage",
+            "label": "DMG",
+            "display_value": "240"
+          },
+          {
+            "key": "projectile_count",
+            "label": "Proj",
+            "display_value": "3"
+          }
+        ]
+      }
+    ]
+  }
+}

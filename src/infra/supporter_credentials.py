@@ -7,9 +7,12 @@ import sys
 
 CREDENTIAL_TARGET = "BonkScanner/SupporterAccessKey"
 CREDENTIAL_USERNAME = "supporter_access_key"
+_session_key: str | None = None
 
 
 def get_supporter_access_key() -> str:
+    if _session_key is not None:
+        return _session_key
     value = _get_windows_credential()
     if value:
         return value
@@ -17,6 +20,11 @@ def get_supporter_access_key() -> str:
 
 
 def set_supporter_access_key(value: str) -> None:
+    global _session_key
+    from infra.data_storage import profile_read_only_reason
+    if profile_read_only_reason():
+        _session_key = value
+        return
     if _set_windows_credential(value):
         return
     if _set_keyring_credential(value):
@@ -25,6 +33,11 @@ def set_supporter_access_key(value: str) -> None:
 
 
 def delete_supporter_access_key() -> None:
+    global _session_key
+    from infra.data_storage import profile_read_only_reason
+    if profile_read_only_reason():
+        _session_key = ""
+        return
     if _delete_windows_credential():
         return
     _delete_keyring_credential()

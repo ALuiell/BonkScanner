@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import threading
 from typing import Any, Callable
 
@@ -43,6 +45,7 @@ from core.tracker.live_run import TrackedItemRule
 from app.coordinator import AppCoordinator
 from app.tracked_item_settings import SESSION, TrackedItemSettings, combine_rules
 from projections.obs import build_overlay_state
+from projections.obs_localization import browser_localization
 from core.stats.types import PLAYER_STAT_GROUPS
 from core.stats.weapon_tracker import WEAPON_TRACKER_METRIC_ORDER, WEAPON_TRACKER_METRICS
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
@@ -51,14 +54,14 @@ from tracked_item_rules import tracked_item_rules_from_config
 
 
 OVERLAY_WIDGET_LABELS = {
-    "stage_summary": "Stage summary",
-    "tracked_items": "Tracked items",
-    "stats": "Stats",
-    "kps": "KPS",
-    "banishes": "Banishes",
-    "luck_rarity": "Luck",
-    "build_progression": "Build Progression",
-    "weapon_tracker": "Weapon Tracker",
+    "stage_summary": l10n.tr("Stage summary"),
+    "tracked_items": l10n.tr("Tracked items"),
+    "stats": l10n.tr("Stats"),
+    "kps": l10n.tr("KPS"),
+    "banishes": l10n.tr("Banishes"),
+    "luck_rarity": l10n.tr("Luck"),
+    "build_progression": l10n.tr("Build Progression"),
+    "weapon_tracker": l10n.tr("Weapon Tracker"),
 }
 
 #: How wide the URL row's field and the widget picker beside it may get. The
@@ -81,7 +84,7 @@ _SOURCE_ROW_MAX_WIDTH = 690
 
 def _settings_subsection_title(text: str, parent: QWidget) -> QLabel:
     """Small muted heading used to separate related controls inside a card."""
-    label = QLabel(str(text).upper(), parent)
+    label = l10n.localized(QLabel, l10n.transform(l10n.term(text), str.upper), parent)
     label.setObjectName("settingsSubsectionTitle")
     return label
 
@@ -172,13 +175,8 @@ class Overlay:
         self.overlay_tracked_items_content = None
         self.overlay_tracked_items_toggle_btn = None
 
-        self.overlay_state_store.set_state(
-            build_overlay_state(
-                self.live_run_tracker,
-                self._effective_overlay_config(),
-                self._build_progression_snapshot(),
-            )
-        )
+        self._obs_localization = browser_localization(l10n.localization().translator)
+        self.overlay_state_store.set_state(self._overlay_payload())
 
     @staticmethod
     def _run_ui_callback_now(callback: Callable[[], None]) -> bool:
@@ -241,24 +239,30 @@ class Overlay:
         layout.addStretch(1)
         self.refresh_overlay_ui()
         self._refresh_overlay_preview()
+        l10n.RefreshBinding(self.tab_overlay, self._refresh_overlay_language)
         return self.tab_overlay
 
-    def _build_hero(self) -> TabHero:
-        self.overlay_hero = TabHero(
-            title="OBS Overlay",
-            subtitle="Send live run data to OBS through a local browser source.",
-            icon_path="media/obs_icon.svg",
-            auto_text="Auto-start server",
-            run_captions=OVERLAY_SERVER_CAPTIONS,
+    def _refresh_overlay_language(self):
+        self._obs_localization = browser_localization(l10n.localization().translator)
+        self.update_overlay_state_from_tracker()
+        self._refresh_overlay_preview()
+
+    def _overlay_payload(self):
+        state = build_overlay_state(
+            self.live_run_tracker, self._effective_overlay_config(),
+            self._build_progression_snapshot(),
         )
+        state["localization"] = getattr(self, "_obs_localization", {})
+        return state
+
+    def _build_hero(self) -> TabHero:
+        self.overlay_hero = TabHero(title=l10n.tr('OBS Overlay'), subtitle=l10n.tr('Send live run data to OBS through a local browser source.'), icon_path='media/obs_icon.svg', auto_text=l10n.tr('Auto-start server'), run_captions=OVERLAY_SERVER_CAPTIONS)
         # Kept under their old names because `save_overlay_settings_from_ui` and
         # `refresh_overlay_ui` read them by name, and both still work: the auto
         # switch is a QCheckBox, and the run toggle answers `setText`.
         self.overlay_auto_start_cb = self.overlay_hero.auto_switch
         self.overlay_auto_start_cb.setChecked(config.OVERLAY.get("auto_start", False))
-        self.overlay_auto_start_cb.setToolTip(
-            "Start the overlay server automatically when the application starts."
-        )
+        l10n.display(self.overlay_auto_start_cb, 'setToolTip', l10n.tr('Start the overlay server automatically when the application starts.'))
         self.overlay_auto_start_cb.stateChanged.connect(
             lambda _state: self.save_overlay_settings_from_ui()
         )
@@ -268,14 +272,9 @@ class Overlay:
         return self.overlay_hero
 
     def _build_source_card(self, column: QVBoxLayout) -> None:
-        editor_btn = QPushButton("Open layout editor")
+        editor_btn = l10n.localized(QPushButton, l10n.tr('Open layout editor'))
         editor_btn.clicked.connect(self._open_overlay_layout_editor)
-        card = SettingsCard(
-            number=1,
-            title="Browser source",
-            subtitle="Copy once, paste into OBS and keep BonkScanner running.",
-            action=editor_btn,
-        )
+        card = SettingsCard(number=1, title=l10n.tr('Browser source'), subtitle=l10n.tr('Copy once, paste into OBS and keep BonkScanner running.'), action=editor_btn)
 
         # `disable_inactive=False`: these are two choices, not two halves of one
         # transition, so both stay clickable. Shipping a picker on the default
@@ -310,10 +309,10 @@ class Overlay:
         widget_row = QHBoxLayout(self.overlay_widget_url_row)
         widget_row.setContentsMargins(0, 0, 0, 0)
         widget_row.setSpacing(8)
-        widget_row.addWidget(QLabel("Widget:"))
+        widget_row.addWidget(l10n.localized(QLabel, l10n.tr('Widget:')))
         self.overlay_widget_url_combo = QComboBox()
         for widget_id, label in OVERLAY_WIDGET_LABELS.items():
-            self.overlay_widget_url_combo.addItem(label, widget_id)
+            l10n.combo_item(self.overlay_widget_url_combo, label, widget_id)
         self.overlay_widget_url_combo.currentIndexChanged.connect(
             lambda _index: self.refresh_overlay_ui()
         )
@@ -326,7 +325,7 @@ class Overlay:
         url_row = QHBoxLayout()
         url_row.setContentsMargins(0, 0, 0, 0)
         url_row.setSpacing(8)
-        url_row.addWidget(QLabel("URL:"))
+        url_row.addWidget(l10n.localized(QLabel, l10n.tr('URL:')))
         # One field for both modes. The two used to be visible at once; the
         # segmented control is what replaced that, and `refresh_overlay_ui`
         # decides which URL belongs here.
@@ -334,7 +333,7 @@ class Overlay:
         self.overlay_url_entry.setReadOnly(True)
         self.overlay_url_entry.setMaximumWidth(_URL_MAX_WIDTH)
         url_row.addWidget(self.overlay_url_entry, 1)
-        copy_btn = QPushButton("Copy")
+        copy_btn = l10n.localized(QPushButton, l10n.tr('Copy'))
         copy_btn.clicked.connect(
             lambda: self._copy_to_clipboard(self.overlay_url_entry.text(), copy_btn)
         )
@@ -348,28 +347,23 @@ class Overlay:
         port_row = QHBoxLayout()
         port_row.setContentsMargins(0, 0, 0, 0)
         port_row.setSpacing(8)
-        port_row.addWidget(QLabel("Port:"))
+        port_row.addWidget(l10n.localized(QLabel, l10n.tr('Port:')))
         self.overlay_port_entry = QLineEdit(str(config.OVERLAY.get("port", 17845)))
         self.overlay_port_entry.setMaximumWidth(90)
         self.overlay_port_entry.editingFinished.connect(self.save_overlay_settings_from_ui)
         port_row.addWidget(self.overlay_port_entry)
-        port_row.addWidget(QLabel("Local only"))
+        port_row.addWidget(l10n.localized(QLabel, l10n.tr('Local only')))
         port_row.addStretch(1)
         card.body.addLayout(port_row)
 
         column.addWidget(card)
 
     def _build_widgets_card(self, column: QVBoxLayout) -> None:
-        self.overlay_widget_settings_btn = QPushButton("Widget Settings")
+        self.overlay_widget_settings_btn = l10n.localized(QPushButton, l10n.tr('Widget Settings'))
         self.overlay_widget_settings_btn.clicked.connect(
             self.open_overlay_widget_settings_dialog
         )
-        card = SettingsCard(
-            number=2,
-            title="Overlay widgets",
-            subtitle="Choose what is visible. Detailed settings stay one level deeper.",
-            action=self.overlay_widget_settings_btn,
-        )
+        card = SettingsCard(number=2, title=l10n.tr('Overlay widgets'), subtitle=l10n.tr('Choose what is visible. Detailed settings stay one level deeper.'), action=self.overlay_widget_settings_btn)
 
         tiles = QGridLayout()
         tiles.setSpacing(8)
@@ -377,7 +371,7 @@ class Overlay:
         self.overlay_widget_checkboxes = {}
         widget_config = self._overlay_widget_config_by_id()
         for index, (widget_id, label) in enumerate(OVERLAY_WIDGET_LABELS.items()):
-            tile = ModuleTile(label)
+            tile = l10n.localized(ModuleTile, label)
             tile.setChecked(bool(widget_config.get(widget_id, {}).get("enabled", True)))
             tile.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
             self.overlay_widget_checkboxes[widget_id] = tile
@@ -387,11 +381,7 @@ class Overlay:
         column.addWidget(card)
 
     def _build_behaviour_card(self, column: QVBoxLayout) -> None:
-        card = SettingsCard(
-            number=3,
-            title="Server & source behaviour",
-            subtitle="Secondary options, kept out of the primary action's way.",
-        )
+        card = SettingsCard(number=3, title=l10n.tr('Server & source behaviour'), subtitle=l10n.tr("Secondary options, kept out of the primary action's way."))
         # The only real option there is. The mock's other one, "Remember last
         # canvas", describes something the browser editor already does
         # unconditionally -- off would mean discarding the canvas on restart.
@@ -399,13 +389,11 @@ class Overlay:
         # This is the same flag the Settings dialog edits, deliberately: it is
         # about OBS, and this is the OBS tab. The label is shared with the
         # dialog so one value does not appear under two names.
-        self.overlay_scanner_reminder_cb = QCheckBox(SCANNER_REMINDER_LABEL)
+        self.overlay_scanner_reminder_cb = l10n.localized(QCheckBox, l10n.term(SCANNER_REMINDER_LABEL))
         self.overlay_scanner_reminder_cb.setChecked(
             bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
         )
-        self.overlay_scanner_reminder_cb.setToolTip(
-            "Remind you to start the OBS recording when the scanner starts."
-        )
+        l10n.display(self.overlay_scanner_reminder_cb, 'setToolTip', l10n.tr('Remind you to start the OBS recording when the scanner starts.'))
         self.overlay_scanner_reminder_cb.stateChanged.connect(
             self._on_overlay_scanner_reminder_toggled
         )
@@ -420,15 +408,10 @@ class Overlay:
     PREVIEW_LIVE_WINDOW_SECONDS = 2.5
 
     def _build_preview_card(self, column: QVBoxLayout) -> None:
-        self.overlay_preview_badge = QLabel("NO SOURCE")
+        self.overlay_preview_badge = l10n.localized(QLabel, l10n.tr('NO SOURCE'))
         self.overlay_preview_badge.setObjectName("heroBadge")
         self.overlay_preview_badge.setProperty("state", STATE_OFF)
-        card = SettingsCard(
-            number=None,
-            title="Canvas preview",
-            subtitle="Read-only — edit in the layout editor.",
-            action=None,
-        )
+        card = SettingsCard(number=None, title=l10n.tr('Canvas preview'), subtitle=l10n.tr('Read-only — edit in the layout editor.'), action=None)
         # The badge is a header ornament rather than an action, so it goes in
         # the header row by hand instead of through `action`.
         card.findChild(QFrame, "settingsCardHead").layout().addWidget(
@@ -437,7 +420,7 @@ class Overlay:
 
         self.overlay_preview = CanvasPreview()
         card.body.addWidget(self.overlay_preview)
-        self.overlay_preview_legend = QLabel("")
+        self.overlay_preview_legend = l10n.localized(QLabel, '')
         self.overlay_preview_legend.setObjectName("previewLegend")
         self.overlay_preview_legend.setTextFormat(Qt.RichText)
         card.body.addWidget(self.overlay_preview_legend)
@@ -482,7 +465,7 @@ class Overlay:
             # them by `order` through CSS this cannot reproduce. Saying so beats
             # drawing an empty canvas that looks like a lost layout.
             preview.set_placeholder(
-                "Widgets are auto-arranged.\nOpen the layout editor to place them."
+                l10n.tr("Widgets are auto-arranged.\nOpen the layout editor to place them.")
             )
             preview.set_widgets(())
         else:
@@ -506,7 +489,7 @@ class Overlay:
 
         legend = getattr(self, "overlay_preview_legend", None)
         if legend is not None:
-            legend.setText(preview.legend_html())
+            l10n.display(legend, 'setText', preview.legend_html())
         self._refresh_overlay_preview_badge()
 
     def _refresh_overlay_preview_badge(self) -> None:
@@ -533,7 +516,7 @@ class Overlay:
         else:
             caption, state = "SOURCE IDLE", STATE_WARN
 
-        badge.setText(caption)
+        l10n.display(badge, 'setText', caption)
         if badge.property("state") != state:
             badge.setProperty("state", state)
             style = badge.style()
@@ -550,15 +533,11 @@ class Overlay:
         tip_layout.setContentsMargins(12, 11, 12, 11)
         tip_layout.setSpacing(4)
 
-        title = QLabel("◎ OBS CANVAS")
+        title = l10n.localized(QLabel, l10n.tr('◎ OBS CANVAS'))
         title.setObjectName("tipCardTitle")
         tip_layout.addWidget(title)
 
-        body = QLabel(
-            "Match the Browser Source size in OBS to the overlay canvas "
-            "(default 1920×1080). Open the layout editor only when positions or "
-            "the canvas resolution need adjusting — it saves as you drag."
-        )
+        body = l10n.localized(QLabel, l10n.tr('Match the Browser Source size in OBS to the overlay canvas (default 1920×1080). Open the layout editor only when positions or the canvas resolution need adjusting — it saves as you drag.'))
         body.setObjectName("tipCardText")
         body.setWordWrap(True)
         tip_layout.addWidget(body)
@@ -629,14 +608,14 @@ class Overlay:
         from PySide6.QtGui import QGuiApplication
         from PySide6.QtCore import QTimer
 
-        QGuiApplication.clipboard().setText(text)
+        l10n.display(QGuiApplication.clipboard(), 'setText', text)
         if getattr(button, "_copy_feedback_pending", False):
             return
         button._copy_feedback_pending = True
 
         original_text = button.text()
         original_role = button.objectName()
-        button.setText("Copied!")
+        l10n.display(button, 'setText', l10n.tr('Copied!'))
         # The role the redesign already carries for this colour, instead of the
         # inline `#2F9E6D` that used to be set here -- and instead of the inline
         # padding rule the old restore left behind for good, which took the
@@ -644,7 +623,7 @@ class Overlay:
         _set_widget_style_role(button, "SuccessButton")
 
         def restore():
-            button.setText(original_text)
+            l10n.display(button, 'setText', original_text)
             _set_widget_style_role(button, original_role)
             button._copy_feedback_pending = False
 
@@ -656,7 +635,7 @@ class Overlay:
     def open_overlay_widget_settings_dialog(self) -> None:
         dialog = QDialog(self.tab_overlay)
         dialog.setUpdatesEnabled(False)
-        dialog.setWindowTitle("Widget Settings")
+        l10n.display(dialog, 'setWindowTitle', l10n.tr('Widget Settings'))
         dialog.resize(700, 760)
         dialog.setMinimumSize(640, 680)
         dialog_layout = QVBoxLayout(dialog)
@@ -677,24 +656,24 @@ class Overlay:
         advanced_layout.setSpacing(10)
         advanced_tab_layout.addWidget(advanced_scroll)
 
-        stage_summary_group = QGroupBox("Stage Summary")
+        stage_summary_group = l10n.localized(QGroupBox, l10n.tr('Stage Summary'))
         stage_summary_layout = QVBoxLayout(stage_summary_group)
-        stage_summary_layout.addWidget(QLabel("Configure the Stage Summary overlay widget."))
+        stage_summary_layout.addWidget(l10n.localized(QLabel, l10n.tr('Configure the Stage Summary overlay widget.')))
         stage_summary_widget_cfg = self._overlay_widget_config_by_id().get("stage_summary", {})
-        self.overlay_stage_summary_bg_checkbox = QCheckBox("Show background")
+        self.overlay_stage_summary_bg_checkbox = l10n.localized(QCheckBox, l10n.tr('Show background'))
         self.overlay_stage_summary_bg_checkbox.setChecked(float(stage_summary_widget_cfg.get("background_opacity", 0)) > 0)
         self.overlay_stage_summary_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         stage_summary_layout.addWidget(self.overlay_stage_summary_bg_checkbox)
         basic_layout.addWidget(stage_summary_group)
 
-        build_group = QGroupBox("Build Progression")
+        build_group = l10n.localized(QGroupBox, l10n.tr('Build Progression'))
         build_layout = QVBoxLayout(build_group)
-        build_layout.addWidget(QLabel("The same build definition is shared with Live Stats, in-game overlay, and Twitch."))
-        configure_build = QPushButton("Configure Build Progression…")
+        build_layout.addWidget(l10n.localized(QLabel, l10n.tr('The same build definition is shared with Live Stats, in-game overlay, and Twitch.')))
+        configure_build = l10n.localized(QPushButton, l10n.tr('Configure Build Progression…'))
         configure_build.clicked.connect(self.open_build_progression_dialog)
         build_layout.addWidget(configure_build)
         build_cfg = self._overlay_widget_config_by_id().get("build_progression", {})
-        self.overlay_build_bg_checkbox = QCheckBox("Show background")
+        self.overlay_build_bg_checkbox = l10n.localized(QCheckBox, l10n.tr('Show background'))
         self.overlay_build_bg_checkbox.setChecked(
             float(build_cfg.get("background_opacity", 0)) > 0
         )
@@ -703,7 +682,7 @@ class Overlay:
         )
         build_layout.addWidget(self.overlay_build_bg_checkbox)
 
-        self.overlay_build_header_checkbox = QCheckBox("Show header")
+        self.overlay_build_header_checkbox = l10n.localized(QCheckBox, l10n.tr('Show header'))
         self.overlay_build_header_checkbox.setChecked(
             bool(build_cfg.get("show_header", False))
         )
@@ -712,7 +691,7 @@ class Overlay:
         )
         build_layout.addWidget(self.overlay_build_header_checkbox)
 
-        self.overlay_build_completed_checkbox = QCheckBox("Show completed rows")
+        self.overlay_build_completed_checkbox = l10n.localized(QCheckBox, l10n.tr('Show completed rows'))
         self.overlay_build_completed_checkbox.setChecked(bool(build_cfg.get("show_completed", False)))
         self.overlay_build_max_rows_spin = QSpinBox()
         self.overlay_build_max_rows_spin.setRange(1, 20)
@@ -723,35 +702,31 @@ class Overlay:
         build_layout.addWidget(self.overlay_build_completed_checkbox)
         self.overlay_build_max_rows_spin.valueChanged.connect(lambda _value: self.save_overlay_settings_from_ui())
         rows_line = QHBoxLayout()
-        rows_line.addWidget(QLabel("Maximum non-completed rows"))
+        rows_line.addWidget(l10n.localized(QLabel, l10n.tr('Maximum non-completed rows')))
         rows_line.addWidget(self.overlay_build_max_rows_spin)
         rows_line.addStretch(1)
         build_layout.addLayout(rows_line)
         advanced_layout.addWidget(build_group)
 
-        weapon_group = QGroupBox("Weapon Tracker", advanced_tab)
+        weapon_group = l10n.localized(QGroupBox, l10n.tr('Weapon Tracker'), advanced_tab)
         weapon_layout = QVBoxLayout(weapon_group)
         weapon_layout.setSpacing(10)
         weapon_cfg = self._overlay_widget_config_by_id().get("weapon_tracker", {})
 
-        weapon_layout.addWidget(_settings_subsection_title("Appearance", weapon_group))
+        weapon_layout.addWidget(_settings_subsection_title(l10n.tr('Appearance'), weapon_group))
         self.overlay_weapon_options = {}
-        for key, caption in (
-            ("show_header", "Show header"),
-            ("show_border", "Show border"),
-            ("background_opacity", "Show background"),
-        ):
-            checkbox = QCheckBox(caption, weapon_group)
+        for key, caption in (('show_header', l10n.tr('Show header')), ('show_border', l10n.tr('Show border')), ('background_opacity', l10n.tr('Show background'))):
+            checkbox = l10n.localized(QCheckBox, caption, weapon_group)
             checkbox.setChecked(bool(weapon_cfg.get(key, False)))
             self.overlay_weapon_options[key] = checkbox
             weapon_layout.addWidget(checkbox)
 
         layout_row = QHBoxLayout()
         layout_row.setSpacing(10)
-        layout_row.addWidget(QLabel("Layout", weapon_group))
+        layout_row.addWidget(l10n.localized(QLabel, l10n.tr('Layout'), weapon_group))
         self.overlay_weapon_layout_combo = QComboBox(weapon_group)
-        self.overlay_weapon_layout_combo.addItem("Compact", "compact")
-        self.overlay_weapon_layout_combo.addItem("Detailed", "detailed")
+        l10n.combo_item(self.overlay_weapon_layout_combo, l10n.tr('Compact'), 'compact')
+        l10n.combo_item(self.overlay_weapon_layout_combo, l10n.tr('Detailed'), 'detailed')
         self.overlay_weapon_layout_combo.setCurrentIndex(
             max(0, self.overlay_weapon_layout_combo.findData(weapon_cfg.get("layout", "compact")))
         )
@@ -759,20 +734,20 @@ class Overlay:
         weapon_layout.addLayout(layout_row)
 
         weapon_layout.addWidget(_settings_subsection_divider(weapon_group))
-        weapon_layout.addWidget(_settings_subsection_title("Cap display", weapon_group))
-        show_caps = QCheckBox("Show caps", weapon_group)
+        weapon_layout.addWidget(_settings_subsection_title(l10n.tr('Cap display'), weapon_group))
+        show_caps = l10n.localized(QCheckBox, l10n.tr('Show caps'), weapon_group)
         show_caps.setChecked(bool(weapon_cfg.get("show_caps", False)))
         self.overlay_weapon_options["show_caps"] = show_caps
         weapon_layout.addWidget(show_caps)
 
         weapon_layout.addWidget(_settings_subsection_divider(weapon_group))
-        weapon_layout.addWidget(_settings_subsection_title("Displayed stats", weapon_group))
+        weapon_layout.addWidget(_settings_subsection_title(l10n.tr('Displayed stats'), weapon_group))
         self.overlay_weapon_checkboxes = {}
         metric_grid = QGridLayout()
         metric_grid.setHorizontalSpacing(24)
         metric_grid.setVerticalSpacing(8)
         for index, key in enumerate(WEAPON_TRACKER_METRIC_ORDER):
-            checkbox = QCheckBox(WEAPON_TRACKER_METRICS[key].player_stat_label, weapon_group)
+            checkbox = l10n.localized(QCheckBox, WEAPON_TRACKER_METRICS[key].player_stat_label, weapon_group)
             checkbox.setChecked(key in weapon_cfg.get("selected_stats", ()))
             self.overlay_weapon_checkboxes[key] = checkbox
             metric_grid.addWidget(checkbox, index // 2, index % 2)
@@ -787,31 +762,31 @@ class Overlay:
         )
         advanced_layout.addWidget(weapon_group)
 
-        banishes_group = QGroupBox("Banishes")
+        banishes_group = l10n.localized(QGroupBox, l10n.tr('Banishes'))
         banishes_layout = QVBoxLayout(banishes_group)
-        banishes_layout.addWidget(QLabel("Configure the Banishes overlay widget."))
+        banishes_layout.addWidget(l10n.localized(QLabel, l10n.tr('Configure the Banishes overlay widget.')))
         banishes_widget_cfg = self._overlay_widget_config_by_id().get("banishes", {})
-        self.overlay_banishes_bg_checkbox = QCheckBox("Show background")
+        self.overlay_banishes_bg_checkbox = l10n.localized(QCheckBox, l10n.tr('Show background'))
         self.overlay_banishes_bg_checkbox.setChecked(float(banishes_widget_cfg.get("background_opacity", 0)) > 0)
         self.overlay_banishes_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         banishes_layout.addWidget(self.overlay_banishes_bg_checkbox)
 
-        self.overlay_banishes_header_checkbox = QCheckBox("Show header")
+        self.overlay_banishes_header_checkbox = l10n.localized(QCheckBox, l10n.tr('Show header'))
         self.overlay_banishes_header_checkbox.setChecked(bool(banishes_widget_cfg.get("show_header", True)))
         self.overlay_banishes_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         banishes_layout.addWidget(self.overlay_banishes_header_checkbox)
         basic_layout.addWidget(banishes_group)
 
-        kps_group = QGroupBox("KPS")
+        kps_group = l10n.localized(QGroupBox, l10n.tr('KPS'))
         kps_layout = QVBoxLayout(kps_group)
-        kps_layout.addWidget(QLabel("Configure the compact KPS overlay widget."))
+        kps_layout.addWidget(l10n.localized(QLabel, l10n.tr('Configure the compact KPS overlay widget.')))
         kps_widget_cfg = self._overlay_widget_config_by_id().get("kps", {})
-        self.overlay_kps_bg_checkbox = QCheckBox("Show background")
+        self.overlay_kps_bg_checkbox = l10n.localized(QCheckBox, l10n.tr('Show background'))
         self.overlay_kps_bg_checkbox.setChecked(float(kps_widget_cfg.get("background_opacity", 0)) > 0)
         self.overlay_kps_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         kps_layout.addWidget(self.overlay_kps_bg_checkbox)
 
-        self.overlay_kps_header_checkbox = QCheckBox("Show header")
+        self.overlay_kps_header_checkbox = l10n.localized(QCheckBox, l10n.tr('Show header'))
         self.overlay_kps_header_checkbox.setChecked(bool(kps_widget_cfg.get("show_header", False)))
         self.overlay_kps_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         kps_layout.addWidget(self.overlay_kps_header_checkbox)
@@ -820,45 +795,45 @@ class Overlay:
         self.overlay_kps_metric_checkboxes = {}
         selected_kps_metrics = set(self._overlay_selected_kps_metric_ids())
         for metric_id, metric_label in self._overlay_all_kps_metric_labels():
-            checkbox = QCheckBox(metric_label)
+            checkbox = l10n.localized(QCheckBox, metric_label)
             checkbox.setChecked(metric_id in selected_kps_metrics)
             checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
             self.overlay_kps_metric_checkboxes[metric_id] = checkbox
             kps_layout.addWidget(checkbox)
         basic_layout.addWidget(kps_group)
 
-        luck_group = QGroupBox("Luck")
+        luck_group = l10n.localized(QGroupBox, l10n.tr('Luck'))
         luck_layout = QVBoxLayout(luck_group)
-        luck_layout.addWidget(QLabel("Configure the Luck overlay widget."))
+        luck_layout.addWidget(l10n.localized(QLabel, l10n.tr('Configure the Luck overlay widget.')))
         luck_widget_cfg = self._overlay_widget_config_by_id().get("luck_rarity", {})
-        self.overlay_luck_bg_checkbox = QCheckBox("Show background")
+        self.overlay_luck_bg_checkbox = l10n.localized(QCheckBox, l10n.tr('Show background'))
         self.overlay_luck_bg_checkbox.setChecked(float(luck_widget_cfg.get("background_opacity", 0)) > 0)
         self.overlay_luck_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         luck_layout.addWidget(self.overlay_luck_bg_checkbox)
 
-        self.overlay_luck_header_checkbox = QCheckBox("Show header")
+        self.overlay_luck_header_checkbox = l10n.localized(QCheckBox, l10n.tr('Show header'))
         self.overlay_luck_header_checkbox.setChecked(bool(luck_widget_cfg.get("show_header", True)))
         self.overlay_luck_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         luck_layout.addWidget(self.overlay_luck_header_checkbox)
 
         # Configured apart from the in-game widget's pair on purpose: a streamer
         # may want the frame on the stream and not in their own view.
-        self.overlay_luck_bar_checkbox = QCheckBox("Show rarity bar")
+        self.overlay_luck_bar_checkbox = l10n.localized(QCheckBox, l10n.tr('Show rarity bar'))
         self.overlay_luck_bar_checkbox.setChecked(bool(luck_widget_cfg.get("show_bar", True)))
         self.overlay_luck_bar_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         luck_layout.addWidget(self.overlay_luck_bar_checkbox)
 
-        self.overlay_luck_expected_checkbox = QCheckBox("Show expected frame")
-        self.overlay_luck_expected_checkbox.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
+        self.overlay_luck_expected_checkbox = l10n.localized(QCheckBox, l10n.tr('Show expected frame'))
+        l10n.display(self.overlay_luck_expected_checkbox, 'setToolTip', LUCK_RARITY_MODEL_ATTRIBUTION)
         self.overlay_luck_expected_checkbox.setChecked(bool(luck_widget_cfg.get("show_expected", True)))
         self.overlay_luck_expected_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         luck_layout.addWidget(self.overlay_luck_expected_checkbox)
 
         luck_layout_row = QHBoxLayout()
-        luck_layout_row.addWidget(QLabel("Expected layout:"))
+        luck_layout_row.addWidget(l10n.localized(QLabel, l10n.tr('Expected layout:')))
         self.overlay_luck_layout_combo = QComboBox()
-        for label, value in (("Column (2x2)", "column"), ("Row (single line)", "row")):
-            self.overlay_luck_layout_combo.addItem(label, value)
+        for label, value in ((l10n.tr('Column (2x2)'), 'column'), (l10n.tr('Row (single line)'), 'row')):
+            l10n.combo_item(self.overlay_luck_layout_combo, label, value)
         self.overlay_luck_layout_combo.setCurrentIndex(
             max(0, self.overlay_luck_layout_combo.findData(luck_widget_cfg.get("expected_layout", "column")))
         )
@@ -871,25 +846,22 @@ class Overlay:
         basic_layout.addWidget(luck_group)
         basic_layout.addStretch(1)
 
-        stats_group = CollapsibleSection("Stats", expanded=True)
+        stats_group = CollapsibleSection(l10n.tr('Stats'), expanded=True)
         stats_layout = stats_group.body_layout
-        stats_layout.addWidget(QLabel("Selected stats appear in the Stats overlay widget."))
+        stats_layout.addWidget(l10n.localized(QLabel, l10n.tr('Selected stats appear in the Stats overlay widget.')))
         stats_widget_cfg = self._overlay_widget_config_by_id().get("stats", {})
-        self.overlay_stats_bg_checkbox = QCheckBox("Show background")
+        self.overlay_stats_bg_checkbox = l10n.localized(QCheckBox, l10n.tr('Show background'))
         self.overlay_stats_bg_checkbox.setChecked(float(stats_widget_cfg.get("background_opacity", 0)) > 0)
         self.overlay_stats_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         stats_layout.addWidget(self.overlay_stats_bg_checkbox)
 
-        self.overlay_stats_header_checkbox = QCheckBox("Show header")
+        self.overlay_stats_header_checkbox = l10n.localized(QCheckBox, l10n.tr('Show header'))
         self.overlay_stats_header_checkbox.setChecked(bool(stats_widget_cfg.get("show_header", True)))
         self.overlay_stats_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         stats_layout.addWidget(self.overlay_stats_header_checkbox)
 
-        self.overlay_stats_short_labels_checkbox = QCheckBox("Short stat names")
-        self.overlay_stats_short_labels_checkbox.setToolTip(
-            "Show abbreviated stat names (DMG, AS, XP) as in the in-game overlay "
-            "and the Twitch bot. Uncheck to show full names (Damage, Attack Speed, XP Gain)."
-        )
+        self.overlay_stats_short_labels_checkbox = l10n.localized(QCheckBox, l10n.tr('Short stat names'))
+        l10n.display(self.overlay_stats_short_labels_checkbox, 'setToolTip', l10n.tr('Show abbreviated stat names (DMG, AS, XP) as in the in-game overlay and the Twitch bot. Uncheck to show full names (Damage, Attack Speed, XP Gain).'))
         self.overlay_stats_short_labels_checkbox.setChecked(
             bool(stats_widget_cfg.get("short_stat_labels", True))
         )
@@ -903,7 +875,7 @@ class Overlay:
         self.overlay_stats_checkboxes = {}
         selected_stats = set(self._overlay_selected_stat_labels())
         for index, label in enumerate(self._overlay_all_stat_labels()):
-            checkbox = QCheckBox(label)
+            checkbox = l10n.localized(QCheckBox, label)
             checkbox.setChecked(label in selected_stats)
             checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
             self.overlay_stats_checkboxes[label] = checkbox
@@ -912,7 +884,7 @@ class Overlay:
         stats_layout.addSpacing(12)
 
         reset_btn_layout = QHBoxLayout()
-        self.overlay_stats_reset_btn = QPushButton("Reset to Default Stats")
+        self.overlay_stats_reset_btn = l10n.localized(QPushButton, l10n.tr('Reset to Default Stats'))
         self.overlay_stats_reset_btn.clicked.connect(self._reset_overlay_stats_to_default)
         reset_btn_layout.addWidget(self.overlay_stats_reset_btn)
         reset_btn_layout.addStretch(1)
@@ -923,12 +895,12 @@ class Overlay:
         advanced_layout.addStretch(1)
         self.overlay_advanced_sections_group = CollapsibleSectionGroup((stats_group,))
 
-        settings_tabs.addTab(basic_tab, "Basic")
-        settings_tabs.addTab(advanced_tab, "Advanced")
+        l10n.tab(settings_tabs, basic_tab, l10n.tr('Basic'))
+        l10n.tab(settings_tabs, advanced_tab, l10n.tr('Advanced'))
 
         close_row = QHBoxLayout()
         close_row.addStretch(1)
-        close_btn = QPushButton("Done")
+        close_btn = l10n.localized(QPushButton, l10n.tr('Done'))
         close_btn.clicked.connect(dialog.accept)
         close_row.addWidget(close_btn)
         dialog_layout.addLayout(close_row)
@@ -1165,17 +1137,17 @@ class Overlay:
         hero = getattr(self, "overlay_hero", None)
         if hero is not None:
             if running:
-                hero.set_status("LIVE", STATE_OK)
+                hero.set_status(l10n.tr('LIVE'), STATE_OK)
             elif server is not None and server.last_error:
                 # The badge stays a short label and the OS message goes to the
                 # subtitle: `[WinError 10048] ...` is a sentence, and a sentence
                 # in a 10.5px uppercase pill cannot be read.
-                hero.set_status("PORT ERROR", STATE_DANGER, detail=str(server.last_error))
+                hero.set_status(l10n.tr('PORT ERROR'), STATE_DANGER, detail=str(server.last_error))
             else:
-                hero.set_status("STOPPED", STATE_OFF)
+                hero.set_status(l10n.tr('STOPPED'), STATE_OFF)
         if getattr(self, "overlay_server_toggle_btn", None) is not None:
             start_text, stop_text = OVERLAY_SERVER_CAPTIONS
-            self.overlay_server_toggle_btn.setText(stop_text if running else start_text)
+            l10n.display(self.overlay_server_toggle_btn, 'setText', stop_text if running else start_text)
             _set_widget_style_role(
                 self.overlay_server_toggle_btn,
                 "stopScanner" if running else "primary",
@@ -1256,11 +1228,7 @@ class Overlay:
     def update_overlay_state_from_tracker(self) -> None:
         if self.overlay_state_store is None:
             return
-        state = build_overlay_state(
-            self.live_run_tracker,
-            self._effective_overlay_config(),
-            self._build_progression_snapshot(),
-        )
+        state = self._overlay_payload()
         self._log_overlay_status_transition(str(state.get("status") or ""))
         self.overlay_state_store.set_state(state)
         self._request_overlay_ui_refresh()

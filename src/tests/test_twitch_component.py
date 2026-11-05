@@ -842,7 +842,7 @@ class TwitchTabTests(unittest.TestCase):
 
     def test_read_settings_normalises_the_target_channel(self) -> None:
         tab = self._tab(
-            _tier_combo=SimpleNamespace(currentText=lambda: "Mods & VIPs"),
+            _tier_combo=SimpleNamespace(currentText=lambda: "Модераторы и VIP", currentData=lambda _role: "Mods & VIPs"),
             _target_channel_entry=SimpleNamespace(text=lambda: "  #BonkChannel "),
             _global_cooldown_spin=SimpleNamespace(value=lambda: 3),
             _cooldown_spin=SimpleNamespace(value=lambda: 9),

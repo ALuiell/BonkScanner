@@ -26,6 +26,8 @@ are their only two importers in the tree, and both live here.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QFormLayout, QFrame, QGridLayout, QLabel, QVBoxLayout
@@ -88,31 +90,31 @@ def _build_chests_stats_card(*, include_chests_per_minute: bool = False):
     form.setVerticalSpacing(4)
     values = {}
     rows = [
-        ("maps", "Maps"),
-        ("total", "Total"),
+        ("maps", l10n.tr("Maps")),
+        ("total", l10n.tr("Total")),
     ]
     if include_chests_per_minute:
-        rows.append(("chests_per_minute", "Average chests/min"))
+        rows.append(("chests_per_minute", l10n.tr("Average chests/min")))
     rows.extend((
-        ("paid_free", "Paid / Free"),
-        ("key_procs", "Key Procs"),
-        ("expected", "Expected"),
-        ("keys", "Keys"),
+        ("paid_free", l10n.tr("Paid / Free")),
+        ("key_procs", l10n.tr("Key Procs")),
+        ("expected", l10n.tr("Expected")),
+        ("keys", l10n.tr("Keys")),
     ))
     for key, title in rows:
-        name_label = QLabel(title)
+        name_label = l10n.localized(QLabel, title)
         name_label.setObjectName("LiveStatsLootStatName")
-        value_label = QLabel("--")
+        value_label = l10n.localized(QLabel, '--')
         value_label.setObjectName("LiveStatsLootStatValue")
         value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
         value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         if key == "maps":
             value_label.setWordWrap(True)
-        form.addRow(name_label, value_label)
+        l10n.form_row(form, name_label, value_label)
         values[key] = value_label
     outer.addLayout(form)
 
-    status_label = QLabel("")
+    status_label = l10n.localized(QLabel, '')
     status_label.setObjectName("LiveStatsMetaText")
     status_label.setWordWrap(True)
     status_label.setVisible(False)
@@ -144,16 +146,16 @@ def _build_loot_rarity_card():
     grid.setVerticalSpacing(4)
     values = {}
     for row, rarity in enumerate(LUCK_RARITY_ORDER):
-        name_label = QLabel(GAME_RARITY_NAMES[rarity])
+        name_label = l10n.localized(QLabel, l10n.game("rarities", GAME_RARITY_NAMES[rarity]))
         name_label.setObjectName("LiveStatsLootStatName")
         name_label.setStyleSheet(
             f"color: {ITEM_RARITY_COLOR_MAP.get(rarity, '#E5E7EB')}; font-weight: 700; background: transparent;"
         )
-        chance_label = QLabel("--")
+        chance_label = l10n.localized(QLabel, '--')
         chance_label.setObjectName("LiveStatsLootStatValue")
         chance_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
         chance_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        counts_label = QLabel("--")
+        counts_label = l10n.localized(QLabel, '--')
         counts_label.setObjectName("LiveStatsLootStatValue")
         counts_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
         counts_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -164,13 +166,13 @@ def _build_loot_rarity_card():
     grid.setColumnStretch(0, 1)
     layout.addLayout(grid)
 
-    status_label = QLabel("")
+    status_label = l10n.localized(QLabel, '')
     status_label.setObjectName("LiveStatsMetaText")
     status_label.setWordWrap(True)
     status_label.setVisible(False)
     layout.addWidget(status_label)
     values["status"] = status_label
-    card.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
+    l10n.display(card, 'setToolTip', LUCK_RARITY_MODEL_ATTRIBUTION)
     return card, values
 
 

@@ -101,7 +101,7 @@ def _automatic_vod_name(
 
 
 # `slots=True` on the two types below, and it is not a style choice: these are
-# the only objects in the application that exist in five figures. Opening one
+# snapshot types instantiated in five figures. Opening one
 # recording of 855 snapshots creates 855 `VodSnapshot` and 25,650
 # `VodStatValue` -- one per stat per snapshot -- and a dataclass without slots
 # carries a per-instance `__dict__`, which for `VodStatValue` is 296 of its 344
@@ -386,6 +386,8 @@ class VodRecorder:
     ) -> Path:
         if self.is_recording or self._file is not None:
             raise RuntimeError("VOD recorder is already active.")
+        from infra.data_storage import require_profile_write
+        require_profile_write(self.vods_dir)
         self.vods_dir.mkdir(parents=True, exist_ok=True)
         created_at = datetime.now().replace(microsecond=0)
         file_stem = created_at.strftime("%Y-%m-%d_%H-%M-%S")
@@ -698,6 +700,11 @@ def load_vod(
         elif record_type == "snapshot":
             snapshots.append(_record_to_snapshot(_normalize_vod_record(record, version), pool))
         elif record_type == "powerup_sample" and version >= 12:
+            # The run id repeats at every effect tick. Share its text within
+            # this load, just as snapshot item/stat names already do below.
+            run_id = record.get("run_id")
+            if type(run_id) is str:
+                record["run_id"] = pool.setdefault(run_id, run_id)
             observation = PowerupObservation.from_record(record)
             if powerup_observations and observation.captured_at <= powerup_observations[-1].captured_at:
                 raise VodFormatError("Power-up observations must be chronological")
@@ -770,6 +777,8 @@ def load_vod_metadata(path: Path) -> VodMetadata:
 
 
 def rename_vod(path: Path, new_name: str) -> VodMetadata:
+    from infra.data_storage import require_profile_write
+    require_profile_write(path)
     new_name = new_name.strip()
     if not new_name:
         raise ValueError("VOD name cannot be empty.")
@@ -796,6 +805,8 @@ def rename_vod(path: Path, new_name: str) -> VodMetadata:
 
 
 def delete_vod(path: Path) -> None:
+    from infra.data_storage import require_profile_write
+    require_profile_write(path)
     path.unlink(missing_ok=True)
     clear_vod_metadata_cache()
 

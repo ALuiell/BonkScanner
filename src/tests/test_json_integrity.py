@@ -4,11 +4,13 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import src  # noqa: F401
 
 from app import config
+from app.config_repository import ConfigRepository
 from core.json_safety import loads_strict_json
 
 
@@ -21,10 +23,17 @@ class StrictJsonInputTests(unittest.TestCase):
 
 
 class ConfigJsonIntegrityTests(unittest.TestCase):
+    @contextmanager
+    def loaded_config(self, path):
+        repository = ConfigRepository(path)
+        repository.load()
+        with patch.object(config, "config_path", str(path)), patch.object(config, "_repository", repository):
+            yield
+
     def test_save_config_is_atomic_and_emits_only_standard_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "config.json"
-            with patch.object(config, "config_path", str(path)):
+            with self.loaded_config(path):
                 result = config.save_config(
                     {
                         "finite": 1.5,
@@ -50,7 +59,7 @@ class ConfigJsonIntegrityTests(unittest.TestCase):
             original = '{"preserved": true}\n'
             path.write_text(original, encoding="utf-8")
 
-            with patch.object(config, "config_path", str(path)):
+            with self.loaded_config(path):
                 result = config.save_config({"unsupported": object()})
 
             self.assertFalse(result.success)
@@ -61,8 +70,8 @@ class ConfigJsonIntegrityTests(unittest.TestCase):
     def test_write_that_cannot_be_read_back_is_reported_as_a_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "config.json"
-            with patch.object(config, "config_path", str(path)):
-                with patch.object(config, "_atomic_write_text"):
+            with self.loaded_config(path):
+                with patch.object(Path, "read_text", side_effect=OSError("readback failed")):
                     result = config.save_config({"value": 1})
 
             self.assertFalse(result.success)

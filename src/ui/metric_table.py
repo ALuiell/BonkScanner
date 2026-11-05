@@ -29,9 +29,12 @@ Two rules keep it fast, and breaking either puts the cost back:
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
+    QLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -112,9 +115,9 @@ class MetricSectionView(QWidget):
         heading_layout = QHBoxLayout(self._heading)
         heading_layout.setContentsMargins(0, 0, 0, 0)
         heading_layout.setSpacing(6)
-        self._title_label = QLabel(self._heading)
+        self._title_label = l10n.localized(QLabel, self._heading)
         self._title_label.setStyleSheet(_cell_style(TEXT_COLOR, bold=True))
-        self._subtitle_label = QLabel(self._heading)
+        self._subtitle_label = l10n.localized(QLabel, self._heading)
         self._subtitle_label.setStyleSheet(_cell_style(MUTED_COLOR))
         heading_layout.addWidget(self._title_label)
         heading_layout.addWidget(self._subtitle_label)
@@ -139,12 +142,12 @@ class MetricSectionView(QWidget):
     # -- rendering ------------------------------------------------------------
 
     def set_section(self, section) -> None:
-        title = str(section.title or "")
-        subtitle = str(section.subtitle or "")
+        title = l10n.preserve(section.title or "")
+        subtitle = l10n.preserve(section.subtitle or "")
         # A named entity puts its name and level in the first header cell; a
         # plain table puts a column name there instead.
-        self._title_label.setText(title or str(section.headers[0]))
-        self._subtitle_label.setText(subtitle)
+        l10n.display(self._title_label, 'setText', title or l10n.preserve(section.headers[0]))
+        l10n.display(self._subtitle_label, 'setText', subtitle)
         self._subtitle_label.setVisible(bool(subtitle))
         # A plain table's first header cell is a column name, so it reads as a
         # header; an entity's name reads as a heading.
@@ -153,16 +156,16 @@ class MetricSectionView(QWidget):
             self._heading_color = heading_color
             self._title_label.setStyleSheet(_cell_style(heading_color, bold=True))
         for cell, header in zip(self._header_cells, section.headers[1:]):
-            cell.setText(str(header))
+            l10n.display(cell, 'setText', l10n.preserve(header))
 
         rows = section.rows
         self._ensure_row_capacity(len(rows))
         for index, row in enumerate(rows):
             cells = self._rows[index]
-            cells[0].setText(row.label)
-            cells[1].setText(row.value_a)
-            cells[2].setText(row.value_b)
-            cells[3].setText(row.delta)
+            l10n.display(cells[0], 'setText', l10n.term(row.label))
+            l10n.display(cells[1], 'setText', row.value_a)
+            l10n.display(cells[2], 'setText', row.value_b)
+            l10n.display(cells[3], 'setText', row.delta)
             direction = row.direction
             if self._row_directions[index] != direction:
                 self._row_directions[index] = direction
@@ -292,7 +295,7 @@ class MetricTableView(QWidget):
             # No caption means "render nothing": the Items card writes an empty
             # table whenever its details are folded away, and a stray `--` under
             # the summary line would be worse than an empty card.
-            self._empty_label.setText(str(table.empty_text))
+            l10n.display(self._empty_label, 'setText', l10n.preserve(table.empty_text))
             self._empty_label.setVisible(bool(table.empty_text))
             self._set_visible_section_count(0)
             return
@@ -334,17 +337,17 @@ class CompactMetricCellView(QFrame):
         layout.setVerticalSpacing(2)
         layout.setColumnStretch(1, 1)
 
-        self._label = QLabel(self)
+        self._label = l10n.localized(QLabel, self)
         self._label.setObjectName("CompareRunsMetricLabel")
         layout.addWidget(self._label, 0, 0, 1, 2)
 
         self._run_labels: list[QLabel] = []
         self._value_labels: list[QLabel] = []
         for row_index, side in enumerate(("A", "B"), start=1):
-            run_label = QLabel(side, self)
+            run_label = l10n.localized(QLabel, side, self)
             run_label.setObjectName("CompareRunsMetricRunLabel")
             run_label.setProperty("side", side)
-            value_label = QLabel(self)
+            value_label = l10n.localized(QLabel, self)
             value_label.setObjectName("CompareRunsMetricValue")
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             layout.addWidget(run_label, row_index, 0)
@@ -352,7 +355,7 @@ class CompactMetricCellView(QFrame):
             self._run_labels.append(run_label)
             self._value_labels.append(value_label)
 
-        self._delta = QLabel(self)
+        self._delta = l10n.localized(QLabel, self)
         self._delta.setObjectName("CompareRunsMetricDelta")
         self._delta.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(self._delta, 3, 0, 1, 2)
@@ -361,10 +364,10 @@ class CompactMetricCellView(QFrame):
         self._label_color: str | None = None
 
     def set_row(self, row) -> None:
-        self._label.setText(str(row.label))
-        self._value_labels[0].setText(str(row.value_a))
-        self._value_labels[1].setText(str(row.value_b))
-        self._delta.setText(f"Δ {row.delta}")
+        l10n.display(self._label, 'setText', l10n.term(row.label))
+        l10n.display(self._value_labels[0], 'setText', str(row.value_a))
+        l10n.display(self._value_labels[1], 'setText', str(row.value_b))
+        l10n.display(self._delta, 'setText', f'Δ {row.delta}')
 
         direction = row.direction
         if self._direction != direction:
@@ -405,12 +408,12 @@ class CompactMetricCardView(QFrame):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(9, 7, 9, 7)
         header_layout.setSpacing(7)
-        self._badge = QLabel(header)
+        self._badge = l10n.localized(QLabel, header)
         self._badge.setObjectName("CompareRunsComparisonCardBadge")
         self._badge.setAlignment(Qt.AlignCenter)
-        self._title = QLabel(header)
+        self._title = l10n.localized(QLabel, header)
         self._title.setObjectName("CompareRunsComparisonCardTitle")
-        self._meta = QLabel(header)
+        self._meta = l10n.localized(QLabel, header)
         self._meta.setObjectName("CompareRunsComparisonCardMeta")
         self._meta.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         header_layout.addWidget(self._badge)
@@ -434,10 +437,10 @@ class CompactMetricCardView(QFrame):
         self._ensure_cell_capacity(max(0, int(metric_capacity)))
 
     def set_section(self, section, *, fallback_number: int) -> None:
-        title = str(section.title or section.headers[0])
-        self._title.setText(title)
-        suffix = title.rsplit(" ", 1)[-1]
-        self._badge.setText(suffix if suffix.isdigit() else str(fallback_number))
+        title = l10n.preserve(section.title or section.headers[0])
+        l10n.display(self._title, 'setText', title)
+        suffix = str(title).rsplit(" ", 1)[-1]
+        l10n.display(self._badge, 'setText', suffix if suffix.isdigit() else str(fallback_number))
 
         rows = section.rows
         changed = sum(
@@ -446,11 +449,11 @@ class CompactMetricCardView(QFrame):
         )
         meta_parts = []
         if section.subtitle:
-            meta_parts.append(str(section.subtitle))
+            meta_parts.append(l10n.term(section.subtitle))
         elif rows and str(rows[0].label).casefold() == "time":
             meta_parts.append(f"{rows[0].value_a} vs {rows[0].value_b}")
-        meta_parts.append(f"{changed} changes")
-        self._meta.setText(" · ".join(meta_parts))
+        meta_parts.append(l10n.tr("Changes: {count}", count=changed))
+        l10n.display(self._meta, 'setText', l10n.join(' · ', meta_parts))
 
         self._ensure_cell_capacity(len(rows))
         for index, row in enumerate(rows):
@@ -498,10 +501,12 @@ class CompactMetricCardGridView(QWidget):
         self._column_count = 2
 
         root = QVBoxLayout(self)
+        # Reflow before the two-column minimum can prevent narrowing.
+        root.setSizeConstraint(QLayout.SetNoConstraint)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(_CARD_SPACING)
 
-        self._empty_label = QLabel(self)
+        self._empty_label = l10n.localized(QLabel, self)
         self._empty_label.setObjectName("CompareRunsCompactMetricEmpty")
         self._empty_label.setWordWrap(True)
         self._empty_label.setVisible(False)
@@ -536,7 +541,7 @@ class CompactMetricCardGridView(QWidget):
         self._table = table
 
         sections = table.sections
-        self._empty_label.setText(str(table.empty_text))
+        l10n.display(self._empty_label, 'setText', l10n.preserve(table.empty_text))
         self._empty_label.setVisible(not sections and bool(table.empty_text))
         self._cards_host.setVisible(bool(sections))
         if not sections:

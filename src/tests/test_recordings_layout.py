@@ -354,12 +354,12 @@ class RecordingsLayoutTests(unittest.TestCase):
                     SimpleNamespace(snapshot_count=20),
                 ),
             )
-            assert cleanup.confirm_btn.text() == "Remove 1 recording"
+            assert cleanup.confirm_btn.text() == "Remove recordings (1)"
             assert cleanup.confirm_btn.isEnabled()
             cleanup.threshold_entry.setText("21")
-            assert cleanup.confirm_btn.text() == "Remove 3 recordings"
+            assert cleanup.confirm_btn.text() == "Remove recordings (3)"
             cleanup.threshold_entry.setText("0")
-            assert cleanup.confirm_btn.text() == "Remove 0 recordings"
+            assert cleanup.confirm_btn.text() == "Remove recordings (0)"
             assert not cleanup.confirm_btn.isEnabled()
 
             # The record plaque is one compact context row: library selector,

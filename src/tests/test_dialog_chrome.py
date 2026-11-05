@@ -62,7 +62,7 @@ def _calls_named(node: ast.AST, name: str) -> list[ast.Call]:
         for child in ast.walk(node)
         if isinstance(child, ast.Call)
         and isinstance(child.func, ast.Name)
-        and child.func.id == name
+        and child.func.id in ({"dialog_body", "localized_dialog_body"} if name == "dialog_body" else {name})
     ]
 
 

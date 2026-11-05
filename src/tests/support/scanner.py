@@ -133,7 +133,7 @@ def build_run_control(
         calls["scheduled"].append((delay_ms, callback))
         callback()
 
-    def record_toggle_scan():
+    def record_toggle_scan(_pressed_at):
         calls["toggle_scan"] += 1
 
     def record_player_movement():
@@ -272,7 +272,7 @@ def build_pair(*, provider=None, **scanner_kwargs):
     run_control = build_run_control(
         client=lambda: coordinator.client,
         abort_requested=lambda: holder["scanner"]._scan_abort_requested(),
-        toggle_scan=lambda: holder["scanner"].toggle_scan_event(),
+        toggle_scan=lambda pressed_at: holder["scanner"].toggle_scan_event(pressed_at),
         player_movement=lambda: holder["scanner"].handle_player_movement(),
         provider=provider,
     )

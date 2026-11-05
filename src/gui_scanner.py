@@ -27,6 +27,8 @@ diagnostic and the final join guarantees the interpreter never inherits it.
 """
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import datetime
 import threading
 import time
@@ -50,6 +52,7 @@ from app.template_filters import TemplateRuntimeFilters
 from ui.dialogs import ObsRecordingReminderDialog, RerollWarningDialog
 from gui_run_control import RunControl
 from infra.memory.game_data_client import GameDataClient
+from core.game_state import MapGenerationState
 from core.template_colors import (
     DEFAULT_TEMPLATE_COLOR,
     template_color_hex,
@@ -65,6 +68,7 @@ from app.shutdown import ShutdownDeadline
 
 class Scanner:
     _TOTAL_REROLLS_FLUSH_INTERVAL = 15.0
+    _FORCE_RESET_DOUBLE_TAP_MS = 350
 
     def __init__(
         self,
@@ -129,6 +133,8 @@ class Scanner:
         self.is_running = False
         self.is_ready_to_start = False
         self.pause_reason: str | None = None
+        self._target_tap_deadline: float | None = None
+        self._force_reset_requested = False
         self._start_pending = False
         self._stop_pending = False
         self._restart_lock = threading.Lock()
@@ -256,6 +262,7 @@ class Scanner:
                 return
             self.is_running = False
             self.pause_reason = "player_movement"
+            self._force_reset_requested = False
             self.scan_event.clear()
             self._break_reroll_sequence()
 
@@ -351,9 +358,7 @@ class Scanner:
             # a full-width line of its own in Session Overview
             # (`stats_rpm_label`), where it is labelled rather than abbreviated,
             # and the header is where the states live rather than the numbers.
-            session_meta.setText(
-                f"Session {hours:02d}:{minutes:02d}:{seconds:02d}"
-            )
+            l10n.display(session_meta, 'setText', l10n.tr('Session {p0:02d}:{p1:02d}:{p2:02d}', p0=hours, p1=minutes, p2=seconds))
 
         recording = self._is_recording()
         # The header's REC flag, driven from the port that already answers this
@@ -379,56 +384,56 @@ class Scanner:
         toggle_btn.setEnabled(not (self._start_pending or self._stop_pending))
 
         if self._start_pending:
-            status_text = "STARTING"
-            status_label.setText(status_text)
+            status_text = l10n.tr('STARTING')
+            l10n.display(status_label, 'setText', status_text)
             _set_widget_style_role(status_label, "statusText", state="running")
             _set_widget_style_role(
                 getattr(status_label, "_status_dot", None),
                 "statusDot",
                 state="running",
             )
-            toggle_btn.setText("Start Scanner")
+            toggle_btn.setText('Start Scanner')
             _set_widget_style_role(toggle_btn, "primary")
         elif self._stop_pending:
-            status_text = "STOPPING"
-            status_label.setText(status_text)
+            status_text = l10n.tr('STOPPING')
+            l10n.display(status_label, 'setText', status_text)
             _set_widget_style_role(status_label, "statusText", state="idle")
             _set_widget_style_role(
                 getattr(status_label, "_status_dot", None),
                 "statusDot",
                 state="idle",
             )
-            toggle_btn.setText("Stop Scanner")
+            toggle_btn.setText('Stop Scanner')
             _set_widget_style_role(toggle_btn, "stopScanner")
         elif self.is_scanning():
             if self.is_running:
-                status_text = "RUNNING"
+                status_text = l10n.tr('RUNNING')
             elif self.pause_reason == "player_movement":
-                status_text = "PAUSED — PLAYER MOVEMENT"
+                status_text = l10n.tr('PAUSED — PLAYER MOVEMENT')
             elif self.pause_reason == "manual":
-                status_text = "PAUSED"
+                status_text = l10n.tr('PAUSED')
             elif self.is_ready_to_start:
-                status_text = "ARMED"
+                status_text = l10n.tr('ARMED')
             else:
-                status_text = "WAITING FOR GAME"
-            status_label.setText(status_text)
+                status_text = l10n.tr('WAITING FOR GAME')
+            l10n.display(status_label, 'setText', status_text)
             _set_widget_style_role(status_label, "statusText", state="running")
             _set_widget_style_role(
                 getattr(status_label, "_status_dot", None),
                 "statusDot",
                 state="running",
             )
-            toggle_btn.setText("Stop Scanner")
+            toggle_btn.setText('Stop Scanner')
             _set_widget_style_role(toggle_btn, "stopScanner")
         else:
-            status_label.setText("IDLE")
+            l10n.display(status_label, 'setText', l10n.tr('IDLE'))
             _set_widget_style_role(status_label, "statusText", state="idle")
             _set_widget_style_role(
                 getattr(status_label, "_status_dot", None),
                 "statusDot",
                 state="idle",
             )
-            toggle_btn.setText("Start Scanner")
+            toggle_btn.setText('Start Scanner')
             _set_widget_style_role(toggle_btn, "primary")
 
     def _append_log(self, message, tag=None):
@@ -485,8 +490,10 @@ class Scanner:
         map_context = runtime.powerup_map_context
         return map_context is None or not bool(map_context.is_graveyard)
 
-    def toggle_scan_event(self):
+    def toggle_scan_event(self, pressed_at: float | None = None):
         """Pause/resume, from the scan hotkey. Was `RunControlMixin`'s."""
+        if self._stop_pending or self._is_shutting_down():
+            return
         if not self.is_scanning():
             self.log(f"[WAIT] Press Start first, then press {config.HOTKEY.upper()} in game to begin scanning.", tag="warning")
             self.update_status_ui()
@@ -500,27 +507,67 @@ class Scanner:
         if self.is_running:
             self.is_running = False
             self.pause_reason = "manual"
+            self._force_reset_requested = False
             self.scan_event.clear()
             self._break_reroll_sequence()
             self.log("[*] Scan paused. Press the scan hotkey again to resume.")
-        else:
-            if self._is_late_forest_or_desert_stage():
-                self.log(
-                    "[SAFETY] Careful, champion — this Forest/Desert run is already past T1. "
-                    "Auto-reroll stayed off; mind that scan hotkey!",
-                    tag="warning",
+            self.update_status_ui()
+            return
+
+        if (
+            self.pause_reason == "target_found"
+            and pressed_at is not None
+            and config.user_config.get("FORCE_RESET_ON_DOUBLE_TAP") is True
+        ):
+            window = self._FORCE_RESET_DOUBLE_TAP_MS / 1000
+            deadline = self._target_tap_deadline
+            if deadline is None:
+                deadline = pressed_at + window
+                self._target_tap_deadline = deadline
+                self._schedule(
+                    self._FORCE_RESET_DOUBLE_TAP_MS,
+                    lambda: self._finish_target_tap(deadline),
                 )
-                self.update_status_ui()
                 return
-            self.is_running = True
-            self.pause_reason = None
-            self._break_reroll_sequence()
-            self.scan_event.set()
+            self._resume_scan(
+                force_reset=pressed_at <= deadline and time.monotonic() - pressed_at <= window
+            )
+            return
+
+        self._resume_scan()
+
+    def _finish_target_tap(self, deadline: float) -> None:
+        if self._target_tap_deadline is not deadline:
+            return
+        if (
+            self.pause_reason == "target_found"
+            and self.is_scanning()
+            and self.is_ready_to_start
+            and not self.stop_event.is_set()
+            and not self._is_shutting_down()
+        ):
+            self._resume_scan()
+
+    def _resume_scan(self, *, force_reset: bool = False) -> None:
+        self._target_tap_deadline = None
+        if self._is_late_forest_or_desert_stage():
+            self.log(
+                "[SAFETY] Careful, champion — this Forest/Desert run is already past T1. "
+                "Auto-reroll stayed off; mind that scan hotkey!",
+                tag="warning",
+            )
+            self.update_status_ui()
+            return
+        self._force_reset_requested = force_reset
+        self.is_running = True
+        self.pause_reason = None
+        self._break_reroll_sequence()
+        self.scan_event.set()
+        if not force_reset:
             self.log("[*] Scan started. Looking for selected target...")
-            # A movement key may already be held when scanning is resumed, so
-            # there may be no new key-down edge for the hook to deliver.
-            if self._run_control.is_player_movement_pressed():
-                self.handle_player_movement()
+        # A held movement key may have no new key-down edge.
+        if self._run_control.is_player_movement_pressed():
+            self.handle_player_movement()
         self.update_status_ui()
 
     def _sync_reset_hold_duration(self) -> None:
@@ -915,14 +962,14 @@ class Scanner:
             self._stats_refresh_pending = False
         self.refresh_stats_ui()
 
-    def reroll_map(self) -> bool:
+    def reroll_map(self, *, can_restart: Callable[[], bool] | None = None) -> bool:
         if self._run_control.run_control_provider is None:
             self._break_reroll_sequence()
             self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
             return False
 
         with self._restart_lock:
-            if self._scan_abort_requested():
+            if self._scan_abort_requested() or (can_restart is not None and not can_restart()):
                 self._break_reroll_sequence()
                 return False
 
@@ -940,6 +987,8 @@ class Scanner:
         return True
 
     def close_client(self):
+        self._target_tap_deadline = None
+        self._force_reset_requested = False
         self._break_reroll_sequence()
         self._run_control.reset_restart_permission_check()
         if self.client:
@@ -967,6 +1016,52 @@ class Scanner:
         self.is_ready_to_start = False
         self._schedule(0, self.update_status_ui)
         return True
+
+    def _can_force_reset(self, process_name: str, found_state: MapGenerationState | None) -> bool:
+        client = self.client
+        attached_pid = self._run_control.attached_game_process_id()
+        if (
+            not self._force_reset_requested
+            or config.user_config.get("FORCE_RESET_ON_DOUBLE_TAP") is not True
+            or client is None
+            or attached_pid is None
+            or not isinstance(found_state, MapGenerationState)
+            or not found_state.has_loaded_map
+            or self._is_late_forest_or_desert_stage()
+        ):
+            return False
+        activity = client.get_runtime_activity_state()
+        current_state = client.get_map_generation_state(strict=True)
+        return (
+            activity.is_active_run
+            and not activity.is_loading
+            and current_state == found_state
+            and not current_state.is_generating
+            and not current_state.is_resetting
+            and not (
+                config.STOP_SCANNING_ON_PLAYER_MOVEMENT
+                and self._run_control.is_player_movement_pressed()
+            )
+            and self._run_control.foreground_game_process_id(process_name) == attached_pid
+            and self._force_reset_requested
+            and not self._scan_abort_requested()
+        )
+
+    def _pause_after_force_reset_failure(self, *, reset_sent: bool) -> None:
+        with self._restart_lock:
+            if self._scan_abort_requested():
+                return
+            self.is_running = False
+            self.pause_reason = "manual"
+            self.scan_event.clear()
+            self._break_reroll_sequence()
+        message = (
+            l10n.tr('Quick Reset could not confirm a new map. Search paused.')
+            if reset_sent
+            else l10n.tr('Quick Reset could not be sent safely. Search paused.')
+        )
+        self.log(message, tag="warning")
+        self._schedule(0, self.update_status_ui)
 
     def background_loop(self):
         """Run the monitor and publish one cleanup transition on every exit."""
@@ -1009,6 +1104,7 @@ class Scanner:
         last_state = None
         last_stats = None
         is_first_scan = True
+        awaiting_forced_map = False
 
         while not self.stop_event.is_set():
             if self.client is None:
@@ -1046,13 +1142,28 @@ class Scanner:
                 self._break_reroll_sequence()
             if not self.scan_event.wait(timeout=0.25):
                 continue
-            if was_waiting:
+            if self.stop_event.is_set():
+                break
+
+            if self._force_reset_requested:
+                try:
+                    sent = self.reroll_map(
+                        can_restart=lambda: self._can_force_reset(process_name, last_state)
+                    )
+                except Exception as exc:
+                    self.log(f"[-] Error during execution: {exc}", tag="error")
+                    sent = False
+                self._force_reset_requested = False
+                if not sent:
+                    self._pause_after_force_reset_failure(reset_sent=False)
+                    continue
+                awaiting_forced_map = True
+                is_first_scan = False
+            elif was_waiting:
+                awaiting_forced_map = False
                 is_first_scan = True
                 last_state = None
                 last_stats = None
-
-            if self.stop_event.is_set():
-                break
 
             try:
                 focus_was_active = self._run_control.is_game_window_active(process_name)
@@ -1062,12 +1173,15 @@ class Scanner:
                     self._break_reroll_sequence()
                     continue
                 if self._disconnect_stale_scanner_client(process_name):
+                    if awaiting_forced_map:
+                        awaiting_forced_map = False
+                        self._pause_after_force_reset_failure(reset_sent=True)
                     is_first_scan = True
                     wait_state = None
                     last_state = None
                     last_stats = None
                     continue
-                if not focus_was_active:
+                if not focus_was_active and not awaiting_forced_map:
                     is_first_scan = True
                     last_state = None
                     last_stats = None
@@ -1087,6 +1201,7 @@ class Scanner:
                 if self._scan_abort_requested():
                     self._break_reroll_sequence()
                     continue
+                awaiting_forced_map = False
                 with self._filters.state_lock:
                     self._reroll_peak.map_ready(time.monotonic())
                 is_first_scan = False
@@ -1143,9 +1258,16 @@ class Scanner:
                     if not self._run_control.handle_confirmed_target_window(process_name):
                         continue
 
-                    self.is_running = False
-                    self.pause_reason = None
-                    self.scan_event.clear()
+                    with self._restart_lock:
+                        if self._scan_abort_requested():
+                            continue
+                        self.is_running = False
+                        self.pause_reason = "target_found"
+                        self._target_tap_deadline = None
+                        self.scan_event.clear()
+                    # A normal resume rechecks this map. A force reset uses it
+                    # as the baseline when waiting for the next generation.
+                    is_first_scan = True
                     self._schedule(0, self.update_status_ui)
                     continue
                 else:
@@ -1169,6 +1291,11 @@ class Scanner:
 
             except TimeoutError as exc:
                 self._break_reroll_sequence()
+                if awaiting_forced_map:
+                    awaiting_forced_map = False
+                    self._pause_after_force_reset_failure(reset_sent=True)
+                    self.log(f"    {exc}", tag="warning")
+                    continue
                 # `wait_for_map_ready` spells out *which* readiness gate never
                 # opened -- change_seen/generation_seen separate "the reset key
                 # was never accepted by the game" from "the map really is slow
@@ -1191,6 +1318,7 @@ class Scanner:
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
                 self._break_reroll_sequence()
+                awaiting_forced_map = False
                 self.is_running = False
                 self.is_ready_to_start = False
                 self.pause_reason = None
@@ -1205,6 +1333,10 @@ class Scanner:
             except Exception as exc:
                 self._break_reroll_sequence()
                 self.log(f"[-] Error during execution: {exc}", tag="error")
+                if awaiting_forced_map:
+                    awaiting_forced_map = False
+                    self._pause_after_force_reset_failure(reset_sent=True)
+                    continue
                 self.stop_event.wait(1.0)
 
     # `on_closing` and `deferred_update_check` were defined here until step 25b.
@@ -1240,7 +1372,7 @@ class Scanner:
         # "the tab exists".
         self.stats_avg_layout = self._stats_view
         self.refresh_stats_ui()
-        self._add_tab(self.tab_stats, "Session Stats")
+        self._add_tab(self.tab_stats, l10n.tr('Session Stats'))
 
     def set_tracked_item_rows(self, rows) -> None:
         """Render the tracked-item rules. Called by the overlay component.
@@ -1268,41 +1400,7 @@ def build_scanner(
     `gui_dialogs` is top-level debt, so the composition root supplies the
     factory rather than the component importing it.
     """
-    scanner = Scanner(
-        coordinator,
-        run_control=run_control,
-        filters=filters,
-        schedule=lambda delay_ms, callback: app.after(delay_ms, callback),
-        # `__dict__`, not `hasattr`: `MegabonkApp.__getattr__` forwards unknown
-        # names to its window, so `hasattr(app, "_invoker")` would consult a
-        # widget before deciding the invoker is missing. Same reasoning as the
-        # client and template-filter owners above it in `gui_app.py`.
-        can_log=lambda: app.__dict__.get("_invoker") is not None,
-        log_box=lambda: app.log_box,
-        status_label=lambda: app.status_label,
-        toggle_btn=lambda: app.toggle_btn,
-        add_tab=lambda widget, title: app.tabview.addTab(widget, title),
-        refresh_session_stats_snapshot=lambda: app._refresh_session_stats_snapshot(),
-        refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(),
-        open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(),
-        open_merchant_analytics_dialog=lambda: _open_merchant_analytics_for_app(app),
-        toggle_merchant_analytics=lambda enabled: _toggle_merchant_analytics_for_app(
-            app, enabled
-        ),
-        merchant_analytics_status=coordinator.merchant_analytics.status,
-        open_roll_analytics_dialog=lambda: _open_roll_analytics_for_app(app),
-        toggle_roll_analytics=lambda enabled: _toggle_roll_analytics_for_app(app, enabled),
-        roll_analytics_status=coordinator.roll_analytics.status,
-        has_premium_access=lambda: app.has_premium_access(),
-        is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording),
-        refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(
-            update_slider=False
-        ),
-        is_shutting_down=lambda: bool(app._is_shutting_down),
-        current_runtime_snapshot=coordinator.live_run_tracker.runtime_snapshot,
-        reroll_warning_dialog=lambda: RerollWarningDialog(app.window),
-        obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window),
-    )
+    scanner = Scanner(coordinator, run_control=run_control, filters=filters, schedule=lambda delay_ms, callback: app.after(delay_ms, callback), can_log=lambda: app.__dict__.get('_invoker') is not None, log_box=lambda: app.log_box, status_label=lambda: app.status_label, toggle_btn=lambda: app.toggle_btn, add_tab=lambda widget, title: l10n.tab(app.tabview, widget, title), refresh_session_stats_snapshot=lambda: app._refresh_session_stats_snapshot(), refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(), open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(), open_merchant_analytics_dialog=lambda: _open_merchant_analytics_for_app(app), toggle_merchant_analytics=lambda enabled: _toggle_merchant_analytics_for_app(app, enabled), merchant_analytics_status=coordinator.merchant_analytics.status, open_roll_analytics_dialog=lambda: _open_roll_analytics_for_app(app), toggle_roll_analytics=lambda enabled: _toggle_roll_analytics_for_app(app, enabled), roll_analytics_status=coordinator.roll_analytics.status, has_premium_access=lambda: app.has_premium_access(), is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording), refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(update_slider=False), is_shutting_down=lambda: bool(app._is_shutting_down), current_runtime_snapshot=coordinator.live_run_tracker.runtime_snapshot, reroll_warning_dialog=lambda: RerollWarningDialog(app.window), obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window))
     app.supporter_access.add_listener(scanner.on_supporter_access_changed)
     return scanner
 

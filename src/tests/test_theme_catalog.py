@@ -99,7 +99,7 @@ class ThemeCatalogTests(unittest.TestCase):
         with patch.object(config, "user_config", {THEME_CONFIG_KEY: "halloween"}), patch("ui.themes.selector.theme_catalog", return_value=PUBLIC):
             combo = ThemeSelector(SimpleNamespace())
             self.addCleanup(combo.deleteLater)
-            self.assertEqual([combo.itemText(i) for i in range(combo.count())], ["Default", "Halloween"])
+            self.assertEqual([combo.itemText(i) for i in range(combo.count())], ["Original", "Halloween"])
             self.assertEqual(combo.currentData(), "halloween")
             self.assertTrue(all(combo.model().item(i).isEnabled() for i in range(combo.count())))
             changes = Mock()

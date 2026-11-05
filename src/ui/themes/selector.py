@@ -1,4 +1,6 @@
 """Native Settings selector using the catalog and the application's access gate."""
+
+from ui import i18n as l10n
 from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import QComboBox
 
@@ -11,8 +13,8 @@ class ThemeSelector(QComboBox):
         super().__init__()
         self.owner = owner
         self.setObjectName("appearanceThemeSelector")
-        self.setAccessibleName("Application design")
-        self.setToolTip("Choose the application design. Applied when you save Settings.")
+        l10n.display(self, 'setAccessibleName', l10n.tr('Application design'))
+        l10n.display(self, 'setToolTip', l10n.tr('Choose the application design. Applied when you save Settings.'))
         self.reload()
 
     def _populate(self, requested):
@@ -20,15 +22,17 @@ class ThemeSelector(QComboBox):
             self.clear()
             premium = premium_access_for_themes(self.owner)
             for entry in theme_catalog().themes:
-                label = entry.name + (" · Premium" if entry.access == "premium" else "")
-                self.addItem(label, entry.id)
+                caption = l10n.tr("Original") if entry.id == "original" else entry.name
+                suffix = " · Premium" if entry.access == "premium" else ""
+                label = l10n.transform(caption, lambda value, ending=suffix: value + ending)
+                l10n.combo_item(self, label, entry.id)
                 index = self.count() - 1
                 self.model().item(index).setEnabled(entry.available(premium))
                 if not entry.available(premium):
-                    self.setItemData(index, "Requires active Premium", Qt.ToolTipRole)
+                    l10n.combo_tooltip(self, index, l10n.tr("Requires active Premium"))
             index = self.findData(requested)
             if index < 0:
-                self.addItem(f"{requested} (Unavailable)", requested)
+                l10n.combo_item(self, l10n.tr('{p0} (Unavailable)', p0=requested), requested)
                 index = self.count() - 1
                 self.model().item(index).setEnabled(False)
             self.setCurrentIndex(index)

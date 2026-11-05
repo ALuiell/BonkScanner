@@ -105,6 +105,7 @@ def build_refresh_tasks(
             set_charge_shrine_card=lambda _shrines: None,
             set_stage_summary_rows=lambda _rows: None,
             set_items=lambda _items: None,
+            set_live_stats=lambda _stats: None,
         )
     world.view = view
 

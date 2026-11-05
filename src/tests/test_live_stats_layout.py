@@ -337,7 +337,7 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 card
                 for card in chaos_page.findChildren(QFrame, "StatCard")
                 if any(
-                    label.text().endswith((" roll", " rolls"))
+                    label.objectName() == "StatRollCount"
                     and not label.text().startswith("Tracked")
                     for label in card.findChildren(QLabel)
                 )
@@ -360,7 +360,7 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 labels = card.findChildren(QLabel)
                 assert not labels[0].wordWrap()
                 assert "font-size: 13px" in labels[0].styleSheet()
-                rolls_label = next(label for label in labels if "roll" in label.text())
+                rolls_label = card.findChild(QLabel, "StatRollCount")
                 assert "font-size: 12px" in rolls_label.styleSheet()
 
             view._stat_cards.display_damage_sources((
@@ -375,13 +375,13 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 app.processEvents()
             source_names = damage_page.findChildren(QLabel, "DamageSourceName")
             assert [label.text() for label in source_names] == [
-                "Fire Staff", "Katana", "Dice", "Zero Source"
+                "Firestaff", "Katana", "Dice", "Zero Source"
             ]
             source_cards = [label.parent() for label in source_names]
             assert len({card.geometry().y() for card in source_cards[:2]}) == 1
             assert source_cards[2].geometry().y() > source_cards[0].geometry().y()
             assert damage_page.findChild(QLabel, "DamageSourcesSummaryValue").text() == "800"
-            assert damage_page.findChild(QLabel, "DamageSourcesSummaryCount").text() == "4 sources"
+            assert damage_page.findChild(QLabel, "DamageSourcesSummaryCount").text() == "Sources: 4"
             assert [
                 label.text()
                 for label in damage_page.findChildren(QLabel, "DamageSourcePercent")

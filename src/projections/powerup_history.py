@@ -4,6 +4,8 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass
 
+from core.localization_context import text as _lt, game_name as _game_name
+
 from core.powerup_history import MAX_OBSERVATION_GAP, POWERUPS, PowerupHistory
 
 
@@ -17,7 +19,7 @@ def duration_label(seconds: float) -> str:
     return f"{minutes}m {seconds:02d}s"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EffectSpan:
     effect_id: int
     start_capture: float
@@ -119,6 +121,112 @@ class PowerupProjection:
         added_valid = tuple(o for o in self.observations[offset:] if o.valid)
         self._valid_observations = ((previous._valid_observations if previous is not None else ()) + added_valid)
         self._my_times = (previous._my_times if previous is not None else ()) + tuple(o.my_time for o in added_valid)
+        self._prepare_pickups(offset, previous)
+
+    def _prepare_pickups(self, offset, previous):
+        # Use the same raw fields as the live widget: a new added time or an
+        # increased expiry is evidence of a pickup, even while already active.
+        # Retain signatures across missing reads so reconnecting does not count
+        # an unchanged buff twice. Copy all state: live revisions are immutable.
+        signatures = dict(previous._pickup_signatures) if previous is not None else {}
+        last_valid = previous._pickup_last_valid if previous is not None else None
+        added = {effect_id: [] for effect_id, *_ in POWERUPS}
+        pending = list(previous._clock_pending) if previous is not None else []
+        unknown = []
+        warudo = []
+        for index in range(offset, len(self.observations)):
+            current = self.observations[index]
+            # A second healthy inventory poll confirms a decrement or stable
+            # stock. Never subtract one loss from every later Clock extension.
+            for capture, before, observed in pending:
+                source = self._clock_source(before, observed, current)
+                if source == "clock":
+                    added[4].append(capture)
+                elif source == "za_warudo":
+                    warudo.append(capture)
+                else:
+                    unknown.append(capture)
+            pending = []
+            if not current.valid:
+                continue
+            if last_valid is not None and (
+                    current.my_time < last_valid.my_time
+                    or (current.run_id is not None and last_valid.run_id is not None
+                        and current.run_id != last_valid.run_id)):
+                signatures.clear()
+            prior = self.observations[index - 1] if index else None
+            for effect in current.effects:
+                if effect.effect_id not in added:
+                    continue
+                old = signatures.get(effect.effect_id)
+                if old is None or effect.added != old.added or effect.expires > old.expires:
+                    capture = current.captured_at
+                    if (prior is not None and self._continuous(prior, current)
+                            and current.my_time > prior.my_time
+                            and (old is None or effect.added != old.added)
+                            and prior.my_time <= effect.added <= current.my_time):
+                        fraction = (effect.added - prior.my_time) / (current.my_time - prior.my_time)
+                        capture = prior.captured_at + fraction * (current.captured_at - prior.captured_at)
+                    # Extension timing is only known at the poll that saw it.
+                    # Late-start and recovered effects are counted there too;
+                    # do not invent a pickup time in an unobserved section.
+                    if effect.effect_id != 4:
+                        added[effect.effect_id].append(capture)
+                    elif (prior is not None and self._continuous(prior, current)
+                          and self._has_pickup_sources(prior) and self._has_pickup_sources(current)):
+                        pending.append((capture, prior, current))
+                    else:
+                        # Legacy recordings and late attachment have no source
+                        # evidence. TimeFreeze alone is not a Clock pickup.
+                        unknown.append(capture)
+                signatures[effect.effect_id] = effect
+            last_valid = current
+        self._pickup_signatures = signatures
+        self._pickup_last_valid = last_valid
+        self._pickup_times = {
+            effect_id: (previous._pickup_times[effect_id] if previous is not None else ()) + tuple(times)
+            for effect_id, times in added.items()
+        }
+        self._clock_pending = tuple(pending)
+        self._clock_unknown = (previous._clock_unknown if previous is not None else ()) + tuple(unknown)
+        self._warudo_times = (previous._warudo_times if previous is not None else ()) + tuple(warudo)
+
+    @staticmethod
+    def _has_pickup_sources(observation):
+        return all(type(value) is int and 0 <= value <= 2**24
+                   for value in (observation.za_warudo_count, observation.powerups_used))
+
+    @classmethod
+    def _clock_source(cls, before, observed, confirmation):
+        if (not cls._continuous(observed, confirmation)
+                or not cls._has_pickup_sources(confirmation)
+                or confirmation.za_warudo_count != observed.za_warudo_count
+                or confirmation.powerups_used < observed.powerups_used):
+            return "unknown"
+        lost = before.za_warudo_count - observed.za_warudo_count
+        pickups = observed.powerups_used - before.powerups_used
+        if lost == 1 and pickups == 0:
+            return "za_warudo"
+        if lost == 0 and pickups > 0:
+            return "clock"
+        # Loss + pickup can include Clock, Rage, or instant pickups in one
+        # polling interval. Counter resets/gains and failed reads are unknown.
+        return "unknown"
+
+    def _unclassified_clock_count(self, low, high):
+        return (bisect_right(self._clock_unknown, high) - bisect_right(self._clock_unknown, low)
+                + sum(low < capture <= high for capture, *_ in self._clock_pending))
+
+    def counts(self, capture_a, capture_b=None):
+        """Confirmed observed pickups through A, or in (low, high] for A–B."""
+        low, high = (float("-inf"), capture_a) if capture_b is None else sorted((capture_a, capture_b))
+        return {effect_id: bisect_right(times, high) - bisect_right(times, low)
+                for effect_id, times in self._pickup_times.items()}
+
+    def unattributed_clock_events(self, capture_a, capture_b=None):
+        """Pending/ambiguous freeze events, separate from confirmed pickups."""
+        low, high = (float("-inf"), capture_a) if capture_b is None else sorted((capture_a, capture_b))
+        return self._unclassified_clock_count(low, high)
 
     @staticmethod
     def _continuous(previous, current):
@@ -229,21 +337,31 @@ class PowerupProjection:
         name = next(p[1] for p in POWERUPS if p[0] == effect_id)
         total = self.totals(capture_a, capture_b)[effect_id]
         low, high = (float("-inf"), capture_a) if capture_b is None else sorted((capture_a, capture_b))
-        lines = [f"{name} · {duration_label(total)}"]
+        count = self.counts(capture_a, capture_b)[effect_id]
+        unattributed = self.unattributed_clock_events(capture_a, capture_b) if effect_id == 4 else 0
+        lines = [f'{_game_name("powerups", name)} · {duration_label(total)}', _lt('Observed pickups: {p0}{p1}', p0=count, p1='+' if unattributed else '')]
+        if effect_id == 4:
+            excluded = bisect_right(self._warudo_times, high) - bisect_right(self._warudo_times, low)
+            lines.append(_lt('Confirmed Clock pickups: {p0}; excluded Za Warudo activations: {p1}.', p0=count, p1=excluded))
+            if unattributed:
+                lines.append(_lt("Unattributed TimeFreeze events: {p0}. '+' marks a confirmed minimum; actual Clock pickups may be higher.", p0=unattributed))
+                lines.append(_lt('Clock attribution is pending, unavailable or ambiguous; TimeFreeze alone is not a pickup.'))
+            lines.append(_lt('Uptime includes all observed TimeFreeze, including Za Warudo.'))
+        lines.append(_lt('Repeat pickups count when expiry increases; several pickups between polls may count as one.'))
+        lines.append(_lt('Pickups with unknown timing count at first observation; A–B excludes its earlier endpoint.'))
         for span in self.intervals:
             if span.effect_id == effect_id and span.end_capture > low and span.start_capture < high:
                 first = self.axis_at_capture(max(low, span.start_capture))
                 last = self.axis_at_capture(min(high, span.end_capture))
                 lines.append(f"{time_label(first)} → {time_label(last)}")
         if not self.complete(capture_a, capture_b):
-            lines.append("Partial observations; unobserved time is not counted.")
+            lines.append(_lt('Partial observations; unobserved time is not counted.'))
             observed = [(max(start, low), min(end, high)) for start, end in self.coverage
                         if end >= low and start <= high]
             for start, end in observed[:12]:
-                lines.append(f"Observed: {time_label(self.axis_at_capture(start))} → "
-                             f"{time_label(self.axis_at_capture(end))}")
+                lines.append(_lt('Observed: {p0} → {p1}', p0=time_label(self.axis_at_capture(start)), p1=time_label(self.axis_at_capture(end))))
             if len(observed) > 12:
-                lines.append(f"… {len(observed) - 12} further observed sections")
+                lines.append(_lt('… {p0} further observed sections', p0=len(observed) - 12))
         return "\n".join(lines)
 
     def axis_at_capture(self, capture):

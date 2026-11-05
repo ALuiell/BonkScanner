@@ -232,6 +232,14 @@ The app includes settings for scanner and reset hotkeys, recording behavior,
 overlay editing, reset timing, snapshot intervals, update checks, support access,
 and other feature-specific options.
 
+The interface supports English, Ukrainian, Russian, French, Spanish, German,
+and Portuguese. In **Settings → General**, choose the interface language and,
+optionally, a separate language for game terminology. Game names default to
+English; choose **Same as interface** to link the two languages. Save to update
+the desktop interface, in-game widgets, and OBS overlay. Built-in help is available
+in all seven languages. Game terms use MegaBonk's own language resources;
+custom names and chat message templates keep their original text.
+
 <details>
 <summary><strong>Reset timing and configuration notes</strong></summary>
 
@@ -262,6 +270,16 @@ You can also launch it manually after setup:
 
 `start.bat` creates the virtual environment, upgrades pip, and installs runtime
 dependencies from [`src/requirements.txt`](src/requirements.txt).
+
+Source runs create a Git-ignored `runtime/` folder inside the checkout for
+settings, histories, recordings, caches, and logs. Existing root-level runtime
+files move there automatically on startup; if `runtime/` already has a profile,
+the old profile is kept together under `runtime/legacy-backup/`. An interrupted
+move resumes on the next launch. Project files such as `supporters.json` and
+`THIRD_PARTY_NOTICES.md` stay in the repository root.
+
+An explicitly selected shared data folder remains active; only its local
+selection marker moves into `runtime/`. Windows EXE storage behavior is unchanged.
 
 <details>
 <summary><strong>Manual PowerShell setup</strong></summary>

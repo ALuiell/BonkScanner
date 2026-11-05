@@ -18,6 +18,7 @@ hardcoded 16:9. The canvas is user-set, and drawing a 16:9 box around a
 """
 
 from __future__ import annotations
+from ui import i18n as l10n
 
 from dataclasses import dataclass
 from html import escape
@@ -103,7 +104,7 @@ class CanvasPreview(QWidget):
         coordinates -- that layout lives in the page's CSS and cannot be
         reproduced here, so an empty frame would be a lie rather than a blank.
         """
-        text = str(text)
+        text = l10n.preserve(text)
         if text == self._placeholder:
             return
         self._placeholder = text
@@ -143,7 +144,7 @@ class CanvasPreview(QWidget):
         cells = [
             "<td style='color:#38BDF8; padding-right:4px'>{marker}</td>"
             "<td style='color:#8A94A3; padding-right:12px'>{label}</td>".format(
-                marker=escape(widget.marker or "•"), label=escape(widget.label)
+                marker=escape(widget.marker or "•"), label=escape(str(widget.label))
             )
             for widget in self._widgets
         ]
@@ -237,7 +238,7 @@ class CanvasPreview(QWidget):
             painter.drawText(
                 frame.adjusted(12, 12, -12, -12),
                 Qt.AlignCenter | Qt.TextWordWrap,
-                self._placeholder,
+                str(self._placeholder),
             )
             return
 

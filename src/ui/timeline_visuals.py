@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtCore import Qt
+from ui import i18n as l10n
 
 
 RUN_A_COLOR = QColor("#38BDF8")
@@ -150,6 +151,10 @@ def paint_playhead(
     painter.drawText(badge, Qt.AlignCenter, label)
 
 
+def stage_caption(band):
+    return str(l10n.tr("Stage {p0}", p0=band.stage_index + 1)) if band.stage_index is not None else str(l10n.term(band.label))
+
+
 def build_marker_glyphs(markers, positions, rect: QRectF) -> tuple[MarkerGlyph, ...]:
     """Bin events by painted x while retaining every event in the tooltip."""
     bins: dict[int, tuple[float, list]] = {}
@@ -166,10 +171,17 @@ def build_marker_glyphs(markers, positions, rect: QRectF) -> tuple[MarkerGlyph, 
     glyphs = []
     for _key, (x, events) in sorted(bins.items()):
         winner = max(events, key=lambda marker: _MARKER_RANK.get(marker.kind, 0))
-        texts = [marker.text for marker in events]
+        texts = []
+        for marker in events:
+            if getattr(marker, "item_name", None):
+                name = l10n.game("items", marker.item_name)
+                texts.append(l10n.tr("Banish: {name}", name=name) if marker.kind == "banish"
+                             else l10n.tr("{name} +{count}", name=name, count=marker.gained))
+            else:
+                texts.append(marker.text)
         if len(texts) > MARKER_TOOLTIP_MAX_LINES:
             hidden = len(texts) - MARKER_TOOLTIP_MAX_LINES
-            texts = texts[:MARKER_TOOLTIP_MAX_LINES] + [f"+{hidden} more"]
+            texts = texts[:MARKER_TOOLTIP_MAX_LINES] + [l10n.tr("+{count} more", count=hidden)]
         glyphs.append(
             MarkerGlyph(
                 x=x,
@@ -181,7 +193,7 @@ def build_marker_glyphs(markers, positions, rect: QRectF) -> tuple[MarkerGlyph, 
                     10.0,
                     MARKER_STRIP_HEIGHT + MARKER_HOVER_SLACK * 2.0,
                 ),
-                tooltip="\n".join(texts),
+                tooltip=l10n.join("\n", texts),
             )
         )
     return tuple(glyphs)

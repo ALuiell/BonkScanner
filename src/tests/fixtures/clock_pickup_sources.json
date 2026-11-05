@@ -1,0 +1,1794 @@
+{
+  "description": "Reduced read-only captures from controlled Clock/Za Warudo cases on 2026-10-26. Capture times are rebased; process addresses and unrelated data are removed. Range excludes the baseline sample.",
+  "cases": [
+    {
+      "name": "clock_pm1_12_seconds",
+      "expected_clock_pickups_in_range": 1,
+      "observations": [
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.0,
+          "my_time": 374.2469482421875,
+          "axis_time": 363.3514099121094,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            0
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.5159999999996217,
+          "my_time": 374.7677307128906,
+          "axis_time": 363.8721923828125,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            0
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.0,
+          "my_time": 375.2677001953125,
+          "axis_time": 364.3721618652344,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            0
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.5,
+          "my_time": 375.7632751464844,
+          "axis_time": 364.86773681640625,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              375.28851318359375,
+              387.28851318359375
+            ]
+          ],
+          "pickup_sources": [
+            99,
+            1
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.0,
+          "my_time": 376.2590026855469,
+          "axis_time": 365.36346435546875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              375.28851318359375,
+              387.28851318359375
+            ]
+          ],
+          "pickup_sources": [
+            99,
+            1
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.5,
+          "my_time": 376.7506103515625,
+          "axis_time": 365.8550720214844,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              375.28851318359375,
+              387.28851318359375
+            ]
+          ],
+          "pickup_sources": [
+            99,
+            1
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.813000000000102,
+          "my_time": 377.0631408691406,
+          "axis_time": 366.1676025390625,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              375.28851318359375,
+              387.28851318359375
+            ]
+          ],
+          "pickup_sources": [
+            99,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "clock_pm1_25_15_seconds",
+      "expected_clock_pickups_in_range": 1,
+      "observations": [
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.0,
+          "my_time": 534.5675659179688,
+          "axis_time": 523.6531982421875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            1
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.5,
+          "my_time": 535.068359375,
+          "axis_time": 524.1539916992188,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            1
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.0,
+          "my_time": 535.5690307617188,
+          "axis_time": 524.6546630859375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            1
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.5159999999996217,
+          "my_time": 536.0822143554688,
+          "axis_time": 525.1678466796875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            1
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.0159999999996217,
+          "my_time": 536.5829467773438,
+          "axis_time": 525.6685791015625,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              536.232421875,
+              551.232421875
+            ]
+          ],
+          "pickup_sources": [
+            99,
+            2
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.5159999999996217,
+          "my_time": 537.1002197265625,
+          "axis_time": 526.1858520507812,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              536.232421875,
+              551.232421875
+            ]
+          ],
+          "pickup_sources": [
+            99,
+            2
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.9219999999995707,
+          "my_time": 537.4883422851562,
+          "axis_time": 526.573974609375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              536.232421875,
+              551.232421875
+            ]
+          ],
+          "pickup_sources": [
+            99,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "name": "za_warudo_15_seconds",
+      "expected_clock_pickups_in_range": 0,
+      "observations": [
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.0,
+          "my_time": 392.1323547363281,
+          "axis_time": 378.1352233886719,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            5
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.4839999999999236,
+          "my_time": 392.62396240234375,
+          "axis_time": 378.6268310546875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            5
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.9679999999998472,
+          "my_time": 393.1031188964844,
+          "axis_time": 379.1059875488281,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            99,
+            5
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.4679999999998472,
+          "my_time": 393.6113586425781,
+          "axis_time": 379.6142272949219,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              393.19891357421875,
+              408.19891357421875
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            5
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.9679999999998472,
+          "my_time": 394.10723876953125,
+          "axis_time": 380.110107421875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              393.19891357421875,
+              408.19891357421875
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            5
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.4529999999999745,
+          "my_time": 394.5989685058594,
+          "axis_time": 380.6018371582031,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              393.19891357421875,
+              408.19891357421875
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            5
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.8589999999999236,
+          "my_time": 395.003173828125,
+          "axis_time": 381.00604248046875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              393.19891357421875,
+              408.19891357421875
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "clock_repeat_during_active_freeze",
+      "expected_clock_pickups_in_range": 1,
+      "observations": [
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.0,
+          "my_time": 410.0658874511719,
+          "axis_time": 396.0687561035156,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              401.4119873046875,
+              434.878173828125
+            ],
+            [
+              4,
+              393.19891357421875,
+              428.25994873046875
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            8
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.5160000000000764,
+          "my_time": 410.5700378417969,
+          "axis_time": 396.5729064941406,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              401.4119873046875,
+              434.878173828125
+            ],
+            [
+              4,
+              393.19891357421875,
+              428.25994873046875
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            8
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.0160000000000764,
+          "my_time": 411.07830810546875,
+          "axis_time": 397.0811767578125,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              401.4119873046875,
+              434.878173828125
+            ],
+            [
+              4,
+              393.19891357421875,
+              428.25994873046875
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            8
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.530999999999949,
+          "my_time": 411.5950622558594,
+          "axis_time": 397.5979309082031,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              401.4119873046875,
+              434.878173828125
+            ],
+            [
+              4,
+              393.19891357421875,
+              438.3013610839844
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.030999999999949,
+          "my_time": 412.0951232910156,
+          "axis_time": 398.0979919433594,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              401.4119873046875,
+              434.878173828125
+            ],
+            [
+              4,
+              393.19891357421875,
+              438.3013610839844
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.530999999999949,
+          "my_time": 412.5950622558594,
+          "axis_time": 398.5979309082031,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              401.4119873046875,
+              434.878173828125
+            ],
+            [
+              4,
+              393.19891357421875,
+              438.3013610839844
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.9220000000000255,
+          "my_time": 412.9866638183594,
+          "axis_time": 398.9895324707031,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              401.4119873046875,
+              434.878173828125
+            ],
+            [
+              4,
+              393.19891357421875,
+              438.3013610839844
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            9
+          ]
+        }
+      ]
+    },
+    {
+      "name": "za_warudo_followed_by_clock",
+      "expected_clock_pickups_in_range": 1,
+      "observations": [
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.0,
+          "my_time": 456.0914611816406,
+          "axis_time": 442.0943298339844,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.5,
+          "my_time": 456.5831298828125,
+          "axis_time": 442.58599853515625,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.0149999999998727,
+          "my_time": 457.1040344238281,
+          "axis_time": 443.1069030761719,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.5149999999998727,
+          "my_time": 457.5998840332031,
+          "axis_time": 443.6027526855469,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.0149999999998727,
+          "my_time": 458.0916748046875,
+          "axis_time": 444.09454345703125,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.5,
+          "my_time": 458.6001281738281,
+          "axis_time": 444.6029968261719,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 3.030999999999949,
+          "my_time": 459.1169738769531,
+          "axis_time": 445.1198425292969,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 3.5149999999998727,
+          "my_time": 459.6129455566406,
+          "axis_time": 445.6158142089844,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 4.014999999999873,
+          "my_time": 460.10479736328125,
+          "axis_time": 446.107666015625,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 4.530999999999949,
+          "my_time": 460.62982177734375,
+          "axis_time": 446.6326904296875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 5.030999999999949,
+          "my_time": 461.1131896972656,
+          "axis_time": 447.1160583496094,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 5.5470000000000255,
+          "my_time": 461.6298522949219,
+          "axis_time": 447.6327209472656,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 6.061999999999898,
+          "my_time": 462.1423034667969,
+          "axis_time": 448.1451721191406,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 6.5779999999999745,
+          "my_time": 462.658935546875,
+          "axis_time": 448.66180419921875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 7.0779999999999745,
+          "my_time": 463.1589660644531,
+          "axis_time": 449.1618347167969,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 7.5779999999999745,
+          "my_time": 463.67132568359375,
+          "axis_time": 449.6741943359375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 8.092999999999847,
+          "my_time": 464.17138671875,
+          "axis_time": 450.17425537109375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 8.592999999999847,
+          "my_time": 464.67962646484375,
+          "axis_time": 450.6824951171875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 9.077999999999975,
+          "my_time": 465.1711730957031,
+          "axis_time": 451.1740417480469,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 9.577999999999975,
+          "my_time": 465.6753234863281,
+          "axis_time": 451.6781921386719,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 10.077999999999975,
+          "my_time": 466.1752014160156,
+          "axis_time": 452.1780700683594,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 10.592999999999847,
+          "my_time": 466.68341064453125,
+          "axis_time": 452.686279296875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              472.5039978027344
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 11.092999999999847,
+          "my_time": 467.17919921875,
+          "axis_time": 453.18206787109375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              493.5439147949219
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            11
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 11.592999999999847,
+          "my_time": 467.67926025390625,
+          "axis_time": 453.68212890625,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              493.5439147949219
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            11
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 12.108999999999924,
+          "my_time": 468.1917419433594,
+          "axis_time": 454.1946105957031,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              493.5439147949219
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            11
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 12.608999999999924,
+          "my_time": 468.6957702636719,
+          "axis_time": 454.6986389160156,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              493.5439147949219
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            11
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 12.905999999999949,
+          "my_time": 468.9957580566406,
+          "axis_time": 454.9986267089844,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              457.5039978027344,
+              493.5439147949219
+            ]
+          ],
+          "pickup_sources": [
+            96,
+            11
+          ]
+        }
+      ]
+    },
+    {
+      "name": "za_warudo_followed_by_rage",
+      "expected_clock_pickups_in_range": 0,
+      "observations": [
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.0,
+          "my_time": 437.0481872558594,
+          "axis_time": 423.0510559082031,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              393.19891357421875,
+              438.3013610839844
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 0.5,
+          "my_time": 437.5565490722656,
+          "axis_time": 423.5594177246094,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              393.19891357421875,
+              438.3013610839844
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.0160000000000764,
+          "my_time": 438.06488037109375,
+          "axis_time": 424.0677490234375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              393.19891357421875,
+              438.3013610839844
+            ]
+          ],
+          "pickup_sources": [
+            98,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 1.5160000000000764,
+          "my_time": 438.5648498535156,
+          "axis_time": 424.5677185058594,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [],
+          "pickup_sources": [
+            98,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.0160000000000764,
+          "my_time": 439.0523376464844,
+          "axis_time": 425.0552062988281,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.4850000000001273,
+          "my_time": 439.5357971191406,
+          "axis_time": 425.5386657714844,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 2.9850000000001273,
+          "my_time": 440.04010009765625,
+          "axis_time": 426.04296875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 3.4850000000001273,
+          "my_time": 440.5359802246094,
+          "axis_time": 426.5388488769531,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 4.0,
+          "my_time": 441.0484619140625,
+          "axis_time": 427.05133056640625,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 4.5,
+          "my_time": 441.5568542480469,
+          "axis_time": 427.5597229003906,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 5.0,
+          "my_time": 442.04022216796875,
+          "axis_time": 428.0430908203125,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 5.5,
+          "my_time": 442.5527038574219,
+          "axis_time": 428.5555725097656,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 6.0,
+          "my_time": 443.0650939941406,
+          "axis_time": 429.0679626464844,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 6.532000000000153,
+          "my_time": 443.5483703613281,
+          "axis_time": 429.5512390136719,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 7.016000000000076,
+          "my_time": 444.05255126953125,
+          "axis_time": 430.055419921875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 7.532000000000153,
+          "my_time": 444.5691833496094,
+          "axis_time": 430.5720520019531,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 8.032000000000153,
+          "my_time": 445.0733642578125,
+          "axis_time": 431.07623291015625,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 8.532000000000153,
+          "my_time": 445.57757568359375,
+          "axis_time": 431.5804443359375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 9.032000000000153,
+          "my_time": 446.0860900878906,
+          "axis_time": 432.0889587402344,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 9.532000000000153,
+          "my_time": 446.5779113769531,
+          "axis_time": 432.5807800292969,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 10.047000000000025,
+          "my_time": 447.0907897949219,
+          "axis_time": 433.0936584472656,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 10.547000000000025,
+          "my_time": 447.5867614746094,
+          "axis_time": 433.5896301269531,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 11.047000000000025,
+          "my_time": 448.0953063964844,
+          "axis_time": 434.0981750488281,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 11.563000000000102,
+          "my_time": 448.612060546875,
+          "axis_time": 434.61492919921875,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 12.047000000000025,
+          "my_time": 449.10382080078125,
+          "axis_time": 435.106689453125,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            9
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 12.563000000000102,
+          "my_time": 449.61627197265625,
+          "axis_time": 435.619140625,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 13.079000000000178,
+          "my_time": 450.13720703125,
+          "axis_time": 436.14007568359375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 13.594000000000051,
+          "my_time": 450.6538391113281,
+          "axis_time": 436.6567077636719,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 14.094000000000051,
+          "my_time": 451.1455383300781,
+          "axis_time": 437.1484069824219,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 14.579000000000178,
+          "my_time": 451.62890625,
+          "axis_time": 437.63177490234375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            10
+          ]
+        },
+        {
+          "type": "powerup_sample",
+          "captured_at": 14.985000000000127,
+          "my_time": 452.033203125,
+          "axis_time": 438.03607177734375,
+          "run_id": "fixture",
+          "valid": true,
+          "effects": [
+            [
+              1,
+              449.3329772949219,
+              482.7991638183594
+            ],
+            [
+              4,
+              438.68145751953125,
+              453.68145751953125
+            ]
+          ],
+          "pickup_sources": [
+            97,
+            10
+          ]
+        }
+      ]
+    }
+  ]
+}

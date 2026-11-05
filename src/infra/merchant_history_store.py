@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from core.merchant_analytics import MAP_FAMILIES, MERCHANT_RARITY_NAMES, MerchantHistoryRecord
 from infra.paths import application_path
+from infra.data_storage import profile_write_error, require_profile_write
 
 
 class MerchantHistoryError(RuntimeError):
@@ -81,9 +82,10 @@ class MerchantHistoryStore:
         self._records: dict[str, MerchantHistoryRecord] = {}
         self.error: str | None = None
         self._file_lock = _ProcessFileLock(self.path.with_suffix(self.path.suffix + ".lock"))
-        self.writable = self._file_lock.acquire()
+        reason = profile_write_error(self.path)
+        self.writable = not reason and self._file_lock.acquire()
         if not self.writable:
-            detail = self._file_lock.error
+            detail = reason or self._file_lock.error
             self.error = (
                 f"History is read-only: {detail}"
                 if detail
@@ -220,6 +222,8 @@ class MerchantHistoryStore:
         self._atomic_write_bytes(tail, path=recovery)
 
     def _require_writable(self) -> None:
+        if reason := profile_write_error(self.path):
+            raise MerchantHistoryError(reason)
         if not self.writable:
             raise MerchantHistoryError(self.error or "History is read-only.")
 
@@ -228,6 +232,7 @@ class MerchantHistoryStore:
 
     def _atomic_write_bytes(self, payload: bytes, *, path: Path | None = None) -> None:
         target = path or self.path
+        require_profile_write(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
         try:

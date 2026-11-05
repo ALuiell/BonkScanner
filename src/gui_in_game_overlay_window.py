@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from html import escape
+from dataclasses import replace
+from functools import lru_cache
 from math import ceil
 from typing import TYPE_CHECKING
 
@@ -22,6 +24,9 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from app import config
+from ui.localization import localization
+from ui.overlay_localization import text as ot, widget as ow, action_name, RefreshBinding
+from core.overlay_localization import OVERLAY_MESSAGE_KEYS
 from core.map_markers import (
     CLASSIC_MAP_MARKER_BASE_ICON_SIZE,
     MAP_MARKER_ACTION_BY_ID,
@@ -89,6 +94,13 @@ class MapMarkerLayer(QWidget):
         self._stock_card_pixmaps: dict[tuple, QPixmap] = {}
         self._stock_hovered_marker = None
         self._stock_hover_bridge = None
+        RefreshBinding(self, self._refresh_language)
+
+    def _refresh_language(self):
+        self._stock_group_key = None
+        self._stock_layout_key = None
+        self._stock_card_pixmaps.clear()
+        self.update()
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setStyleSheet("background: transparent;")
@@ -272,7 +284,8 @@ class MapMarkerLayer(QWidget):
             QRectF(viewport.left, viewport.top, viewport.width, viewport.height)
         )
         stock_by_object = {
-            stock.merchant_object_ptr: stock for stock in snapshot.merchant_stocks
+            stock.merchant_object_ptr: _display_stock(stock, localization().translator.game_language)
+            for stock in snapshot.merchant_stocks
         }
         stock_geometries = []
         marker_obstacles = []
@@ -620,11 +633,11 @@ class MapMarkerLayer(QWidget):
         painter.setFont(font)
         painter.setPen(QColor("#8FDFFF"))
         count = len(plan.group.entries)
-        title = f"{count} SHADIES" if count > 1 else "STOCK"
+        title = ot("{count} SHADIES", count=count) if count > 1 else ot("STOCK")
         if plan.compact:
-            title += " · hover"
+            title += ot(" · hover")
         elif len(plan.entries) < count:
-            title += " · selected stock"
+            title += ot(" · selected stock")
         title = painter.fontMetrics().elidedText(title, Qt.ElideRight, int(bounds.width() - 18))
         painter.drawText(bounds.adjusted(10, 5, -8, 0), Qt.AlignTop | Qt.AlignLeft, title)
         if plan.compact:
@@ -643,7 +656,7 @@ class MapMarkerLayer(QWidget):
             painter.setFont(font)
             painter.setPen(QColor(action.color))
             number = next(i + 1 for i, entry in enumerate(plan.group.entries) if entry[0].marker_id == marker.marker_id)
-            label = f"{number}. {action.display_name}"
+            label = f"{number}. {action_name(action)}"
             label = painter.fontMetrics().elidedText(label, Qt.ElideRight, int(bounds.width() - 46))
             painter.drawText(QRectF(bounds.left() + 37, y, bounds.width() - 46, 22), Qt.AlignVCenter | Qt.AlignLeft, label)
             self._paint_stock_items(painter, bounds.left(), y + 25, bounds.width(), stock, name_width=name_width)
@@ -728,7 +741,7 @@ class MapMarkerLayer(QWidget):
         painter.drawText(
             bounds.adjusted(29.0, 5.0, -8.0, 0.0),
             Qt.AlignTop | Qt.AlignLeft,
-            "STOCK",
+            ot("STOCK"),
         )
 
         self._paint_stock_items(painter, bounds.left(), bounds.top() + 25, bounds.width(), stock)
@@ -796,7 +809,8 @@ class MapMarkerLayer(QWidget):
             painter.setFont(font)
             painter.setPen(QColor(239, 246, 255))
             text_bounds = bounds.adjusted(row.height * 0.95, 0, -8, 0)
-            painter.drawText(text_bounds, Qt.AlignVCenter | Qt.AlignLeft, action.display_name)
+            caption = painter.fontMetrics().elidedText(action_name(action), Qt.ElideRight, int(text_bounds.width()))
+            painter.drawText(text_bounds, Qt.AlignVCenter | Qt.AlignLeft, caption)
 
             if index in (3, 7):
                 painter.setPen(QPen(QColor(102, 126, 154, 165), 1.0))
@@ -1166,7 +1180,8 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
         self._expected_layout = str(layout)
         if not self._show_expected:
             if status_message:
-                html = f'<span style="color: #8a8d9b;">{escape(status_message)}</span>'
+                message = ot(status_message) if status_message in OVERLAY_MESSAGE_KEYS else status_message
+                html = f'<span style="color: #8a8d9b;">{escape(message)}</span>'
                 if self.expected_label.text() != html or not was_shown:
                     self.expected_label.setText(html)
                     self.expected_label.setVisible(True)
@@ -1299,7 +1314,7 @@ class InGameOverlayWindow(QWidget):
 
         if enabled:
             if self.save_btn is None:
-                self.save_btn = QPushButton("Save Layout & Exit", self)
+                self.save_btn = ow(QPushButton("Save Layout & Exit", self))
                 self.save_btn.setStyleSheet(
                     """
                     QPushButton {
@@ -1317,6 +1332,7 @@ class InGameOverlayWindow(QWidget):
                     """
                 )
                 self.save_btn.clicked.connect(self._on_save_clicked)
+                RefreshBinding(self.save_btn, self._position_save_btn)
             self.save_btn.show()
             self._position_save_btn()
         elif self.save_btn is not None:
@@ -1391,3 +1407,18 @@ class InGameOverlayWindow(QWidget):
     def on_widget_moved(self, widget_id: str, x: int, y: int) -> None:
         config.IN_GAME_OVERLAY["widgets"][widget_id]["x"] = x
         config.IN_GAME_OVERLAY["widgets"][widget_id]["y"] = y
+
+
+@lru_cache(maxsize=256)
+def _display_stock(stock, language):
+    """Translate display copies before measuring cards; retained observations stay intact."""
+    if language == "en":
+        return stock
+    translator = localization().translator
+    items = []
+    for item in stock.items:
+        name = translator.game_name("items", item.canonical_name)
+        if name == item.canonical_name:
+            name = translator.game_name("items", item.display_name)
+        items.append(replace(item, display_name=name))
+    return replace(stock, items=tuple(items))

@@ -68,6 +68,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import threading
+from weakref import WeakValueDictionary
 
 from infra import vod_storage
 from typing import Callable, Sequence
@@ -225,6 +226,10 @@ class VodLibrary:
         self._refresh_generation = 0
         self._disposed = False
         self._thread = None
+        # Share files that another recording pane already owns. Weak values
+        # never keep a closed run's snapshots alive just to warm a cache.
+        self._open_recordings: WeakValueDictionary = WeakValueDictionary()
+        self._open_recordings_lock = threading.Lock()
         self._subscribers: list[
             tuple[Callable[[], None], Callable[[], None], Callable[[], None] | None]
         ] = []
@@ -293,6 +298,45 @@ class VodLibrary:
         self._subscribers.append((invalidate, repaint, live_repaint))
         if failed is not None:
             self._failure_listeners.append(failed)
+
+    def load_recording(self, path, *, cancelled=None, progress=None):
+        """Reuse an unchanged file already held by another recording pane.
+
+        Cache access is short and never covers file parsing or callbacks. Two
+        cold requests remain independently cancellable on their own workers.
+        Live recordings still use the feed, outside this disk-loading path.
+        """
+        from app.latest_wins_loader import LoadCancelled
+
+        def check_cancelled():
+            if cancelled is not None and cancelled():
+                raise LoadCancelled()
+
+        path = Path(path).resolve()
+
+        def signature():
+            stat = path.stat()
+            return (path, stat.st_mtime_ns, stat.st_size, stat.st_ino)
+
+        check_cancelled()
+        before = signature()
+        with self._open_recordings_lock:
+            cached = self._open_recordings.get(before)
+        if cached is not None and signature() == before:
+            check_cancelled()
+            return cached
+
+        loaded = load_vod(path, cancelled=cancelled, progress=progress)
+        check_cancelled()
+        try:
+            unchanged = signature() == before
+        except OSError:
+            unchanged = False
+        if unchanged:
+            with self._open_recordings_lock:
+                if not self._disposed:
+                    self._open_recordings[before] = loaded
+        return loaded
 
     def ensure_refresh(self) -> None:
         """Start a metadata refresh unless one is already in flight.

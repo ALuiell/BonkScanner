@@ -70,7 +70,7 @@ class DataStorageTests(unittest.TestCase):
             if path.is_file()
         }
 
-    def test_source_run_uses_repository_root_and_ignores_appdata_state(self) -> None:
+    def test_source_run_uses_checkout_runtime_and_ignores_appdata_state(self) -> None:
         fake_source = self.root / "source"
         fake_source.mkdir()
         unrelated_cwd = self.root / "terminal-cwd"
@@ -93,7 +93,8 @@ class DataStorageTests(unittest.TestCase):
         finally:
             os.chdir(previous_cwd)
         self.assertEqual(context.mode, "source")
-        self.assertEqual(context.data_dir, fake_source)
+        self.assertEqual(context.data_dir, fake_source / "runtime")
+        self.assertTrue(context.data_dir.is_dir())
         self.assertIsNone(context.recommended_dir)
 
     def test_new_frozen_install_uses_shared_local_appdata(self) -> None:

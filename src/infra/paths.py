@@ -11,8 +11,8 @@ directory with it: step 10b's `src/config.py` -> `src/app/config.py` silently
 repointed `config.json` and `stats_recordings/` from the repository root into
 `src/`, for source runs only (the frozen branch reads `sys.executable`, so no exe
 build could reveal it). Anchoring here, one directory below `src/`, restores the
-original values -- and pins them, because these functions have no reason to move
-again.
+resource anchors. Writable data is selected separately: source runs use the
+checkout's runtime/ folder unless connected to a shared profile.
 """
 from __future__ import annotations
 

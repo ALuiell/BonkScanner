@@ -33,6 +33,8 @@ step with the colour.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import Property, QEasingCurve, QEvent, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
@@ -174,7 +176,7 @@ class PremiumAccessBadge(QPushButton):
         super().__init__("PREMIUM", parent)
         self.setObjectName("premiumAccessBadge")
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("Premium access is active. Open Settings.")
+        l10n.display(self, 'setToolTip', l10n.tr('Premium access is active. Open Settings.'))
         self.setVisible(False)
 
     def set_access_state(self, state) -> None:
@@ -182,11 +184,7 @@ class PremiumAccessBadge(QPushButton):
         active = bool(getattr(state, "active", False))
         online = bool(getattr(state, "online", False))
         self.setProperty("connection", "online" if online else "cached")
-        self.setToolTip(
-            "Premium access is active. Open Settings."
-            if online
-            else "Premium access is active from a recent check. Open Settings."
-        )
+        l10n.display(self, 'setToolTip', l10n.tr('Premium access is active. Open Settings.') if online else l10n.tr('Premium access is active from a recent check. Open Settings.'))
         self.setVisible(active)
 
 
@@ -230,7 +228,7 @@ class RecordingFlag(QWidget):
         self._dot.setObjectName("recDot")
         layout.addWidget(self._dot, 0, Qt.AlignVCenter)
 
-        self._text = QLabel("REC")
+        self._text = l10n.localized(QLabel, l10n.tr('REC'))
         self._text.setObjectName("recText")
         layout.addWidget(self._text, 0, Qt.AlignVCenter)
 

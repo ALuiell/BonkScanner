@@ -39,6 +39,8 @@ otherwise rebuild the whole document synchronously on the UI thread.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from collections import deque
 from dataclasses import dataclass, field
 import html
@@ -238,7 +240,7 @@ class LogView(QWidget):
         self._document.setLineWrapMode(QTextEdit.WidgetWidth)
         layout.addWidget(self._document, 1)
 
-        self._footer = QLabel("")
+        self._footer = l10n.localized(QLabel, '')
         self._footer.setObjectName("logFooter")
         layout.addWidget(self._footer)
 
@@ -257,14 +259,8 @@ class LogView(QWidget):
         chips_layout.setContentsMargins(3, 3, 3, 3)
         chips_layout.setSpacing(3)
         self._chips: dict[str, QPushButton] = {}
-        for key, caption in (
-            ("", "All"),
-            ("info", "Info"),
-            ("success", "Success"),
-            ("warning", "Warnings"),
-            ("error", "Errors"),
-        ):
-            chip = QPushButton(caption)
+        for key, caption in (('', l10n.tr('All')), ('info', l10n.tr('Info')), ('success', l10n.tr('Success')), ('warning', l10n.tr('Warnings')), ('error', l10n.tr('Errors'))):
+            chip = l10n.localized(QPushButton, caption)
             chip.setObjectName("logChip")
             chip.setProperty("severity", key or "all")
             chip.setCheckable(True)
@@ -277,7 +273,7 @@ class LogView(QWidget):
 
         self._search_entry = QLineEdit()
         self._search_entry.setObjectName("logSearch")
-        self._search_entry.setPlaceholderText("Filter log…")
+        l10n.display(self._search_entry, 'setPlaceholderText', l10n.tr('Filter log…'))
         self._search_entry.setClearButtonEnabled(True)
         self._search_entry.textChanged.connect(self._on_search)
         self._search_entry.setMaximumWidth(240)
@@ -285,21 +281,21 @@ class LogView(QWidget):
 
         bar.addStretch(1)
 
-        self._target_gaps = QCheckBox("Show target gaps")
+        self._target_gaps = l10n.localized(QCheckBox, l10n.tr('Show target gaps'))
         self._target_gaps.setChecked(self._show_target_gaps_initial)
         self._target_gaps.toggled.connect(self._on_target_gaps_toggled)
         bar.addWidget(self._target_gaps)
 
-        self._autoscroll = QCheckBox("Auto-scroll")
+        self._autoscroll = l10n.localized(QCheckBox, l10n.tr('Auto-scroll'))
         self._autoscroll.setChecked(True)
         bar.addWidget(self._autoscroll)
 
-        copy_btn = QPushButton("Copy")
+        copy_btn = l10n.localized(QPushButton, l10n.tr('Copy'))
         copy_btn.setObjectName("ghost")
         copy_btn.clicked.connect(self.copy_visible)
         bar.addWidget(copy_btn)
 
-        clear_btn = QPushButton("Clear")
+        clear_btn = l10n.localized(QPushButton, l10n.tr('Clear'))
         clear_btn.setObjectName("ghost")
         clear_btn.clicked.connect(self.clear)
         bar.addWidget(clear_btn)
@@ -366,7 +362,7 @@ class LogView(QWidget):
         clipboard = QApplication.clipboard()
         if clipboard is None:
             return
-        clipboard.setText(self.visible_text())
+        l10n.display(clipboard, 'setText', self.visible_text())
 
     def visible_text(self) -> str:
         return "\n".join(
@@ -427,14 +423,12 @@ class LogView(QWidget):
         manual_position = self._capture_manual_position()
         visible = self._visible_records()
         if not visible:
-            self._document.setHtml(self._empty_html())
+            l10n.display(self._document, 'setHtml', self._empty_html())
         else:
-            self._document.setHtml(
-                "<br>".join(render_record_html(record) for record in visible)
-            )
+            l10n.display(self._document, 'setHtml', '<br>'.join((render_record_html(record) for record in visible)))
             self._scroll_to_end()
         self._restore_manual_position(manual_position)
-        self._footer.setText(self._footer_text(len(visible)))
+        l10n.display(self._footer, 'setText', self._footer_text(len(visible)))
 
     def _append_line(self, record: LogRecord) -> None:
         """Add one block without rebuilding the existing document.
@@ -446,7 +440,7 @@ class LogView(QWidget):
         if len(self._records) == 1:
             # The first real line replaces the empty-state placeholder, which
             # `append` would otherwise leave sitting above it.
-            self._document.setHtml(render_record_html(record))
+            l10n.display(self._document, 'setHtml', render_record_html(record))
         else:
             self._document.append(render_record_html(record))
         self._scroll_to_end()
@@ -494,24 +488,20 @@ class LogView(QWidget):
         self._document.verticalScrollBar().setValue(vertical)
 
     def _update_footer(self) -> None:
-        self._footer.setText(self._footer_text(len(self._visible_records())))
+        l10n.display(self._footer, 'setText', self._footer_text(len(self._visible_records())))
 
     def _empty_html(self) -> str:
         if self._records:
-            return (
-                f'<span style="color:{TIMESTAMP_COLOR}">'
-                "No lines match the current filter.</span>"
-            )
-        return (
-            f'<span style="color:{TIMESTAMP_COLOR}">'
-            "The log is empty. Press Start to begin a session.</span>"
-        )
+            message = l10n.tr("No lines match the current filter.")
+        else:
+            message = l10n.tr("The log is empty. Press Start to begin a session.")
+        return l10n.tr('<span style="color:{color}">{message}</span>', color=TIMESTAMP_COLOR, message=message)
 
     def _footer_text(self, visible_count: int) -> str:
         total = len(self._records)
         if visible_count != total:
-            return f"{visible_count} of {total} lines · buffer limit {LOG_BUFFER_LIMIT}"
-        return f"{total} lines · buffer limit {LOG_BUFFER_LIMIT}"
+            return l10n.tr("Lines: {visible} of {total} · buffer limit {limit}", visible=visible_count, total=total, limit=LOG_BUFFER_LIMIT)
+        return l10n.tr("Lines: {total} · buffer limit {limit}", total=total, limit=LOG_BUFFER_LIMIT)
 
     # -- inspection, for tests ------------------------------------------------
 

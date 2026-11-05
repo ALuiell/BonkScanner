@@ -40,3 +40,5 @@ class ScannerToggle(RunToggle):
 
     def __init__(self, parent=None) -> None:
         super().__init__(self.START_TEXT, self.STOP_TEXT, parent)
+        # Keep the owner's English caption protocol stable. Only the visible
+        # segment labels are localized, independently of the running state.

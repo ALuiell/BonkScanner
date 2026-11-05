@@ -79,7 +79,7 @@ class ChaosStatCardsTests(unittest.TestCase):
         )
         self.assertEqual(
             [label.text() for label in stat_card.findChildren(QLabel)],
-            ["Damage", "+24%", "● 2 rolls"],
+            ["Damage", "+24%", "● Rolls: 2"],
         )
 
     def test_passive_cards_show_identity_and_only_real_roll_counts(self) -> None:
@@ -105,7 +105,7 @@ class ChaosStatCardsTests(unittest.TestCase):
         )
         self.assertEqual(
             [label.text() for label in dice_card.findChildren(QLabel)],
-            ["Evasion", "+10.6%", "● 4 rolls"],
+            ["Evasion", "+10.6%", "● Rolls: 4"],
         )
         self.assertEqual(
             [label.text() for label in fox_card.findChildren(QLabel)],

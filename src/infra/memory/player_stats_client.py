@@ -20,7 +20,7 @@ from core.character_passives import (
     CHARACTER_PASSIVE_SPEC_BY_CHARACTER_ID,
     CharacterPassiveReading,
 )
-from core.item_metadata import ITEM_DISPLAY_NAME_BY_RAW_VALUE, ITEM_ENUM_NAMES_BY_ID
+from core.item_metadata import ITEM_DISPLAY_NAME_BY_RAW_VALUE, ITEM_ENUM_NAMES_BY_ID, ITEM_METADATA_BY_ENUM_NAME
 from infra.memory.reader import MemoryReadError, ProcessMemory
 from infra.crash_journal import log_runtime_event
 
@@ -529,6 +529,20 @@ class PlayerStatsClient:
                 self._cached_stats_entries = 0
         return None
 
+    def get_display_stats(self, owner_stats: int | None = None) -> dict[str, float | None]:
+        """Read just Difficulty and XP Gain; Luck already has its own source."""
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        values = {}
+        for label in ("Difficulty", "XP Gain"):
+            spec = PLAYER_STAT_SPEC_BY_LABEL[label]
+            try:
+                entries = self._resolve_stats_entries_cached(owner_stats)
+                values[label] = self.memory.read_float(entries + spec.offset)
+            except MemoryReadError:
+                self._cached_stats_entries = 0
+                values[label] = None
+        return values
+
     def get_current_gold(self, owner_stats: int | None = None) -> int:
         owner_stats = owner_stats or self._resolve_owner_stats()
         try:
@@ -702,7 +716,9 @@ class PlayerStatsClient:
             if not self.memory.read_ptr(dictionary + self.DICT_ENTRIES_OFFSET):
                 return False
             count = self.memory.read_i32(dictionary + self.DICT_COUNT_OFFSET)
-            if count <= 0:
+            # Reject impossible headers before selecting a route, so readable
+            # non-dictionary memory cannot block the valid fallback inventory.
+            if not 0 < count <= self.MAX_PASSIVE_ITEM_DICT_ENTRIES:
                 return False
             free_count = self.memory.read_i32(dictionary + self.DICT_FREE_COUNT_OFFSET)
             return 0 <= free_count < count
@@ -2167,7 +2183,58 @@ class PlayerStatsClient:
             status_effects_health=status_effects_result.health,
             timing_health=timing_health,
             multiplier_health=multiplier_health,
+            powerup_multiplier_captured_at=self._cached_powerup_multiplier_read_at,
         )
+
+    def get_powerup_pickup_sources(self, owner_stats: int) -> tuple[int | None, int | None]:
+        """Read recording-only evidence without treating failed inventory reads as zero.
+
+        Scan the bounded item dictionary by ID; do not depend on display names,
+        cached count accessors' zero fallbacks, or the powerup multiplier.
+        The projection confirms stock against the following healthy poll.
+        """
+        try:
+            inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
+            items = self.memory.read_ptr(inventory + self.ITEM_INVENTORY_OFFSET)
+            dictionary = self.memory.read_ptr(items + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET)
+            entries = self.memory.read_ptr(dictionary + self.DICT_ENTRIES_OFFSET)
+            count = self.memory.read_i32(dictionary + self.DICT_COUNT_OFFSET)
+            free = self.memory.read_i32(dictionary + self.DICT_FREE_COUNT_OFFSET)
+            version = self.memory.read_i32(dictionary + self.DICT_VERSION_OFFSET)
+            if not (inventory and items and dictionary and 0 <= free <= count <= self.MAX_PASSIVE_ITEM_DICT_ENTRIES):
+                raise MemoryReadError("Invalid power-up source inventory")
+            if count and (not entries or not count <= self.memory.read_i32(entries + self.ARRAY_LENGTH_OFFSET) <= self.MAX_PASSIVE_ITEM_DICT_ENTRIES):
+                raise MemoryReadError("Incomplete power-up source inventory")
+            target = ITEM_METADATA_BY_ENUM_NAME["ZaWarudo"].item_id
+            stock, occupied, seen = 0, 0, False
+            for index in range(count):
+                entry = entries + self.DICT_ENTRY_START_OFFSET + index * self.DICT_ENTRY_SIZE
+                if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                    continue
+                occupied += 1
+                if self.memory.read_i32(entry + self.DICT_ENTRY_KEY_OFFSET) != target:
+                    continue
+                value = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+                if not value or seen:
+                    raise MemoryReadError("Ambiguous Za Warudo source entry")
+                stock = self._read_stable_item_stack_count(value + self.ITEM_STACK_COUNT_OFFSET)
+                seen = True
+            if (occupied != count - free
+                    or self.memory.read_i32(dictionary + self.DICT_VERSION_OFFSET) != version
+                    or self.memory.read_i32(dictionary + self.DICT_COUNT_OFFSET) != count
+                    or self.memory.read_i32(dictionary + self.DICT_FREE_COUNT_OFFSET) != free
+                    or self.memory.read_ptr(dictionary + self.DICT_ENTRIES_OFFSET) != entries
+                    or self.memory.read_ptr(items + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET) != dictionary
+                    or self.memory.read_ptr(inventory + self.ITEM_INVENTORY_OFFSET) != items
+                    or self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET) != inventory):
+                raise MemoryReadError("Power-up source inventory changed during read")
+            # RunStats.GetStat returns zero before this key's first increment.
+            pickups = self.get_run_stat_values(("powerupsUsed",)).get("powerupsUsed", 0.0)
+            if not isfinite(pickups) or not 0 <= pickups <= 2**24 or int(pickups) != pickups:
+                raise MemoryReadError("Invalid power-up pickup counter")
+            return stock, int(pickups)
+        except (MemoryReadError, ValueError, OverflowError):
+            return None, None
 
     def get_active_status_effects(
         self,

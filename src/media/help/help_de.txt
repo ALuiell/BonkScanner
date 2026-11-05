@@ -1,0 +1,164 @@
+BonkScanner — Kurzhilfe
+=======================
+
+Schnellstart
+------------
+1. MegaBonk starten und warten, bis die gewünschte Szene vollständig geladen ist.
+2. BonkScanner öffnen und links `Vorlagen` oder `Punktewertung` auswählen.
+3. Die aktiven Vorlagen oder Wertungsstufen einstellen.
+4. Auf `Starten` klicken. Mit dem Scan-Tastenkürzel lässt sich die Suche auch im Spiel starten oder pausieren.
+5. Erfüllt eine Karte die Bedingungen, hält die Suche an und schreibt das Ergebnis ins `Protokoll`.
+
+Live-Werte, Aufzeichnungen und Overlays arbeiten unabhängig von der Suchschleife.
+
+Sprache der Oberfläche
+----------------------
+Unter `Einstellungen → Allgemein` stehen English, Українська, Русский, Français, Español, Deutsch und Português zur Auswahl. Speichern übernimmt die Sprache für die Oberfläche, OBS und die Widgets im Spiel. Abbrechen verwirft die ungespeicherte Auswahl. Eigene Namen, Befehlstexte und technische Kennungen bleiben erhalten. Spielbegriffe stammen aus den Übersetzungen von MegaBonk; fehlt ein Eintrag, wird Englisch verwendet.
+
+Auf derselben Registerkarte können Sie unter `Sprache der Spielbegriffe` die Namen von Gegenständen, Waffen und Werten im Scanner und in den Overlays unabhängig wählen. Standardmäßig werden englische Spielbegriffe verwendet. Mit `Wie die Oberfläche` folgen die Spielbegriffe der Sprache der Oberfläche. So lässt sich etwa eine französische Oberfläche mit englischen Spielbegriffen kombinieren. Beide Einstellungen werden nach dem Speichern übernommen und ändern nicht die Sprache in MegaBonk. Bei englischen Spielbegriffen bleiben die vorhandenen Wertkürzel verfügbar, sofern sie aktiviert sind.
+
+Suchmodi
+--------
+- `Vorlagen` prüft feste Bedingungen: die Anzahl zwielichtiger Typen, Moais, Mikrowellen, Bossflüche und weiterer Kartenobjekte. Mindest- und Höchstwerte sind verbindlich.
+- `Punktewertung` bewertet die Karte anhand von Objektgewichten und Kartenboni. Positive Gewichte geben Punkte, null ignoriert das Objekt und negative Gewichte ziehen Punkte ab. Andere Punkte können diesen Abzug ausgleichen.
+- Der aktive linke Tab bestimmt den Modus. Aktive Vorlagen und Stufen können während der Suche geändert werden; die Filter gelten sofort.
+
+Neustarts und Resets
+-------------------
+- Der Tastatur-Reset bleibt die Standardmethode. BonkScanner sendet die eingestellte Taste, um einen neuen Durchlauf zu starten.
+- Werden Resets übergangen, unter `Einstellungen → Neustart → Erweitert` die zusätzliche Haltedauer erhöhen, speichern und mehrere Resets ausprobieren. Das verlängert die Tastenbetätigung und behält die aktuelle oder geplante Spielschwelle bei.
+- BonkScanner wartet auf eine geladene Karte und sichere Speicherlesevorgänge. Eine kurze Pause nach einem Reset ist normal.
+- Die Option zum Anhalten bei Spielerbewegung pausiert die automatische Suche mit W, A, S, D oder Leertaste. Sie reagiert nur bei aktiver Suche und wenn MegaBonk im Vordergrund ist.
+- Im Wald oder in der Wüste nach der ersten Etappe lässt das Scan-Tastenkürzel die automatische Suche ausgeschaltet und zeigt einen Hinweis. Die erste Etappe, der Friedhof und die manuelle R-Taste des Spiels bleiben nutzbar.
+
+Die wichtigsten Tabs
+--------------------
+- `Protokoll`: Meldungen, Warnungen, Fehler, Filter und Suche. Technische Einzelheiten können in ihrer ursprünglichen Sprache erscheinen.
+- `Sitzungsstatistik`: Dauer, Resets, gefundene Seeds, Geschwindigkeit, beste und schlechteste Karten sowie verfolgte Gegenstände.
+- `Live-Werte`: Daten des laufenden Durchlaufs und Aufnahmesteuerung.
+- `Aufzeichnungen`: gespeicherte Durchläufe ansehen, umbenennen, löschen oder bereinigen.
+- `Durchläufe vergleichen`: zwei synchronisierte Aufzeichnungen und ihre Unterschiede.
+- `OBS-Overlay`, `Twitch-Bot` und `Spiel-Overlay`: Streaming und Widgets.
+
+Live-Werte
+----------
+Der Tab zeigt Spielerwerte, passive Gegenstände nach Seltenheit, Truhen pro Minute, Spielzeit, Kills, Stufe, Etappenübersicht, Power-ups und Verbannungen.
+
+Untertabs enthalten Werte, Beute, Waffen, Schriftrollen, die Chaos-Schriftrolle, Ladeschreine, passive Fähigkeiten, Schadensquellen und den Build-Fortschritt.
+
+Bei Waffen steht zuerst der eigene Waffenwert und danach der Wert mit globalen Spielerboni, getrennt durch `/`. Ein Strich bedeutet, dass der Wert fehlt oder die Berechnung nicht unterstützt wird. Schriftrollen zeigen Stufen und aktive Effekte. Chaos und Schreine zeigen die aus erfassten Ziehungen ermittelten Boni. Bei passiven Fähigkeiten werden nur belegbare Daten angezeigt.
+
+Die Power-up-Anzeige umfasst Raserei, Schild, Stonks und Uhr mit Aufnahme- und Ablaufzeit. Manche Zähler benötigen eine seit Durchlaufbeginn geöffnete Anwendung. Fehlende Daten während eines Ladebildschirms bedeuten daher nicht immer einen Fehler.
+
+Aufnehmen und Aufzeichnungen ansehen
+------------------------------------
+- Eine Aufnahme über die Live-Werte oder das Aufnahme-Tastenkürzel starten. Das Datenpunktintervall wird in den Einstellungen festgelegt.
+- In `Aufzeichnungen` den Abspielkopf bewegen, um Werte, Gegenstände, Waffen, Schriftrollen, Chaos, passive Boni, Schaden, Etappen und Verbannungen zu einem Zeitpunkt zu prüfen.
+- Einen Vergleichsbeginn festlegen und danach einen späteren Datenpunkt wählen, um erhaltene, zerbrochene und verlorene Gegenstände zu sehen.
+- Aufzeichnungen lassen sich umbenennen, löschen oder anhand ihrer Datenpunktzahl bereinigen. Laufende Aufnahmen können weder umbenannt noch gelöscht werden.
+- Eine laufende Aufnahme wird entsprechend gekennzeichnet und ohne erneutes Öffnen der Datei aktualisiert. Bei ihrer Auswahl wird die automatische Synchronisierung aktiviert.
+- Zurückspulen beendet das Folgen des aktuellen Spielstands, lässt aber die Synchronisierung eingeschaltet. Die Zeitachse wächst weiter, ohne die gewählte historische Position zu verschieben. `Laufenden Durchlauf anzeigen` kehrt zum neuesten Datenpunkt zurück.
+- Ist die automatische Synchronisierung aus, zeigt die Synchronisierungsschaltfläche die Anzahl wartender Datenpunkte und übernimmt den neuesten Stand in einem Schritt.
+
+Normale Etappenwechsel teilen eine Aufnahme nicht auf. Bei einem echten neuen Durchlauf kann die Aufnahme in einer neuen Datei fortgesetzt werden. Bleibt der Seed längere Zeit unlesbar, kann die Aufnahme enden. Alte Dateien bleiben kompatibel, auch wenn ihnen Waffen, Schriftrollen, Verbannungen oder passive Charakterfähigkeiten fehlen.
+
+Durchläufe vergleichen
+---------------------
+Durchlauf A und B auswählen. Beim ersten Öffnen ohne Auswahl erscheint automatisch die Auswahl; nach der Wahl beider Durchläufe schließt sie sich.
+
+Datenpunkte werden nach der nächstgelegenen Spielzeit ausgerichtet. Die Mitte zeigt allgemeine Unterschiede und Details zu Werten, Etappen, Gegenständen, Waffen, Schriftrollen, Chaos, Schreinen und passiven Fähigkeiten. In den Vergleichseinstellungen lassen sich sichtbare Werte und Bereiche auswählen.
+
+Der Passivvergleich enthält Charakter, Fähigkeit, Stufe, Erfassungsabdeckung, bestätigte Würfe und gespeicherte Boni. Alte Aufzeichnungen ohne diese Angaben zeigen einen ausdrücklichen Hinweis.
+
+Jede Seite kann eine laufende Aufnahme sein. Die Synchronisierung aktualisiert nur diese Seite. Beim Folgen des laufenden Durchlaufs wird die andere Seite anhand der absoluten Spielzeit ausgerichtet. Manuelles Verschieben hält den gewählten historischen Zeitpunkt fest.
+
+Build-Fortschritt
+----------------
+Die Bibliothek über die Live-Werte öffnen. Builds können erstellt, bearbeitet, dupliziert, importiert und exportiert werden. Es ist immer nur ein Build aktiv; das Bearbeiten eines anderen aktiviert ihn nicht.
+
+Anforderungen für Gegenstände, Spielerwerte oder Durchlauffortschritt hinzufügen. Das Minimum ist das erste Ziel. Gegenstände können ein Maximum erhalten, Spielerwerte einen Idealwert. Nach dem Minimum wird dieses zweite Ziel weiterverfolgt. Unterstützte Radiusgegenstände bieten eine automatische Grenze anhand des erfassten Größenwerts. Ein Strich bedeutet, dass die Grenze noch nicht berechnet werden kann.
+
+Fristen beurteilen den ersten Zeitpunkt, an dem das Minimum erreicht wird. Eine Anforderung vor einer Etappe muss vor deren Beginn erfüllt sein. Die Verlängerung wird nach dem Haupttimer der Etappe gezählt. Ein später erreichtes Maximum oder Ideal macht ein rechtzeitiges Minimum nicht verspätet. Eine bereits festgestellte Verspätung bleibt sichtbar.
+
+OBS und Spiel-Overlay besitzen eigene Einstellungen für abgeschlossene Zeilen und das Zeilenlimit. Die Definition bleibt zwischen Durchläufen gespeichert; Erfüllungsstatus und Abschlusszeiten werden bei jedem neuen Durchlauf zurückgesetzt.
+
+OBS-Overlay
+-----------
+- Den OBS-Server einschalten und die lokale URL in eine OBS-Browserquelle kopieren.
+- Beispiel: `http://127.0.0.1:17845/overlay`. `127.0.0.1` bezeichnet diesen PC, `17845` den Port und `/overlay` die Seite. Der Server ist nur auf diesem PC erreichbar.
+- Ist der Port durch eine andere Anwendung belegt, einen anderen wählen und die URL in OBS anpassen.
+- Eine `.jsonl`-Aufnahme ist nicht erforderlich; die Widgets verwenden Live-Lesewerte.
+- Verfügbar sind Etappen, verfolgte Gegenstände, Spielerwerte, Kills pro Sekunde, Verbannungen, Seltenheit, Build-Fortschritt und Waffenverfolgung.
+- Bei der Waffenverfolgung sind Darstellung, Grenzen und sichtbare Werte getrennt einstellbar. Grenzen verwenden dasselbe kompakte Format wie das Spiel-Overlay.
+- Die Killrate kann aktuelle Werte sowie Durchschnitte über 60 Sekunden, 5 Minuten oder den gesamten Durchlauf anzeigen.
+- Verfolgte Gegenstände nutzen standardmäßig eine eigene Liste. Das Übernehmen der Sitzungsstatistik-Liste bewahrt die eigene Liste. Ein Gegenstand kann nur auf Karte 1 oder im gesamten Durchlauf gezählt werden.
+- Jeder Widget-Typ besitzt eine eigene URL, beispielsweise `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, `/overlay/stage_summary`, `/overlay/kps`, `/overlay/luck_rarity`, `/overlay/build_progression` oder `/overlay/weapon_tracker`.
+
+Den Layout-Editor öffnen oder `?edit=true` an die URL anhängen. Widgets durch Ziehen platzieren; Positionen werden automatisch gespeichert. Die Canvas-Auflösung nach Bedarf einstellen, standardmäßig 1920×1080. In der OBS-Browserquelle müssen Breite und Höhe genau damit übereinstimmen.
+
+Beim Überfahren eines Widgets erscheint die Skalierung mit +, − und einem editierbaren Prozentwert. Die untere rechte Ecke verändert Breite und Höhe. Werte und Verbannungen verteilen sich bei mehr Platz auf mehrere Spalten. Das Spielbild dient nur zur Ausrichtung; die normale Ausgabe bleibt transparent.
+
+Nach einem Update oder Layoutwechsel in den Eigenschaften der OBS-Browserquelle den Cache der aktuellen Seite aktualisieren, damit keine alte Version angezeigt wird.
+
+Spiel-Overlay
+-------------
+Das transparente Fenster zeigt Daten unmittelbar über MegaBonk. Es lässt sich im eigenen Tab einschalten oder automatisch mit der Anwendung starten.
+
+Das Bearbeitungskürzel, standardmäßig F9, oder die Bearbeitungsschaltfläche öffnet den Layout-Modus. Die Widgets über dem Spiel verschieben. Speichern, Esc oder erneut F9 verlässt den Modus und speichert die Positionen. In den Widget-Einstellungen lässt sich die Skalierung von 0,5 bis 3,0 ändern.
+
+Widgets zeigen Scannerstatus, Aufnahmestatus, Killrate, Power-ups und deren Timer, Seltenheitschancen, Spielerwerte, Kartenereignisse, Abklingzeiten unterstützter Gegenstände und Build-Fortschritt.
+
+Kartenmarker sind eine eigene Ebene auf der großen Spielkarte. Tastenkürzel erlauben manuelles Platzieren; die automatische Erkennung unterstützter Objekte ist optional. Erkannte Mikrowellen können ihre verbleibenden Nutzungen anzeigen. Premium-Optionen können Minikartenmarker und die Erinnerung an den Ladenbestand des Zwielichtigen Typs ergänzen.
+
+Das Overlay verbirgt sich, wenn das Spiel den Vordergrund verliert, und erscheint bei der Rückkehr wieder.
+
+Twitch-Bot
+----------
+1. `Twitch-Bot` öffnen und das Konto verbinden. Die Autorisierung läuft im Browser über den offiziellen Twitch-OAuth-Dienst.
+2. Zielkanal, zugelassene Benutzer, Pausen, Befehle und Ankündigungen einstellen.
+3. Den Bot starten. Standardmäßig tritt er dem Kanal des autorisierten Kontos bei. Bei einem getrennten Bot-Konto den Kanal des Streamers als Ziel angeben.
+
+Die Befehlseinstellungen enthalten Aliasse, Antwortvorlagen, unterstützte Platzhalter und zugehörige Optionen. Speichern übernimmt Änderungen; Abbrechen verwirft sie. Eigene Nachrichtentexte bleiben unverändert. `!session` nutzt standardmäßig die Gegenstandsliste der Sitzungsstatistik. Diese Option deaktivieren, um eine getrennte Twitch-Liste zu pflegen.
+
+Verfügbare Befehle:
+- `!stats` / `!bonkstats`: Charakterwerte.
+- `!session`: Resets, Seeds, Geschwindigkeit und Gegenstandszähler der Sitzung.
+- `!bans` / `!banishes`: verbannte Gegenstände.
+- `!disabled`: ausgewählte deaktivierte Gegenstände. Das Spiel stellt die tatsächlich deaktivierten Gegenstände erst nach Durchlaufbeginn im Speicher bereit. Im Hauptmenü die Anzeige aller Gegenstände verwenden, um die Auswahl vorzubereiten.
+- `!items` / `!tracked`: gesammelte Gegenstände, nach Seltenheit sortiert und bei Bedarf für das Twitch-Limit zusammengefasst.
+- `!weapons` und `!tomes`: verbesserte Waffen und Schriftrolleneffekte; die Chaos-Schriftrolle zeigt ihre Stufe.
+- `!chaos` / `!chaostome`, `!dice`, `!shrines`: erfasste Boni aus Chaos, Gamba und Ladeschreinen.
+- `!kps`, `!stages`, `!powerups`: Killrate, Etappenübersicht und Power-ups.
+- `!build`, `!luck`, `!chests` / `!chest`, `!presets` / `!preset`: Build, Seltenheit, Truhen und Voreinstellungen.
+- `!bonkhelp`: aktive Befehle; Aliasse `!bonkcmds`, `!bonkcommands`, `!bhelp`.
+- `!scanner`: Informationen zu BonkScanner und Download-Link.
+
+Ankündigungen können Etappenwechsel, verfügbare Befehle und den Goldenen Ring melden. Die Ringankündigung ist standardmäßig aus. Der erste beobachtete Ring und spätere Exemplare verwenden getrennte, editierbare Textlisten. Wird der Bot während eines Durchlaufs verbunden, kündigt er keinen Ring an, der bereits im Inventar liegt.
+
+Einstellungen, Daten und Updates
+-------------------------------
+Tastenkürzel steuern Scan, Reset, Aufnahme und Overlay-Bearbeitung. Die automatische Aufnahme beginnt, sobald ein laufender Durchlauf erkannt wird. Der automatische Start des Overlays wird im eigenen Tab eingestellt.
+
+Die Designs Original und Halloween sind kostenlos. Neue Profile nutzen Halloween; eine frühere Auswahl bleibt erhalten. Speichern wendet das Design sofort an, Abbrechen verwirft die Änderung. Das Desktop-Design verändert weder OBS noch die Spiel-Widgets und wechselt nicht automatisch nach Datum.
+
+In Halloween sind die Animationen in Kopfzeile und Netz aufeinander abgestimmt. Sie pausieren bei inaktiver oder minimierter Anwendung. Unterstützungshinweise lassen nach dem Erscheinen acht Sekunden Lesezeit. Premium-Benutzer erhalten höchstens einmal innerhalb von 24 Stunden einen Dank; der Zeitraum bleibt über Neustarts und Designwechsel erhalten.
+
+Die Neustarteinstellungen zeigen `quick_reset_time` aus der gespeicherten Spieldatei, nicht den bereits im Spielspeicher geladenen Wert. Die Haltedauer muss diese Schwelle und die Zusatzreserve abdecken. Die Reserve beträgt standardmäßig 0,05 s und kann zwischen 0,00 und 1,00 s liegen. Die kleinste wählbare Haltedauer ist 0,01 s plus Reserve. Ohne Reserve oder bei sehr kurzer Haltedauer können Resets übergangen werden.
+
+Die empfohlenen Werte sind: Spiel 0,01 s + Reserve 0,05 s = Haltedauer 0,06 s. Nach Bestätigung speichert die Schaltfläche nur diese Zeiten; andere Änderungen bleiben ungespeichert. Eine Neuinstallation versucht diese Einrichtung bei geschlossenem Spiel. Vorhandene Benutzer behalten ihre Werte. Bei einer Blockierung das Spiel schließen und die Schaltfläche erneut verwenden. Manuelles Speichern der Zeiten beendet eine noch ausstehende Ersteinrichtung.
+
+Vor Zeitänderungen erscheint ein blauer Hinweis. Danach bedeutet Grün bereit oder gespeichert, Gelb eine geplante Änderung der Spieldatei und Rot eine ungültige Eingabe oder einen Fehler. Ungültige Eingaben bleiben sichtbar. Speichern ist gesperrt, bis sie korrigiert sind und MegaBonk bei Bedarf geschlossen ist.
+
+Deckt die Haltedauer Schwelle und Reserve bereits ab, wird nur BonkScanner geändert und das Spiel darf offen bleiben. Zum Senken der Dateischwelle muss MegaBonk geschlossen sein; die Änderung gilt beim nächsten Spielstart. Geänderte Dateien werden geprüft. Bei Fehlern bleibt der Dialog offen und erklärt, ob die früheren Dateien wiederhergestellt wurden. Unabhängige Einstellungen ändern die Reset-Zeiten nicht.
+
+Vor der automatischen Suche wird die Schwelle erneut geprüft. Eine zu kurze Haltedauer wird erhöht; eine absichtlich längere bleibt erhalten. Lese- oder Speicherprobleme stehen im Protokoll.
+
+Auf der Datenseite lässt sich der Speicherordner wechseln. Der Umzug kopiert und prüft die Daten beim Neustart und bewahrt die Originale als Sicherung auf. Alte Daten anschließend zu löschen ist eine getrennte, endgültige Aktion. Die Haupteinstellungen liegen in `config.json`.
+
+Die Update-Suche bietet neuere Versionen an, wenn der entsprechende Updater verfügbar ist. Auf der Unterstützungsseite lässt sich der Premium-Zugang mit einem persönlichen Schlüssel aktivieren, prüfen oder entfernen.
+
+Wenn etwas nicht funktioniert
+----------------------------
+Zuerst ins `Protokoll` sehen. Kurze Speicherlesefehler während des Ladens sind normal. Reagiert ein Tastenkürzel nicht, prüfen, ob das Spiel geöffnet und bei Bedarf im Vordergrund ist und ob BonkScanner verbunden ist. Manche Windows-Tastenkürzel können Administratorrechte benötigen.
+
+Filter gelten sofort; ein Neustart der Suche ist normalerweise unnötig. Wirkt die Schleife nach größeren Änderungen festgefahren, sie anhalten und erneut starten.

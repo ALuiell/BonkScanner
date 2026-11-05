@@ -34,6 +34,8 @@ construction pass before any handler can fire -- rather than re-deriving it.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from html import escape
 from typing import Callable
 
@@ -308,18 +310,10 @@ class TwitchTab:
         return self._tab
 
     def _build_hero(self):
-        self._hero = TabHero(
-            title="Twitch Bot",
-            subtitle="Answer chat commands and announce important run events.",
-            icon_path="media/twitch_icon.svg",
-            auto_text="Auto-connect bot",
-            run_captions=TWITCH_BOT_CAPTIONS,
-        )
+        self._hero = TabHero(title=l10n.tr('Twitch Bot'), subtitle=l10n.tr('Answer chat commands and announce important run events.'), icon_path='media/twitch_icon.svg', auto_text=l10n.tr('Auto-connect bot'), run_captions=TWITCH_BOT_CAPTIONS)
         self._auto_connect_cb = self._hero.auto_switch
         self._auto_connect_cb.setChecked(config.TWITCH_BOT.get("auto_connect", False))
-        self._auto_connect_cb.setToolTip(
-            "Start the bot automatically after Twitch authorization and when the application starts."
-        )
+        l10n.display(self._auto_connect_cb, 'setToolTip', l10n.tr('Start the bot automatically after Twitch authorization and when the application starts.'))
         self._bot_toggle_btn = self._hero.run_toggle
         return self._hero
 
@@ -328,9 +322,9 @@ class TwitchTab:
         # button: the two are not halves of a toggle -- one authorizes and the
         # other revokes -- and a button that renames itself is the shape the run
         # toggle was built to retire.
-        self._connect_btn = QPushButton("Connect to Twitch")
+        self._connect_btn = l10n.localized(QPushButton, l10n.tr('Connect to Twitch'))
         self._connect_btn.setObjectName("primary")
-        self._disconnect_btn = QPushButton("Disconnect")
+        self._disconnect_btn = l10n.localized(QPushButton, l10n.tr('Disconnect'))
         self._disconnect_btn.setObjectName("danger")
         self._disconnect_btn.setVisible(False)
 
@@ -341,11 +335,7 @@ class TwitchTab:
         auth_row.addWidget(self._connect_btn)
         auth_row.addWidget(self._disconnect_btn)
 
-        card = SettingsCard(
-            number=1,
-            title="Account & channel",
-            subtitle="Authorization first; where the messages go sits beside it.",
-        )
+        card = SettingsCard(number=1, title=l10n.tr('Account & channel'), subtitle=l10n.tr('Authorization first; where the messages go sits beside it.'))
         card.findChild(QFrame, "settingsCardHead").layout().addWidget(
             auth_buttons, 0, Qt.AlignVCenter
         )
@@ -368,31 +358,29 @@ class TwitchTab:
         account_layout.setSpacing(8)
         self._account_entry = QLineEdit()
         self._account_entry.setReadOnly(True)
-        self._account_entry.setPlaceholderText("Not authorized")
-        self._account_entry.setText(str(config.TWITCH_BOT.get("username") or ""))
+        l10n.display(self._account_entry, 'setPlaceholderText', l10n.tr('Not authorized'))
+        l10n.display(self._account_entry, 'setText', str(config.TWITCH_BOT.get('username') or ''))
         account_layout.addWidget(self._account_entry, 1)
         # One word, because the four long authorization states now live in the
         # hero badge where a lifecycle belongs. This says only whether there is
         # a usable token.
-        self._account_suffix = QLabel("")
+        self._account_suffix = l10n.localized(QLabel, '')
         self._account_suffix.setObjectName("fieldSuffix")
         self._account_suffix.setFixedWidth(_SUFFIX_WIDTH)
         account_layout.addWidget(self._account_suffix)
-        form.addRow("Twitch account:", account_row)
+        l10n.form_row(form, l10n.tr('Twitch account:'), account_row)
 
         self._target_channel_entry = QLineEdit()
         self._target_channel_entry.setMaximumWidth(_FIELD_MAX_WIDTH)
-        self._target_channel_entry.setPlaceholderText(
-            config.TWITCH_BOT.get("username") or "Authorized account"
-        )
-        self._target_channel_entry.setText(config.TWITCH_BOT.get("target_channel", ""))
-        form.addRow("Target channel:", self._target_channel_entry)
+        l10n.display(self._target_channel_entry, 'setPlaceholderText', config.TWITCH_BOT.get('username') or l10n.tr('Authorized account'))
+        l10n.display(self._target_channel_entry, 'setText', config.TWITCH_BOT.get('target_channel', ''))
+        l10n.form_row(form, l10n.tr('Target channel:'), self._target_channel_entry)
 
         self._tier_combo = QComboBox()
         self._tier_combo.setMaximumWidth(_FIELD_MAX_WIDTH)
-        self._tier_combo.addItems(["Everyone", "Mods & VIPs", "Subs & Mods"])
-        self._tier_combo.setCurrentText(config.TWITCH_BOT.get("access_tier", "Everyone"))
-        form.addRow("Access tier:", self._tier_combo)
+        l10n.combo_items(self._tier_combo, [l10n.tr('Everyone'), l10n.tr('Mods & VIPs'), l10n.tr('Subs & Mods')])
+        l10n.set_combo_value(self._tier_combo, config.TWITCH_BOT.get('access_tier', 'Everyone'))
+        l10n.form_row(form, l10n.tr('Access tier:'), self._tier_combo)
 
         cooldown_row = QWidget()
         cooldown_row.setObjectName("fieldRow")
@@ -404,28 +392,23 @@ class TwitchTab:
         self._global_cooldown_spin.setValue(config.TWITCH_BOT.get("global_cooldown_seconds", 1))
         self._global_cooldown_spin.setSuffix(" sec")
         cooldown_layout.addWidget(self._global_cooldown_spin)
-        cooldown_layout.addWidget(QLabel("global"))
+        cooldown_layout.addWidget(l10n.localized(QLabel, l10n.tr('global')))
         self._cooldown_spin = QSpinBox()
         self._cooldown_spin.setRange(0, 600)
         self._cooldown_spin.setValue(config.TWITCH_BOT.get("cooldown_seconds", 5))
         self._cooldown_spin.setSuffix(" sec")
         cooldown_layout.addWidget(self._cooldown_spin)
-        cooldown_layout.addWidget(QLabel("per command"))
+        cooldown_layout.addWidget(l10n.localized(QLabel, l10n.tr('per command')))
         cooldown_layout.addStretch(1)
-        form.addRow("Cooldowns:", cooldown_row)
+        l10n.form_row(form, l10n.tr('Cooldowns:'), cooldown_row)
 
         card.body.addLayout(form)
         self._account_card = card
         column.addWidget(card)
 
     def _build_commands_card(self, column) -> None:
-        self._command_settings_btn = QPushButton("Command Settings")
-        card = SettingsCard(
-            number=2,
-            title="Chat commands",
-            subtitle="Aliases and message templates open separately.",
-            action=self._command_settings_btn,
-        )
+        self._command_settings_btn = l10n.localized(QPushButton, l10n.tr('Command Settings'))
+        card = SettingsCard(number=2, title=l10n.tr('Chat commands'), subtitle=l10n.tr('Aliases and message templates open separately.'), action=self._command_settings_btn)
 
         commands = config.TWITCH_BOT.get("commands", {})
         grid = QGridLayout()
@@ -434,7 +417,7 @@ class TwitchTab:
         # Four columns, not three, keep a tile near the ~390px it had under the
         # old cap instead of stretching each one and pushing its switch away.
         for index, key in enumerate(_COMMAND_KEYS):
-            tile = ModuleTile(f"!{key}")
+            tile = l10n.localized(ModuleTile, f'!{key}')
             tile.setChecked(command_checked(commands, key))
             self._command_cbs[key] = tile
             grid.addWidget(tile, index // _COMMAND_COLUMNS, index % _COMMAND_COLUMNS)
@@ -443,13 +426,9 @@ class TwitchTab:
         column.addWidget(card)
 
     def _build_announcements_card(self, column) -> None:
-        card = SettingsCard(
-            number=3,
-            title="Announcements",
-            subtitle="Bot messages that happen without a viewer asking.",
-        )
+        card = SettingsCard(number=3, title=l10n.tr('Announcements'), subtitle=l10n.tr('Bot messages that happen without a viewer asking.'))
 
-        self._stage_announcements_cb = QCheckBox("Announce stage transitions")
+        self._stage_announcements_cb = l10n.localized(QCheckBox, l10n.tr('Announce stage transitions'))
         self._stage_announcements_cb.setObjectName("announcementCheck")
         self._stage_announcements_cb.setChecked(
             config.TWITCH_BOT.get("stage_announcements", True)
@@ -458,14 +437,14 @@ class TwitchTab:
 
         # Named after the item's in-game display name rather than "Golden Ring":
         # the caption has to match what the streamer saw on the pickup card.
-        self._one_ring_announcements_cb = QCheckBox("Announce The One Ring")
+        self._one_ring_announcements_cb = l10n.localized(QCheckBox, l10n.tr('Announce The One Ring'))
         self._one_ring_announcements_cb.setObjectName("announcementCheck")
         self._one_ring_announcements_cb.setChecked(
             config.TWITCH_BOT.get("one_ring_announcements", False)
         )
         card.body.addWidget(self._one_ring_announcements_cb)
 
-        self._commands_announcements_cb = QCheckBox("Periodically announce available commands")
+        self._commands_announcements_cb = l10n.localized(QCheckBox, l10n.tr('Periodically announce available commands'))
         self._commands_announcements_cb.setObjectName("announcementCheck")
         self._commands_announcements_cb.setChecked(
             config.TWITCH_BOT.get("commands_announcements", False)
@@ -475,11 +454,7 @@ class TwitchTab:
         column.addWidget(card)
 
     def _build_preview_card(self, column) -> None:
-        card = SettingsCard(
-            number=None,
-            title="Chat preview",
-            subtitle="The message shape before it reaches Twitch.",
-        )
+        card = SettingsCard(number=None, title=l10n.tr('Chat preview'), subtitle=l10n.tr('The message shape before it reaches Twitch.'))
 
         self._chat_preview = QLabel()
         self._chat_preview.setObjectName("chatPreview")
@@ -536,12 +511,9 @@ class TwitchTab:
             )
 
         if not lines:
-            self._chat_preview.setText(
-                "<div style='color:#5C6675'>Every previewed command is switched "
-                "off.</div>"
-            )
+            l10n.display(self._chat_preview, 'setText', l10n.tr("<div style='color:#5C6675'>Every previewed command is switched off.</div>"))
             return
-        self._chat_preview.setText("".join(lines))
+        l10n.display(self._chat_preview, 'setText', ''.join(lines))
 
     # -- wiring -----------------------------------------------------------
 
@@ -567,7 +539,7 @@ class TwitchTab:
         self._command_settings_btn.clicked.connect(on_command_settings)
         self._disconnect_btn.clicked.connect(on_disconnect)
 
-        self._tier_combo.currentTextChanged.connect(on_settings_changed)
+        l10n.connect_combo_value(self._tier_combo, on_settings_changed)
         self._target_channel_entry.editingFinished.connect(on_settings_changed)
         # The preview names the asking viewer after the target channel and only
         # shows commands that are on, so both have to reach it. Connected here
@@ -598,7 +570,7 @@ class TwitchTab:
         not this object's.
         """
         return {
-            "access_tier": self._tier_combo.currentText(),
+            "access_tier": l10n.combo_value(self._tier_combo),
             "target_channel": self._target_channel_entry.text().strip().lstrip("#").lower(),
             "global_cooldown_seconds": self._global_cooldown_spin.value(),
             "cooldown_seconds": self._cooldown_spin.value(),
@@ -638,23 +610,23 @@ class TwitchTab:
         if self._hero is None:
             return
         caption, state = self._bot_badge if self._authorized else self._auth_badge
-        self._hero.set_status(caption, state, detail=self._badge_detail)
+        self._hero.set_status(l10n.term(caption), state, detail=l10n.term(self._badge_detail))
 
     def show_connected(self, username: str) -> None:
         self._authorized = True
         self._auth_badge = ("CONNECTED", STATE_OK)
         self._badge_detail = ""
         if self._account_entry is not None:
-            self._account_entry.setText(str(username))
+            l10n.display(self._account_entry, 'setText', str(username))
         if self._account_suffix is not None:
-            self._account_suffix.setText("Authorized")
+            l10n.display(self._account_suffix, 'setText', l10n.tr('Authorized'))
             self._account_suffix.setProperty("state", STATE_OK)
             _repolish(self._account_suffix)
         release_focus(self._connect_btn)
         self._connect_btn.setVisible(False)
         self._disconnect_btn.setVisible(True)
         if self._target_channel_entry is not None:
-            self._target_channel_entry.setPlaceholderText(username)
+            l10n.display(self._target_channel_entry, 'setPlaceholderText', username)
         self._render_badge()
 
     def show_disconnected(self) -> None:
@@ -662,7 +634,7 @@ class TwitchTab:
         self._auth_badge = ("NOT CONNECTED", STATE_OFF)
         self._badge_detail = ""
         if self._account_suffix is not None:
-            self._account_suffix.setText("")
+            l10n.display(self._account_suffix, 'setText', '')
             self._account_suffix.setProperty("state", STATE_OFF)
             _repolish(self._account_suffix)
         # Disconnect is pressed to get here, and hiding the focused widget hands
@@ -725,12 +697,12 @@ class TwitchTab:
 
     def show_bot_running(self) -> None:
         start_text, stop_text = TWITCH_BOT_CAPTIONS
-        self._bot_toggle_btn.setText(stop_text)
+        l10n.display(self._bot_toggle_btn, 'setText', stop_text)
         _set_widget_style_role(self._bot_toggle_btn, "stopScanner")
 
     def show_bot_stopped(self) -> None:
         start_text, _stop_text = TWITCH_BOT_CAPTIONS
-        self._bot_toggle_btn.setText(start_text)
+        l10n.display(self._bot_toggle_btn, 'setText', start_text)
         _set_widget_style_role(self._bot_toggle_btn, "primary")
 
 

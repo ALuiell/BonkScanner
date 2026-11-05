@@ -58,6 +58,8 @@ dropping them, because "this looks unreachable" is exactly the reasoning step
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from collections.abc import Callable
 from math import isfinite
 
@@ -81,7 +83,7 @@ from core.stats.weapon_tracker import (
 )
 from core.tracker.chaos import CHAOS_FINGERPRINTS, CHAOS_TOME_GAME_STAT_ORDER
 from core.tracker.shrines import SHRINE_RARITY_MULTIPLIERS
-from projections import formatting
+from ui import formatting
 from ui.shared import _clear_layout, _set_text
 
 
@@ -168,7 +170,7 @@ class _StatValueRow(QWidget):
         layout.addWidget(self._value_label)
 
     def set_values(self, name: str, value: str) -> None:
-        _set_text(self._name_label, name)
+        _set_text(self._name_label, l10n.stat(name))
         _set_text(self._value_label, value)
 
 
@@ -179,12 +181,12 @@ class _WeaponStatValueRow(_StatValueRow):
         super().__init__(parent)
         self._original_name_style = self._name_label.styleSheet()
         self._original_value_style = self._value_label.styleSheet()
-        self._weapon_value_label = QLabel(self)
+        self._weapon_value_label = l10n.localized(QLabel, self)
         self._weapon_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self._weapon_value_label.setStyleSheet(
             "font-size: 13px; color: #98A7BA; background: transparent;"
         )
-        self._separator_label = QLabel("/", self)
+        self._separator_label = l10n.localized(QLabel, '/', self)
         self._separator_label.setAlignment(Qt.AlignCenter)
         self._separator_label.setFixedWidth(8)
         self._separator_label.setStyleSheet(
@@ -202,7 +204,7 @@ class _WeaponStatValueRow(_StatValueRow):
         self._value_label.setMinimumWidth(0)
         self._name_label.setStyleSheet(self._original_name_style)
         self._value_label.setStyleSheet(self._original_value_style)
-        self.setToolTip("")
+        l10n.display(self, 'setToolTip', '')
 
     def set_pair_values(self, name: str, weapon_value: str, effective_value: str | None) -> None:
         super().set_values(name, effective_value if effective_value is not None else "—")
@@ -260,7 +262,7 @@ class _WeaponCard(QFrame):
         self._rows_layout.setContentsMargins(0, 0, 0, 0)
         self._rows_layout.setSpacing(6)
         layout.addLayout(self._rows_layout)
-        self._empty_label = QLabel("No upgraded stats decoded")
+        self._empty_label = l10n.localized(QLabel, l10n.tr('No upgraded stats decoded'))
         layout.addWidget(self._empty_label)
         layout.addStretch(1)
         self._row_ids: tuple[object, ...] = ()
@@ -268,8 +270,8 @@ class _WeaponCard(QFrame):
 
     def update_weapon(self, weapon: WeaponSnapshot, effective=None, *, show_effective=False,
                       recorded_effective=None) -> None:
-        _set_text(self._name_label, str(weapon.name))
-        _set_text(self._level_label, f"Lv. {weapon.level}")
+        _set_text(self._name_label, l10n.game("weapons", weapon.name))
+        _set_text(self._level_label, l10n.tr('Lv. {p0}', p0=weapon.level))
         stats = tuple(
             (stat_id, weapon.upgraded_stats[stat_id])
             for stat_id in weapon.upgrade_stat_ids
@@ -309,7 +311,7 @@ class _WeaponCard(QFrame):
                         tooltip += " (unavailable)"
                 else:
                     tooltip = "Value with global stats is not calculated for this stat"
-                row.setToolTip(tooltip)
+                l10n.display(row, 'setToolTip', tooltip)
             else:
                 row.set_values(str(stat.label), value)
         self._empty_label.setVisible(not stats)
@@ -317,7 +319,7 @@ class _WeaponCard(QFrame):
             # Older recordings keep the original single-value card.
             self._weapon_heading = _WeaponStatValueRow(self)
             self._weapon_heading.set_pair_values("", "Weapon", "With globals")
-            self._weapon_heading._separator_label.setText("")
+            l10n.display(self._weapon_heading._separator_label, 'setText', '')
             for label in (
                 self._weapon_heading._weapon_value_label,
                 self._weapon_heading._value_label,
@@ -368,8 +370,8 @@ class _TomeCard(QFrame):
         layout.addWidget(self._stat_row)
 
     def update_tome(self, tome: TomeSnapshot) -> None:
-        _set_text(self._name_label, str(tome.name))
-        _set_text(self._level_label, f"Lv. {tome.level}")
+        _set_text(self._name_label, l10n.game("tomes", tome.name))
+        _set_text(self._level_label, l10n.tr('Lv. {p0}', p0=tome.level))
         self._stat_row.set_values(str(tome.stat_label), str(tome.display_value))
 
 
@@ -464,12 +466,12 @@ class _DamageSourceCard(QFrame):
         share_text = damage_source_share_text(damage, total_damage)
 
         _set_text(self._rank_label, f"#{rank}")
-        _set_text(self._name_label, source_name)
-        self._name_label.setToolTip(source_name)
+        _set_text(self._name_label, l10n.game_term(source_name, ("damage_sources", "weapons", "items", "passives")))
+        l10n.display(self._name_label, 'setToolTip', l10n.game_term(source_name, ("damage_sources", "weapons", "items", "passives")))
         _set_text(self._damage_label, formatting.format_damage_source_value(damage))
         _set_text(self._percentage_label, share_text)
         self._bar.setValue(round(min(1.0, max(0.0, percentage)) * 1000))
-        self._bar.setToolTip(f"{share_text} of total damage")
+        l10n.display(self._bar, 'setToolTip', l10n.tr('{p0} of total damage', p0=share_text))
 
         text_color = self._ACTIVE_COLOR if damage is not None and damage > 0.0 else self._IDLE_COLOR
         if text_color != self._text_color:
@@ -494,7 +496,7 @@ class _DamageSourcesSummaryCard(QFrame):
         summary_layout.setContentsMargins(10, 8, 10, 8)
         summary_layout.setSpacing(8)
 
-        title_label = QLabel("Total Damage")
+        title_label = l10n.localized(QLabel, l10n.tr('Total Damage'))
         title_label.setStyleSheet(
             "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
         )
@@ -519,7 +521,7 @@ class _DamageSourcesSummaryCard(QFrame):
         _set_text(self._value_label, formatting.format_damage_source_value(total_damage))
         _set_text(
             self._count_label,
-            f"{source_count} {'source' if source_count == 1 else 'sources'}",
+            l10n.tr("Sources: {count}", count=source_count),
         )
 
 
@@ -550,6 +552,7 @@ class _RollStatCard(QFrame):
         layout.addLayout(row)
 
         self._rolls_label = QLabel()
+        self._rolls_label.setObjectName("StatRollCount")
         layout.addWidget(self._rolls_label)
         self._quality_color: str | None = None
         self._full_name = ""
@@ -567,8 +570,7 @@ class _RollStatCard(QFrame):
         self.set_expanded_stat_label(expanded)
         _set_text(self._value_label, str(getattr(stat, "display_delta", "--")))
         rolls = max(0, int(getattr(stat, "rolls", 0) or 0))
-        rolls_word = "roll" if rolls == 1 else "rolls"
-        _set_text(self._rolls_label, f"● {rolls} {rolls_word}")
+        _set_text(self._rolls_label, l10n.tr("● Rolls: {count}", count=rolls))
 
         quality_color = chaos_roll_quality_color(quality)
         if quality_color != self._quality_color:
@@ -577,11 +579,7 @@ class _RollStatCard(QFrame):
                 f"font-size: 12px; font-weight: 700; color: {quality_color}; "
                 "background: transparent;"
             )
-        self._rolls_label.setToolTip(
-            ""
-            if quality is None
-            else f"{quality_tooltip}: {round(quality * 100)}% of this stat's range"
-        )
+        l10n.display(self._rolls_label, 'setToolTip', '' if quality is None else l10n.tr("{p0}: {p1}% of this stat's range", p0=quality_tooltip, p1=round(quality * 100)))
 
     def set_expanded_stat_label(self, expanded: bool) -> None:
         display_name = (
@@ -589,10 +587,8 @@ class _RollStatCard(QFrame):
             if expanded
             else abbreviate_stat_label(self._full_name)
         )
-        _set_text(self._name_label, display_name)
-        self._name_label.setToolTip(
-            self._full_name if display_name != self._full_name else ""
-        )
+        _set_text(self._name_label, l10n.stat(display_name))
+        l10n.display(self._name_label, 'setToolTip', l10n.stat(self._full_name) if display_name != self._full_name else '')
 
 
 class _ChaosSummaryCard(QFrame):
@@ -606,7 +602,7 @@ class _ChaosSummaryCard(QFrame):
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
-        title_label = QLabel("Chaos Tome")
+        title_label = l10n.localized(QLabel, l10n.tr('Chaos Tome'))
         title_label.setStyleSheet(
             "font-size: 14px; font-weight: 700; background: transparent;"
         )
@@ -627,9 +623,9 @@ class _ChaosSummaryCard(QFrame):
 
     def update_tome(self, chaos_tome) -> None:
         stats = chaos_stats_in_game_order(chaos_tome)
-        _set_text(self._level_label, f"Lv. {int(getattr(chaos_tome, 'level', 0))}")
+        _set_text(self._level_label, l10n.tr('Lv. {p0}', p0=int(getattr(chaos_tome, 'level', 0))))
         rolls = sum(int(getattr(stat, "rolls", 0) or 0) for stat in stats)
-        _set_text(self._summary_label, f"Tracked rolls: {rolls} | Stats: {len(stats)}")
+        _set_text(self._summary_label, l10n.tr('Tracked rolls: {p0} | Stats: {p1}', p0=rolls, p1=len(stats)))
 
 
 class _ShrineSummaryCard(QFrame):
@@ -639,7 +635,7 @@ class _ShrineSummaryCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(4)
-        title_label = QLabel("Charge Shrines")
+        title_label = l10n.localized(QLabel, l10n.tr('Charge Shrines'))
         title_label.setStyleSheet(
             "font-size: 14px; font-weight: 700; background: transparent;"
         )
@@ -653,7 +649,7 @@ class _ShrineSummaryCard(QFrame):
     def update_shrines(self, shrines) -> None:
         stats = tuple(getattr(shrines, "stats", ()) or ())
         rolls = max(0, int(getattr(shrines, "selected", 0) or 0))
-        _set_text(self._summary_label, f"Tracked rolls: {rolls} | Stats: {len(stats)}")
+        _set_text(self._summary_label, l10n.tr('Tracked rolls: {p0} | Stats: {p1}', p0=rolls, p1=len(stats)))
 
 
 class _CharacterPassiveSummaryCard(QFrame):
@@ -675,15 +671,15 @@ class _CharacterPassiveSummaryCard(QFrame):
         layout.addWidget(self._level_label)
 
     def update_passive(self, character_passive) -> None:
+        character_name = getattr(character_passive, "character_name", None)
+        passive_name = getattr(character_passive, "passive_name", None)
         _set_text(
             self._title_label,
-            f"{getattr(character_passive, 'character_name', 'Unknown')} · "
-            f"{getattr(character_passive, 'passive_name', 'Passive')}",
+            l10n.tr("{character} · {passive}",
+                    character=l10n.game("characters", character_name) if character_name else l10n.tr("Unknown"),
+                    passive=l10n.game("passives", passive_name) if passive_name else l10n.tr("Passive")),
         )
-        _set_text(
-            self._level_label,
-            f"Level {int(getattr(character_passive, 'level', 0) or 0)}",
-        )
+        _set_text(self._level_label, l10n.tr('Level {p0}', p0=int(getattr(character_passive, 'level', 0) or 0)))
 
 
 class _CharacterPassiveEffectCard(QFrame):
@@ -723,13 +719,13 @@ class _CharacterPassiveEffectCard(QFrame):
             return
         if self._count_label is None:
             self._count_label = QLabel()
+            self._count_label.setObjectName("StatRollCount")
             self._count_label.setStyleSheet(
                 "font-size: 12px; font-weight: 700; color: #98A7BA; background: transparent;"
             )
             self._layout.addWidget(self._count_label)
         count = max(0, int(count))
-        word = "roll" if count == 1 else "rolls"
-        _set_text(self._count_label, f"● {count} {word}")
+        _set_text(self._count_label, l10n.tr("● Rolls: {count}", count=count))
         self._count_label.show()
 
     def set_expanded_stat_label(self, expanded: bool) -> None:
@@ -738,10 +734,8 @@ class _CharacterPassiveEffectCard(QFrame):
             if expanded
             else abbreviate_stat_label(self._full_name)
         )
-        _set_text(self._name_label, display_name)
-        self._name_label.setToolTip(
-            self._full_name if display_name != self._full_name else ""
-        )
+        _set_text(self._name_label, l10n.stat(display_name))
+        l10n.display(self._name_label, 'setToolTip', l10n.stat(self._full_name) if display_name != self._full_name else '')
 
 
 #: Which detail tab each deferrable panel lives on, by that tab's title. Only
@@ -777,7 +771,7 @@ def section_visibility_over(detail_tabs: Callable[[], object]) -> Callable[[str]
         wanted = DEFERRABLE_SECTION_TAB_TITLES.get(section)
         if wanted is None:
             return True
-        return tabs.tabText(tabs.currentIndex()) == wanted
+        return l10n.tab_identity(tabs, tabs.currentIndex()) == wanted
 
     return visible
 
@@ -1069,7 +1063,7 @@ class StatCardsView:
         if status_text is not None:
             _set_text(status_label, status_text)
         else:
-            _set_text(status_label, "" if weapons else "No weapons available")
+            _set_text(status_label, '' if weapons else l10n.tr('No weapons available'))
 
         if not weapons:
             self._weapon_cards = []
@@ -1153,7 +1147,7 @@ class StatCardsView:
         if status_text is not None:
             _set_text(status_label, status_text)
         else:
-            _set_text(status_label, "" if tomes else "No tomes available")
+            _set_text(status_label, '' if tomes else l10n.tr('No tomes available'))
 
         if not tomes:
             self._tome_cards = []
@@ -1229,7 +1223,7 @@ class StatCardsView:
         if status_text is not None:
             _set_text(status_label, status_text)
         else:
-            _set_text(status_label, "" if chaos_tome is not None else "No Chaos Tome data")
+            _set_text(status_label, '' if chaos_tome is not None else l10n.tr('No Chaos Tome data'))
 
         if chaos_tome is None:
             if self._chaos_summary_card is not None:
@@ -1272,7 +1266,7 @@ class StatCardsView:
                 stat,
                 name=chaos_stat_label(stat),
                 quality=chaos_average_roll_quality(stat),
-                quality_tooltip="Average roll quality",
+                quality_tooltip=l10n.tr("Average roll quality"),
                 expanded=self._expanded_stat_labels,
             )
             ordered_cards.append(card)
@@ -1315,7 +1309,7 @@ class StatCardsView:
             stat,
             name=chaos_stat_label(stat),
             quality=chaos_average_roll_quality(stat),
-            quality_tooltip="Average roll quality",
+            quality_tooltip=l10n.tr("Average roll quality"),
         )
 
     @staticmethod
@@ -1364,7 +1358,7 @@ class StatCardsView:
         if status_text is not None:
             _set_text(status_label, status_text)
         elif shrines is None:
-            _set_text(status_label, "No Charge Shrine data yet")
+            _set_text(status_label, l10n.tr('No Charge Shrine data yet'))
         else:
             _set_text(status_label, "")
         if shrines is None:
@@ -1416,7 +1410,7 @@ class StatCardsView:
                 stat,
                 name=str(getattr(stat, "label", "Shrine bonus")),
                 quality=shrine_average_roll_quality(stat),
-                quality_tooltip="Average shrine roll quality",
+                quality_tooltip=l10n.tr("Average shrine roll quality"),
                 expanded=self._expanded_stat_labels,
             )
             ordered_cards.append(card)
@@ -1458,7 +1452,7 @@ class StatCardsView:
             stat,
             name=str(getattr(stat, "label", "Shrine bonus")),
             quality=shrine_average_roll_quality(stat),
-            quality_tooltip="Average shrine roll quality",
+            quality_tooltip=l10n.tr("Average shrine roll quality"),
         )
 
     # -- character passive ---------------------------------------------------
@@ -1488,16 +1482,10 @@ class StatCardsView:
         if status_text is not None:
             _set_text(status_label, status_text)
         elif character_passive is None:
-            _set_text(status_label, "No character passive data yet")
+            _set_text(status_label, l10n.tr('No character passive data yet'))
         else:
             status = getattr(getattr(character_passive, "status", None), "value", "")
-            messages = {
-                "unsupported": "Tracking not supported for this passive",
-                "unavailable": "Character passive data unavailable",
-                "unknown": "Unknown character passive in this game build",
-                "updating": "Passive bonus is updating...",
-                "partial": "Passive tracking is partial; ambiguous rolls were not guessed",
-            }
+            messages = {'unsupported': l10n.tr('Tracking not supported for this passive'), 'unavailable': l10n.tr('Character passive data unavailable'), 'unknown': l10n.tr('Unknown character passive in this game build'), 'updating': l10n.tr('Passive bonus is updating...'), 'partial': l10n.tr('Passive tracking is partial; ambiguous rolls were not guessed')}
             _set_text(status_label, messages.get(status, ""))
         if character_passive is None:
             if self._character_passive_summary_card is not None:
@@ -1621,7 +1609,7 @@ class StatCardsView:
         if status_text is not None:
             _set_text(status_label, status_text)
         else:
-            _set_text(status_label, "" if damage_sources else "No damage source data yet")
+            _set_text(status_label, '' if damage_sources else l10n.tr('No damage source data yet'))
 
         if not damage_sources:
             _clear_layout(layout)

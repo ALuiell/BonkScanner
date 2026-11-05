@@ -388,6 +388,39 @@ class DrainedDictionaryTests(unittest.TestCase):
         self.assertEqual(reading.stack_count, 2)
         self.assertAlmostEqual(reading.next_trigger_time - 100.0, 33.0)
 
+    def test_oversized_container_header_does_not_hide_bobs_light(self) -> None:
+        """Reject the false dictionary header captured live on 2026-10-21."""
+        C = PlayerStatsClient
+        for count, free_count in (
+            (C.MAX_PASSIVE_ITEM_DICT_ENTRIES + 1, 0),
+            (359975301, 9627863),
+        ):
+            with self.subTest(count=count, free_count=free_count):
+                memory = build_memory(
+                    my_time=3316.680419921875,
+                    next_trigger=3328.889404296875,
+                )
+                invalid = self._drain_the_container_route(memory)
+                # The first route read GameAssembly bytes as a dictionary.
+                # Its non-null entries and freeCount < count looked occupied,
+                # preventing the valid player-inventory route from being used.
+                memory.pointers[invalid + C.DICT_ENTRIES_OFFSET] = 0x48284B8B481374C0
+                memory.ints[invalid + C.DICT_COUNT_OFFSET] = count
+                memory.ints[invalid + C.DICT_FREE_COUNT_OFFSET] = free_count
+                client = client_for(memory)
+
+                for _ in range(2):
+                    snapshot = read(client)
+                    self.assertTrue(snapshot.complete)
+                    (reading,) = snapshot.readings
+                    self.assertEqual(reading.name, "Bob's Light")
+                    self.assertEqual(reading.stack_count, 1)
+                    self.assertEqual(reading.cooldown_seconds, 42.0)
+                    self.assertAlmostEqual(
+                        reading.next_trigger_time - snapshot.my_time_seconds,
+                        12.208984375,
+                    )
+
     def test_an_empty_inventory_still_resolves_to_a_dictionary(self) -> None:
         """Both routes empty is "owns nothing yet", not a failed read."""
         C = PlayerStatsClient

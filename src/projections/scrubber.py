@@ -138,6 +138,8 @@ class Marker:
     kind: str
     color: str
     text: str
+    item_name: str | None = field(default=None, compare=False)
+    gained: int = field(default=0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -425,6 +427,7 @@ def build_markers(snapshots) -> tuple[Marker, ...]:
                         kind=rarity.lower(),
                         color=RARITY_MARKER_COLORS[rarity],
                         text=f"{name} +{gained}",
+                        item_name=name, gained=gained,
                     )
                 )
         previous_counts = counts
@@ -433,7 +436,7 @@ def build_markers(snapshots) -> tuple[Marker, ...]:
         for name in sorted(banishes - previous_banishes):
             if index:
                 markers.append(
-                    Marker(index=index, kind="banish", color=BANISH_MARKER_COLOR, text=f"Banish: {name}")
+                    Marker(index=index, kind="banish", color=BANISH_MARKER_COLOR, text=f"Banish: {name}", item_name=name)
                 )
         previous_banishes |= banishes
     return tuple(markers)

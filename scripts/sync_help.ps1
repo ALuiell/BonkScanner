@@ -11,7 +11,11 @@ $packagedHelp = Join-Path $repositoryRoot "src\media\help"
 $helpFiles = @(
     "help_eng.txt",
     "help_ru.txt",
-    "help_ukr.txt"
+    "help_ukr.txt",
+    "help_fr.txt",
+    "help_es.txt",
+    "help_de.txt",
+    "help_pt.txt"
 )
 
 if (-not (Test-Path -LiteralPath $documentationHelp -PathType Container)) {

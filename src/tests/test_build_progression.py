@@ -657,7 +657,7 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertFalse(dialog._required_field.isHidden())
         self.assertFalse(dialog._ideal_field.isHidden())
         self.assertEqual(dialog._required_field.findChild(QLabel).text(), "Min")
-        self.assertEqual(dialog.summary.text(), "Crit Chance · min 20 ideal 50 · none")
+        self.assertEqual(dialog.summary.text(), "Crit Chance · Min 20 · Ideal 50 · No deadline")
 
         dialog._add_or_update()
         saved = dialog._draft["requirements"][0]

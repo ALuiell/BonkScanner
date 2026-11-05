@@ -16,6 +16,7 @@ from core.template_conditions import format_template_conditions
 from core.tracker.items import fold_item_match_name
 from infra.twitch_credentials import get_twitch_oauth_token
 from core.stats.formatters import format_chaos_tome_stat_delta, format_shrine_stat_delta
+from core.stats.live import current_player_stats
 from projections.twitch import (
     NO_RUN_DATA_MESSAGE,
     format_effective_weapons,
@@ -751,9 +752,7 @@ class TwitchBotWorker(QThread):
         if fallback is not None:
             self._send_chat(channel, fallback)
             return
-        snap = runtime.latest_snapshot
-
-        s = snap.stats
+        s = current_player_stats(runtime)
         stats_data = {}
         for name in s:
             stats_data[name] = self._stat_val(s, name)
@@ -1320,7 +1319,7 @@ class TwitchBotWorker(QThread):
         # stats, which are read on their own schedule, so they are still worth
         # reporting -- but they say nothing about what is active, and this
         # branch must not pretend otherwise.
-        stat = snap.stats.get("Powerup Multiplier") if getattr(snap, "stats", None) else None
+        stat = current_player_stats(runtime).get("Powerup Multiplier")
         try:
             powerup_multiplier = float(getattr(stat, "value", None))
         except (TypeError, ValueError):

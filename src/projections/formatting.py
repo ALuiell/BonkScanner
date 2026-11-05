@@ -6,6 +6,8 @@ a pure ``str``/value formatter that never touches widget or client state.
 
 from __future__ import annotations
 
+from core.localization_context import text as _lt, game_name as _game_name, term as _term, stat_label as _stat_label
+
 import html
 from math import isfinite
 
@@ -132,17 +134,17 @@ def format_elapsed_time(seconds: float | int) -> str:
 
 def format_in_game_time(seconds: float | None) -> str:
     if seconds is None:
-        return "In-Game Time: --"
-    return f"In-Game Time: {format_elapsed_time(seconds)}"
+        return _lt('In-Game Time: --')
+    return _lt('In-Game Time: {p0}', p0=format_elapsed_time(seconds))
 
 
 def format_mob_kills(value: int | None, kps: int | None = None) -> str:
     if value is None:
-        return "Mob Kills: --"
+        return _lt('Mob Kills: --')
     formatted_value = format_count(value)
     if kps is not None:
-        return f"Mob Kills: {formatted_value} ({format_count(kps)}/s)"
-    return f"Mob Kills: {formatted_value}"
+        return _lt('Mob Kills: {p0} ({p1}/s)', p0=formatted_value, p1=format_count(kps))
+    return _lt('Mob Kills: {p0}', p0=formatted_value)
 
 
 def format_kps_averages(
@@ -158,7 +160,7 @@ def format_kps_averages(
             values.append(f"{label} --")
         else:
             values.append(f"{label} {format_count(value)}/s")
-    return f"KPS: {' | '.join(values)}"
+    return _lt('KPS: {p0}', p0=' | '.join(values))
 
 
 def format_count(value: int | float) -> str:
@@ -206,8 +208,8 @@ def format_damage_source_value(value: int | float | None) -> str:
 
 def format_player_level(value: int | None) -> str:
     if value is None:
-        return "Level: --"
-    return f"Level: {max(0, int(value))}"
+        return _lt('Level: --')
+    return _lt('Level: {p0}', p0=max(0, int(value)))
 
 
 def format_items(items) -> str:
@@ -218,13 +220,16 @@ def format_items(items) -> str:
 
 def format_compare_run_snapshot_summary(vod, snapshot, index: int) -> str:
     item_total = _snapshot_item_total(snapshot)
+    game_time = getattr(snapshot, 'game_time_seconds', None)
+    kills = getattr(snapshot, 'mob_kills', None)
+    level = getattr(snapshot, 'player_level', None)
     rows = [
-        f'<span style="color:#98A7BA;">Snapshot:</span> {index + 1}/{len(vod.snapshots)}',
-        f'<span style="color:#98A7BA;">Record Time:</span> {html.escape(snapshot.time_label)}',
-        f'<span style="color:#98A7BA;">In-Game:</span> {html.escape(format_in_game_time(getattr(snapshot, "game_time_seconds", None)).replace("In-Game Time: ", ""))}',
-        f'<span style="color:#98A7BA;">Kills:</span> {html.escape(format_mob_kills(getattr(snapshot, "mob_kills", None)).replace("Mob Kills: ", ""))}',
-        f'<span style="color:#98A7BA;">Level:</span> {html.escape(format_player_level(getattr(snapshot, "player_level", None)).replace("Level: ", ""))}',
-        f'<span style="color:#98A7BA;">Items:</span> {format_count(item_total)}',
+        _lt('<span style="color:#98A7BA;">Snapshot:</span> {p0}/{p1}', p0=index + 1, p1=len(vod.snapshots)),
+        _lt('<span style="color:#98A7BA;">Record Time:</span> {p0}', p0=html.escape(snapshot.time_label)),
+        _lt('<span style="color:#98A7BA;">In-Game:</span> {p0}', p0=format_elapsed_time(game_time) if game_time is not None else '--'),
+        _lt('<span style="color:#98A7BA;">Kills:</span> {p0}', p0=format_count(kills) if kills is not None else '--'),
+        _lt('<span style="color:#98A7BA;">Level:</span> {p0}', p0=max(0, int(level)) if level is not None else '--'),
+        _lt('<span style="color:#98A7BA;">Items:</span> {p0}', p0=format_count(item_total)),
     ]
     return "<br>".join(rows)
 
@@ -234,7 +239,7 @@ def format_compare_run_selected_stats(snapshot, stat_labels: tuple[str, ...] | N
     for label in stat_labels or COMPARE_RUN_STAT_LABELS:
         stat = getattr(snapshot, "stats", {}).get(label)
         display = stat.display_value if stat is not None else "--"
-        rows.append(f'<span style="color:#98A7BA;">{html.escape(label)}:</span> {html.escape(display)}')
+        rows.append(f'<span style="color:#98A7BA;">{html.escape(_stat_label(label))}:</span> {html.escape(display)}')
     return "<br>".join(rows) if rows else "--"
 
 
@@ -254,19 +259,19 @@ def format_compare_runs_diff(
     rows = [format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b)]
     stat_text = format_compare_runs_stats_diff(snapshot_a, snapshot_b, stat_labels=stat_labels)
     if stat_text and stat_text != "--":
-        rows.append('<br><span style="color:#E5E7EB; font-weight:700;">Selected Stats</span>')
+        rows.append(_lt('<br><span style="color:#E5E7EB; font-weight:700;">Selected Stats</span>'))
         rows.append(stat_text)
     if include_items:
-        rows.append('<br><span style="color:#E5E7EB; font-weight:700;">Items</span>')
+        rows.append(_lt('<br><span style="color:#E5E7EB; font-weight:700;">Items</span>'))
         rows.append(format_compare_runs_items_diff(snapshot_a, snapshot_b, details_expanded=item_details_expanded))
     if include_weapons:
-        rows.append('<br><span style="color:#E5E7EB; font-weight:700;">Weapons</span>')
+        rows.append(_lt('<br><span style="color:#E5E7EB; font-weight:700;">Weapons</span>'))
         rows.append(format_compare_runs_weapons_diff(snapshot_a, snapshot_b))
     if include_tomes:
-        rows.append('<br><span style="color:#E5E7EB; font-weight:700;">Tomes</span>')
+        rows.append(_lt('<br><span style="color:#E5E7EB; font-weight:700;">Tomes</span>'))
         rows.append(format_compare_runs_tomes_diff(snapshot_a, snapshot_b))
     if include_chaos:
-        rows.append('<br><span style="color:#E5E7EB; font-weight:700;">Chaos</span>')
+        rows.append(_lt('<br><span style="color:#E5E7EB; font-weight:700;">Chaos</span>'))
         rows.append(format_compare_runs_chaos_diff(snapshot_a, snapshot_b))
     return "<br>".join(rows)
 
@@ -274,26 +279,20 @@ def format_compare_runs_diff(
 def format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b) -> str:
     time_a = _snapshot_compare_time(snapshot_a)
     time_b = _snapshot_compare_time(snapshot_b)
-    rows = [
-        f'<span style="color:#98A7BA;">A:</span> {html.escape(vod_a.metadata.name)}',
-        f'<span style="color:#98A7BA;">B:</span> {html.escape(vod_b.metadata.name)}',
-        '<span style="color:#98A7BA;">Mode:</span> Run A compared to Run B',
-    ]
+    rows = [f'<span style="color:#98A7BA;">A:</span> {html.escape(vod_a.metadata.name)}', f'<span style="color:#98A7BA;">B:</span> {html.escape(vod_b.metadata.name)}', _lt('<span style="color:#98A7BA;">Mode:</span> Run A compared to Run B')]
     if time_a is not None and time_b is not None:
-        rows.append(
-            f'<span style="color:#98A7BA;">Time offset:</span> {_format_signed_seconds(time_a - time_b)}'
-        )
+        rows.append(_lt('<span style="color:#98A7BA;">Time offset:</span> {p0}', p0=_format_signed_seconds(time_a - time_b)))
 
     kill_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "mob_kills")
     if kill_delta is not None:
-        rows.append(f'<span style="color:#98A7BA;">Kill Difference:</span> {_format_signed_count(kill_delta)}')
+        rows.append(_lt('<span style="color:#98A7BA;">Kill Difference:</span> {p0}', p0=_format_signed_count(kill_delta)))
 
     level_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "player_level")
     if level_delta is not None:
-        rows.append(f'<span style="color:#98A7BA;">Level Difference:</span> {_format_signed_count(level_delta)}')
+        rows.append(_lt('<span style="color:#98A7BA;">Level Difference:</span> {p0}', p0=_format_signed_count(level_delta)))
 
     item_delta = _snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b)
-    rows.append(f'<span style="color:#98A7BA;">Item Difference:</span> {_format_signed_count(item_delta)}')
+    rows.append(_lt('<span style="color:#98A7BA;">Item Difference:</span> {p0}', p0=_format_signed_count(item_delta)))
     return "<br>".join(rows)
 
 
@@ -313,29 +312,21 @@ def format_compare_runs_overview_compact_diff(vod_a, snapshot_a, vod_b, snapshot
     ]
     timing_parts = []
     if time_a is not None and time_b is not None:
-        timing_parts.append(
-            f'<span style="color:#98A7BA;">Time</span> {_format_signed_seconds(time_a - time_b)}'
-        )
+        timing_parts.append(_lt('<span style="color:#98A7BA;">Time</span> {p0}', p0=_format_signed_seconds(time_a - time_b)))
 
     kill_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "mob_kills")
     if kill_delta is not None:
-        timing_parts.append(
-            f'<span style="color:#98A7BA;">Kills</span> {_format_signed_count(kill_delta)}'
-        )
+        timing_parts.append(_lt('<span style="color:#98A7BA;">Kills</span> {p0}', p0=_format_signed_count(kill_delta)))
     if timing_parts:
         rows.append(" &nbsp;·&nbsp; ".join(timing_parts))
 
     progress_parts = []
     level_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "player_level")
     if level_delta is not None:
-        progress_parts.append(
-            f'<span style="color:#98A7BA;">Level</span> {_format_signed_count(level_delta)}'
-        )
+        progress_parts.append(_lt('<span style="color:#98A7BA;">Level</span> {p0}', p0=_format_signed_count(level_delta)))
 
     item_delta = _snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b)
-    progress_parts.append(
-        f'<span style="color:#98A7BA;">Items</span> {_format_signed_count(item_delta)}'
-    )
+    progress_parts.append(_lt('<span style="color:#98A7BA;">Items</span> {p0}', p0=_format_signed_count(item_delta)))
     rows.append(" &nbsp;·&nbsp; ".join(progress_parts))
     return "<br>".join(rows)
 
@@ -364,61 +355,14 @@ def build_compare_runs_snapshot_table(
     game_b = getattr(snapshot_b, "game_time_seconds", None)
 
     rows = (
-        MetricRow(
-            "Snapshot",
-            f"{index_a + 1}/{len(vod_a.snapshots)}",
-            f"{index_b + 1}/{len(vod_b.snapshots)}",
-            _format_signed_count(index_a - index_b),
-        ),
-        MetricRow(
-            "Record",
-            str(getattr(snapshot_a, "time_label", "--") or "--"),
-            str(getattr(snapshot_b, "time_label", "--") or "--"),
-            (
-                _format_signed_seconds(float(elapsed_a) - float(elapsed_b))
-                if elapsed_a is not None and elapsed_b is not None
-                else "--"
-            ),
-        ),
-        MetricRow(
-            "In-game",
-            format_elapsed_time(game_a) if game_a is not None else "--",
-            format_elapsed_time(game_b) if game_b is not None else "--",
-            (
-                _format_signed_seconds(float(game_a) - float(game_b))
-                if game_a is not None and game_b is not None
-                else "--"
-            ),
-        ),
-        MetricRow(
-            "Kills",
-            count_value(snapshot_a, "mob_kills"),
-            count_value(snapshot_b, "mob_kills"),
-            count_delta("mob_kills"),
-        ),
-        MetricRow(
-            "Level",
-            count_value(snapshot_a, "player_level"),
-            count_value(snapshot_b, "player_level"),
-            count_delta("player_level"),
-        ),
-        MetricRow(
-            "Items",
-            format_count(_snapshot_item_total(snapshot_a)),
-            format_count(_snapshot_item_total(snapshot_b)),
-            _format_signed_count(
-                _snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b)
-            ),
-        ),
+        MetricRow(_lt('Snapshot'), f'{index_a + 1}/{len(vod_a.snapshots)}', f'{index_b + 1}/{len(vod_b.snapshots)}', _format_signed_count(index_a - index_b)),
+        MetricRow(_lt('Record'), str(getattr(snapshot_a, 'time_label', '--') or '--'), str(getattr(snapshot_b, 'time_label', '--') or '--'), _format_signed_seconds(float(elapsed_a) - float(elapsed_b)) if elapsed_a is not None and elapsed_b is not None else '--'),
+        MetricRow(_lt('In-game'), format_elapsed_time(game_a) if game_a is not None else '--', format_elapsed_time(game_b) if game_b is not None else '--', _format_signed_seconds(float(game_a) - float(game_b)) if game_a is not None and game_b is not None else '--'),
+        MetricRow(_lt('Kills'), count_value(snapshot_a, 'mob_kills'), count_value(snapshot_b, 'mob_kills'), count_delta('mob_kills')),
+        MetricRow(_lt('Level'), count_value(snapshot_a, 'player_level'), count_value(snapshot_b, 'player_level'), count_delta('player_level')),
+        MetricRow(_lt('Items'), format_count(_snapshot_item_total(snapshot_a)), format_count(_snapshot_item_total(snapshot_b)), _format_signed_count(_snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b))),
     )
-    return MetricTable(
-        sections=(
-            MetricSection(
-                headers=("Value", "A", "B", "Delta"),
-                rows=rows,
-            ),
-        )
-    )
+    return MetricTable(sections=(MetricSection(headers=(_lt('Value'), 'A', 'B', _lt('Delta')), rows=rows),))
 
 
 def format_compare_runs_stats_diff(snapshot_a, snapshot_b, *, stat_labels: tuple[str, ...] | None = None) -> str:
@@ -461,23 +405,15 @@ def build_compare_runs_stats_table(
                     pass
         rows.append(
             MetricRow(
-                label=str(label),
+                label=_stat_label(label),
                 value_a=str(value_a),
                 value_b=str(value_b),
                 delta=str(delta),
             )
         )
     if not rows:
-        return MetricTable(empty_text="No stats available")
-    return MetricTable(
-        sections=(
-            MetricSection(
-                headers=("Stat", "Run A", "Run B", "Delta"),
-                rows=tuple(rows),
-            ),
-        ),
-        empty_text="No stats available",
-    )
+        return MetricTable(empty_text=_lt('No stats available'))
+    return MetricTable(sections=(MetricSection(headers=(_lt('Stat'), _lt('Run A'), _lt('Run B'), _lt('Delta')), rows=tuple(rows)),), empty_text=_lt('No stats available'))
 
 
 def format_compare_runs_items_diff(snapshot_a, snapshot_b, *, details_expanded: bool = False) -> str:
@@ -495,14 +431,7 @@ def format_compare_runs_stage_summary_diff(vod_a, index_a, vod_b, index_b) -> st
     blocks: list[str] = []
     for row_a, row_b in zip(rows_a, rows_b):
         label = html.escape(str(row_a.get("label", row_b.get("label", "--"))))
-        blocks.append(
-            "<div style='margin-bottom:10px;'>"
-            f"<span style='color:#E5E7EB; font-weight:700;'>{label}</span><br>"
-            f"<span style='color:#98A7BA;'>Time:</span> {_format_compare_stage_summary_metric(row_a.get('time', '--'), row_b.get('time', '--'), metric='time')}<br>"
-            f"<span style='color:#98A7BA;'>Kills:</span> {_format_compare_stage_summary_metric(row_a.get('kills', '--'), row_b.get('kills', '--'), metric='count')}<br>"
-            f"<span style='color:#98A7BA;'>Items:</span> {_format_compare_stage_summary_items(row_a.get('items', '--'), row_b.get('items', '--'))}"
-            "</div>"
-        )
+        blocks.append(_lt("<div style='margin-bottom:10px;'><span style='color:#E5E7EB; font-weight:700;'>{p0}</span><br><span style='color:#98A7BA;'>Time:</span> {p1}<br><span style='color:#98A7BA;'>Kills:</span> {p2}<br><span style='color:#98A7BA;'>Items:</span> {p3}</div>", p0=label, p1=_format_compare_stage_summary_metric(row_a.get('time', '--'), row_b.get('time', '--'), metric='time'), p2=_format_compare_stage_summary_metric(row_a.get('kills', '--'), row_b.get('kills', '--'), metric='count'), p3=_format_compare_stage_summary_items(row_a.get('items', '--'), row_b.get('items', '--'))))
     return "".join(blocks) if blocks else "--"
 
 
@@ -597,17 +526,8 @@ def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTab
                     else f"{difference:+,.0f}"
                 )
             rows.append(MetricRow(label, display_a, display_b, delta))
-        sections.append(
-            MetricSection(
-                headers=("Metric", "Run A", "Run B", "Delta"),
-                rows=tuple(rows),
-                title=f"Stage {stage}",
-            )
-        )
-    return MetricTable(
-        sections=tuple(sections),
-        empty_text="No stage data",
-    )
+        sections.append(MetricSection(headers=(_lt('Metric'), _lt('Run A'), _lt('Run B'), _lt('Delta')), rows=tuple(rows), title=_lt('Stage {p0}', p0=stage)))
+    return MetricTable(sections=tuple(sections), empty_text=_lt('No stage data'))
 
 
 #: Shown in place of the sections when a card has nothing to compare. One
@@ -641,14 +561,14 @@ def build_compare_runs_weapons_table(snapshot_a, snapshot_b) -> MetricTable:
     weapons_b = _index_named_snapshots(getattr(snapshot_b, "weapons", ()))
     sections = tuple(
         _entity_metric_section(
-            name,
+            _game_name("weapons", name),
             weapons_a.get(name),
             weapons_b.get(name),
             _weapon_compare_metric_rows(weapons_a.get(name), weapons_b.get(name)),
         )
         for name in sorted(set(weapons_a) | set(weapons_b), key=str.casefold)
     )
-    return MetricTable(sections=sections, empty_text=WEAPONS_COMPARE_EMPTY_TEXT)
+    return MetricTable(sections=sections, empty_text=_lt('No weapon data'))
 
 
 def build_compare_runs_tomes_table(snapshot_a, snapshot_b) -> MetricTable:
@@ -657,14 +577,14 @@ def build_compare_runs_tomes_table(snapshot_a, snapshot_b) -> MetricTable:
     tomes_b = _index_named_snapshots(getattr(snapshot_b, "tomes", ()))
     sections = tuple(
         _entity_metric_section(
-            name,
+            _game_name("tomes", name),
             tomes_a.get(name),
             tomes_b.get(name),
             _tome_compare_metric_rows(name, tomes_a.get(name), tomes_b.get(name)),
         )
         for name in sorted(set(tomes_a) | set(tomes_b), key=str.casefold)
     )
-    return MetricTable(sections=sections, empty_text=TOMES_COMPARE_EMPTY_TEXT)
+    return MetricTable(sections=sections, empty_text=_lt('No tome data'))
 
 
 def build_compare_runs_chaos_table(snapshot_a, snapshot_b) -> MetricTable:
@@ -676,23 +596,15 @@ def build_compare_runs_chaos_table(snapshot_a, snapshot_b) -> MetricTable:
     chaos_a = getattr(snapshot_a, "chaos_tome", None)
     chaos_b = getattr(snapshot_b, "chaos_tome", None)
     if chaos_a is None and chaos_b is None:
-        return MetricTable(empty_text=CHAOS_COMPARE_EMPTY_TEXT)
+        return MetricTable(empty_text=_lt('No Chaos Tome data'))
 
     sections = [
-        MetricSection(
-            headers=("Metric", "A", "B", "Diff"),
-            rows=tuple(MetricRow(*row) for row in _chaos_compare_overview_rows(chaos_a, chaos_b)),
-        )
+        MetricSection(headers=(_lt('Metric'), 'A', 'B', _lt('Diff')), rows=tuple((MetricRow(*row) for row in _chaos_compare_overview_rows(chaos_a, chaos_b))))
     ]
     stat_rows = _format_compare_run_chaos_stat_rows(chaos_a, chaos_b)
     if stat_rows:
-        sections.append(
-            MetricSection(
-                headers=("Stat", "A", "B", "Diff"),
-                rows=tuple(MetricRow(*row) for row in stat_rows),
-            )
-        )
-    return MetricTable(sections=tuple(sections), empty_text=CHAOS_COMPARE_EMPTY_TEXT)
+        sections.append(MetricSection(headers=(_lt('Stat'), 'A', 'B', _lt('Diff')), rows=tuple((MetricRow(*row) for row in stat_rows))))
+    return MetricTable(sections=tuple(sections), empty_text=_lt('No Chaos Tome data'))
 
 
 def build_compare_runs_shrines_table(snapshot_a, snapshot_b) -> MetricTable:
@@ -705,7 +617,7 @@ def build_compare_runs_shrines_table(snapshot_a, snapshot_b) -> MetricTable:
     shrines_a = getattr(snapshot_a, "shrines", None)
     shrines_b = getattr(snapshot_b, "shrines", None)
     if shrines_a is None and shrines_b is None:
-        return MetricTable(empty_text=SHRINES_COMPARE_EMPTY_TEXT)
+        return MetricTable(empty_text=_lt('No Charge Shrine data'))
 
     stats_a = _index_shrine_stats(shrines_a)
     stats_b = _index_shrine_stats(shrines_b)
@@ -722,7 +634,7 @@ def build_compare_runs_shrines_table(snapshot_a, snapshot_b) -> MetricTable:
         stat_a = stats_a.get(stat_id)
         stat_b = stats_b.get(stat_id)
         stat = stat_a or stat_b
-        label = str(getattr(stat, "label", f"Stat {stat_id}"))
+        label = _stat_label(str(getattr(stat, "label", f"Stat {stat_id}")))
         bonus_rows.append(
             MetricRow(
                 *_format_compare_metric_row(
@@ -734,15 +646,8 @@ def build_compare_runs_shrines_table(snapshot_a, snapshot_b) -> MetricTable:
         )
 
     if not bonus_rows:
-        return MetricTable(empty_text=SHRINES_COMPARE_EMPTY_TEXT)
-    return MetricTable(
-        sections=(
-            MetricSection(
-                headers=("Stat", "A", "B", "Diff"), rows=tuple(bonus_rows)
-            ),
-        ),
-        empty_text=SHRINES_COMPARE_EMPTY_TEXT,
-    )
+        return MetricTable(empty_text=_lt('No Charge Shrine data'))
+    return MetricTable(sections=(MetricSection(headers=(_lt('Stat'), 'A', 'B', _lt('Diff')), rows=tuple(bonus_rows)),), empty_text=_lt('No Charge Shrine data'))
 
 
 def build_compare_runs_passives_table(snapshot_a, snapshot_b) -> MetricTable:
@@ -756,21 +661,11 @@ def build_compare_runs_passives_table(snapshot_a, snapshot_b) -> MetricTable:
     passive_a = getattr(snapshot_a, "character_passive", None)
     passive_b = getattr(snapshot_b, "character_passive", None)
     if passive_a is None and passive_b is None:
-        return MetricTable(empty_text=PASSIVES_COMPARE_EMPTY_TEXT)
+        return MetricTable(empty_text=_lt('No character passive data'))
 
     overview_rows = (
-        MetricRow(
-            "Character",
-            _passive_text(passive_a, "character_name"),
-            _passive_text(passive_b, "character_name"),
-            "--",
-        ),
-        MetricRow(
-            "Passive",
-            _passive_text(passive_a, "passive_name"),
-            _passive_text(passive_b, "passive_name"),
-            "--",
-        ),
+        MetricRow(_lt('Character'), _passive_text(passive_a, 'character_name'), _passive_text(passive_b, 'character_name'), '--'),
+        MetricRow(_lt('Passive'), _passive_text(passive_a, 'passive_name'), _passive_text(passive_b, 'passive_name'), '--'),
         MetricRow(
             *_format_compare_metric_row(
                 "Level",
@@ -778,12 +673,7 @@ def build_compare_runs_passives_table(snapshot_a, snapshot_b) -> MetricTable:
                 _passive_numeric_metric(passive_b, "level"),
             )
         ),
-        MetricRow(
-            "Tracking",
-            _passive_status_text(passive_a),
-            _passive_status_text(passive_b),
-            "--",
-        ),
+        MetricRow(_lt('Tracking'), _passive_status_text(passive_a), _passive_status_text(passive_b), '--'),
         MetricRow(*_format_passive_roll_count_row(passive_a, passive_b)),
         MetricRow(
             *_format_compare_metric_row(
@@ -795,18 +685,13 @@ def build_compare_runs_passives_table(snapshot_a, snapshot_b) -> MetricTable:
     )
 
     sections = [
-        MetricSection(headers=("Metric", "A", "B", "Diff"), rows=overview_rows)
+        MetricSection(headers=(_lt('Metric'), 'A', 'B', _lt('Diff')), rows=overview_rows)
     ]
     effect_rows = _format_compare_run_passive_effect_rows(passive_a, passive_b)
     if effect_rows:
-        sections.append(
-            MetricSection(
-                headers=("Stat", "A", "B", "Diff"),
-                rows=tuple(MetricRow(*row) for row in effect_rows),
-            )
-        )
+        sections.append(MetricSection(headers=(_lt('Stat'), 'A', 'B', _lt('Diff')), rows=tuple((MetricRow(*row) for row in effect_rows))))
     return MetricTable(
-        sections=tuple(sections), empty_text=PASSIVES_COMPARE_EMPTY_TEXT
+        sections=tuple(sections), empty_text=_lt('No character passive data')
     )
 
 
@@ -856,12 +741,7 @@ def _format_passive_roll_count_row(passive_a, passive_b):
     delta = "--"
     if count_a is not None and count_b is not None:
         delta = _format_signed_count(count_a - count_b)
-    return (
-        "Tracked Rolls",
-        "--" if count_a is None else format_count(count_a),
-        "--" if count_b is None else format_count(count_b),
-        delta,
-    )
+    return (_lt('Tracked Rolls'), '--' if count_a is None else format_count(count_a), '--' if count_b is None else format_count(count_b), delta)
 
 
 def _passive_effect_count_metric(passive):
@@ -938,35 +818,12 @@ def _shrine_compare_metric_value(stat):
 
 
 def _entity_metric_section(name: str, value_a, value_b, rows) -> MetricSection:
-    return MetricSection(
-        headers=("", "A", "B", "Diff"),
-        rows=tuple(MetricRow(*row) for row in rows),
-        title=str(name),
-        subtitle=_entity_level_text(value_a, value_b),
-    )
+    return MetricSection(headers=('', 'A', 'B', _lt('Diff')), rows=tuple((MetricRow(*row) for row in rows)), title=name, subtitle=_entity_level_text(value_a, value_b))
 
 
 def _chaos_compare_overview_rows(chaos_a, chaos_b) -> list[tuple[str, str, str, str]]:
     """Chaos's level/rolls/stats rows, without markup."""
-    return [
-        _format_compare_metric_row(
-            "Level",
-            _metric_value(getattr(chaos_a, "level", None), getattr(chaos_a, "level", None)),
-            _metric_value(getattr(chaos_b, "level", None), getattr(chaos_b, "level", None)),
-        ),
-        (
-            "Tracked Rolls",
-            _format_chaos_roll_count(chaos_a),
-            _format_chaos_roll_count(chaos_b),
-            _format_signed_count(_chaos_roll_count(chaos_a) - _chaos_roll_count(chaos_b)),
-        ),
-        (
-            "Stats",
-            str(_chaos_stat_count(chaos_a)),
-            str(_chaos_stat_count(chaos_b)),
-            _format_signed_count(_chaos_stat_count(chaos_a) - _chaos_stat_count(chaos_b)),
-        ),
-    ]
+    return [_format_compare_metric_row('Level', _metric_value(getattr(chaos_a, 'level', None), getattr(chaos_a, 'level', None)), _metric_value(getattr(chaos_b, 'level', None), getattr(chaos_b, 'level', None))), (_lt('Tracked Rolls'), _format_chaos_roll_count(chaos_a), _format_chaos_roll_count(chaos_b), _format_signed_count(_chaos_roll_count(chaos_a) - _chaos_roll_count(chaos_b))), (_lt('Stats'), str(_chaos_stat_count(chaos_a)), str(_chaos_stat_count(chaos_b)), _format_signed_count(_chaos_stat_count(chaos_a) - _chaos_stat_count(chaos_b)))]
 
 
 def format_compare_runs_chaos_diff(snapshot_a, snapshot_b) -> str:
@@ -1001,7 +858,7 @@ def _format_compare_run_stat_deltas(snapshot_a, snapshot_b, *, stat_labels: tupl
         if stat_a is not None and stat_b is not None and stat_a.value is not None and stat_b.value is not None:
             delta_text = f" ({_format_compare_run_stat_delta(stat_a, stat_b)})"
         rows.append(
-            f'<span style="color:#98A7BA;">{html.escape(label)}:</span> '
+            f'<span style="color:#98A7BA;">{html.escape(_stat_label(label))}:</span> '
             f'{html.escape(display_a)} -> {html.escape(display_b)}{html.escape(delta_text)}'
         )
     return rows
@@ -1035,15 +892,11 @@ def _format_compare_stage_summary_metric(value_a: str, value_b: str, *, metric: 
         count_b = _parse_stage_summary_count(value_b)
         if count_a is not None and count_b is not None:
             delta_text = f" ({_format_signed_count(count_a - count_b)})"
-    return f"{escaped_a} <span style='color:#98A7BA;'>&rarr;</span> {escaped_b}{html.escape(delta_text)}"
+    return _lt("{p0} <span style='color:#98A7BA;'>&rarr;</span> {p1}{p2}", p0=escaped_a, p1=escaped_b, p2=html.escape(delta_text))
 
 
 def _format_compare_stage_summary_items(value_a: str, value_b: str) -> str:
-    return (
-        f"{value_a} <span style='color:#98A7BA;'>&rarr;</span> {value_b}"
-        if value_a != "--" or value_b != "--"
-        else "--"
-    )
+    return _lt("{p0} <span style='color:#98A7BA;'>&rarr;</span> {p1}", p0=value_a, p1=value_b) if value_a != '--' or value_b != '--' else '--'
 
 
 def _parse_stage_summary_time(value: str | None) -> int | None:
@@ -1091,18 +944,15 @@ def _item_delta_text_rows(more_in_b, more_in_a, *, include_inline: bool) -> list
     """
     rarity_rows = _format_item_delta_rarity_totals(more_in_a, more_in_b)
     if not more_in_b and not more_in_a:
-        return [
-            f'<span style="color:#98A7BA;">Rarity:</span> {rarity_rows}',
-            '<span style="color:#98A7BA;">No item count differences</span>',
-        ]
-    rows = [f'<span style="font-size:14px;"><span style="color:#98A7BA; font-weight:700;">Rarity Delta:</span> {rarity_rows}</span>']
+        return [_lt('<span style="color:#98A7BA;">Rarity:</span> {p0}', p0=rarity_rows), _lt('<span style="color:#98A7BA;">No item count differences</span>')]
+    rows = [_lt('<span style="font-size:14px;"><span style="color:#98A7BA; font-weight:700;">Rarity Delta:</span> {p0}</span>', p0=rarity_rows)]
     if include_inline:
         # A leads, and carries the `+`: the whole screen reads "A - B", so the
         # side the deltas are about is the side that is listed first.
         if more_in_a:
-            rows.append(f'<span style="color:#98A7BA;">A has more:</span> {_format_item_delta_inline(more_in_a, "+", max_items=3)}')
+            rows.append(_lt('<span style="color:#98A7BA;">A has more:</span> {p0}', p0=_format_item_delta_inline(more_in_a, '+', max_items=3)))
         if more_in_b:
-            rows.append(f'<span style="color:#98A7BA;">B has more:</span> {_format_item_delta_inline(more_in_b, "-", max_items=3)}')
+            rows.append(_lt('<span style="color:#98A7BA;">B has more:</span> {p0}', p0=_format_item_delta_inline(more_in_b, '-', max_items=3)))
     return rows
 
 
@@ -1136,9 +986,7 @@ def build_compare_runs_items_table(snapshot_a, snapshot_b) -> MetricTable:
     )
     if not rows:
         return EMPTY_METRIC_TABLE
-    return MetricTable(
-        sections=(MetricSection(headers=("Name", "A", "B", "Diff"), rows=rows),)
-    )
+    return MetricTable(sections=(MetricSection(headers=(_lt('Name'), 'A', 'B', _lt('Diff')), rows=rows),))
 
 
 def _format_item_delta_rarity_totals(more_in_a: dict[str, int], more_in_b: dict[str, int]) -> str:
@@ -1171,7 +1019,7 @@ def _format_item_delta_inline(deltas: dict[str, int], sign: str, *, max_items: i
     ]
     hidden_count = len(sorted_items) - len(visible_items)
     if hidden_count > 0:
-        parts.append(f'<span style="color:#98A7BA;">+{hidden_count} more</span>')
+        parts.append(_lt('<span style="color:#98A7BA;">+{p0} more</span>', p0=hidden_count))
     return " | ".join(parts) if parts else "--"
 
 
@@ -1180,13 +1028,7 @@ def _format_item_delta_table(counts_a: dict[str, int], counts_b: dict[str, int])
     cell_style = "padding:4px 8px; border-bottom:1px solid #1E2A3A;"
     rows: list[str] = [
         (
-            '<table cellspacing="0" cellpadding="0" style="width:100%; border-collapse:collapse; font-size:14px;">'
-            "<tr>"
-            f'<td style="{header_style}">Name</td>'
-            f'<td align="right" style="{header_style}">A</td>'
-            f'<td align="right" style="{header_style}">B</td>'
-            f'<td align="right" style="{header_style}">Diff</td>'
-            "</tr>"
+            _lt('<table cellspacing="0" cellpadding="0" style="width:100%; border-collapse:collapse; font-size:14px;"><tr><td style="{p0}">Name</td><td align="right" style="{p1}">A</td><td align="right" style="{p2}">B</td><td align="right" style="{p3}">Diff</td></tr>', p0=header_style, p1=header_style, p2=header_style, p3=header_style)
         )
     ]
     for row_index, (name, count_a, count_b, delta) in enumerate(_item_delta_table_rows(counts_a, counts_b)):
@@ -1270,7 +1112,7 @@ def _format_item_delta_name(item_name: str) -> str:
     display_name = _normalize_item_name_for_display(item_name)
     return (
         f'<span style="color:{_item_delta_color(item_name)}; font-weight:700;">'
-        f"{html.escape(display_name)}</span>"
+        f"{html.escape(_game_name('items', display_name))}</span>"
     )
 
 
@@ -1349,8 +1191,8 @@ def _index_chaos_stats(chaos_tome) -> dict[int, object]:
 def _chaos_compare_stat_label(stat_a, stat_b) -> str:
     stat = stat_a if stat_a is not None else stat_b
     if stat is None:
-        return "Unknown"
-    return str(getattr(stat, "label", f"Stat {getattr(stat, 'stat_id', '?')}"))
+        return _lt('Unknown')
+    return _game_name("stats", str(getattr(stat, "label", f"Stat {getattr(stat, 'stat_id', '?')}")))
 
 
 def _chaos_roll_count(chaos_tome) -> int:
@@ -1392,15 +1234,12 @@ def _format_named_level_deltas(values_a: dict[str, object], values_b: dict[str, 
             rows.append(f'<span style="color:#98A7BA;">{html.escape(name)}:</span> {value_formatter(value_a)} -> --')
             continue
         level_delta = int(getattr(value_a, level_attr, 0)) - int(getattr(value_b, level_attr, 0))
-        rows.append(
-            f'<span style="color:#98A7BA;">{html.escape(name)}:</span> '
-            f'{value_formatter(value_a)} -> {value_formatter(value_b)} ({_format_signed_count(level_delta)} lv)'
-        )
-    return rows or ['<span style="color:#98A7BA;">No data</span>']
+        rows.append(_lt('<span style="color:#98A7BA;">{p0}:</span> {p1} -> {p2} ({p3} lv)', p0=html.escape(name), p1=value_formatter(value_a), p2=value_formatter(value_b), p3=_format_signed_count(level_delta)))
+    return rows or [_lt('<span style="color:#98A7BA;">No data</span>')]
 
 
 def _format_weapon_compare_block(name: str, weapon_a, weapon_b) -> str:
-    title = _format_compare_entity_title(name, weapon_a, weapon_b)
+    title = _format_compare_entity_title(_game_name("weapons", name), weapon_a, weapon_b)
     stat_ids = set()
     for weapon in (weapon_a, weapon_b):
         if weapon is None:
@@ -1446,7 +1285,7 @@ def _weapon_compare_metric_rows(weapon_a, weapon_b) -> list[tuple[str, str, str,
 
 def _format_weapon_compare_card(name: str, weapon_a, weapon_b) -> str:
     return _format_compare_mini_card(
-        name,
+        _game_name("weapons", name),
         weapon_a,
         weapon_b,
         _weapon_compare_metric_rows(weapon_a, weapon_b),
@@ -1454,7 +1293,7 @@ def _format_weapon_compare_card(name: str, weapon_a, weapon_b) -> str:
 
 
 def _format_tome_compare_block(name: str, tome_a, tome_b) -> str:
-    title = _format_compare_entity_title(name, tome_a, tome_b)
+    title = _format_compare_entity_title(_game_name("tomes", name), tome_a, tome_b)
     rows = [
         _format_compare_metric_row(
             "Level",
@@ -1478,7 +1317,7 @@ def _format_tome_compare_block(name: str, tome_a, tome_b) -> str:
 def _tome_compare_metric_rows(name: str, tome_a, tome_b) -> list[tuple[str, str, str, str]]:
     """One tome's compare rows, without markup. See `_weapon_compare_metric_rows`."""
     if name.casefold() == "chaos":
-        return [("Level", _level_display(tome_a), _level_display(tome_b), _level_delta(tome_a, tome_b))]
+        return [(_lt('Level'), _level_display(tome_a), _level_display(tome_b), _level_delta(tome_a, tome_b))]
     return [
         (
             _tome_value_label(tome_a, tome_b),
@@ -1492,7 +1331,7 @@ def _tome_compare_metric_rows(name: str, tome_a, tome_b) -> list[tuple[str, str,
 
 def _format_tome_compare_card(name: str, tome_a, tome_b) -> str:
     return _format_compare_mini_card(
-        name,
+        _game_name("tomes", name),
         tome_a,
         tome_b,
         _tome_compare_metric_rows(name, tome_a, tome_b),
@@ -1520,23 +1359,14 @@ def _format_compare_mini_card(name: str, value_a, value_b, metric_rows: list[tup
             '</tr>'
             '</table>'
         )
-    rows = [
-        '<table width="100%" cellspacing="0" cellpadding="0" '
-        'style="background-color:#0F1722; border:1px solid #1E2A3A; border-collapse:collapse; margin-bottom:8px; font-size:14px;">',
-        "<tr>",
-        f'<td width="52%" style="color:#E5E7EB; font-weight:700; padding:7px 10px; border-bottom:1px solid #26364A;">{header}</td>',
-        '<td width="16%" align="right" style="color:#98A7BA; font-weight:700; padding:7px 10px; border-left:1px solid #26364A; border-bottom:1px solid #26364A;">A</td>',
-        '<td width="16%" align="right" style="color:#98A7BA; font-weight:700; padding:7px 10px; border-left:1px solid #26364A; border-bottom:1px solid #26364A;">B</td>',
-        '<td width="16%" align="right" style="color:#98A7BA; font-weight:700; padding:7px 10px; border-left:1px solid #26364A; border-bottom:1px solid #26364A;">Diff</td>',
-        "</tr>",
-    ]
+    rows = ['<table width="100%" cellspacing="0" cellpadding="0" style="background-color:#0F1722; border:1px solid #1E2A3A; border-collapse:collapse; margin-bottom:8px; font-size:14px;">', '<tr>', f'<td width="52%" style="color:#E5E7EB; font-weight:700; padding:7px 10px; border-bottom:1px solid #26364A;">{header}</td>', '<td width="16%" align="right" style="color:#98A7BA; font-weight:700; padding:7px 10px; border-left:1px solid #26364A; border-bottom:1px solid #26364A;">A</td>', '<td width="16%" align="right" style="color:#98A7BA; font-weight:700; padding:7px 10px; border-left:1px solid #26364A; border-bottom:1px solid #26364A;">B</td>', _lt('<td width="16%" align="right" style="color:#98A7BA; font-weight:700; padding:7px 10px; border-left:1px solid #26364A; border-bottom:1px solid #26364A;">Diff</td>'), '</tr>']
     metric_cell_style = "padding:5px 10px; border-bottom:1px solid #1E2A3A;"
     value_cell_style = "padding:5px 10px; border-left:1px solid #1E2A3A; border-bottom:1px solid #1E2A3A;"
     diff_cell_style = "padding:5px 10px; border-left:1px solid #1E2A3A; border-bottom:1px solid #1E2A3A;"
     for label, display_a, display_b, delta in metric_rows:
         rows.append(
             "<tr>"
-            f'<td style="{metric_cell_style}; color:#98A7BA;">{html.escape(label)}</td>'
+            f'<td style="{metric_cell_style}; color:#98A7BA;">{html.escape(_stat_label(label))}</td>'
             f'<td align="right" style="{value_cell_style}; color:#E5E7EB;">{html.escape(display_a)}</td>'
             f'<td align="right" style="{value_cell_style}; color:#E5E7EB;">{html.escape(display_b)}</td>'
             f'<td align="right" style="{diff_cell_style}">{_format_metric_delta_rich_text(delta)}</td>'
@@ -1555,12 +1385,12 @@ def _entity_level_text(value_a, value_b) -> str:
     level_a = getattr(value_a, "level", None)
     level_b = getattr(value_b, "level", None)
     if level_a is None and level_b is None:
-        return "Lv. --"
+        return _lt('Lv. --')
     if level_a is None:
-        return f"Lv. -- -> {int(level_b)}"
+        return _lt('Lv. -- -> {p0}', p0=int(level_b))
     if level_b is None:
-        return f"Lv. {int(level_a)} -> --"
-    return f"Lv. {int(level_a)} -> {int(level_b)}"
+        return _lt('Lv. {p0} -> --', p0=int(level_a))
+    return _lt('Lv. {p0} -> {p1}', p0=int(level_a), p1=int(level_b))
 
 
 def _format_compare_entity_title(name: str, value_a, value_b) -> str:
@@ -1579,7 +1409,7 @@ def _weapon_stat_label(weapon_a, weapon_b, stat_id: int) -> str:
             continue
         stat = getattr(weapon, "upgraded_stats", {}).get(stat_id)
         if stat is not None:
-            return str(stat.label)
+            return _game_name("stats", str(stat.label))
     return str(stat_id)
 
 
@@ -1588,7 +1418,7 @@ def _tome_value_label(tome_a, tome_b) -> str:
         label = getattr(tome, "stat_label", None)
         if label:
             return str(label)
-    return "Value"
+    return _lt('Value')
 
 
 def _metric_value(value, display_value):
@@ -1608,7 +1438,7 @@ def _format_compare_metric_row(label: str, value_a, value_b) -> tuple[str, str, 
             delta = _format_compare_run_stat_delta(value_a, value_b)
         else:
             delta = _format_display_value_delta(display_a, display_b) or "--"
-    return (label, str(display_a), str(display_b), delta)
+    return (_stat_label(label), str(display_a), str(display_b), delta)
 
 
 def _format_compare_metric_table(headers: tuple[str, str, str, str], rows: list[tuple[str, str, str, str]]) -> str:
@@ -1629,7 +1459,7 @@ def _format_compare_metric_table(headers: tuple[str, str, str, str], rows: list[
         background = "#0F1722" if row_index % 2 == 0 else "#121C28"
         html_rows.append(
             f'<tr style="background-color:{background};">'
-            f'<td style="{cell_style}; color:#E5E7EB;">{html.escape(label)}</td>'
+            f'<td style="{cell_style}; color:#E5E7EB;">{html.escape(_stat_label(label))}</td>'
             f'<td align="right" style="{cell_style}; color:#E5E7EB;">{html.escape(display_a)}</td>'
             f'<td align="right" style="{cell_style}; color:#E5E7EB;">{html.escape(display_b)}</td>'
             f'<td align="right" style="{cell_style}">{_format_metric_delta_rich_text(delta)}</td>'
@@ -1733,7 +1563,7 @@ def _format_weapon_summary(weapon) -> str:
         if stat is not None:
             stats.append(f"{stat.label} {stat.display_value}")
     suffix = f" [{', '.join(stats)}]" if stats else ""
-    return f"Lv. {int(level)}{suffix}"
+    return _lt('Lv. {p0}{p1}', p0=int(level), p1=suffix)
 
 
 def _format_tome_summary(tome) -> str:
@@ -1743,7 +1573,7 @@ def _format_tome_summary(tome) -> str:
     stat_label = getattr(tome, "stat_label", "")
     display_value = getattr(tome, "display_value", "")
     suffix = f" [{stat_label} {display_value}]" if stat_label and display_value else ""
-    return f"Lv. {int(level)}{suffix}"
+    return _lt('Lv. {p0}{p1}', p0=int(level), p1=suffix)
 
 
 def _raw_snapshot_int_delta(snapshot_a, snapshot_b, attr_name: str) -> int | None:
@@ -1812,34 +1642,34 @@ def _format_signed_percent_delta(value: float) -> str:
 
 def format_snapshot_new_items(previous_snapshot, snapshot) -> str:
     if previous_snapshot is None:
-        return "No previous snapshot"
+        return _lt('No previous snapshot')
     new_items = diff_new_items(getattr(previous_snapshot, "items", ()), getattr(snapshot, "items", ()))
     if not new_items:
-        return "No new items since previous snapshot"
+        return _lt('No new items since previous snapshot')
     return format_new_items_rich_text(new_items)
 
 
 def format_snapshot_item_gains_preview(previous_snapshot, snapshot, *, segment_snapshots=()) -> str:
     if previous_snapshot is None:
-        return "No previous snapshot"
+        return _lt('No previous snapshot')
     changes = summarize_item_segment_changes(segment_snapshots or (previous_snapshot, snapshot))
     gains = changes["gained"]
     total = sum(gain for _name, gain in gains)
     items_summary = format_item_gain_rarity_totals(gains)
     if total > 0:
         items_summary = f'{items_summary} <span style="color:#98A7BA;">+{format_count(total)}</span>'
-    rows = [f'<span style="color:#98A7BA;">Items:</span> {items_summary}']
+    rows = [_lt('<span style="color:#98A7BA;">Items:</span> {p0}', p0=items_summary)]
     time_delta = _snapshot_time_delta(previous_snapshot, snapshot)
     if time_delta is not None:
-        rows.append(f'<span style="color:#98A7BA;">Time:</span> {format_elapsed_time(time_delta)}')
+        rows.append(_lt('<span style="color:#98A7BA;">Time:</span> {p0}', p0=format_elapsed_time(time_delta)))
 
     kill_delta = _snapshot_int_delta(previous_snapshot, snapshot, "mob_kills")
     if kill_delta is not None and kill_delta > 0:
-        rows.append(f'<span style="color:#98A7BA;">Kills:</span> +{format_count(kill_delta)}')
+        rows.append(_lt('<span style="color:#98A7BA;">Kills:</span> +{p0}', p0=format_count(kill_delta)))
 
     level_delta = _snapshot_int_delta(previous_snapshot, snapshot, "player_level")
     if level_delta is not None and level_delta > 0:
-        rows.append(f'<span style="color:#98A7BA;">Levels:</span> +{format_count(level_delta)}')
+        rows.append(_lt('<span style="color:#98A7BA;">Levels:</span> +{p0}', p0=format_count(level_delta)))
 
     return "<br>".join(rows)
 
@@ -1915,22 +1745,13 @@ def format_snapshot_item_changes_details(previous_snapshot, snapshot, *, segment
     changes = summarize_item_segment_changes(segment_snapshots or (previous_snapshot, snapshot))
     sections: list[str] = []
     if changes["gained"]:
-        sections.append(
-            '<span style="color:#98A7BA; font-weight:700;">Gained</span><br>'
-            f'{format_item_gains_by_rarity(changes["gained"])}'
-        )
+        sections.append(_lt('<span style="color:#98A7BA; font-weight:700;">Gained</span><br>{p0}', p0=format_item_gains_by_rarity(changes['gained'])))
     if changes["broken"]:
-        sections.append(
-            '<span style="color:#98A7BA; font-weight:700;">Broken</span><br>'
-            f'{format_item_losses_by_rarity(changes["broken"], suffix="broken")}'
-        )
+        sections.append(_lt('<span style="color:#98A7BA; font-weight:700;">Broken</span><br>{p0}', p0=format_item_losses_by_rarity(changes['broken'], suffix='broken')))
     if changes["lost"]:
-        sections.append(
-            '<span style="color:#98A7BA; font-weight:700;">Lost</span><br>'
-            f'{format_item_losses_by_rarity(changes["lost"])}'
-        )
+        sections.append(_lt('<span style="color:#98A7BA; font-weight:700;">Lost</span><br>{p0}', p0=format_item_losses_by_rarity(changes['lost'])))
     if not sections:
-        return '<span style="color:#98A7BA;">No item changes in this segment</span>'
+        return _lt('<span style="color:#98A7BA;">No item changes in this segment</span>')
     return "<br>".join(sections)
 
 
@@ -2072,12 +1893,7 @@ def format_segment_headline(
     if base_snapshot is None or snapshot is None:
         return "--"
     pieces = [
-        '<span style="color:#8A94A3;">Segment</span> '
-        f'<b style="color:{_COMPARE_POINT_A_COLOR};">A</b> '
-        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(snapshot))}</span> '
-        f'<span style="color:{_COMPARE_MUTED_COLOR};">&rarr;</span> '
-        f'<b style="color:{_COMPARE_POINT_B_COLOR};">B</b> '
-        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(base_snapshot))}</span>'
+        _lt('<span style="color:#8A94A3;">Segment</span> <b style="color:{p0};">A</b> <span style="color:#EDF1F5;">{p1}</span> <span style="color:{p2};">&rarr;</span> <b style="color:{p3};">B</b> <span style="color:#EDF1F5;">{p4}</span>', p0=_COMPARE_POINT_A_COLOR, p1=html.escape(_segment_time_label(snapshot)), p2=_COMPARE_MUTED_COLOR, p3=_COMPARE_POINT_B_COLOR, p4=html.escape(_segment_time_label(base_snapshot)))
     ]
     span = tuple(segment_snapshots or (base_snapshot, snapshot))
     changes = item_changes
@@ -2144,7 +1960,7 @@ def format_item_gains_by_rarity(
     max_items: int | None = None,
 ) -> str:
     if not gains:
-        return '<span style="color:#98A7BA;">No item gains</span>'
+        return _lt('<span style="color:#98A7BA;">No item gains</span>')
 
     grouped: dict[str, list[tuple[str, int]]] = {
         "LEGENDARY": [],
@@ -2188,7 +2004,7 @@ def format_item_gains_by_rarity(
             break
 
     if hidden_count > 0:
-        rows.append(f'<span style="color:#98A7BA;">+{hidden_count} more gains...</span>')
+        rows.append(_lt('<span style="color:#98A7BA;">+{p0} more gains...</span>', p0=hidden_count))
     return "<br>".join(rows)
 
 
@@ -2198,7 +2014,7 @@ def format_item_losses_by_rarity(
     suffix: str | None = None,
 ) -> str:
     if not losses:
-        return '<span style="color:#98A7BA;">No item losses</span>'
+        return _lt('<span style="color:#98A7BA;">No item losses</span>')
 
     grouped: dict[str, list[tuple[str, int]]] = {
         "LEGENDARY": [],
@@ -2250,7 +2066,7 @@ def _format_item_change_text(display_name: str, suffix: str) -> str:
     color = item_display_color(display_name, "#E5E7EB")
     return (
         f'<span style="color:{color};">'
-        f'{html.escape(display_name)} {html.escape(suffix)}</span>'
+        f'{html.escape(_game_name("items", display_name))} {html.escape(suffix)}</span>'
     )
 
 
@@ -2293,14 +2109,14 @@ def _snapshot_time_delta(base_snapshot, snapshot) -> float | None:
 
 def format_new_items_rich_text(items) -> str:
     if not items:
-        return "No new items since previous snapshot"
+        return _lt('No new items since previous snapshot')
     return ", ".join(_format_single_item_rich_text(item) for item in items)
 
 
 def format_banishes_rich_text(banishes) -> str:
     banishes = tuple(str(item) for item in (banishes or ()))
     if not banishes:
-        return "No banishes yet"
+        return _lt('No banishes yet')
     return ", ".join(_format_single_banish_rich_text(item) for item in banishes)
 
 
@@ -2346,7 +2162,7 @@ def _format_single_item_rich_text(item_text: str) -> str:
     rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
     color = ITEM_RARITY_COLOR_MAP.get(rarity)
     color = item_display_color(display_name, color)
-    escaped_name = html.escape(display_name)
+    escaped_name = html.escape(_game_name('items', display_name))
     if color:
         escaped_name = f'<span style="color: {color}; font-weight: 700;">{escaped_name}</span>'
     escaped_suffix = html.escape(suffix)
@@ -2375,7 +2191,7 @@ def item_chip_display(item_text: str) -> tuple[str, str]:
     rarity_name = _normalize_item_name_for_rarity(display_name)
     rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
     object_name = _ITEM_CHIP_OBJECT_NAME_BY_RARITY.get(rarity, "tagNeutral")
-    return f"{display_name}{suffix}", object_name
+    return _game_name("items", display_name, suffix=suffix), object_name
 
 
 def _split_item_stack_suffix(item_text: str) -> tuple[str, str]:
@@ -2396,7 +2212,7 @@ def _normalize_item_name_for_display(item_name: str) -> str:
 
 
 def format_chests_per_minute(value: float | None) -> str:
-    return f"Average chests/min: {format_chests_per_minute_value(value)}"
+    return _lt('Average chests/min: {p0}', p0=format_chests_per_minute_value(value))
 
 
 def format_chests_per_minute_value(value: float | None) -> str:
@@ -2404,7 +2220,7 @@ def format_chests_per_minute_value(value: float | None) -> str:
 
 
 def format_chests_per_minute_short(value: float | None) -> str:
-    return f"Chests/min: {format_chests_per_minute_value(value)}"
+    return _lt('Chests/min: {p0}', p0=format_chests_per_minute_value(value))
 
 
 def format_powerups_duration(stats) -> str:
@@ -2412,16 +2228,13 @@ def format_powerups_duration(stats) -> str:
     try:
         powerup_multiplier = float(getattr(stat, "value", None))
     except (TypeError, ValueError):
-        return "Powerups: --"
+        return _lt('Powerups: --')
     if not isfinite(powerup_multiplier):
-        return "Powerups: --"
+        return _lt('Powerups: --')
 
     standard_duration = 15.0 * powerup_multiplier
     clock_duration = 12.0 * powerup_multiplier
-    return (
-        f"Powerups: {format_seconds_compact(standard_duration)}s"
-        f" | Clock: {format_seconds_compact(clock_duration)}s"
-    )
+    return _lt('Powerups: {p0}s | Clock: {p1}s', p0=format_seconds_compact(standard_duration), p1=format_seconds_compact(clock_duration))
 
 
 def format_seconds_compact(value: float) -> str:

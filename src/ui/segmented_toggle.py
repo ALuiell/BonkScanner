@@ -28,6 +28,7 @@ from typing import Sequence
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QPushButton
+from ui import i18n as l10n
 
 #: The affirmative segment (Start, Rec) and the negative one (Stop). Only the
 #: stylesheet reads these; the key is what code uses to name a segment.
@@ -118,7 +119,11 @@ class SegmentedToggle(QFrame):
         self._variant = ""
 
         for key, caption, role in segments:
-            button = _Segment(caption)
+            prefix, separator, body = str(caption).partition("  ")
+            if separator and prefix in ("●", "■", "▶"):
+                message = l10n.tr("Record now") if body == "Rec" else l10n.term(body)
+                caption = l10n.prefixed(prefix + separator, message)
+            button = l10n.localized(_Segment, l10n.term(caption))
             button.setObjectName("segment")
             button.setProperty("segment", key)
             button.setProperty("role", role)

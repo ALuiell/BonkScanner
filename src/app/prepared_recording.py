@@ -93,6 +93,7 @@ def load_and_prepare_recording(
     revision: int | None = None,
     cancelled: Callable[[], bool] | None = None,
     progress: Callable[[dict], None] | None = None,
+    load_recording: Callable | None = None,
 ) -> PreparedRecording:
     last_update = 0.0
 
@@ -116,7 +117,7 @@ def load_and_prepare_recording(
                 }
             )
 
-    vod = load_vod(path, cancelled=cancelled, progress=on_bytes)
+    vod = (load_recording or load_vod)(path, cancelled=cancelled, progress=on_bytes)
     return prepare_loaded_recording(
         vod,
         series_keys=series_keys,

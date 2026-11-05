@@ -244,6 +244,27 @@ class RollAnalyticsViewUiTests(unittest.TestCase):
         finally:
             self.qt.setStyleSheet(old_style)
 
+    def test_numeric_columns_fit_an_inherited_view_font(self):
+        table = self.window._table
+        font = table.font()
+        font.setPixelSize(28)
+        table.setFont(font)
+        counts = {12: 1000000, 30: 26000000}
+        with patch.object(self.service, "snapshot", return_value=aggregate_roll_counts("dice", counts)), \
+             patch("ui.dialogs.roll_analytics.save_view_preferences", return_value=NS(success=True)):
+            self.window._expected_switch.setChecked(True)
+            self.window._last_key = None
+            self.window.refresh()
+        widest = 0
+        for row in range(table.rowCount()):
+            for column in (1, 2, 3, 4, 7, 8, 9, 10):
+                item = table.item(row, column)
+                metrics = QFontMetrics(item.font().resolve(table.font()))
+                width = metrics.horizontalAdvance(item.text())
+                widest = max(widest, width)
+                self.assertGreaterEqual(table.columnWidth(column), width + 16)
+        self.assertGreater(widest, 100)
+
     def test_large_numeric_values_fit_in_both_halves(self):
         from ui.styles import build_qt_app_stylesheet
         from ui.shared import resource_path

@@ -7816,12 +7816,12 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_weapon_tracker_fast_tick_uses_all_edit_layout_placeholders(self) -> None:
         cases = (
-            (None, [], "No Weapon Stats Selected"),
+            (None, [], "No weapon stats selected"),
             (None, ["damage"], "Waiting for Weapon Data"),
             (
                 SimpleNamespace(stats={}, weapons=(), weapons_available=True),
                 ["damage"],
-                "No Matching Weapon Stats",
+                "No selected stats available for these weapons",
             ),
         )
         for latest, selected, message in cases:
@@ -7883,7 +7883,7 @@ class GuiRunControlTests(unittest.TestCase):
         first_html = widget.set_text.call_args_list[0].args[0]
         second_html = widget.set_text.call_args_list[1].args[0]
         self.assertNotIn("Lv.4", first_html)
-        self.assertIn("Lv.4", second_html)
+        self.assertIn("Lv.\u00a04", second_html)
 
     def test_weapon_tracker_keeps_confirmed_values_after_death(self) -> None:
         latest = SimpleNamespace(
@@ -8524,7 +8524,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
-        self.assertIn("Boss at 6:30", rendered_html)
+        self.assertIn("Boss: 6:30", rendered_html)
 
     def test_overlay_fast_tick_preserves_graveyard_stage_duration_for_event_timer(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())
@@ -8567,7 +8567,7 @@ class GuiRunControlTests(unittest.TestCase):
             overlay._overlay_fast_tick()
 
         rendered_html = widget.set_text.call_args.args[0]
-        self.assertIn("Boss at 13:00", rendered_html)
+        self.assertIn("Boss: 13:00", rendered_html)
 
     def test_overlay_fast_tick_shows_event_timer_preview_in_edit_mode(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())

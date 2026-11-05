@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 import os
 import sys
 import time
@@ -298,7 +300,7 @@ class StagedLoadingSpinner(QWidget):
         super().__init__(parent)
         self.setObjectName(object_name)
         self.setProperty("stagedLoadingSpinner", "true")
-        self.setAccessibleName("Loading")
+        l10n.display(self, 'setAccessibleName', l10n.tr('Loading'))
         self.setFixedSize(72, 72)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._colors = tuple(QColor(color) for color in colors) or (
@@ -506,11 +508,7 @@ class StagedLoadingPage(QWidget):
                 QLabel, f"{self._object_prefix}LoadingError"
             )
             if error is None:
-                error = QLabel(
-                    "This tab could not be loaded.\n"
-                    "Close and reopen BonkScanner. If it happens again, send the logs.",
-                    self._loading_page,
-                )
+                error = l10n.localized(QLabel, l10n.tr('This tab could not be loaded.\nClose and reopen BonkScanner. If it happens again, send the logs.'), self._loading_page)
                 error.setObjectName(f"{self._object_prefix}LoadingError")
                 error.setAlignment(Qt.AlignCenter)
                 error.setWordWrap(True)
@@ -632,11 +630,7 @@ class PremiumFeatureBadge(QPushButton):
         self.setProperty("premiumState", "active" if self._has_access else "locked")
         self.setCursor(Qt.ArrowCursor if self._has_access else Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.NoFocus if self._has_access else Qt.StrongFocus)
-        self.setToolTip(
-            "Included with your active Premium access."
-            if self._has_access
-            else "Requires Premium. Open Support settings."
-        )
+        l10n.display(self, 'setToolTip', l10n.tr('Included with your active Premium access.') if self._has_access else l10n.tr('Requires Premium. Open Support settings.'))
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
@@ -663,7 +657,7 @@ def _read_text(widget) -> str:
 def _set_text(widget, text: str) -> None:
     if widget is None:
         return
-    widget.setText(text)
+    l10n.display(widget, 'setText', text)
 
 def _clear_text_input(widget) -> None:
     if widget is None:
@@ -673,7 +667,7 @@ def _clear_text_input(widget) -> None:
 def _set_text_input(widget, text: str) -> None:
     if widget is None:
         return
-    widget.setText(text)
+    l10n.display(widget, 'setText', text)
 
 def _read_bool(widget) -> bool:
     if widget is None:
@@ -682,7 +676,8 @@ def _read_bool(widget) -> bool:
 
 def _safe_float(value: str, default: float = 0.0) -> float:
     try:
-        return float(value)
+        # UI decimal input accepts either convention; stored JSON stays numeric.
+        return float(value.replace(",", ".") if isinstance(value, str) else value)
     except (TypeError, ValueError):
         return default
 
@@ -787,7 +782,7 @@ def _make_scroll_section() -> tuple[QScrollArea, QWidget, QVBoxLayout]:
 class CollapsibleSection(QWidget):
     def __init__(self, title: str, *, expanded: bool = False, parent=None):
         super().__init__(parent)
-        self._title = str(title)
+        self._title = l10n.preserve(title)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -822,7 +817,7 @@ class CollapsibleSection(QWidget):
         if self.toggle_button.isChecked() != expanded:
             self.toggle_button.setChecked(expanded)
         prefix = "- " if expanded else "+ "
-        self.toggle_button.setText(prefix + self._title)
+        l10n.display(self.toggle_button, 'setText', l10n.prefixed(prefix, self._title))
         self.body.setVisible(expanded)
 
 
@@ -866,7 +861,21 @@ class CollapsibleSectionGroup:
             self._updating = False
 
 def format_template_conditions(template: dict) -> str:
-    return _format_template_conditions(template)
+    from core.template_conditions import TEMPLATE_COUNTERS, condition_minimum, condition_maximum
+    parts = []
+    total = condition_minimum(template, "sm_total")
+    if total:
+        parts.append(l10n.tr("S+M≥{count}", count=total))
+    for counter in TEMPLATE_COUNTERS:
+        caption = l10n.transform(l10n.term(counter.stat_name),
+            lambda value, short=counter.label: short if l10n.localization().translator.language == "en" else value)
+        minimum = condition_minimum(template, counter.key)
+        maximum = condition_maximum(template, counter.key)
+        if minimum:
+            parts.append(l10n.tr("{label}≥{value}", label=caption, value=minimum))
+        if maximum is not None:
+            parts.append(l10n.tr("{label}≤{value}", label=caption, value=maximum))
+    return l10n.join(", ", parts) if parts else l10n.tr("Any")
 
 def build_template_payload(
     name: str,

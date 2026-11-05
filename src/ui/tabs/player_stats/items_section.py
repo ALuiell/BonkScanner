@@ -49,6 +49,8 @@ sites were doing.
 
 from __future__ import annotations
 
+from ui import i18n as l10n
+
 from PySide6.QtCore import Property, QPointF, QTimer, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -59,7 +61,7 @@ from PySide6.QtWidgets import (
     QStylePainter,
 )
 
-from projections import formatting
+from ui import formatting
 from projections.item_sort import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC
 from ui.shared import _set_text
 
@@ -113,7 +115,7 @@ class BanishesSectionView:
         self._chips_container.setUpdatesEnabled(False)
         try:
             if not banishes:
-                self._label.setText("No banishes yet")
+                l10n.display(self._label, 'setText', l10n.tr('No banishes yet'))
                 self._label.setVisible(True)
                 self._set_chips_visible(False)
                 for chip in self._chip_widgets:
@@ -129,7 +131,7 @@ class BanishesSectionView:
             for chip, item_text in zip(self._chip_widgets, banishes):
                 display_text, object_name = formatting.item_chip_display(item_text)
                 if chip.text() != display_text:
-                    chip.setText(display_text)
+                    l10n.display(chip, 'setText', display_text)
                 if chip.objectName() != object_name:
                     chip.setObjectName(object_name)
                     style = chip.style()
@@ -185,7 +187,7 @@ class CompactItemsSortComboBox(QComboBox):
         self._glyph_active_color = QColor("#FACC15")
         self.view().setMinimumWidth(190)
         self.setCursor(Qt.PointingHandCursor)
-        self.setAccessibleName("Sort items")
+        l10n.display(self, 'setAccessibleName', l10n.tr('Sort items'))
         self.currentIndexChanged.connect(self._refresh_tooltip)
         self._refresh_tooltip()
 
@@ -207,8 +209,8 @@ class CompactItemsSortComboBox(QComboBox):
     glyphActiveColor = Property(QColor, _get_glyph_active_color, _set_glyph_active_color)
 
     def _refresh_tooltip(self, _index: int = -1) -> None:
-        mode = self.currentText()
-        self.setToolTip(f"Sort items: {mode}" if mode else "Sort items")
+        mode = l10n.term(l10n.combo_value(self))
+        l10n.display(self, 'setToolTip', l10n.tr('Sort items: {p0}', p0=mode) if mode else l10n.tr('Sort items'))
 
     def showPopup(self) -> None:
         # Qt derives the popup from the closed control's tiny geometry and can
@@ -320,7 +322,7 @@ class ItemsSectionView:
             if self._toggle_btn is not None:
                 self._toggle_btn.setVisible(True)
                 self._toggle_btn.setEnabled(False)
-                self._toggle_btn.setText("Show more")
+                l10n.display(self._toggle_btn, 'setText', l10n.tr('Show more'))
             if self._sort_combo is not None:
                 self._sort_combo.setEnabled(False)
                 if getattr(self._sort_combo, "hide_when_empty", False):
@@ -343,7 +345,7 @@ class ItemsSectionView:
                 text = formatting.format_items_rich_text(visible_items)
                 if has_more and not self._expanded:
                     text = f'{text} <span style="color:#98A7BA;">...</span>'
-                self._label.setText(text)
+                l10n.display(self._label, 'setText', text)
             else:
                 text = formatting.format_items(visible_items)
                 if has_more and not self._expanded:
@@ -355,9 +357,7 @@ class ItemsSectionView:
         if self._toggle_btn is not None:
             self._toggle_btn.setVisible(True)
             self._toggle_btn.setEnabled(has_more)
-            self._toggle_btn.setText(
-                "Show less" if self._expanded and has_more else "Show more"
-            )
+            l10n.display(self._toggle_btn, 'setText', l10n.tr('Show less') if self._expanded and has_more else l10n.tr('Show more'))
         self._render_signature = render_signature
 
     def _render_chips(
@@ -384,7 +384,7 @@ class ItemsSectionView:
                     for item_text in items
                 ]
             if more_count > 0:
-                rendered.append((f"+{more_count} more", "itemChipNote"))
+                rendered.append((l10n.tr("+{count} more", count=more_count), "itemChipNote"))
 
             while len(self._chip_widgets) < len(rendered):
                 chip = QLabel()
@@ -394,7 +394,7 @@ class ItemsSectionView:
             for index, (text, object_name) in enumerate(rendered):
                 chip = self._chip_widgets[index]
                 if chip.text() != text:
-                    chip.setText(text)
+                    l10n.display(chip, 'setText', text)
                 if chip.objectName() != object_name:
                     chip.setObjectName(object_name)
                     # Object-name selectors choose the rarity colour. Qt does
@@ -421,16 +421,14 @@ class ItemsSectionView:
     def _set_group_title(self, total_count: int | None) -> None:
         if self._group is None or not hasattr(self._group, "setTitle"):
             return
-        self._group.setTitle(
-            "Items" if total_count is None else f"Items ({total_count} total)"
-        )
+        l10n.display(self._group, 'setTitle', l10n.tr('Items') if total_count is None else l10n.tr('Items ({p0} total)', p0=total_count))
 
     def _set_rarity_summary(self, items) -> None:
         if self._rarity_label is None:
             return
         text = formatting.format_items_rarity_summary_rich_text(items)
         self._rarity_label.setVisible(bool(text))
-        self._rarity_label.setText(text)
+        l10n.display(self._rarity_label, 'setText', text)
 
     # -- commands -------------------------------------------------------------
 
@@ -514,6 +512,6 @@ def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
     if widget is None:
         return
     if hasattr(widget, "setTextFormat"):
-        widget.setText(formatting.format_items_rich_text(items) if items_text is None else text)
+        l10n.display(widget, 'setText', formatting.format_items_rich_text(items) if items_text is None else text)
         return
     _set_text(widget, text)

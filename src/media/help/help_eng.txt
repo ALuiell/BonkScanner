@@ -11,6 +11,16 @@ Quick Start
 6. Use the scan hotkey in-game to arm or pause the loop.
 7. When a map matches your conditions, BonkScanner stops and writes the result to `Logs`.
 
+Interface language
+------------------
+Choose English, Ukrainian, Russian, French, Spanish, German or Portuguese in
+`Settings → General`, then save. The selection applies to the scanner interface,
+OBS and in-game widgets. Cancel discards an unsaved selection. Custom names,
+message templates and technical identifiers are preserved. Game names come
+from MegaBonk's translations, with English fallback for missing terms.
+
+The same General tab also has a separate `Game terminology` selector for item, weapon and stat names throughout the scanner and overlays. Game terminology defaults to English. Choose `Same as interface` to follow the interface language. You can, for example, use French controls with English game names. Both choices apply after saving and do not change the language inside MegaBonk. English game terminology retains the existing short stat names where enabled.
+
 Search Modes
 ------------
 `Templates`

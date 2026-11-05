@@ -236,6 +236,8 @@ class RuntimeStateSnapshot:
     # fast lane. The counter is monotonic within one run, so this is the fresh
     # value consumers should persist instead of the 10 s snapshot's copy.
     mob_kills: int | None = None
+    # Current display values. Never written back into latest_snapshot or VODs.
+    live_stats: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

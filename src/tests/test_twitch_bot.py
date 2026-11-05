@@ -92,6 +92,24 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot.log_message = MagicMock()
         self.bot.status_updated = MagicMock()
 
+    def test_stats_command_uses_shared_current_values_without_modifying_snapshot(self):
+        from app import config
+        from core.stats.types import PLAYER_STAT_SPEC_BY_LABEL, PlayerStatValue
+        now = [100.0]
+        tracker = LiveRunTracker(clock=lambda: now[0])
+        original = {label: PlayerStatValue(PLAYER_STAT_SPEC_BY_LABEL[label], 1.0)
+                    for label in ("XP Gain", "Difficulty", "Luck")}
+        tracker.update(LiveRunSnapshot(captured_at=100.0, stats=original, game_time_seconds=10.0))
+        now[0] = 101.0
+        tracker.update_fast_luck(2.0)
+        tracker.update_live_stats({"XP Gain": 3.0, "Difficulty": 0.5})
+        self.bot.run_tracker = tracker
+        self.bot._send_chat = MagicMock()
+        with patch.dict(config.TWITCH_BOT, {"templates": {"stats": "{XP Gain}|{Difficulty}|{Luck}"}}):
+            self.bot._handle_stats("channel")
+        self.bot._send_chat.assert_called_once_with("channel", "3x|50%|200%")
+        self.assertEqual(tracker.latest_snapshot().stats, original)
+
     def test_scanner_command_links_to_the_latest_release(self):
         from app import config
 
