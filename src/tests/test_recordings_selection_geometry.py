@@ -80,12 +80,12 @@ class RecordingSelectionGeometryTests(unittest.TestCase):
             assert idle == (title.geometry(), view._rename_btn.geometry(), plaque.size())
 
             original_refresh = view.refresh_loaded_vod_ui
-            expected_guided = False
+            expected_closed = False
             def observe_install(**kwargs):
                 # This is the instant a newly loaded recording replaces the
                 # old heading. The splitter and the plaque must already have
                 # their final widths; a later layout pass cannot fix a flash.
-                if expected_guided:
+                if expected_closed:
                     assert view._body_splitter.sizes()[0] == 0
                     assert plaque.width() == view._body_splitter.widget(1).width()
                 else:
@@ -94,6 +94,7 @@ class RecordingSelectionGeometryTests(unittest.TestCase):
             view.refresh_loaded_vod_ui = observe_install
             for expected_guided in (False, True):
                 for name in ('950k', long_name):
+                    expected_closed = expected_guided or view._loaded_vod is None
                     view.set_recordings_chooser_expanded(True, guided=expected_guided, remember=False)
                     flush()
                     metadata = VodMetadata(Path('geometry.jsonl'), name, '2026-10-06T12:00:00', 10, 10, 1)
@@ -102,7 +103,7 @@ class RecordingSelectionGeometryTests(unittest.TestCase):
                         view.load_selected_vod(metadata.path)
                     flush()
                     assert title.text() == name, view._status_label.text()
-                    assert view._chooser_expanded == (not expected_guided)
+                    assert view._chooser_expanded == (not expected_closed)
                     assert window.width() == 650
 
             # Keep a real selection pending across event-loop turns. The
