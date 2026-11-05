@@ -1310,5 +1310,9 @@
   "app.f97e9da0e3b879f0": "Other",
   "settings.game_language": "Game terminology:",
   "settings.game_language_follow": "Same as interface",
-  "settings.game_language_hint": "Names of items, weapons and stats in the scanner and overlays. Does not change MegaBonk's language."
+  "settings.game_language_hint": "Names of items, weapons and stats in the scanner and overlays. Does not change MegaBonk's language.",
+  "app.a701525e880a6668": "Double-press to skip found maps",
+  "app.8d6bf937b92c3e55": "After the scanner finds a target, press the scan hotkey twice quickly in MegaBonk to reset the run and keep searching.",
+  "app.578a8c27b186a4e4": "Quick Reset could not be sent safely. Search paused.",
+  "app.77b0eea3cbe97e33": "Quick Reset could not confirm a new map. Search paused."
 }

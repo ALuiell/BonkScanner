@@ -61,7 +61,7 @@ class RunControl:
         schedule: Callable[[int, Callable[[], None]], None],
         client: Callable[[], Any],
         abort_requested: Callable[[], bool],
-        toggle_scan: Callable[[], None],
+        toggle_scan: Callable[[float | None], None],
         player_movement: Callable[[], None],
         toggle_recording: Callable[[], None],
         toggle_overlay_edit: Callable[[], None] | None,
@@ -170,7 +170,12 @@ class RunControl:
                 **state_options,
             )
             bindings = [
-                HotkeyBinding(config.HOTKEY, self.hotkey_toggle_scanning),
+                HotkeyBinding(
+                    config.HOTKEY,
+                    self.hotkey_toggle_scanning,
+                    # The keyboard package can repeat a sequence's last key-down.
+                    fallback_trigger_on_release=config.user_config.get("FORCE_RESET_ON_DOUBLE_TAP") is True,
+                ),
                 HotkeyBinding(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording),
             ]
             if self._toggle_overlay_edit is not None:
@@ -216,7 +221,13 @@ class RunControl:
         self._hotkey_manager = None
 
     def hotkey_toggle_scanning(self):
-        self._schedule(0, self._toggle_scan)
+        pressed_at = time.monotonic()
+        if (
+            config.user_config.get("FORCE_RESET_ON_DOUBLE_TAP") is not True
+            or not self.is_game_window_active(config.PROCESS_NAME.strip())
+        ):
+            pressed_at = None
+        self._schedule(0, lambda: self._toggle_scan(pressed_at))
 
     def hotkey_player_movement(self):
         # This callback runs on the keyboard hook thread. The scanner's handler
@@ -544,7 +555,7 @@ def build_run_control(app: Any) -> RunControl:
         schedule=lambda delay_ms, callback: app.after(delay_ms, callback),
         client=lambda: app.client,
         abort_requested=lambda: app._scanner._scan_abort_requested(),
-        toggle_scan=lambda: app._scanner.toggle_scan_event(),
+        toggle_scan=lambda pressed_at: app._scanner.toggle_scan_event(pressed_at),
         player_movement=lambda: app._scanner.handle_player_movement(),
         toggle_recording=lambda: app.runtime.vod_capture.toggle_recording(),
         # Present, so F9 is registered. `hotkey_toggle_in_game_overlay_edit` is

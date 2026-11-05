@@ -105,13 +105,10 @@ OFF_TICK_FILES = [
     "gui_twitch.py",
     "ui/dialogs/__init__.py",
 ]
-# Was 6 until the scanner stopped reading the map twice around a restart:
-# `reroll_map` used to take a `get_map_generation_state`/`get_map_stats` pair
-# before handing over to run control, and `wait_for_map_ready` now returns the
-# stats the scan loop needs, so both of those sites are gone. The ceiling moves
-# down with the population -- a ratchet that keeps the old slack would let the
-# two reads come back unnoticed.
-OFF_TICK_SITE_LIMIT = 4
+# Four existing sites plus two reads for the opt-in double press. That gesture
+# checks run activity and the found map's identity once before sending input.
+# Regular auto-rerolls continue to use the sample from wait_for_map_ready.
+OFF_TICK_SITE_LIMIT = 6
 # get_disabled_items is read on the tick (player_stats_memory.py) and from two
 # off-tick sites -- see plan section 5.
 CROSS_BOUNDARY_METHODS = ["get_disabled_items"]

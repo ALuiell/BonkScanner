@@ -52,6 +52,7 @@ from app.template_filters import TemplateRuntimeFilters
 from ui.dialogs import ObsRecordingReminderDialog, RerollWarningDialog
 from gui_run_control import RunControl
 from infra.memory.game_data_client import GameDataClient
+from core.game_state import MapGenerationState
 from core.template_colors import (
     DEFAULT_TEMPLATE_COLOR,
     template_color_hex,
@@ -67,6 +68,7 @@ from app.shutdown import ShutdownDeadline
 
 class Scanner:
     _TOTAL_REROLLS_FLUSH_INTERVAL = 15.0
+    _FORCE_RESET_DOUBLE_TAP_MS = 350
 
     def __init__(
         self,
@@ -131,6 +133,8 @@ class Scanner:
         self.is_running = False
         self.is_ready_to_start = False
         self.pause_reason: str | None = None
+        self._target_tap_deadline: float | None = None
+        self._force_reset_requested = False
         self._start_pending = False
         self._stop_pending = False
         self._restart_lock = threading.Lock()
@@ -258,6 +262,7 @@ class Scanner:
                 return
             self.is_running = False
             self.pause_reason = "player_movement"
+            self._force_reset_requested = False
             self.scan_event.clear()
             self._break_reroll_sequence()
 
@@ -485,8 +490,10 @@ class Scanner:
         map_context = runtime.powerup_map_context
         return map_context is None or not bool(map_context.is_graveyard)
 
-    def toggle_scan_event(self):
+    def toggle_scan_event(self, pressed_at: float | None = None):
         """Pause/resume, from the scan hotkey. Was `RunControlMixin`'s."""
+        if self._stop_pending or self._is_shutting_down():
+            return
         if not self.is_scanning():
             self.log(f"[WAIT] Press Start first, then press {config.HOTKEY.upper()} in game to begin scanning.", tag="warning")
             self.update_status_ui()
@@ -500,27 +507,67 @@ class Scanner:
         if self.is_running:
             self.is_running = False
             self.pause_reason = "manual"
+            self._force_reset_requested = False
             self.scan_event.clear()
             self._break_reroll_sequence()
             self.log("[*] Scan paused. Press the scan hotkey again to resume.")
-        else:
-            if self._is_late_forest_or_desert_stage():
-                self.log(
-                    "[SAFETY] Careful, champion — this Forest/Desert run is already past T1. "
-                    "Auto-reroll stayed off; mind that scan hotkey!",
-                    tag="warning",
+            self.update_status_ui()
+            return
+
+        if (
+            self.pause_reason == "target_found"
+            and pressed_at is not None
+            and config.user_config.get("FORCE_RESET_ON_DOUBLE_TAP") is True
+        ):
+            window = self._FORCE_RESET_DOUBLE_TAP_MS / 1000
+            deadline = self._target_tap_deadline
+            if deadline is None:
+                deadline = pressed_at + window
+                self._target_tap_deadline = deadline
+                self._schedule(
+                    self._FORCE_RESET_DOUBLE_TAP_MS,
+                    lambda: self._finish_target_tap(deadline),
                 )
-                self.update_status_ui()
                 return
-            self.is_running = True
-            self.pause_reason = None
-            self._break_reroll_sequence()
-            self.scan_event.set()
+            self._resume_scan(
+                force_reset=pressed_at <= deadline and time.monotonic() - pressed_at <= window
+            )
+            return
+
+        self._resume_scan()
+
+    def _finish_target_tap(self, deadline: float) -> None:
+        if self._target_tap_deadline is not deadline:
+            return
+        if (
+            self.pause_reason == "target_found"
+            and self.is_scanning()
+            and self.is_ready_to_start
+            and not self.stop_event.is_set()
+            and not self._is_shutting_down()
+        ):
+            self._resume_scan()
+
+    def _resume_scan(self, *, force_reset: bool = False) -> None:
+        self._target_tap_deadline = None
+        if self._is_late_forest_or_desert_stage():
+            self.log(
+                "[SAFETY] Careful, champion — this Forest/Desert run is already past T1. "
+                "Auto-reroll stayed off; mind that scan hotkey!",
+                tag="warning",
+            )
+            self.update_status_ui()
+            return
+        self._force_reset_requested = force_reset
+        self.is_running = True
+        self.pause_reason = None
+        self._break_reroll_sequence()
+        self.scan_event.set()
+        if not force_reset:
             self.log("[*] Scan started. Looking for selected target...")
-            # A movement key may already be held when scanning is resumed, so
-            # there may be no new key-down edge for the hook to deliver.
-            if self._run_control.is_player_movement_pressed():
-                self.handle_player_movement()
+        # A held movement key may have no new key-down edge.
+        if self._run_control.is_player_movement_pressed():
+            self.handle_player_movement()
         self.update_status_ui()
 
     def _sync_reset_hold_duration(self) -> None:
@@ -915,14 +962,14 @@ class Scanner:
             self._stats_refresh_pending = False
         self.refresh_stats_ui()
 
-    def reroll_map(self) -> bool:
+    def reroll_map(self, *, can_restart: Callable[[], bool] | None = None) -> bool:
         if self._run_control.run_control_provider is None:
             self._break_reroll_sequence()
             self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
             return False
 
         with self._restart_lock:
-            if self._scan_abort_requested():
+            if self._scan_abort_requested() or (can_restart is not None and not can_restart()):
                 self._break_reroll_sequence()
                 return False
 
@@ -940,6 +987,8 @@ class Scanner:
         return True
 
     def close_client(self):
+        self._target_tap_deadline = None
+        self._force_reset_requested = False
         self._break_reroll_sequence()
         self._run_control.reset_restart_permission_check()
         if self.client:
@@ -967,6 +1016,52 @@ class Scanner:
         self.is_ready_to_start = False
         self._schedule(0, self.update_status_ui)
         return True
+
+    def _can_force_reset(self, process_name: str, found_state: MapGenerationState | None) -> bool:
+        client = self.client
+        attached_pid = self._run_control.attached_game_process_id()
+        if (
+            not self._force_reset_requested
+            or config.user_config.get("FORCE_RESET_ON_DOUBLE_TAP") is not True
+            or client is None
+            or attached_pid is None
+            or not isinstance(found_state, MapGenerationState)
+            or not found_state.has_loaded_map
+            or self._is_late_forest_or_desert_stage()
+        ):
+            return False
+        activity = client.get_runtime_activity_state()
+        current_state = client.get_map_generation_state(strict=True)
+        return (
+            activity.is_active_run
+            and not activity.is_loading
+            and current_state == found_state
+            and not current_state.is_generating
+            and not current_state.is_resetting
+            and not (
+                config.STOP_SCANNING_ON_PLAYER_MOVEMENT
+                and self._run_control.is_player_movement_pressed()
+            )
+            and self._run_control.foreground_game_process_id(process_name) == attached_pid
+            and self._force_reset_requested
+            and not self._scan_abort_requested()
+        )
+
+    def _pause_after_force_reset_failure(self, *, reset_sent: bool) -> None:
+        with self._restart_lock:
+            if self._scan_abort_requested():
+                return
+            self.is_running = False
+            self.pause_reason = "manual"
+            self.scan_event.clear()
+            self._break_reroll_sequence()
+        message = (
+            l10n.tr('Quick Reset could not confirm a new map. Search paused.')
+            if reset_sent
+            else l10n.tr('Quick Reset could not be sent safely. Search paused.')
+        )
+        self.log(message, tag="warning")
+        self._schedule(0, self.update_status_ui)
 
     def background_loop(self):
         """Run the monitor and publish one cleanup transition on every exit."""
@@ -1009,6 +1104,7 @@ class Scanner:
         last_state = None
         last_stats = None
         is_first_scan = True
+        awaiting_forced_map = False
 
         while not self.stop_event.is_set():
             if self.client is None:
@@ -1046,13 +1142,28 @@ class Scanner:
                 self._break_reroll_sequence()
             if not self.scan_event.wait(timeout=0.25):
                 continue
-            if was_waiting:
+            if self.stop_event.is_set():
+                break
+
+            if self._force_reset_requested:
+                try:
+                    sent = self.reroll_map(
+                        can_restart=lambda: self._can_force_reset(process_name, last_state)
+                    )
+                except Exception as exc:
+                    self.log(f"[-] Error during execution: {exc}", tag="error")
+                    sent = False
+                self._force_reset_requested = False
+                if not sent:
+                    self._pause_after_force_reset_failure(reset_sent=False)
+                    continue
+                awaiting_forced_map = True
+                is_first_scan = False
+            elif was_waiting:
+                awaiting_forced_map = False
                 is_first_scan = True
                 last_state = None
                 last_stats = None
-
-            if self.stop_event.is_set():
-                break
 
             try:
                 focus_was_active = self._run_control.is_game_window_active(process_name)
@@ -1062,12 +1173,15 @@ class Scanner:
                     self._break_reroll_sequence()
                     continue
                 if self._disconnect_stale_scanner_client(process_name):
+                    if awaiting_forced_map:
+                        awaiting_forced_map = False
+                        self._pause_after_force_reset_failure(reset_sent=True)
                     is_first_scan = True
                     wait_state = None
                     last_state = None
                     last_stats = None
                     continue
-                if not focus_was_active:
+                if not focus_was_active and not awaiting_forced_map:
                     is_first_scan = True
                     last_state = None
                     last_stats = None
@@ -1087,6 +1201,7 @@ class Scanner:
                 if self._scan_abort_requested():
                     self._break_reroll_sequence()
                     continue
+                awaiting_forced_map = False
                 with self._filters.state_lock:
                     self._reroll_peak.map_ready(time.monotonic())
                 is_first_scan = False
@@ -1143,9 +1258,16 @@ class Scanner:
                     if not self._run_control.handle_confirmed_target_window(process_name):
                         continue
 
-                    self.is_running = False
-                    self.pause_reason = None
-                    self.scan_event.clear()
+                    with self._restart_lock:
+                        if self._scan_abort_requested():
+                            continue
+                        self.is_running = False
+                        self.pause_reason = "target_found"
+                        self._target_tap_deadline = None
+                        self.scan_event.clear()
+                    # A normal resume rechecks this map. A force reset uses it
+                    # as the baseline when waiting for the next generation.
+                    is_first_scan = True
                     self._schedule(0, self.update_status_ui)
                     continue
                 else:
@@ -1169,6 +1291,11 @@ class Scanner:
 
             except TimeoutError as exc:
                 self._break_reroll_sequence()
+                if awaiting_forced_map:
+                    awaiting_forced_map = False
+                    self._pause_after_force_reset_failure(reset_sent=True)
+                    self.log(f"    {exc}", tag="warning")
+                    continue
                 # `wait_for_map_ready` spells out *which* readiness gate never
                 # opened -- change_seen/generation_seen separate "the reset key
                 # was never accepted by the game" from "the map really is slow
@@ -1191,6 +1318,7 @@ class Scanner:
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
                 self._break_reroll_sequence()
+                awaiting_forced_map = False
                 self.is_running = False
                 self.is_ready_to_start = False
                 self.pause_reason = None
@@ -1205,6 +1333,10 @@ class Scanner:
             except Exception as exc:
                 self._break_reroll_sequence()
                 self.log(f"[-] Error during execution: {exc}", tag="error")
+                if awaiting_forced_map:
+                    awaiting_forced_map = False
+                    self._pause_after_force_reset_failure(reset_sent=True)
+                    continue
                 self.stop_event.wait(1.0)
 
     # `on_closing` and `deferred_update_check` were defined here until step 25b.

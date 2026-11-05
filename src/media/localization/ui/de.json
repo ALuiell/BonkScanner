@@ -1310,5 +1310,9 @@
   "app.f97e9da0e3b879f0": "Sonstige",
   "settings.game_language": "Sprache der Spielbegriffe:",
   "settings.game_language_follow": "Wie die Oberfläche",
-  "settings.game_language_hint": "Namen von Gegenständen, Waffen und Werten im Scanner und in den Overlays. Ändert nicht die Sprache von MegaBonk."
+  "settings.game_language_hint": "Namen von Gegenständen, Waffen und Werten im Scanner und in den Overlays. Ändert nicht die Sprache von MegaBonk.",
+  "app.a701525e880a6668": "Karte per Doppeldruck überspringen",
+  "app.8d6bf937b92c3e55": "Sobald der Scanner eine passende Karte gefunden hat, drücke die Scan-Taste in MegaBonk zweimal kurz hintereinander, um den Lauf neu zu starten und weiterzusuchen.",
+  "app.578a8c27b186a4e4": "Der Schnellneustart konnte nicht sicher ausgelöst werden. Die Suche wurde pausiert.",
+  "app.77b0eea3cbe97e33": "Nach dem Schnellneustart konnte keine neue Karte bestätigt werden. Die Suche wurde pausiert."
 }

@@ -1310,5 +1310,9 @@
   "app.f97e9da0e3b879f0": "Otros",
   "settings.game_language": "Terminología del juego:",
   "settings.game_language_follow": "Igual que la interfaz",
-  "settings.game_language_hint": "Nombres de objetos, armas y estadísticas en el escáner y las superposiciones. No cambia el idioma de MegaBonk."
+  "settings.game_language_hint": "Nombres de objetos, armas y estadísticas en el escáner y las superposiciones. No cambia el idioma de MegaBonk.",
+  "app.a701525e880a6668": "Doble pulsación para omitir el mapa",
+  "app.8d6bf937b92c3e55": "Cuando el escáner encuentre un mapa objetivo, pulsa dos veces seguidas el atajo de escaneo en MegaBonk para reiniciar la partida y seguir buscando.",
+  "app.578a8c27b186a4e4": "No se pudo iniciar el reinicio rápido de forma segura. Búsqueda en pausa.",
+  "app.77b0eea3cbe97e33": "No se pudo confirmar la carga de un mapa nuevo tras el reinicio rápido. Búsqueda en pausa."
 }

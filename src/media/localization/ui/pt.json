@@ -1310,5 +1310,9 @@
   "app.f97e9da0e3b879f0": "Outros",
   "settings.game_language": "Idioma dos nomes do jogo:",
   "settings.game_language_follow": "Igual ao da interface",
-  "settings.game_language_hint": "Nomes de itens, armas e atributos no scanner e nas sobreposições. Não altera o idioma do MegaBonk."
+  "settings.game_language_hint": "Nomes de itens, armas e atributos no scanner e nas sobreposições. Não altera o idioma do MegaBonk.",
+  "app.a701525e880a6668": "Dois toques para pular o mapa",
+  "app.8d6bf937b92c3e55": "Quando o scanner encontrar um mapa que atende aos filtros, pressione duas vezes rapidamente o atalho de busca no MegaBonk para reiniciar a partida e continuar procurando.",
+  "app.578a8c27b186a4e4": "Não foi possível acionar o reinício rápido com segurança. Busca pausada.",
+  "app.77b0eea3cbe97e33": "Não foi possível confirmar o carregamento de um novo mapa após o reinício rápido. Busca pausada."
 }

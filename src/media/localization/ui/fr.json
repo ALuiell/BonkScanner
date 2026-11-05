@@ -1310,5 +1310,9 @@
   "app.f97e9da0e3b879f0": "Autres",
   "settings.game_language": "Terminologie du jeu :",
   "settings.game_language_follow": "Comme l’interface",
-  "settings.game_language_hint": "Noms des objets, des armes et des statistiques dans le scanner et les surimpressions. Ne modifie pas la langue de MegaBonk."
+  "settings.game_language_hint": "Noms des objets, des armes et des statistiques dans le scanner et les surimpressions. Ne modifie pas la langue de MegaBonk.",
+  "app.a701525e880a6668": "Double appui pour passer la carte",
+  "app.8d6bf937b92c3e55": "Quand le scanner trouve une carte cible, appuyez deux fois rapidement sur le raccourci dans MegaBonk pour relancer la partie et poursuivre la recherche.",
+  "app.578a8c27b186a4e4": "Le redémarrage rapide n’a pas pu être déclenché en toute sécurité. Recherche en pause.",
+  "app.77b0eea3cbe97e33": "Impossible de confirmer le chargement d’une nouvelle carte après le redémarrage rapide. Recherche en pause."
 }
