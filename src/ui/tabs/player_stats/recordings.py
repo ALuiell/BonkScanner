@@ -2972,6 +2972,7 @@ class RecordingsTab:
             character_passive_status_label=vods_character_passive_status_label,
             damage_sources_layout=vod_damage_sources_scroll_layout,
             damage_sources_status_label=vods_damage_sources_status_label,
+            damage_sources_header_layout=vod_damage_sources_tab_layout,
             expanded_stat_labels=self._stats_expanded_toggle.isChecked(),
             section_visible=section_visibility_over(lambda: self._detail_tabs),
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import src
 
+from struct import pack
 import unittest
 from unittest.mock import patch
 
@@ -64,6 +65,9 @@ class FakeMemory:
         if address not in self.bytes:
             raise MemoryReadError(f"missing byte at 0x{address:X}")
         return self.bytes[address]
+
+    def read_bytes(self, address: int, size: int) -> bytes:
+        return bytes(self.read_u8(address + offset) for offset in range(size))
 
     def read_ascii_string(self, address: int, max_length: int = 128) -> str | None:
         _ = max_length
@@ -261,6 +265,68 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(stats["Max HP"].display_value, "198")
         self.assertEqual(stats["Armor"].display_value, "15%")
         self.assertEqual(stats["Difficulty"].display_value, "9%")
+
+    def test_source_kills_join_damage_and_keep_sources_without_damage_entries(self) -> None:
+        memory = self.build_memory()
+        client = PlayerStatsClient(memory=memory)
+        base = memory.module_base
+        run_class = memory.read_ptr(base + client.RUN_STATS_TYPE_INFO_OFFSET)
+        run_fields = memory.read_ptr(run_class + client.CLASS_STATIC_FIELDS_OFFSET)
+        run_dict = memory.read_ptr(run_fields + client.RUN_STATS_DICT_OFFSET)
+        run_entries = memory.read_ptr(run_dict + client.DICT_ENTRIES_OFFSET)
+        tracker_class, tracker_fields, tracker_name = 0x30000000, 0x30000100, 0x30000200
+        kill_dict, kill_entries = 0x30000300, 0x30000400
+        damage_dict, damage_entries, damage_value = 0x30000500, 0x30000600, 0x30000700
+        katana_key, lantern_key, stat_key = 0x30000800, 0x30000900, 0x30000A00
+        damage_entry = damage_entries + client.DICT_ENTRY_START_OFFSET
+        memory.pointers.update({
+            base + client.STAT_TRACKING_UTILITY_TYPE_INFO_OFFSET: tracker_class,
+            tracker_class + client.CLASS_STATIC_FIELDS_OFFSET: tracker_fields,
+            tracker_class + client.KLASS_NAME_PTR_OFFSET: tracker_name,
+            tracker_fields + client.KILL_KEYS_BY_SOURCE_OFFSET: kill_dict,
+            run_fields + client.RUN_DAMAGE_SOURCES_DICT_OFFSET: damage_dict,
+            damage_dict + client.DICT_ENTRIES_OFFSET: damage_entries,
+            damage_entry + client.DICT_ENTRY_KEY_OFFSET: katana_key,
+            damage_entry + client.DICT_ENTRY_VALUE_OFFSET: damage_value,
+            damage_value + client.DAMAGE_SOURCE_NAME_OFFSET: katana_key,
+        })
+        memory.ints.update({
+            damage_dict + client.DICT_COUNT_OFFSET: 1,
+            damage_entry + client.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+            run_entries + client.ARRAY_LENGTH_OFFSET: 3,
+            kill_entries + client.ARRAY_LENGTH_OFFSET: 3,
+        })
+        memory.floats.update({
+            damage_value + client.DAMAGE_SOURCE_ADDED_AT_TIME_OFFSET: 10.0,
+            damage_value + client.DAMAGE_SOURCE_DAMAGE_OFFSET: 240.0,
+        })
+        memory.ascii_strings[tracker_name] = "StatTrackingUtility"
+        memory.mono_strings.update({
+            katana_key: "Katana", lantern_key: "BobsLantern", stat_key: "bobsLanternKills",
+        })
+        for dictionary, entries, record in (
+            (run_dict, run_entries, pack("<iiQf4x", 1, -1, stat_key, 835.0)),
+            (kill_dict, kill_entries, pack("<iiQQ", 1, -1, lantern_key, stat_key)),
+        ):
+            header = pack("<Qiiii", entries, 1, -1, 0, 1)
+            for address, data in ((dictionary + 0x18, header), (entries + 0x20, record)):
+                memory.bytes.update({address + index: value for index, value in enumerate(data)})
+
+        rows = client.get_live_damage_sources()
+        self.assertEqual([(row.source_key, row.damage, row.kills) for row in rows], [
+            ("Katana", 240.0, 0),
+            ("BobsLantern", 0.0, 835),
+        ])
+
+        # The damage tab remains available when the source-counter layout tears.
+        read_bytes = memory.read_bytes
+        with patch.object(memory, "read_bytes", side_effect=lambda address, size: (
+            read_bytes(address, size) if address != kill_entries + 0x20 else bytes(size)
+        )):
+            rows = client.get_live_damage_sources()
+        self.assertEqual([(row.source_key, row.damage, row.kills) for row in rows], [
+            ("Katana", 240.0, None),
+        ])
 
     def _seed_luck(self, memory: FakeMemory, value: float) -> None:
         entries = 0x20000500

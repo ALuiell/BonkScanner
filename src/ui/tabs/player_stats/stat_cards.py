@@ -84,6 +84,7 @@ from core.stats.weapon_tracker import (
 from core.tracker.chaos import CHAOS_FINGERPRINTS, CHAOS_TOME_GAME_STAT_ORDER
 from core.tracker.shrines import SHRINE_RARITY_MULTIPLIERS
 from ui import formatting
+from ui.segmented_toggle import ROLE_GO, SegmentedToggle
 from ui.shared import _clear_layout, _set_text
 
 
@@ -115,6 +116,14 @@ def _damage_source_value(source) -> float | None:
     except (TypeError, ValueError):
         return None
     return max(0.0, value) if isfinite(value) else None
+
+
+def _kill_source_value(source) -> int | None:
+    return getattr(source, "kills", None)
+
+
+def _format_source_kills(value: int | None) -> str:
+    return "--" if value is None else formatting.format_count(value)
 
 
 def damage_source_share_text(damage: float | None, total_damage: float | None) -> str:
@@ -451,29 +460,45 @@ class _DamageSourceCard(QFrame):
         card_layout.addWidget(self._bar)
         self._text_color: str | None = None
 
-    def update_source(self, source, *, rank: int, total_damage: float | None) -> None:
+    def update_source(self, source, *, rank: int, total: int | float | None, show_kills: bool) -> None:
         damage = _damage_source_value(source)
+        kills = _kill_source_value(source)
+        value = kills if show_kills else damage
         source_name = str(
             getattr(source, "source_name", "")
             or getattr(source, "source_key", "")
             or "Unknown source"
         )
         percentage = (
-            damage / total_damage
-            if damage is not None and total_damage is not None and total_damage > 0.0
+            value / total
+            if value is not None and total is not None and total > 0
             else 0.0
         )
-        share_text = damage_source_share_text(damage, total_damage)
+        share_text = damage_source_share_text(value, total)
+        name = l10n.game_term(source_name, ("damage_sources", "weapons", "items", "passives"))
+        alternate = (
+            l10n.tr("Damage: {value}", value=formatting.format_damage_source_value(damage))
+            if show_kills else l10n.tr("Kills: {count}", count=_format_source_kills(kills))
+        )
+        tooltip = l10n.join("\n", (name, alternate))
 
         _set_text(self._rank_label, f"#{rank}")
-        _set_text(self._name_label, l10n.game_term(source_name, ("damage_sources", "weapons", "items", "passives")))
-        l10n.display(self._name_label, 'setToolTip', l10n.game_term(source_name, ("damage_sources", "weapons", "items", "passives")))
-        _set_text(self._damage_label, formatting.format_damage_source_value(damage))
+        _set_text(self._name_label, name)
+        l10n.display(self, "setToolTip", tooltip)
+        l10n.display(self._name_label, "setToolTip", tooltip)
+        _set_text(
+            self._damage_label,
+            _format_source_kills(kills) if show_kills else formatting.format_damage_source_value(damage),
+        )
         _set_text(self._percentage_label, share_text)
         self._bar.setValue(round(min(1.0, max(0.0, percentage)) * 1000))
-        l10n.display(self._bar, 'setToolTip', l10n.tr('{p0} of total damage', p0=share_text))
+        share = (
+            l10n.tr("{p0} of attributed kills", p0=share_text)
+            if show_kills else l10n.tr("{p0} of total damage", p0=share_text)
+        )
+        l10n.display(self._bar, "setToolTip", l10n.join("\n", (share, alternate)))
 
-        text_color = self._ACTIVE_COLOR if damage is not None and damage > 0.0 else self._IDLE_COLOR
+        text_color = self._ACTIVE_COLOR if value is not None and value > 0 else self._IDLE_COLOR
         if text_color != self._text_color:
             self._text_color = text_color
             self._name_label.setStyleSheet(
@@ -496,11 +521,11 @@ class _DamageSourcesSummaryCard(QFrame):
         summary_layout.setContentsMargins(10, 8, 10, 8)
         summary_layout.setSpacing(8)
 
-        title_label = l10n.localized(QLabel, l10n.tr('Total Damage'))
-        title_label.setStyleSheet(
+        self._title_label = QLabel()
+        self._title_label.setStyleSheet(
             "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
         )
-        summary_layout.addWidget(title_label)
+        summary_layout.addWidget(self._title_label)
 
         self._value_label = QLabel()
         self._value_label.setObjectName("DamageSourcesSummaryValue")
@@ -517,8 +542,9 @@ class _DamageSourcesSummaryCard(QFrame):
         )
         summary_layout.addWidget(self._count_label)
 
-    def update_totals(self, *, total_damage: float | None, source_count: int) -> None:
-        _set_text(self._value_label, formatting.format_damage_source_value(total_damage))
+    def update_totals(self, *, total: int | float | None, source_count: int, show_kills: bool) -> None:
+        _set_text(self._title_label, l10n.tr("Attributed Kills") if show_kills else l10n.tr("Total Damage"))
+        _set_text(self._value_label, _format_source_kills(total) if show_kills else formatting.format_damage_source_value(total))
         _set_text(
             self._count_label,
             l10n.tr("Sources: {count}", count=source_count),
@@ -909,6 +935,7 @@ class StatCardsView:
         chaos_status_label,
         damage_sources_layout,
         damage_sources_status_label,
+        damage_sources_header_layout=None,
         shrine_layout=None,
         shrine_status_label=None,
         character_passive_layout=None,
@@ -939,6 +966,15 @@ class StatCardsView:
         self._character_passive_status_label = character_passive_status_label
         self._damage_sources_layout = damage_sources_layout
         self._damage_sources_status_label = damage_sources_status_label
+        self._damage_source_metric = "damage"
+        self._damage_source_input = ((), None)
+        if damage_sources_header_layout is not None:
+            self._damage_source_toggle = SegmentedToggle(
+                (("damage", l10n.tr("Damage"), ROLE_GO), ("kills", l10n.tr("Kills"), ROLE_GO)),
+                disable_inactive=False,
+            )
+            damage_sources_header_layout.insertWidget(0, self._damage_source_toggle, alignment=Qt.AlignLeft)
+            self._damage_source_toggle.activated.connect(self._set_damage_source_metric)
         self._expanded_stat_labels = bool(expanded_stat_labels)
 
         self._weapon_signature = None
@@ -1577,22 +1613,35 @@ class StatCardsView:
 
     # -- damage sources -------------------------------------------------------
 
+    def _set_damage_source_metric(self, metric: str) -> None:
+        if metric == self._damage_source_metric:
+            return
+        self._damage_source_metric = metric
+        self._damage_source_toggle.set_active(metric)
+        sources, status = self._damage_source_input
+        self.display_damage_sources(sources, status_text=status)
+
     def display_damage_sources(self, damage_sources, *, status_text: str | None = None) -> None:
         layout = self._damage_sources_layout
         status_label = self._damage_sources_status_label
         if layout is None or status_label is None:
             return
+        damage_sources = tuple(damage_sources or ())
+        self._damage_source_input = (damage_sources, status_text)
         # Deferred before the sort: it is the most expensive panel to
         # rebuild, and the sort is not free either.
         if self._defer("damage_sources", (damage_sources,), {"status_text": status_text}):
             return
 
+        show_kills = self._damage_source_metric == "kills"
+        get_value = _kill_source_value if show_kills else _damage_source_value
+        no_kill_data = show_kills and all(_kill_source_value(source) is None for source in damage_sources)
         damage_sources = tuple(
             sorted(
-                tuple(damage_sources or ()),
+                () if no_kill_data else damage_sources,
                 key=lambda source: (
-                    _damage_source_value(source) is None,
-                    -(_damage_source_value(source) or 0.0),
+                    get_value(source) is None,
+                    -(get_value(source) or 0),
                     str(
                         getattr(source, "source_name", "")
                         or getattr(source, "source_key", "")
@@ -1600,7 +1649,7 @@ class StatCardsView:
                 ),
             )
         )
-        signature = self._damage_source_signature_for(damage_sources)
+        signature = (self._damage_source_metric, self._damage_source_signature_for(damage_sources), status_text)
         if self._damage_source_signature == signature and status_text is None:
             return
 
@@ -1608,6 +1657,8 @@ class StatCardsView:
 
         if status_text is not None:
             _set_text(status_label, status_text)
+        elif no_kill_data:
+            _set_text(status_label, l10n.tr("Kill data unavailable"))
         else:
             _set_text(status_label, '' if damage_sources else l10n.tr('No damage source data yet'))
 
@@ -1618,11 +1669,11 @@ class StatCardsView:
             self._damage_source_cards = []
             return
 
-        damage_values = tuple(_damage_source_value(source) for source in damage_sources)
-        total_damage = (
+        values = tuple(get_value(source) for source in damage_sources)
+        total = (
             None
-            if any(value is None for value in damage_values)
-            else sum(value for value in damage_values if value is not None)
+            if any(value is None for value in values)
+            else sum(value for value in values if value is not None)
         )
 
         # Built on the first render and kept. The tear-down-and-rebuild this
@@ -1644,8 +1695,9 @@ class StatCardsView:
             layout.addStretch(1)
 
         self._damage_sources_summary.update_totals(
-            total_damage=total_damage,
+            total=total,
             source_count=len(damage_sources),
+            show_kills=show_kills,
         )
 
         while len(self._damage_source_cards) < len(damage_sources):
@@ -1660,7 +1712,8 @@ class StatCardsView:
             self._damage_source_cards[index].update_source(
                 source,
                 rank=index + 1,
-                total_damage=total_damage,
+                total=total,
+                show_kills=show_kills,
             )
 
     @staticmethod
@@ -1672,6 +1725,7 @@ class StatCardsView:
                 None
                 if _damage_source_value(source) is None
                 else round(_damage_source_value(source), 3),
+                _kill_source_value(source),
             )
             for source in damage_sources
         )

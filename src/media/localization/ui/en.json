@@ -1314,5 +1314,11 @@
   "app.a701525e880a6668": "Double-press to skip found maps",
   "app.8d6bf937b92c3e55": "After the scanner finds a target, press the scan hotkey twice quickly in MegaBonk to reset the run and keep searching.",
   "app.578a8c27b186a4e4": "Quick Reset could not be sent safely. Search paused.",
-  "app.77b0eea3cbe97e33": "Quick Reset could not confirm a new map. Search paused."
+  "app.77b0eea3cbe97e33": "Quick Reset could not confirm a new map. Search paused.",
+  "app.67acf36b5177d7bf": "Damage: {value}",
+  "app.d80c5f4430f7f0b2": "Kills: {count}",
+  "app.fc15ac4000d97ca7": "{p0} of attributed kills",
+  "app.52a5d13335ad0cf2": "Attributed Kills",
+  "app.4ad79d97e2c31194": "Kill data unavailable",
+  "app.0c874f581a4534f1": "Damage"
 }

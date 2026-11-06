@@ -21,13 +21,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
-from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from ui.tabs.player_stats.stat_cards import StatCardsView
 
 
-def _source(key: str, damage: float | None):
-    return SimpleNamespace(source_key=key, source_name=key.title(), damage=damage)
+def _source(key: str, damage: float | None, kills: int | None = None):
+    return SimpleNamespace(source_key=key, source_name=key.title(), damage=damage, kills=kills)
 
 
 class DamageSourceCardReuseTests(unittest.TestCase):
@@ -38,6 +38,8 @@ class DamageSourceCardReuseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.host = QWidget()
         self.layout = QVBoxLayout(self.host)
+        content = QVBoxLayout()
+        self.layout.addLayout(content)
         self.status = QLabel()
         self.view = StatCardsView(
             weapons_layout=None,
@@ -46,8 +48,9 @@ class DamageSourceCardReuseTests(unittest.TestCase):
             tomes_status_label=None,
             chaos_layout=None,
             chaos_status_label=None,
-            damage_sources_layout=self.layout,
+            damage_sources_layout=content,
             damage_sources_status_label=self.status,
+            damage_sources_header_layout=self.layout,
         )
 
     @property
@@ -151,6 +154,37 @@ class DamageSourceCardReuseTests(unittest.TestCase):
         self.assertIn("--", summary_text)
         self.assertIn("Overflow", overflow_text)
         self.assertGreaterEqual(overflow_text.count("--"), 2)
+
+    def _select_metric(self, metric: str) -> None:
+        button = next(
+            button for button in self.host.findChildren(QPushButton)
+            if button.property("segment") == metric
+        )
+        button.click()
+
+    def test_switching_metrics_reranks_cards_and_updates_hover_values(self) -> None:
+        self.view.display_damage_sources((_source("katana", 90, 0), _source("orb", 10, 30)))
+        self.assertIn("Katana", self._texts(self.cards[0]))
+        self.assertIn("Kills: 0", self.cards[0].toolTip())
+
+        self._select_metric("kills")
+        self.assertIn("Orb", self._texts(self.cards[0]))
+        self.assertIn("30", self._texts(self.cards[0]))
+        self.assertIn("100%", self._texts(self.cards[0]))
+        self.assertIn("Damage: 10", self.cards[0].toolTip())
+        self.assertIn("Attributed Kills", self._texts(self.view._damage_sources_summary))
+
+        # Damage can stay fixed while the kill ranking changes.
+        self.view.display_damage_sources((_source("katana", 90, 31), _source("orb", 10, 30)))
+        self.assertIn("Katana", self._texts(self.cards[0]))
+
+    def test_legacy_recording_can_switch_back_to_damage(self) -> None:
+        self.view.display_damage_sources((_source("katana", 90),))
+        self._select_metric("kills")
+        self.assertEqual(self.status.text(), "Kill data unavailable")
+        self.assertEqual(self.cards, [])
+        self._select_metric("damage")
+        self.assertIn("Katana", self._texts(self.cards[0]))
 
 
 if __name__ == "__main__":

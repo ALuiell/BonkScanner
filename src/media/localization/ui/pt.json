@@ -1314,5 +1314,11 @@
   "app.a701525e880a6668": "Dois toques para pular o mapa",
   "app.8d6bf937b92c3e55": "Quando o scanner encontrar um mapa que atende aos filtros, pressione duas vezes rapidamente o atalho de busca no MegaBonk para reiniciar a partida e continuar procurando.",
   "app.578a8c27b186a4e4": "Não foi possível acionar o reinício rápido com segurança. Busca pausada.",
-  "app.77b0eea3cbe97e33": "Não foi possível confirmar o carregamento de um novo mapa após o reinício rápido. Busca pausada."
+  "app.77b0eea3cbe97e33": "Não foi possível confirmar o carregamento de um novo mapa após o reinício rápido. Busca pausada.",
+  "app.67acf36b5177d7bf": "Dano: {value}",
+  "app.d80c5f4430f7f0b2": "Abates: {count}",
+  "app.fc15ac4000d97ca7": "{p0} dos abates atribuídos",
+  "app.52a5d13335ad0cf2": "Abates atribuídos",
+  "app.4ad79d97e2c31194": "Dados de abates indisponíveis",
+  "app.0c874f581a4534f1": "Dano"
 }

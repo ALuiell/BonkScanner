@@ -1314,5 +1314,11 @@
   "app.a701525e880a6668": "Double appui pour passer la carte",
   "app.8d6bf937b92c3e55": "Quand le scanner trouve une carte cible, appuyez deux fois rapidement sur le raccourci dans MegaBonk pour relancer la partie et poursuivre la recherche.",
   "app.578a8c27b186a4e4": "Le redémarrage rapide n’a pas pu être déclenché en toute sécurité. Recherche en pause.",
-  "app.77b0eea3cbe97e33": "Impossible de confirmer le chargement d’une nouvelle carte après le redémarrage rapide. Recherche en pause."
+  "app.77b0eea3cbe97e33": "Impossible de confirmer le chargement d’une nouvelle carte après le redémarrage rapide. Recherche en pause.",
+  "app.67acf36b5177d7bf": "Dégâts : {value}",
+  "app.d80c5f4430f7f0b2": "Éliminations : {count}",
+  "app.fc15ac4000d97ca7": "{p0} des éliminations attribuées",
+  "app.52a5d13335ad0cf2": "Éliminations attribuées",
+  "app.4ad79d97e2c31194": "Données d’éliminations indisponibles",
+  "app.0c874f581a4534f1": "Dégâts"
 }

@@ -511,6 +511,7 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].damage_sources[0].source_key, "FireStaff")
             self.assertEqual(loaded.snapshots[0].damage_sources[0].source_name, "FireStaff")
             self.assertAlmostEqual(loaded.snapshots[0].damage_sources[0].damage, 10662.599609375)
+            self.assertIsNone(loaded.snapshots[0].damage_sources[0].kills)
             self.assertEqual(loaded.snapshots[0].chests_per_minute, 1.23)
             self.assertAlmostEqual(loaded.snapshots[0].game_time_seconds, 21.52338219)
             self.assertEqual(loaded.snapshots[0].mob_kills, 37)
@@ -596,7 +597,9 @@ class VodStorageTests(unittest.TestCase):
                         source_key="Dragonfire",
                         source_name="Dragonfire",
                         damage=float("inf"),
+                        kills=42,
                     ),
+                    DamageSourceSnapshot("Katana", "Katana", 10.0, kills=0),
                 ),
                 chests_per_minute=float("-inf"),
                 loot_expected={"LEGENDARY": float("inf")},
@@ -614,6 +617,7 @@ class VodStorageTests(unittest.TestCase):
             snapshot = load_vod(path).snapshots[0]
             self.assertIsNone(snapshot.stats["Damage"].value)
             self.assertIsNone(snapshot.damage_sources[0].damage)
+            self.assertEqual([source.kills for source in snapshot.damage_sources], [42, 0])
             self.assertIsNone(snapshot.chests_per_minute)
             self.assertEqual(snapshot.loot_expected, {})
 
