@@ -1572,7 +1572,6 @@ class LiveStatsTab:
             character_passive_status_label=character_passive_status_label,
             damage_sources_layout=player_damage_sources_scroll_layout,
             damage_sources_status_label=damage_sources_status_label,
-            damage_sources_header_layout=damage_sources_tab_layout,
             expanded_stat_labels=self._stats_expanded_toggle.isChecked(),
             # Same waste as the Recordings tab, on a one-second refresh instead
             # of a scrub: four panels rebuilt every tick while at most one of

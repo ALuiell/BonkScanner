@@ -50,7 +50,6 @@ class DamageSourceCardReuseTests(unittest.TestCase):
             chaos_status_label=None,
             damage_sources_layout=content,
             damage_sources_status_label=self.status,
-            damage_sources_header_layout=self.layout,
         )
 
     @property
@@ -116,13 +115,14 @@ class DamageSourceCardReuseTests(unittest.TestCase):
         self.assertIn("Katana", self._texts(self.cards[1]))
         self.assertIn("#2", self._texts(self.cards[1]))
 
-    def test_an_empty_reading_tears_the_panel_down(self) -> None:
+    def test_an_empty_reading_keeps_the_metric_switch_available(self) -> None:
         self.view.display_damage_sources((_source("katana", 30.0),))
 
         self.view.display_damage_sources((), status_text="Damage sources unavailable")
 
         self.assertEqual(self.cards, [])
-        self.assertIsNone(self.view._damage_sources_grid)
+        self.assertTrue(self.view._damage_sources_grid.isHidden())
+        self.assertEqual(self.view._damage_sources_summary.findChildren(QPushButton)[0].text(), "Damage")
         self.assertEqual(self.status.text(), "Damage sources unavailable")
 
     def test_rebuilding_after_an_empty_reading_works(self) -> None:

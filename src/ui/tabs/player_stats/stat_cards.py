@@ -63,13 +63,15 @@ from ui import i18n as l10n
 from collections.abc import Callable
 from math import isfinite
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -84,7 +86,6 @@ from core.stats.weapon_tracker import (
 from core.tracker.chaos import CHAOS_FINGERPRINTS, CHAOS_TOME_GAME_STAT_ORDER
 from core.tracker.shrines import SHRINE_RARITY_MULTIPLIERS
 from ui import formatting
-from ui.segmented_toggle import ROLE_GO, SegmentedToggle
 from ui.shared import _clear_layout, _set_text
 
 
@@ -514,6 +515,8 @@ class _DamageSourceCard(QFrame):
 class _DamageSourcesSummaryCard(QFrame):
     """The panel's total line, rewritten in place for the same reason."""
 
+    metric_changed = Signal(str)
+
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("StatCard")
@@ -542,12 +545,47 @@ class _DamageSourcesSummaryCard(QFrame):
         )
         summary_layout.addWidget(self._count_label)
 
-    def update_totals(self, *, total: int | float | None, source_count: int, show_kills: bool) -> None:
+        separator = QFrame()
+        separator.setFixedSize(1, 18)
+        separator.setStyleSheet("background: #334258; border: 0;")
+        summary_layout.addWidget(separator)
+
+        modes = QWidget()
+        modes.setObjectName("DamageSourcesMetricToggle")
+        modes.setStyleSheet(
+            "QWidget#DamageSourcesMetricToggle { background: transparent; }"
+            "QPushButton {"
+            " font-size: 12px; font-weight: 600; padding: 3px 9px;"
+            " min-width: 0; min-height: 18px; border: 1px solid transparent; border-radius: 4px;"
+            " color: #98A7BA; background: transparent;"
+            "}"
+            "QPushButton:hover { color: #F3F4F6; background: #1B2C40; }"
+            "QPushButton:checked { color: #F3F4F6; background: #263B55; }"
+            "QPushButton:focus { border: 1px solid #60A5FA; }"
+        )
+        mode_layout = QHBoxLayout(modes)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(2)
+        self._metric_group = QButtonGroup(self)
+        self._metric_buttons = {}
+        for metric, caption in (("damage", l10n.tr("Damage")), ("kills", l10n.tr("Kills"))):
+            button = l10n.localized(QPushButton, caption)
+            button.setProperty("segment", metric)
+            button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(lambda _checked=False, key=metric: self.metric_changed.emit(key))
+            self._metric_group.addButton(button)
+            self._metric_buttons[metric] = button
+            mode_layout.addWidget(button)
+        summary_layout.addWidget(modes)
+
+    def update_totals(self, *, total: int | float | None, source_count: int | None, show_kills: bool) -> None:
+        self._metric_buttons["kills" if show_kills else "damage"].setChecked(True)
         _set_text(self._title_label, l10n.tr("Attributed Kills") if show_kills else l10n.tr("Total Damage"))
         _set_text(self._value_label, _format_source_kills(total) if show_kills else formatting.format_damage_source_value(total))
         _set_text(
             self._count_label,
-            l10n.tr("Sources: {count}", count=source_count),
+            l10n.tr("Sources: {count}", count=source_count if source_count is not None else "--"),
         )
 
 
@@ -935,7 +973,6 @@ class StatCardsView:
         chaos_status_label,
         damage_sources_layout,
         damage_sources_status_label,
-        damage_sources_header_layout=None,
         shrine_layout=None,
         shrine_status_label=None,
         character_passive_layout=None,
@@ -968,13 +1005,6 @@ class StatCardsView:
         self._damage_sources_status_label = damage_sources_status_label
         self._damage_source_metric = "damage"
         self._damage_source_input = ((), None)
-        if damage_sources_header_layout is not None:
-            self._damage_source_toggle = SegmentedToggle(
-                (("damage", l10n.tr("Damage"), ROLE_GO), ("kills", l10n.tr("Kills"), ROLE_GO)),
-                disable_inactive=False,
-            )
-            damage_sources_header_layout.insertWidget(0, self._damage_source_toggle, alignment=Qt.AlignLeft)
-            self._damage_source_toggle.activated.connect(self._set_damage_source_metric)
         self._expanded_stat_labels = bool(expanded_stat_labels)
 
         self._weapon_signature = None
@@ -1617,7 +1647,6 @@ class StatCardsView:
         if metric == self._damage_source_metric:
             return
         self._damage_source_metric = metric
-        self._damage_source_toggle.set_active(metric)
         sources, status = self._damage_source_input
         self.display_damage_sources(sources, status_text=status)
 
@@ -1655,6 +1684,13 @@ class StatCardsView:
 
         self._damage_source_signature = signature
 
+        if self._damage_sources_summary is None:
+            _clear_layout(layout)
+            self._damage_sources_summary = _DamageSourcesSummaryCard()
+            self._damage_sources_summary.metric_changed.connect(self._set_damage_source_metric)
+            layout.addWidget(self._damage_sources_summary)
+            layout.addStretch(1)
+
         if status_text is not None:
             _set_text(status_label, status_text)
         elif no_kill_data:
@@ -1663,9 +1699,14 @@ class StatCardsView:
             _set_text(status_label, '' if damage_sources else l10n.tr('No damage source data yet'))
 
         if not damage_sources:
-            _clear_layout(layout)
-            self._damage_sources_grid = None
-            self._damage_sources_summary = None
+            self._damage_sources_summary.update_totals(
+                total=None,
+                source_count=len(self._damage_source_input[0]) or None,
+                show_kills=show_kills,
+            )
+            if self._damage_sources_grid is not None:
+                self._damage_sources_grid.trim_to(0)
+                self._damage_sources_grid.hide()
             self._damage_source_cards = []
             return
 
@@ -1680,9 +1721,6 @@ class StatCardsView:
         # replaced was 48 ms of a scrub frame with twenty sources; the widgets
         # a source needs never change, only their text.
         if self._damage_sources_grid is None:
-            _clear_layout(layout)
-            self._damage_sources_summary = _DamageSourcesSummaryCard()
-            layout.addWidget(self._damage_sources_summary)
             self._damage_sources_grid = _ResponsiveStatCardGrid(
                 object_name="DamageSourcesCardGrid",
                 column_count=damage_source_column_count,
@@ -1691,8 +1729,8 @@ class StatCardsView:
                 maximum_columns=3,
             )
             self._damage_source_cards = []
-            layout.addWidget(self._damage_sources_grid)
-            layout.addStretch(1)
+            layout.insertWidget(1, self._damage_sources_grid)
+        _show_if_parented(self._damage_sources_grid)
 
         self._damage_sources_summary.update_totals(
             total=total,
