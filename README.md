@@ -188,7 +188,7 @@ templates, and stage announcements are configurable from the app.
 - `!items` / `!tracked` — collected items;
 - `!weapons`, `!tomes`, `!chaos`, `!dice`, and `!shrines` — build details;
 - `!stages`, `!powerups`, `!kps`, `!build`, and `!luck` — run summaries;
-- `!chests` / `!chest` — chest and Key-proc progress;
+- `!chests` / `!chest` / `!key` / `!keys` — chest and Key-proc progress;
 - `!scanner` — app information and the official download link;
 - `!presets` / `!preset` — active templates or score targets;
 - `!bonkhelp` / `!bonkcmds` — enabled command list.

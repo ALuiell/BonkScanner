@@ -417,7 +417,8 @@ class TwitchTab:
         # Four columns, not three, keep a tile near the ~390px it had under the
         # old cap instead of stretching each one and pushing its switch away.
         for index, key in enumerate(_COMMAND_KEYS):
-            tile = l10n.localized(ModuleTile, f'!{key}')
+            label = "!chests/key" if key == "chests" else f"!{key}"
+            tile = l10n.localized(ModuleTile, label)
             tile.setChecked(command_checked(commands, key))
             self._command_cbs[key] = tile
             grid.addWidget(tile, index // _COMMAND_COLUMNS, index % _COMMAND_COLUMNS)

@@ -196,7 +196,7 @@ Available chat commands:
 - `!powerups` — displays active powerups (Rage, Shield, Stonks, Clock) with their pickup and expiration timestamps.
 - `!build` — displays active build checklist progression and missing requirements.
 - `!luck` — displays item rarity roll chances based on current Luck.
-- `!chests` / `!chest` — displays the number of chests opened per stage, keys count, and free chest openings (Free chest includes naturally free chests + chests opened for free using keys).
+- `!chests` / `!chest` / `!key` / `!keys` — displays the number of chests opened per stage, keys count, and free chest openings (Free chest includes naturally free chests + chests opened for free using keys).
 - `!presets` / `!preset` — displays active reroller templates or score tiers and weights.
 - `!bonkhelp` — lists all active scanner bot commands (aliases: `!bonkcmds`, `!bonkcommands`, `!bhelp`).
 - `!scanner` — general info about the BonkScanner app and download link.

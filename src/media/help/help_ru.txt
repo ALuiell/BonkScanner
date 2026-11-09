@@ -100,7 +100,7 @@ Twitch-бот
 - `!weapons`, `!tomes`: улучшенные характеристики оружия и эффекты томов; у Тома Хаоса показан уровень.
 - `!chaos` / `!chaostome`, `!dice`, `!shrines`: отслеживаемые бонусы хаоса, Гамбы и святилищ заряда.
 - `!kps`, `!stages`, `!powerups`: убийства в секунду, итоги этапов и усиления.
-- `!build`, `!luck`, `!chests` / `!chest`, `!presets` / `!preset`: билд, редкость, сундуки и наборы условий.
+- `!build`, `!luck`, `!chests` / `!chest` / `!key` / `!keys`, `!presets` / `!preset`: билд, редкость, сундуки и наборы условий.
 - `!bonkhelp`: активные команды; псевдонимы `!bonkcmds`, `!bonkcommands`, `!bhelp`.
 - `!scanner`: информация о BonkScanner и ссылка на загрузку.
 
