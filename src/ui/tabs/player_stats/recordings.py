@@ -472,6 +472,7 @@ class RecordingsTab:
         snapshot_throttle: UiUpdateThrottle | None = None,
         timeline_series_slots: TimelineSeriesSlots | None = None,
         active_recording_feed=None,
+        validator_report=None,
     ) -> None:
         self._tabview = tabview
         self._library = vod_library
@@ -482,6 +483,8 @@ class RecordingsTab:
         self._schedule = schedule
         self._disposed = False
         self._active_feed = active_recording_feed
+        self._validator_report = validator_report
+        self._validator_strip = None
         self._feed_token = None
 
         # Selection state. Nine names on `MegabonkApp` until step 21c; measured
@@ -956,6 +959,7 @@ class RecordingsTab:
         path = Path(path)
         state = self._library.state_for(path)
         self._loaded_vod = None
+        self.refresh_validator_report()
         self._prepared_recording = None
         self._loading_path = path.resolve()
         self._snapshot_index = None
@@ -1283,6 +1287,7 @@ class RecordingsTab:
             pending_text = f" · {pending} new" if pending else ""
             _set_text(self._status_label, l10n.tr('LIVE{p0} · {p1} · {p2} snapshots · {p3}', p0=pending_text, p1=metadata.created_label, p2=len(self._loaded_vod.snapshots), p3=formatting.format_duration(metadata.duration_seconds)))
     def refresh_loaded_vod_ui(self, *, update_slider: bool = True, prepared=None):
+        self.refresh_validator_report()
         if self._loaded_vod is None:
             return
 
@@ -1815,6 +1820,7 @@ class RecordingsTab:
     def _clear_loaded_vod_selection(self) -> None:
         self._live_prepare_request = None
         self._loaded_vod = None
+        self.refresh_validator_report()
         row = getattr(self, "_powerup_row", None)
         if row is not None:
             row.hide()
@@ -2196,7 +2202,21 @@ class RecordingsTab:
         self._status_label.setWordWrap(True)
         text_column.addWidget(self._status_label)
         row.addLayout(text_column, 1)
+        if self._validator_report is not None:
+            from ui.validator_reports import ValidatorReportStrip
+
+            self._validator_strip = ValidatorReportStrip(self._selected_validator_report)
+            row.addWidget(self._validator_strip, 0, Qt.AlignVCenter)
         return frame
+
+    def _selected_validator_report(self):
+        if self._loaded_vod is not None:
+            return self._validator_report(self._loaded_vod.metadata.recording_id)
+        return None
+
+    def refresh_validator_report(self):
+        if self._validator_strip is not None:
+            self._validator_strip.update_report(self._selected_validator_report())
 
     def _on_detail_tab_changed(self) -> None:
         """Draw what just became visible using the selected label mode."""

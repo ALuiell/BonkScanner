@@ -67,6 +67,17 @@ class AppRuntime:
         self.live_run_tracker = coordinator.live_run_tracker
         self.vod_recorder = coordinator.vod_recorder
         self.active_recording_feed = ActiveRecordingFeed()
+        self.validator_reports = None
+        if getattr(coordinator, 'validator', None) is not None:
+            from app.validator_reports import ValidatorReports
+
+            self.validator_reports = ValidatorReports()
+            self.active_recording_feed.subscribe(
+                lambda state: self.validator_reports.observe_recording(
+                    state, coordinator.player_stats_client, coordinator.player_stats_game_data_client,
+                ),
+                lambda callback: callback(),
+            )
         self.vod_library: VodLibrary | None = None
         self._started = False
         self._shutdown_report: ShutdownReport | None = None
@@ -241,6 +252,10 @@ class AppRuntime:
             if self.vod_recorder.is_recording
             else self.vod_recorder.close(),
         )
+        if validator is not None and self.validator_reports is not None:
+            self._step('validator_reports', lambda: self.validator_reports.refresh(
+                validator.snapshot(), force=True,
+            ))
         if self.vod_library is not None:
             library_result = self._step(
                 "vod_library", lambda: self.vod_library.shutdown(deadline)

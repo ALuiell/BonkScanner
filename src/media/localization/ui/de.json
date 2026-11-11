@@ -1386,5 +1386,18 @@
   "app.a731a58c4cf35c01": "Twitch",
   "app.ef4791e898c5c4d7": "Spiel-Overlay",
   "app.c082ce5610882b01": "Die Gegenstandszähler für !session werden im Fenster Verfolgte Gegenstände im Tab „Sitzung“ eingerichtet.",
-  "app.90386afd09156873": "<b>1. Einen Build erstellen und aktivieren</b><br><br>Öffnen Sie <b>Build-Fortschritt</b> im Tab „Live“. Die Bibliothek kann mehrere Builds enthalten. Sie können Builds erstellen, konfigurieren, duplizieren, löschen sowie als JSON-Dateien importieren und exportieren.<br><br>Es wird immer nur ein Build verfolgt. Wählen Sie auf seiner Karte <b>Aktivieren</b>. Das Bearbeiten eines anderen Builds aktiviert ihn nicht."
+  "app.90386afd09156873": "<b>1. Einen Build erstellen und aktivieren</b><br><br>Öffnen Sie <b>Build-Fortschritt</b> im Tab „Live“. Die Bibliothek kann mehrere Builds enthalten. Sie können Builds erstellen, konfigurieren, duplizieren, löschen sowie als JSON-Dateien importieren und exportieren.<br><br>Es wird immer nur ein Build verfolgt. Wählen Sie auf seiner Karte <b>Aktivieren</b>. Das Bearbeiten eines anderen Builds aktiviert ihn nicht.",
+  "app.99e3bb0df7053c86": "Bericht fertig",
+  "app.132d124d6bb3d811": "Unterbrochen",
+  "app.b6ce788d9786917c": "Bericht",
+  "app.5218a4de3d5bdf19": "Link zum Validator-Bericht kopieren",
+  "app.54b0d5b5d0e59b2a": "Validator-Bericht öffnen",
+  "app.ed077f3d8125d60d": "Öffnen",
+  "app.757506b08693294a": "Letzte Berichte",
+  "app.8a4c976d4e4742c8": "Validator-Status",
+  "app.a6a32dbc5618ea39": "Link",
+  "app.7f1ce72372728bca": "Noch keine Validator-Berichte",
+  "app.bf63a9fb460208bd": "Der Berichtsverlauf konnte nicht gespeichert werden.",
+  "app.99c40ab405926cb5": "Datum",
+  "app.d676b8c185df45a0": "Letzter Bericht"
 }

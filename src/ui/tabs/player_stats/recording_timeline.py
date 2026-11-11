@@ -103,7 +103,7 @@ class RecordingTimelineView:
 
     # -- construction ---------------------------------------------------------
 
-    def install(self, content_layout) -> None:
+    def install(self, content_layout, *, validator_strip=None) -> None:
         """Create the strip's widgets and place them in the tab's layout.
 
         The widget order, the stretch, and the two direct ``addWidget`` calls
@@ -139,6 +139,8 @@ class RecordingTimelineView:
         self._timeline_label = l10n.localized(QLabel, l10n.tr('Live stats'))
         controls.addWidget(self._record_btn)
         controls.addWidget(hotkey_hint, 0, Qt.AlignVCenter)
+        if validator_strip is not None:
+            controls.addWidget(validator_strip, 0, Qt.AlignVCenter)
         controls.addStretch(1)
         controls.addWidget(self._timeline_label)
         content_layout.addLayout(controls)

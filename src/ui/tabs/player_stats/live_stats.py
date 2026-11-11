@@ -433,6 +433,7 @@ class LiveStatsTab:
         on_snapshot_selected: Callable[..., None],
         build_progression_snapshot: Callable[[], object | None] = lambda: None,
         open_build_progression_settings: Callable[[], None] = lambda: None,
+        validator_strip=None,
     ) -> None:
         self._tabview = tabview
         self._live_run_tracker = live_run_tracker
@@ -446,6 +447,7 @@ class LiveStatsTab:
         self._on_snapshot_selected = on_snapshot_selected
         self._build_progression_snapshot = build_progression_snapshot
         self._open_build_progression_settings = open_build_progression_settings
+        self._validator_strip = validator_strip
 
         # Widgets, all created by `build`. Declared here so the set this tab
         # owns is readable in one place rather than scattered through 260
@@ -1087,7 +1089,7 @@ class LiveStatsTab:
             on_toggle_recording=self._on_toggle_recording,
             on_snapshot_selected=_select_snapshot,
         )
-        self._recording_timeline.install(player_content_layout)
+        self._recording_timeline.install(player_content_layout, validator_strip=self._validator_strip)
 
         live_page = QWidget()
         live_page.setObjectName("LiveStatsPage")

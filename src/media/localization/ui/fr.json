@@ -1386,5 +1386,18 @@
   "app.a731a58c4cf35c01": "Twitch",
   "app.ef4791e898c5c4d7": "Surimpression en jeu",
   "app.c082ce5610882b01": "Les compteurs d’objets de !session se configurent dans la fenêtre Objets suivis, depuis l’onglet Session.",
-  "app.90386afd09156873": "<b>1. Créer un build et l’activer</b><br><br>Ouvrez <b>Progression du build</b> dans l’onglet En direct. La bibliothèque peut contenir plusieurs builds. Vous pouvez les créer, les configurer, les dupliquer, les supprimer et les importer ou exporter au format JSON.<br><br>Un seul build est suivi à la fois. Choisissez <b>Activer</b> sur sa fiche. Modifier un autre build ne l’active pas."
+  "app.90386afd09156873": "<b>1. Créer un build et l’activer</b><br><br>Ouvrez <b>Progression du build</b> dans l’onglet En direct. La bibliothèque peut contenir plusieurs builds. Vous pouvez les créer, les configurer, les dupliquer, les supprimer et les importer ou exporter au format JSON.<br><br>Un seul build est suivi à la fois. Choisissez <b>Activer</b> sur sa fiche. Modifier un autre build ne l’active pas.",
+  "app.99e3bb0df7053c86": "Rapport prêt",
+  "app.132d124d6bb3d811": "Interrompu",
+  "app.b6ce788d9786917c": "Rapport",
+  "app.5218a4de3d5bdf19": "Copier le lien du rapport Validator",
+  "app.54b0d5b5d0e59b2a": "Ouvrir le rapport Validator",
+  "app.ed077f3d8125d60d": "Ouvrir",
+  "app.757506b08693294a": "Rapports récents",
+  "app.8a4c976d4e4742c8": "État du Validator",
+  "app.a6a32dbc5618ea39": "Lien",
+  "app.7f1ce72372728bca": "Aucun rapport Validator pour le moment",
+  "app.bf63a9fb460208bd": "Impossible d’enregistrer l’historique des rapports.",
+  "app.99c40ab405926cb5": "Date",
+  "app.d676b8c185df45a0": "Dernier rapport"
 }

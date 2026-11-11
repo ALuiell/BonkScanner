@@ -9,6 +9,7 @@ from pathlib import Path
 import threading
 import time
 from typing import Any
+from uuid import uuid4
 
 from infra import paths
 
@@ -188,6 +189,8 @@ class VodMetadata:
     run_seed: int | None = None
     character_id: int | None = None
     character_name: str | None = None
+    recording_id: str | None = None
+    mob_kills: int | None = None
 
     @property
     def created_label(self) -> str:
@@ -226,6 +229,8 @@ def _metadata_to_index_record(metadata: VodMetadata, *, mtime_ns: int, size: int
             "run_seed": metadata.run_seed,
             "character_id": metadata.character_id,
             "character_name": metadata.character_name,
+            "recording_id": metadata.recording_id,
+            "mob_kills": metadata.mob_kills,
         },
     }
 
@@ -242,6 +247,8 @@ def _metadata_from_index_record(record: dict[str, Any]) -> tuple[Path, int, int,
         snapshot_count=int(raw.get("snapshot_count") or 0),
         run_seed=raw.get("run_seed"),
         character_id=_coerce_optional_int(raw.get("character_id")),
+        recording_id=raw["recording_id"] if isinstance(raw.get("recording_id"), str) else None,
+        mob_kills=_coerce_optional_int(raw.get("mob_kills")),
         character_name=(
             str(raw.get("character_name")) if raw.get("character_name") else None
         ),
@@ -362,6 +369,7 @@ class VodRecorder:
         self._run_seed: int | None = None
         self._character_id: int | None = None
         self._character_name: str | None = None
+        self._recording_id: str | None = None
         self._final_duration_seconds: int | None = None
         self.powerup_history = PowerupHistory()
 
@@ -400,6 +408,7 @@ class VodRecorder:
         self._run_seed = seed
         self._character_id = character_id
         self._character_name = character_name
+        self._recording_id = uuid4().hex
         self._final_duration_seconds = None
         self.name = name or _automatic_vod_name(default_prefix, created_at)
         self.start_time = self.clock()
@@ -419,6 +428,7 @@ class VodRecorder:
                     "run_seed": seed,
                     "character_id": character_id,
                     "character_name": character_name,
+                    "recording_id": self._recording_id,
                 },
                 flush=True,
             )
@@ -556,6 +566,8 @@ class VodRecorder:
             run_seed=self._run_seed,
             character_id=self._character_id,
             character_name=self._character_name,
+            recording_id=self._recording_id,
+            mob_kills=self._max_mob_kills,
         )
 
     def should_capture(self) -> bool:
@@ -982,6 +994,13 @@ def _metadata_from_records(
         snapshot_count=snapshot_count,
         run_seed=run_seed,
         character_id=_coerce_optional_int(metadata_record.get("character_id")),
+        recording_id=(
+            metadata_record["recording_id"] if isinstance(metadata_record.get("recording_id"), str) else None
+        ),
+        mob_kills=(
+            _coerce_optional_int(summary_record.get("mob_kills"))
+            if summary_record is not None else None
+        ),
         character_name=(
             str(metadata_record.get("character_name"))
             if metadata_record.get("character_name")

@@ -552,6 +552,8 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual([vod.name for vod in vods], ["Test run"])
 
             renamed = rename_vod(path, "Renamed run")
+            self.assertEqual(renamed.recording_id, recorder.current_metadata().recording_id)
+            self.assertTrue(renamed.recording_id)
             self.assertEqual(renamed.name, "Renamed run")
             self.assertEqual(renamed.path.name, "Renamed run.jsonl")
             self.assertFalse(path.exists())

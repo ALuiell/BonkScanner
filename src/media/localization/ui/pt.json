@@ -1386,5 +1386,18 @@
   "app.a731a58c4cf35c01": "Twitch",
   "app.ef4791e898c5c4d7": "Sobreposição no jogo",
   "app.c082ce5610882b01": "Os contadores de itens de !session são configurados na janela Itens acompanhados, na aba Sessão.",
-  "app.90386afd09156873": "<b>1. Crie uma build e ative-o</b><br><br>Abra <b>Progresso da build</b> na aba Ao vivo. A biblioteca pode guardar vários builds. Você pode criá-los, configurá-los, duplicá-los, excluí-los e importá-los ou exportá-los como arquivos JSON.<br><br>Apenas uma build é acompanhado por vez. Selecione <b>Ativar</b> no cartão dele. Editar outra build não o ativa."
+  "app.90386afd09156873": "<b>1. Crie uma build e ative-o</b><br><br>Abra <b>Progresso da build</b> na aba Ao vivo. A biblioteca pode guardar vários builds. Você pode criá-los, configurá-los, duplicá-los, excluí-los e importá-los ou exportá-los como arquivos JSON.<br><br>Apenas uma build é acompanhado por vez. Selecione <b>Ativar</b> no cartão dele. Editar outra build não o ativa.",
+  "app.99e3bb0df7053c86": "Relatório pronto",
+  "app.132d124d6bb3d811": "Interrompido",
+  "app.b6ce788d9786917c": "Relatório",
+  "app.5218a4de3d5bdf19": "Copiar link do relatório do Validator",
+  "app.54b0d5b5d0e59b2a": "Abrir relatório do Validator",
+  "app.ed077f3d8125d60d": "Abrir",
+  "app.757506b08693294a": "Relatórios recentes",
+  "app.8a4c976d4e4742c8": "Estado do Validator",
+  "app.a6a32dbc5618ea39": "Link",
+  "app.7f1ce72372728bca": "Ainda não há relatórios do Validator",
+  "app.bf63a9fb460208bd": "Não foi possível salvar o histórico de relatórios.",
+  "app.99c40ab405926cb5": "Data",
+  "app.d676b8c185df45a0": "Último relatório"
 }

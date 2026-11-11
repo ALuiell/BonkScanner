@@ -96,32 +96,18 @@ QPushButton#premiumAccessBadge:pressed {
     border-color: rgba(85, 166, 226, 0.64);
 }
 QPushButton#validatorStatus {
-    color: #B9C2CE;
-    background-color: #141A22;
-    border: 1px solid #2A3542;
-    border-radius: 8px;
-    min-height: 26px;
-    padding: 0 9px;
-    font-size: 11px;
-    font-weight: 600;
-}
-QPushButton#validatorStatus[tone="pending"] {
-    color: #A9D3F5;
-    background-color: #192C40;
-    border-color: #38495E;
-}
-QPushButton#validatorStatus[tone="active"] {
-    color: #7DE68C;
-    background-color: #172820;
-    border-color: #345344;
-}
-QPushButton#validatorStatus[tone="warning"] {
-    color: #F6C788;
-    background-color: #292019;
-    border-color: #614833;
+    color: #8A94A3;
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    min-height: 20px;
+    padding: 0 4px;
+    font-size: 12px;
+    font-weight: 700;
 }
 QPushButton#validatorStatus:hover, QPushButton#validatorStatus:focus {
-    border-color: #3E82C6;
+    background-color: #1A242F;
+    border-color: #32485D;
 }
 QLabel#validatorTitle {
     color: #EDF1F5;
@@ -135,6 +121,65 @@ QFrame#validatorRunCard {
 }
 QFrame#validatorRunCard QLabel {
     background: transparent;
+}
+QFrame#validatorReportStrip {
+    background: #141C28;
+    border: 1px solid #2D3C52;
+    border-radius: 6px;
+}
+QFrame#validatorReportStrip QLabel {
+    background: transparent;
+}
+QFrame#validatorDivider {
+    background: #2B3546;
+    border: 0;
+}
+QPushButton#validatorInlineAction {
+    background: transparent;
+    color: #C4E0F6;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 4px;
+}
+QPushButton#validatorInlineAction:hover, QPushButton#validatorInlineAction:focus {
+    background: #23354B;
+    border-color: #405A74;
+}
+QLabel#validatorHistoryTitle {
+    color: #E7ECF5;
+    font-size: 14px;
+    font-weight: 700;
+}
+QFrame#validatorHistoryRow {
+    background: #151C27;
+    border: 1px solid #2B3546;
+    border-radius: 8px;
+    min-height: 52px;
+}
+QFrame#validatorHistoryRow QLabel, QWidget#validatorHistoryCell {
+    background: transparent;
+}
+QLabel#validatorRunName, QLabel#validatorRunKills {
+    color: #E6ECF5;
+    font-weight: 600;
+}
+QLabel#validatorHistoryMuted {
+    color: #99AABD;
+}
+QLabel#validatorCoverageNote {
+    color: #DFB773;
+}
+QPushButton#validatorHistoryAction {
+    color: #C4E0F6;
+    background: #1B2839;
+    border: 1px solid #344860;
+    border-radius: 6px;
+    padding: 4px 7px;
+    min-height: 17px;
+}
+QPushButton#validatorHistoryAction:hover, QPushButton#validatorHistoryAction:focus {
+    background: #273B52;
+    border-color: #4D7195;
 }
 QFrame#headerDivider {           /* вертикальный разделитель 1x18 */
     background-color: #232B36;

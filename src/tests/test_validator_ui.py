@@ -6,7 +6,9 @@ from unittest.mock import patch
 from PySide6.QtWidgets import QApplication, QPushButton, QTabWidget, QWidget
 
 from app import config
+from app.validator_reports import ValidatorReport
 from ui.validator import SETTINGS_KEY, ValidatorTab
+from ui.validator_reports import ValidatorReportStrip
 
 
 class Controller:
@@ -62,6 +64,7 @@ class ValidatorUITests(unittest.TestCase):
         self.assertEqual(tabs.currentIndex(), 0)
         self.button.click()
         self.assertIs(tabs.currentWidget(), tab)
+        self.assertEqual(self.button.text(), 'VAL')
         self.assertEqual(self.button.accessibleName(), 'Validator · Off')
         self.assertIn('local observation', tab.delivery.text())
         self.assertFalse(tab.copy_link.isEnabled())
@@ -167,3 +170,17 @@ class ValidatorUITests(unittest.TestCase):
         self.assertIn('Last report', tab.delivery.text())
         self.assertIn('unconfirmed', tab.delivery.text())
         self.assertFalse(tab.copy_link.isEnabled())
+
+    def test_recording_report_action_rechecks_the_selected_recording(self):
+        shown = ValidatorReport('https://validator.example/v2/sessions/shown', '2026-11-11T18:42:00Z', 'finished')
+        selection = [shown]
+        strip = ValidatorReportStrip(lambda: selection[0])
+        self.addCleanup(strip.deleteLater)
+        strip.update_report(shown)
+        with patch('ui.validator_reports.QDesktopServices.openUrl') as open_url:
+            selection[0] = None
+            strip.action.click()
+            open_url.assert_not_called()
+            selection[0] = shown
+            strip.action.click()
+            self.assertEqual(open_url.call_args.args[0].toString(), shown.url)

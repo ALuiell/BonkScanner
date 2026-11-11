@@ -365,13 +365,6 @@ def _build_header(app, parent_layout):
     )
     app.supporter_access.add_listener(app.premium_access_badge.set_access_state)
     app._validator_tab = None
-    if (controller := getattr(app.coordinator, 'validator', None)) is not None:
-        from ui.validator import ValidatorTab
-
-        validator_button = QPushButton()
-        validator_button.setObjectName('validatorStatus')
-        app._validator_tab = ValidatorTab(controller, validator_button)
-        status_cluster_layout.addWidget(validator_button, 0, Qt.AlignVCenter)
     status_cluster_layout.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
     # The access state may make the badge visible immediately. Reparent it via
     # the layout first so an active Premium account cannot flash a transient
@@ -425,6 +418,18 @@ def _build_header(app, parent_layout):
     # does: it is a thing the app is doing that nothing else on screen shows.
     app.rec_flag = RecordingFlag()
     header.addWidget(app.rec_flag, 0, Qt.AlignVCenter)
+    if (controller := getattr(app.coordinator, 'validator', None)) is not None:
+        from ui.validator import ValidatorTab
+
+        validator_button = QPushButton()
+        validator_button.setObjectName('validatorStatus')
+        validator_button.setCursor(Qt.PointingHandCursor)
+        validator_button.setFocusPolicy(Qt.ClickFocus)
+        app._validator_tab = ValidatorTab(
+            controller, validator_button, reports=app.runtime.validator_reports,
+            recordings=lambda: app.vod_library.index,
+        )
+        header.addWidget(validator_button, 0, Qt.AlignVCenter)
 
     app.session_meta_label = l10n.localized(QLabel, l10n.tr('Session 00:00:00'))
     app.session_meta_label.setObjectName("sessionMeta")
@@ -1465,8 +1470,11 @@ def _build_recordings_view(app, timeline_series_slots):
         schedule=app.marshal_to_ui,
         timeline_series_slots=timeline_series_slots,
         active_recording_feed=app.runtime.active_recording_feed,
+        validator_report=app.runtime.validator_reports.for_recording if app.runtime.validator_reports else None,
     )
     view.build()
+    if app._validator_tab is not None:
+        app._validator_tab.bind_recordings(view.refresh_validator_report)
     app.vod_library.subscribe(
         invalidate=view.invalidate_vods_list,
         repaint=view.refresh_vods_list,
@@ -1519,6 +1527,7 @@ def _build_live_stats_view(app):
         on_snapshot_selected=_select_snapshot,
         build_progression_snapshot=lambda: app.coordinator.build_progression_service.snapshot(),
         open_build_progression_settings=lambda: _open_build_progression_settings(app),
+        validator_strip=app._validator_tab.create_live_strip() if app._validator_tab else None,
     )
     return view.build()
 

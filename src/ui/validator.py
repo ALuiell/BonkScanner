@@ -2,16 +2,17 @@
 from __future__ import annotations
 
 import os
-from urllib.parse import quote
 
-from PySide6.QtCore import QSignalBlocker, Qt, QTimer
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
 )
 
 from app import config
+from app.validator_reports import report_url
 from ui import i18n as l10n
+from ui.validator_reports import ValidatorHistory, ValidatorReportStrip, validator_icon
 
 
 SETTINGS_KEY = 'LIVE_VALIDATOR'
@@ -23,10 +24,17 @@ def _preferences(settings):
 
 
 class ValidatorTab(QScrollArea):
-    def __init__(self, controller, header_button, parent=None):
+    def __init__(self, controller, header_button, parent=None, *, reports=None, recordings=lambda: ()):
         super().__init__(parent)
         self.controller = controller
         self.header_button = header_button
+        self.header_button.setText('VAL')
+        self.header_button.setIconSize(QSize(10, 10))
+        self._reports = reports
+        self._recordings = recordings
+        self._known_recordings = ()
+        self._live_strip = None
+        self._refresh_recording_report = None
         self._startup_checked = False
         self._active_base = ''
         self._current_link = ''
@@ -80,11 +88,9 @@ class ValidatorTab(QScrollArea):
         self.copy_link.clicked.connect(self._copy_link)
         link_row.addWidget(self.run_id, 1)
         link_row.addWidget(self.copy_link)
-        run_layout.addLayout(link_row)
         self.copy_feedback = self._plain_label()
         self.copy_feedback.setObjectName('dialogHint')
         self.copy_feedback.hide()
-        run_layout.addWidget(self.copy_feedback)
         layout.addWidget(run_card)
 
         actions = QHBoxLayout()
@@ -102,9 +108,18 @@ class ValidatorTab(QScrollArea):
         layout.addLayout(actions)
 
         self.diagnostics = self._build_diagnostics(settings)
+        self.diagnostics.layout().addLayout(link_row)
+        self.diagnostics.layout().addWidget(self.copy_feedback)
         self.diagnostics.hide()
         self.diagnostics_toggle.toggled.connect(self.diagnostics.setVisible)
         layout.addWidget(self.diagnostics)
+        if reports is not None:
+            self._history = ValidatorHistory()
+            layout.addWidget(self._history)
+            self._history_feedback = l10n.localized(QLabel, l10n.tr('Report history could not be saved.'))
+            self._history_feedback.setObjectName('dialogHint')
+            self._history_feedback.hide()
+            layout.addWidget(self._history_feedback)
         layout.addStretch()
 
         self._timer = QTimer(self)
@@ -187,6 +202,7 @@ class ValidatorTab(QScrollArea):
             self._show_settings_feedback(l10n.tr('Validator service settings saved.'))
 
     def _enable(self):
+        self.refresh()
         base, allow_loopback = self._endpoint()
         if self.controller.enable(base, allow_loopback=allow_loopback):
             self._active_base = base
@@ -208,6 +224,8 @@ class ValidatorTab(QScrollArea):
 
     def refresh(self):
         snapshot = self.controller.snapshot()
+        if self._reports is not None:
+            self._reports.refresh(snapshot, self._active_base)
         state = snapshot['state']
         coverage = snapshot['coverage']
         if state == 'observing' and any(
@@ -240,13 +258,12 @@ class ValidatorTab(QScrollArea):
             tone = 'warning'
         self.state.setText(detail)
         caption = l10n.tr('Validator · {p0}', p0=short)
-        self.header_button.setText(f'●  {caption}')
         self.header_button.setAccessibleName(caption)
-        self.header_button.setToolTip(detail)
+        self.header_button.setToolTip(f'{l10n.tr("Live Validator")} · {detail}')
         if self.header_button.property('tone') != tone:
             self.header_button.setProperty('tone', tone)
-            self.header_button.style().unpolish(self.header_button)
-            self.header_button.style().polish(self.header_button)
+            color = {'active': '#75B9E4', 'warning': '#DFB773'}.get(tone, '#5C6675')
+            self.header_button.setIcon(validator_icon('dot', color, 10))
 
         channel_names = {'processAccess': l10n.tr('Process access'),
                          'environment': l10n.tr('Game environment'),
@@ -258,6 +275,21 @@ class ValidatorTab(QScrollArea):
             for name, value in coverage.items()
         ) or l10n.tr('Coverage: unknown'))
         self._refresh_delivery(snapshot)
+        if self._reports is not None:
+            if self.isVisible():
+                self._history.update_reports(self._reports.recent(self._known_recordings))
+            self._history_feedback.setVisible(self._reports.save_failed)
+            if self._live_strip is not None:
+                current = ((snapshot.get('delivery') or {}).get('runs') or {}).get(snapshot['active_run_id'], {})
+                fallback = (
+                    l10n.tr('Registering session') if current.get('status') == 'enrolling'
+                    else short if snapshot['enabled'] or snapshot['busy'] else None
+                )
+                self._live_strip.update_report(
+                    self._reports.live(), fallback, last=not snapshot['active_run_id'],
+                )
+            if self._refresh_recording_report is not None:
+                self._refresh_recording_report()
 
         self.enable.setVisible(not snapshot['enabled'])
         self.enable.setEnabled(not snapshot['busy'])
@@ -278,9 +310,7 @@ class ValidatorTab(QScrollArea):
         self.run_id.setText(session_id or '')
         self.copy_link.setVisible(bool(session_id))
         self.copy_link.setEnabled(bool(session_id))
-        self._current_link = (
-            f"{self._active_base}/v2/sessions/{quote(session_id, safe='')}" if session_id else ''
-        )
+        self._current_link = report_url(self._active_base, session_id)
         if self._current_link != self._copied_link:
             self._copied_link = ''
             self.copy_feedback.hide()
@@ -306,3 +336,19 @@ class ValidatorTab(QScrollArea):
     def add_to(self, tabs):
         l10n.tab(tabs, self, l10n.tr('Validator'))
         self.header_button.clicked.connect(lambda: tabs.setCurrentWidget(self))
+
+    def create_live_strip(self):
+        self._live_strip = ValidatorReportStrip(self._live_report_for_action, copy=True)
+        return self._live_strip
+
+    def _live_report_for_action(self):
+        self.refresh()
+        return self._reports.live()
+
+    def bind_recordings(self, refresh):
+        self._refresh_recording_report = refresh
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._known_recordings = self._recordings()
+        self.refresh()
