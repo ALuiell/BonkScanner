@@ -41,6 +41,7 @@ import src
 from PySide6.QtCore import QEvent, QObject
 from PySide6.QtWidgets import QApplication, QTabWidget, QWidget
 from app import config
+from core.localization import LANGUAGE_CONFIG_KEY
 from gui_app import MegabonkApp
 
 unhandled = []
@@ -50,8 +51,9 @@ def record_unhandled(exc_type, exc_value, exc_traceback):
     print(formatted, file=sys.stderr)
 sys.excepthook = record_unhandled
 
-config.save_config = lambda *_args, **_kwargs: None
+config.save_config = lambda _candidate: config.ConfigSaveResult(True)
 config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
+config.user_config[LANGUAGE_CONFIG_KEY] = "en"
 app = MegabonkApp()
 qt = QApplication.instance()
 app.window.show()
@@ -71,7 +73,7 @@ def page_for(caption):
     return index, tabs.widget(index)
 
 
-compare_index, page = page_for("Compare Runs")
+compare_index, page = page_for("Compare")
 recordings_index, recordings_page = page_for("Recordings")
 """
 
@@ -119,9 +121,11 @@ class LazyTabsTests(unittest.TestCase):
             assert recordings_page.findChild(QWidget, "RecordingsLoadingPage") is not None
             assert recordings_page.findChild(QWidget, "RecordingsLoadingSpinner") is not None
 
-            # The tab bar is unchanged: same positions, same captions.
-            assert tabs.tabText(compare_index) == "Compare Runs"
-            assert tabs.tabText(recordings_index) == "Recordings"
+            validator_tabs = ["Validator"] if app.coordinator.validator is not None else []
+            assert [tabs.tabText(index) for index in range(tabs.count())] == [
+                "Logs", "Session", "Live", "Recordings", *validator_tabs,
+                "Compare", "OBS", "Twitch", "Game Overlay",
+            ]
 
             # And the heavy workspace widgets do not exist yet. `__init__`
             # declares them None precisely so this state is representable.
@@ -133,7 +137,7 @@ class LazyTabsTests(unittest.TestCase):
             # Live Stats is built eagerly and must stay that way: the recording
             # path writes into it with no active-tab gate. A future change that
             # defers it would land here first.
-            live_page = page_for("Live Stats")[1]
+            live_page = page_for("Live")[1]
             assert live_page.findChildren(QWidget), "Live Stats stopped building eagerly"
             """
         )

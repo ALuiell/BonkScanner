@@ -28,7 +28,8 @@ from projections.in_game_html import (
 from ui.dialogs.map_markers import MapMarkerBindingDialog, MapMarkerSettingsDialog
 from ui.layout import _is_tab_active
 from ui.localization import localization
-from ui.overlay_localization import action_name, bind_overlay_tab
+from ui import i18n
+from ui.overlay_localization import action_name
 
 
 class NativeOverlayLocalizationTests(unittest.TestCase):
@@ -116,8 +117,7 @@ class NativeOverlayLocalizationTests(unittest.TestCase):
         self.addCleanup(stats.deleteLater)
         self.addCleanup(weapons.deleteLater)
         pages = QTabWidget()
-        pages.addTab(owner.tab_in_game_overlay, "In-Game Overlay")
-        bind_overlay_tab(pages, owner.tab_in_game_overlay)
+        i18n.tab(pages, owner.tab_in_game_overlay, i18n.tr("Game Overlay"))
         self.addCleanup(pages.deleteLater)
         before = deepcopy(config.IN_GAME_OVERLAY)
         handler.reset_mock()
@@ -125,7 +125,8 @@ class NativeOverlayLocalizationTests(unittest.TestCase):
             for code in SUPPORTED_LANGUAGES:
                 with self.subTest(locale=code):
                     self.switch(code)
-                    self.assertTrue(_is_tab_active(pages, "In-Game Overlay"))
+                    self.assertTrue(_is_tab_active(pages, "Game Overlay"))
+                    self.assertEqual(pages.tabText(0), str(i18n.tr("Game Overlay")))
                     self.assertEqual(stats.windowTitle(), overlay_text(self.service.translator, "Stats shown by the Stats widget"))
                     self.assertEqual(stats.stats_checkboxes["Damage"].text(), self.service.translator.game_name("stats", "Damage"))
                     self.assertEqual(weapons.metric_checkboxes["damage"].text(), self.service.translator.game_name("stats", "Damage"))

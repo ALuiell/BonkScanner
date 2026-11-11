@@ -24,7 +24,7 @@ class StartupWindowOrderTests(unittest.TestCase):
             from app import config
             from gui_app import MegabonkApp
 
-            config.save_config = lambda *_args, **_kwargs: None
+            config.save_config = lambda _candidate: config.ConfigSaveResult(True)
             config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
             app = MegabonkApp()
             # Keep an assertion failure from reaching interpreter teardown with
@@ -118,7 +118,7 @@ class StartupWindowOrderTests(unittest.TestCase):
             from app import config
             from gui_app import MegabonkApp
 
-            config.save_config = lambda *_args, **_kwargs: None
+            config.save_config = lambda _candidate: config.ConfigSaveResult(True)
             config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
             config.user_config["LIVE_VALIDATOR"] = {"autostart": True}
             qt = MegabonkApp._ensure_qt_application()

@@ -2626,7 +2626,7 @@ class TwitchCommandSettingsDialog(QDialog):
         # response template.
         twitch_tracked_group = CollapsibleSection(l10n.tr('!session Command Settings'), expanded=False)
         twitch_tracked_layout = twitch_tracked_group.body_layout
-        twitch_tracked_layout.addWidget(l10n.localized(QLabel, l10n.tr('Tracked item counters for !session are configured in the Tracked Items window, on the Session Stats tab.')))
+        twitch_tracked_layout.addWidget(l10n.localized(QLabel, l10n.tr('Tracked item counters for !session are configured in the Tracked Items window, on the Session tab.')))
 
         twitch_tracked_layout.addSpacing(10)
         session_form = QFormLayout()

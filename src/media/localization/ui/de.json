@@ -1378,5 +1378,13 @@
   "app.ccd47c7623fb3502": "Aktueller Lauf wird beobachtet",
   "app.e5125d9f63d2947b": "Eingeschränkt",
   "app.953b94a78c899073": "Letzter Bericht: {p0}",
-  "app.440a1a688ddbde57": "Warte auf Lauf"
+  "app.440a1a688ddbde57": "Warte auf Lauf",
+  "app.6959b4159575d8dd": "Sitzung",
+  "app.b64ac05f17e64d03": "Live",
+  "app.e888155d8c7d2e3c": "Vergleich",
+  "app.f4726ecd396f63e2": "OBS",
+  "app.a731a58c4cf35c01": "Twitch",
+  "app.ef4791e898c5c4d7": "Spiel-Overlay",
+  "app.c082ce5610882b01": "Die Gegenstandszähler für !session werden im Fenster Verfolgte Gegenstände im Tab „Sitzung“ eingerichtet.",
+  "app.90386afd09156873": "<b>1. Einen Build erstellen und aktivieren</b><br><br>Öffnen Sie <b>Build-Fortschritt</b> im Tab „Live“. Die Bibliothek kann mehrere Builds enthalten. Sie können Builds erstellen, konfigurieren, duplizieren, löschen sowie als JSON-Dateien importieren und exportieren.<br><br>Es wird immer nur ein Build verfolgt. Wählen Sie auf seiner Karte <b>Aktivieren</b>. Das Bearbeiten eines anderen Builds aktiviert ihn nicht."
 }

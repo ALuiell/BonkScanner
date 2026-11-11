@@ -1372,7 +1372,7 @@ class Scanner:
         # "the tab exists".
         self.stats_avg_layout = self._stats_view
         self.refresh_stats_ui()
-        self._add_tab(self.tab_stats, l10n.tr('Session Stats'))
+        self._add_tab(self.tab_stats, l10n.tr('Session'))
 
     def set_tracked_item_rows(self, rows) -> None:
         """Render the tracked-item rules. Called by the overlay component.

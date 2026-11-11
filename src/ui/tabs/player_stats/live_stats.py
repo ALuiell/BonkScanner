@@ -1616,7 +1616,7 @@ class LiveStatsTab:
         live_page_layout.setColumnStretch(1, 1)
         live_page_layout.setRowStretch(0, 1)
         player_content_layout.addWidget(live_page)
-        l10n.tab(self._tabview, self._root, l10n.tr('Live Stats'))
+        l10n.tab(self._tabview, self._root, l10n.tr('Live'))
         return self
 
     def format_live_powerups(self, stats) -> str:

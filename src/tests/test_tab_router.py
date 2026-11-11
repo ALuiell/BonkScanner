@@ -121,8 +121,8 @@ def build_router(
 
 class TabActiveTests(unittest.TestCase):
     def test_predicate_matches_the_showing_tab(self) -> None:
-        self.assertTrue(_is_tab_active(FakeTabWidget("Live Stats"), "Live Stats"))
-        self.assertFalse(_is_tab_active(FakeTabWidget("Logs"), "Live Stats"))
+        self.assertTrue(_is_tab_active(FakeTabWidget("Live"), "Live"))
+        self.assertFalse(_is_tab_active(FakeTabWidget("Logs"), "Live"))
 
     def test_predicate_answers_no_when_there_is_no_tab_bar(self) -> None:
         """The guard the four mixin predicates did not have.
@@ -131,11 +131,11 @@ class TabActiveTests(unittest.TestCase):
         or teardown caller would turn that into an `AttributeError` inside a
         Qt slot, where the originating UI action is already out of scope.
         """
-        self.assertFalse(_is_tab_active(None, "Live Stats"))
+        self.assertFalse(_is_tab_active(None, "Live"))
 
     def test_predicate_answers_no_when_the_bar_has_no_current_page(self) -> None:
         self.assertFalse(
-            _is_tab_active(FakeEmptyTabWidget("Live Stats"), "Live Stats")
+            _is_tab_active(FakeEmptyTabWidget("Live"), "Live")
         )
 
 
@@ -151,7 +151,7 @@ class RightTabRouterTests(unittest.TestCase):
         self.assertEqual(calls, ["vods", "vods_chooser"])
 
     def test_compare_runs_switch_refreshes_the_list_and_the_chooser(self) -> None:
-        router, calls, idle = build_router(active_tab="Compare Runs")
+        router, calls, idle = build_router(active_tab="Compare")
 
         router.on_right_tab_changed()
         idle[0]()
@@ -173,14 +173,14 @@ class RightTabRouterTests(unittest.TestCase):
 
     def test_refresh_right_tab_after_switch_immediately_refreshes_live_stats(self) -> None:
         """Moved from `test_gui_run_control.py`; same assertion, real object."""
-        router, calls, _idle = build_router(active_tab="Live Stats")
+        router, calls, _idle = build_router(active_tab="Live")
 
         router._refresh_right_tab_after_switch()
 
         self.assertEqual(calls, ["live"])
 
     def test_refresh_right_tab_after_switch_repaints_the_overlay_tab(self) -> None:
-        router, calls, _idle = build_router(active_tab="OBS Overlay")
+        router, calls, _idle = build_router(active_tab="OBS")
 
         router._refresh_right_tab_after_switch()
 

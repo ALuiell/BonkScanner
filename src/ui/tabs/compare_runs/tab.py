@@ -2471,7 +2471,7 @@ class CompareRunsTab:
         # captions, so whatever the dirty check last saw was written to widgets
         # that no longer exist.
         self._rendered_diff_cards = None
-        l10n.tab(self._tabview, self._tab, l10n.tr('Compare Runs'))
+        l10n.tab(self._tabview, self._tab, l10n.tr('Compare'))
 
     def _build_diff_card(self, title: str, initial_text: str):
         group = l10n.localized(QGroupBox, title)
@@ -2585,7 +2585,7 @@ class CompareRunsTab:
         self._disposed = False
         self._tab.destroyed.connect(self._on_tab_destroyed)
         self._tab.setObjectName("CompareRunsPage")
-        l10n.tab(self._tabview, self._tab, l10n.tr('Compare Runs'))
+        l10n.tab(self._tabview, self._tab, l10n.tr('Compare'))
 
     def _on_tab_destroyed(self, _object=None) -> None:
         """Invalidate trailing work without touching widgets being destroyed."""

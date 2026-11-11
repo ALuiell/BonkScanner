@@ -1378,5 +1378,13 @@
   "app.ccd47c7623fb3502": "Observation de la partie en cours",
   "app.e5125d9f63d2947b": "Limité",
   "app.953b94a78c899073": "Dernier rapport : {p0}",
-  "app.440a1a688ddbde57": "En attente d’une partie"
+  "app.440a1a688ddbde57": "En attente d’une partie",
+  "app.6959b4159575d8dd": "Session",
+  "app.b64ac05f17e64d03": "En direct",
+  "app.e888155d8c7d2e3c": "Comparaison",
+  "app.f4726ecd396f63e2": "OBS",
+  "app.a731a58c4cf35c01": "Twitch",
+  "app.ef4791e898c5c4d7": "Surimpression en jeu",
+  "app.c082ce5610882b01": "Les compteurs d’objets de !session se configurent dans la fenêtre Objets suivis, depuis l’onglet Session.",
+  "app.90386afd09156873": "<b>1. Créer un build et l’activer</b><br><br>Ouvrez <b>Progression du build</b> dans l’onglet En direct. La bibliothèque peut contenir plusieurs builds. Vous pouvez les créer, les configurer, les dupliquer, les supprimer et les importer ou exporter au format JSON.<br><br>Un seul build est suivi à la fois. Choisissez <b>Activer</b> sur sa fiche. Modifier un autre build ne l’active pas."
 }

@@ -34,11 +34,11 @@ Réinitialisations
 Principaux onglets
 ------------------
 - `Journal` : messages, avertissements, erreurs, filtres et recherche. Les détails techniques peuvent rester dans leur langue d’origine.
-- `Statistiques de session` : durée, réinitialisations, graines trouvées, cadence, meilleurs et moins bons résultats, compteurs d’objets suivis.
-- `Statistiques en direct` : données de la partie en cours et commandes d’enregistrement.
+- `Session` : durée, réinitialisations, graines trouvées, cadence, meilleurs et moins bons résultats, compteurs d’objets suivis.
+- `En direct` : données de la partie en cours et commandes d’enregistrement.
 - `Enregistrements` : consultation, renommage, suppression et nettoyage des parties enregistrées.
-- `Comparaison des parties` : deux enregistrements synchronisés avec leurs écarts.
-- `Surimpression OBS`, `Bot Twitch` et `Surimpression en jeu` : diffusion et widgets.
+- `Comparaison` : deux enregistrements synchronisés avec leurs écarts.
+- `OBS`, `Twitch` et `Surimpression en jeu` : diffusion et widgets.
 
 Statistiques en direct
 ----------------------
@@ -114,7 +114,7 @@ La surimpression se masque lorsque le jeu perd le premier plan et réapparaît �
 
 Bot Twitch
 ----------
-1. Ouvrez `Bot Twitch` et connectez votre compte. L’autorisation se déroule dans le navigateur via le service OAuth officiel de Twitch.
+1. Ouvrez `Twitch` et connectez votre compte. L’autorisation se déroule dans le navigateur via le service OAuth officiel de Twitch.
 2. Choisissez le canal de destination, les utilisateurs autorisés, les délais, les commandes et les annonces.
 3. Démarrez le bot. Par défaut, il rejoint le canal du compte autorisé ; avec un compte de bot distinct, indiquez le canal du streamer.
 
