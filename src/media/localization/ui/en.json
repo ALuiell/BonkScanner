@@ -1320,5 +1320,13 @@
   "app.fc15ac4000d97ca7": "{p0} of attributed kills",
   "app.52a5d13335ad0cf2": "Attributed Kills",
   "app.4ad79d97e2c31194": "Kill data unavailable",
-  "app.0c874f581a4534f1": "Damage"
+  "app.0c874f581a4534f1": "Damage",
+  "app.6959b4159575d8dd": "Session",
+  "app.b64ac05f17e64d03": "Live",
+  "app.e888155d8c7d2e3c": "Compare",
+  "app.f4726ecd396f63e2": "OBS",
+  "app.a731a58c4cf35c01": "Twitch",
+  "app.ef4791e898c5c4d7": "Game Overlay",
+  "app.c082ce5610882b01": "Tracked item counters for !session are configured in the Tracked Items window, on the Session tab.",
+  "app.90386afd09156873": "<b>1. Create a build and make it active</b><br><br>Open <b>Build Progression</b> from the Live tab. Your library can hold multiple builds: create, configure, duplicate, delete, import, or export them as JSON files.<br><br>Only one build is tracked at a time. Select <b>Set Active</b> on its library card; editing another build does not activate it."
 }

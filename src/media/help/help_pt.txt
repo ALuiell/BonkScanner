@@ -34,11 +34,11 @@ Reinícios
 Abas principais
 ---------------
 - `Registro`: mensagens, avisos, erros, filtros e busca. Os detalhes técnicos podem permanecer no idioma original.
-- `Estatísticas da sessão`: duração, reinícios, sementes encontradas, ritmo, melhores e piores mapas e contadores de itens acompanhados.
-- `Estatísticas em tempo real`: dados da partida atual e controles de gravação.
+- `Sessão`: duração, reinícios, sementes encontradas, ritmo, melhores e piores mapas e contadores de itens acompanhados.
+- `Ao vivo`: dados da partida atual e controles de gravação.
 - `Gravações`: consultar, renomear, excluir e limpar partidas salvas.
-- `Comparar partidas`: duas gravações sincronizadas e suas diferenças.
-- `Sobreposição do OBS`, `Bot do Twitch` e `Sobreposição no jogo`: transmissão e widgets.
+- `Comparar`: duas gravações sincronizadas e suas diferenças.
+- `OBS`, `Twitch` e `Sobreposição no jogo`: transmissão e widgets.
 
 Estatísticas em tempo real
 -------------------------
@@ -114,7 +114,7 @@ A sobreposição é ocultada quando o jogo sai do primeiro plano e reaparece qua
 
 Bot do Twitch
 -------------
-1. Abra `Bot do Twitch` e conecte sua conta. A autorização acontece no navegador pelo serviço OAuth oficial do Twitch.
+1. Abra `Twitch` e conecte sua conta. A autorização acontece no navegador pelo serviço OAuth oficial do Twitch.
 2. Escolha o canal de destino, quem pode usar os comandos, os intervalos, os comandos e os anúncios.
 3. Inicie o bot. Por padrão, ele entra no canal da conta autorizada; se você usar uma conta de bot separada, informe o canal do streamer.
 

@@ -1320,5 +1320,13 @@
   "app.fc15ac4000d97ca7": "{p0} de las bajas atribuidas",
   "app.52a5d13335ad0cf2": "Bajas atribuidas",
   "app.4ad79d97e2c31194": "Datos de bajas no disponibles",
-  "app.0c874f581a4534f1": "Daño"
+  "app.0c874f581a4534f1": "Daño",
+  "app.6959b4159575d8dd": "Sesión",
+  "app.b64ac05f17e64d03": "En directo",
+  "app.e888155d8c7d2e3c": "Comparar",
+  "app.f4726ecd396f63e2": "OBS",
+  "app.a731a58c4cf35c01": "Twitch",
+  "app.ef4791e898c5c4d7": "Superposición en el juego",
+  "app.c082ce5610882b01": "Los contadores de objetos de !session se configuran en la ventana Objetos seguidos, desde la pestaña Sesión.",
+  "app.90386afd09156873": "<b>1. Crea un build y actívalo</b><br><br>Abre <b>Progreso de la build</b> desde la pestaña En directo. La biblioteca puede guardar varios builds. Puedes crearlos, configurarlos, duplicarlos, eliminarlos e importarlos o exportarlos como archivos JSON.<br><br>Solo se sigue un build a la vez. Selecciona <b>Activar</b> en su tarjeta. Editar otro build no lo activa."
 }

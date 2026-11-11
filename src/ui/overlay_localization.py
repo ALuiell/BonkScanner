@@ -69,16 +69,6 @@ def action_name(action):
     return f"{label} · {text(action.variant)}" if action.variant else label
 
 
-def bind_overlay_tab(tabview, page):
-    page.setProperty("translation_tab_id", "In-Game Overlay")
-    def refresh():
-        index = tabview.indexOf(page)
-        if index >= 0:
-            tabview.setTabText(index, text("In-Game Overlay"))
-    RefreshBinding(page, refresh)
-    refresh()
-
-
 def localized_dialog_body(dialog, *, title, subtitle="", **kwargs):
     layout = dialog_body(dialog, title=title, subtitle=subtitle, **kwargs)
     bind(dialog.findChild(QLabel, "dialogTitle"), title)

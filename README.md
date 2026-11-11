@@ -115,7 +115,7 @@ active mode.
 
 ### Live Stats
 
-The `Live Stats` tab provides a real-time view of the current run. Recording is
+The `Live` tab provides a real-time view of the current run. Recording is
 not required for live tracking.
 
 - grouped player stat cards;

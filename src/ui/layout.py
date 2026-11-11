@@ -69,7 +69,6 @@ from ui.dialogs import (
 
 from app import config
 from ui.localization import bind_text
-from ui.overlay_localization import bind_overlay_tab
 
 
 def _is_tab_active(tabview, label: str) -> bool:
@@ -199,16 +198,16 @@ class TabRouter:
             compare_runs_view.ensure_compare_runs_chooser_for_empty_selection()
 
     def is_live_stats_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), l10n.tr('Live Stats'))
+        return _is_tab_active(self._tabview(), "Live")
 
     def is_overlay_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), l10n.tr('OBS Overlay'))
+        return _is_tab_active(self._tabview(), "OBS")
 
     def is_recordings_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), l10n.tr('Recordings'))
+        return _is_tab_active(self._tabview(), "Recordings")
 
     def is_compare_runs_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), l10n.tr('Compare Runs'))
+        return _is_tab_active(self._tabview(), "Compare")
 
     # `RecordingsListView`'s single operation (`app/player_stats_view.py`).
     # The underscore is the protocol's, not a privacy claim: `vod_capture` and
@@ -292,7 +291,7 @@ def build_layout(app):
     timeline_series_slots = TimelineSeriesSlots()
     app._recordings_view = _build_recordings_view(app, timeline_series_slots)
     app._compare_runs_view = _build_compare_runs_view(app, timeline_series_slots)
-    l10n.tab(app.tabview, app._overlay.build(), l10n.tr('OBS Overlay'))
+    l10n.tab(app.tabview, app._overlay.build(), l10n.tr('OBS'))
     # The ~240 lines that built the Twitch tab's widgets are
     # `TwitchTab.build()`'s now (step 23b).
     app._twitch_tab = _build_twitch_tab(app)
@@ -305,8 +304,7 @@ def build_layout(app):
     # builder list it belongs in, in the position that keeps the tab bar's
     # order identical.
     overlay_page = app._in_game_overlay.build()
-    l10n.tab(app.tabview, overlay_page, l10n.tr('In-Game Overlay'))
-    bind_overlay_tab(app.tabview, overlay_page)
+    l10n.tab(app.tabview, overlay_page, l10n.tr('Game Overlay'))
     for index in range(app.tabview.count()):
         app.tabview.widget(index).setObjectName("mainTabPage")
 
@@ -1344,7 +1342,7 @@ def _build_twitch_tab(app):
     from ui.tabs.twitch import TwitchTab
 
     view = TwitchTab()
-    l10n.tab(app.tabview, view.build(), l10n.tr('Twitch Bot'))
+    l10n.tab(app.tabview, view.build(), l10n.tr('Twitch'))
     return view
 
 

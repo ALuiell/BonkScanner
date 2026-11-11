@@ -1320,5 +1320,13 @@
   "app.fc15ac4000d97ca7": "{p0} dos abates atribuídos",
   "app.52a5d13335ad0cf2": "Abates atribuídos",
   "app.4ad79d97e2c31194": "Dados de abates indisponíveis",
-  "app.0c874f581a4534f1": "Dano"
+  "app.0c874f581a4534f1": "Dano",
+  "app.6959b4159575d8dd": "Sessão",
+  "app.b64ac05f17e64d03": "Ao vivo",
+  "app.e888155d8c7d2e3c": "Comparar",
+  "app.f4726ecd396f63e2": "OBS",
+  "app.a731a58c4cf35c01": "Twitch",
+  "app.ef4791e898c5c4d7": "Sobreposição no jogo",
+  "app.c082ce5610882b01": "Os contadores de itens de !session são configurados na janela Itens acompanhados, na aba Sessão.",
+  "app.90386afd09156873": "<b>1. Crie uma build e ative-o</b><br><br>Abra <b>Progresso da build</b> na aba Ao vivo. A biblioteca pode guardar vários builds. Você pode criá-los, configurá-los, duplicá-los, excluí-los e importá-los ou exportá-los como arquivos JSON.<br><br>Apenas uma build é acompanhado por vez. Selecione <b>Ativar</b> no cartão dele. Editar outra build não o ativa."
 }

@@ -937,16 +937,16 @@ class MegabonkApp:
     # differently -- and `self.tabview` is declared by `__init__`, so neither
     # is a hidden read.
     def _is_live_stats_tab_active(self) -> bool:
-        return _is_tab_active(self.tabview, "Live Stats")
+        return _is_tab_active(self.tabview, "Live")
 
     def _is_overlay_tab_active(self) -> bool:
-        return _is_tab_active(self.tabview, "OBS Overlay")
+        return _is_tab_active(self.tabview, "OBS")
 
     # Same shape, one tab over: the In-Game Overlay tab's preview repaints on a
     # timer and reads the game window while it does, so it asks first whether
     # anyone is looking. The title is the one `build_layout` registers.
     def _is_in_game_overlay_tab_active(self) -> bool:
-        return _is_tab_active(self.tabview, "In-Game Overlay")
+        return _is_tab_active(self.tabview, "Game Overlay")
 
     # -- player-stats refresh (step 20g) ----------------------------------
     #

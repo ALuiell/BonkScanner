@@ -43,14 +43,14 @@ Left side:
 
 Right side:
 - `Logs` - scanner activity, warnings, wait states, and match results.
-- `Session Stats` - session time, reroll count, RPM, best and worst maps, and averages per target.
-- `Session Stats > Roll Analytics` - separate Dice passive and Chaos Tome tabs. All 27 stats appear in one two-column table; `Sort by` changes their order across both columns. `Expected` shows the 27-stat reference model and signed differences, not a prediction. Select `Lifetime history` or `From recording`; choose a saved run, `Latest saved`, or `Open file...`. The last confirmed saved counters are read, without adding them to lifetime history; an earlier confirmed snapshot is labelled with its timestamp. Missing data is unavailable, not zero. Optional lifetime collection requires Premium and works without run recording; saved-data viewing remains available without Premium.
-- `Live Stats` - current run stats, items, weapons, tomes, and recording controls.
+- `Session` - session time, reroll count, RPM, best and worst maps, and averages per target.
+- `Session > Roll Analytics` - separate Dice passive and Chaos Tome tabs. All 27 stats appear in one two-column table; `Sort by` changes their order across both columns. `Expected` shows the 27-stat reference model and signed differences, not a prediction. Select `Lifetime history` or `From recording`; choose a saved run, `Latest saved`, or `Open file...`. The last confirmed saved counters are read, without adding them to lifetime history; an earlier confirmed snapshot is labelled with its timestamp. Missing data is unavailable, not zero. Optional lifetime collection requires Premium and works without run recording; saved-data viewing remains available without Premium.
+- `Live` - current run stats, items, weapons, tomes, and recording controls.
 - `Recordings` - saved recordings viewer with timeline, rename, delete, and cleanup actions.
-- `Compare Runs` - side-by-side comparison of two saved runs with synced in-game time and a central difference panel.
-- `OBS Overlay` - local browser-source overlay for stream layouts.
-- `Twitch Bot` - built-in Twitch bot for chat integration.
-- `In-Game Overlay` - transparent in-game window overlay.
+- `Compare` - side-by-side comparison of two saved runs with synced in-game time and a central difference panel.
+- `OBS` - local browser-source overlay for stream layouts.
+- `Twitch` - built-in Twitch bot for chat integration.
+- `Game Overlay` - transparent in-game window overlay.
 
 Reroll and Restart
 ------------------
@@ -62,7 +62,7 @@ Reroll and Restart
 
 Live Stats
 ----------
-The `Live Stats` tab shows:
+The `Live` tab shows:
 - current player stats;
 - passive items with rarity highlighting and sorting;
 - `Average chests/min`;
@@ -73,7 +73,7 @@ The `Live Stats` tab shows:
 - `Powerups`;
 - `Banishes`.
 
-Additional tabs inside `Live Stats`:
+Additional tabs inside `Live`:
 - `Stats` - main character stats;
 - `Weapons` - current weapons, their levels, and upgraded weapon stats. Each row shows the muted weapon value under `Weapon`, then its brighter value with global stats under `With globals`, separated by `/`. A dash in the second column means that value is unavailable or its calculation is not supported;
 - `Tomes` - current tomes, their levels, and active effects;
@@ -86,7 +86,7 @@ If some sections temporarily say that data is unavailable, that is not always an
 
 Recording and Recordings
 ------------------------
-- Recording can be started from `Live Stats` or through the `Record Hotkey`.
+- Recording can be started from `Live` or through the `Record Hotkey`.
 - Snapshots are saved using the interval from `Snapshot Interval (s)`.
 - Saved runs can later be reviewed in the `Recordings` tab.
 
@@ -109,7 +109,7 @@ Recording behavior:
 
 Compare Runs
 ------------
-- `Compare Runs` loads two saved recordings side by side as `Run A` and `Run B`.
+- `Compare` loads two saved recordings side by side as `Run A` and `Run B`.
 - If no runs are selected yet, the recordings chooser opens automatically the first time you enter this tab.
 - During that guided first selection, the chooser closes automatically after both runs are selected.
 - Snapshots can be compared by matched `In-Game Time`, so both runs stay aligned to the closest moment.
@@ -120,7 +120,7 @@ Compare Runs
 
 OBS Overlay
 -----------
-- `OBS Overlay` creates a small local web page that OBS can show as a Browser Source on top of gameplay.
+- `OBS` creates a small local web page that OBS can show as a Browser Source on top of gameplay.
 - It runs only on the same PC. The server binds to `127.0.0.1`, which means local computer only, not the public internet.
 - Turn on `OBS Overlay server`, then copy the `Local OBS URL` into an OBS Browser Source.
 - The URL looks like `http://127.0.0.1:17845/overlay`: `127.0.0.1` is your own PC, `17845` is the port, and `/overlay` is the overlay page.
@@ -132,7 +132,7 @@ OBS Overlay
 - **KPS Widget Settings**: For the KPS overlay widget, you can toggle its background opacity, headers, and customize the metrics shown (Current KPS, 60s Avg, 5m Avg, and Run Avg).
 - **Weapon Tracker Widget Settings**: Appearance, cap display, and displayed-stat controls are grouped into separate sections inside the widget card. With `Show caps` enabled, OBS uses the same inline progress format as the in-game overlay, for example `PROJ 5 / 12 (SC)`.
 - Tracked items count selected item gains, such as first-map item luck. Search for an item, choose whether it should count `Map 1 only`, then add it to the tracked list.
-- The Tracked Items widget uses its own custom list by default. Enable `Use Session Stats tracked items` to show the same counters as `Session Stats` without deleting the custom overlay list.
+- The Tracked Items widget uses its own custom list by default. Enable `Use Session Stats tracked items` to show the same counters as `Session` without deleting the custom overlay list.
 - The overlay page is transparent, so OBS should show only the compact text/widgets over the game instead of a large solid background.
 - **Widget Scaling**: In Layout Editor mode, hover over any widget to reveal a scale toolbar. Use `+` / `-` buttons or type a custom percentage (e.g. `125`) directly to zoom individual widgets.
 - **Widget Resizing**: Drag the bottom-right corner of any widget in Layout Editor to stretch its width and height. Stats and Banishes automatically reflow into multiple columns when widened.
@@ -145,7 +145,7 @@ In-Game Overlay
 ---------------
 - `In-Game Overlay` creates a transparent, floating window displayed directly on top of the game window.
 - It displays live information during gameplay without needing a second monitor or an OBS Browser Source.
-- Turn on `In-Game Overlay` in its app tab, or enable `Auto-start overlay` there to launch it automatically.
+- Turn on `In-Game Overlay` in the `Game Overlay` tab, or enable `Auto-start overlay` there to launch it automatically.
 - **Layout Editor**: Press `F9` (default hotkey) or click `Edit Layout` in the app UI to toggle Layout Mode.
 - In Layout Mode, you can drag widgets directly on top of the game window to align them. Press `Save Layout`, `Esc`, or `F9` again to exit and save.
 - Widget scales (from `0.5` to `3.0`) can be adjusted in the `Widget Settings` dialog.
@@ -165,20 +165,20 @@ In-Game Overlay
 
 Twitch Bot
 ----------
-The `Twitch Bot` tab runs a built-in Twitch IRC chat bot for your channel.
+The `Twitch` tab runs a built-in Twitch IRC chat bot for your channel.
 This allows chat viewers to inquire about your current progress in real time!
 
 In `Command Settings` → `Response Templates`, each command has its own card with the response template, supported tags, and related options. Use `Save Settings` to apply changes or `Cancel` to discard them.
 
 How to configure:
-1. Go to the `Twitch Bot` tab.
+1. Go to the `Twitch` tab.
 2. Click `Connect to Twitch`. A browser window will open for secure authorization via the official Twitch OAuth service.
 3. Allow access, after which the status in the app will change to `Connected as [ChannelName]`.
 4. Configure bot parameters (target channel, command access tier, cooldown delay, enabled commands, and auto-announcements).
 5. Click `Start Bot`.
 
 By default, `Target Channel` uses the authorized Twitch account. If you authorize a separate bot account, set `Target Channel` to the streamer channel where the bot should join and respond.
-In `Command Settings`, `!session` uses `Session Stats` tracked items by default. Disable `Use Session Stats tracked items` to maintain a separate custom Twitch list.
+In `Command Settings`, `!session` uses `Session` tracked items by default. Disable `Use Session Stats tracked items` to maintain a separate custom Twitch list.
 
 Available chat commands:
 - `!stats` / `!bonkstats` — displays character's current stats (damage, experience, luck, size, etc.).
@@ -223,7 +223,7 @@ Hotkeys
 - `Stop scanning when player moves`
 - `Show OBS reminder on Start Scanner`
 
-`Auto-start overlay` is configured in the `In-Game Overlay` tab, not in the
+`Auto-start overlay` is configured in the `Game Overlay` tab, not in the
 main Settings dialog.
 
 Important:

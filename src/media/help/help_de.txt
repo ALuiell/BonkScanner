@@ -34,11 +34,11 @@ Neustarts und Resets
 Die wichtigsten Tabs
 --------------------
 - `Protokoll`: Meldungen, Warnungen, Fehler, Filter und Suche. Technische Einzelheiten können in ihrer ursprünglichen Sprache erscheinen.
-- `Sitzungsstatistik`: Dauer, Resets, gefundene Seeds, Geschwindigkeit, beste und schlechteste Karten sowie verfolgte Gegenstände.
-- `Live-Werte`: Daten des laufenden Durchlaufs und Aufnahmesteuerung.
+- `Sitzung`: Dauer, Resets, gefundene Seeds, Geschwindigkeit, beste und schlechteste Karten sowie verfolgte Gegenstände.
+- `Live`: Daten des laufenden Durchlaufs und Aufnahmesteuerung.
 - `Aufzeichnungen`: gespeicherte Durchläufe ansehen, umbenennen, löschen oder bereinigen.
-- `Durchläufe vergleichen`: zwei synchronisierte Aufzeichnungen und ihre Unterschiede.
-- `OBS-Overlay`, `Twitch-Bot` und `Spiel-Overlay`: Streaming und Widgets.
+- `Vergleich`: zwei synchronisierte Aufzeichnungen und ihre Unterschiede.
+- `OBS`, `Twitch` und `Spiel-Overlay`: Streaming und Widgets.
 
 Live-Werte
 ----------
@@ -114,7 +114,7 @@ Das Overlay verbirgt sich, wenn das Spiel den Vordergrund verliert, und erschein
 
 Twitch-Bot
 ----------
-1. `Twitch-Bot` öffnen und das Konto verbinden. Die Autorisierung läuft im Browser über den offiziellen Twitch-OAuth-Dienst.
+1. `Twitch` öffnen und das Konto verbinden. Die Autorisierung läuft im Browser über den offiziellen Twitch-OAuth-Dienst.
 2. Zielkanal, zugelassene Benutzer, Pausen, Befehle und Ankündigungen einstellen.
 3. Den Bot starten. Standardmäßig tritt er dem Kanal des autorisierten Kontos bei. Bei einem getrennten Bot-Konto den Kanal des Streamers als Ziel angeben.
 

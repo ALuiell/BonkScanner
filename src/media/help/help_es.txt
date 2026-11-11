@@ -34,11 +34,11 @@ Reinicios
 Pestañas principales
 --------------------
 - `Registro`: mensajes, avisos, errores, filtros y búsqueda. Los detalles técnicos pueden conservar su idioma original.
-- `Estadísticas de la sesión`: tiempo, reinicios, semillas encontradas, ritmo, mejores y peores mapas y contadores de objetos registrados.
-- `Estadísticas en directo`: datos de la partida y controles de grabación.
+- `Sesión`: tiempo, reinicios, semillas encontradas, ritmo, mejores y peores mapas y contadores de objetos registrados.
+- `En directo`: datos de la partida y controles de grabación.
 - `Grabaciones`: consulta, cambio de nombre, eliminación y limpieza de partidas guardadas.
-- `Comparar partidas`: dos grabaciones sincronizadas y sus diferencias.
-- `Superposición de OBS`, `Bot de Twitch` y `Superposición en el juego`: emisión y widgets.
+- `Comparar`: dos grabaciones sincronizadas y sus diferencias.
+- `OBS`, `Twitch` y `Superposición en el juego`: emisión y widgets.
 
 Estadísticas en directo
 -----------------------
@@ -114,7 +114,7 @@ La superposición se oculta cuando el juego deja de estar en primer plano y vuel
 
 Bot de Twitch
 -------------
-1. Abre `Bot de Twitch` y conecta tu cuenta. La autorización se realiza en el navegador mediante el servicio OAuth oficial de Twitch.
+1. Abre `Twitch` y conecta tu cuenta. La autorización se realiza en el navegador mediante el servicio OAuth oficial de Twitch.
 2. Elige el canal de destino, quién puede usar los comandos, los intervalos, los comandos y los anuncios.
 3. Inicia el bot. Por defecto se une al canal de la cuenta autorizada; si usas una cuenta de bot independiente, indica el canal del streamer.
 
