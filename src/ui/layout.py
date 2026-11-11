@@ -291,6 +291,9 @@ def build_layout(app):
 
     timeline_series_slots = TimelineSeriesSlots()
     app._recordings_view = _build_recordings_view(app, timeline_series_slots)
+    if app._validator_tab is not None:
+        app._validator_tab.add_to(app.tabview)
+        app.tabview.tabBar().setUsesScrollButtons(True)
     app._compare_runs_view = _build_compare_runs_view(app, timeline_series_slots)
     l10n.tab(app.tabview, app._overlay.build(), l10n.tr('OBS Overlay'))
     # The ~240 lines that built the Twitch tab's widgets are
@@ -363,6 +366,14 @@ def _build_header(app, parent_layout):
         lambda: app.open_settings_dialog(page="support")
     )
     app.supporter_access.add_listener(app.premium_access_badge.set_access_state)
+    app._validator_tab = None
+    if (controller := getattr(app.coordinator, 'validator', None)) is not None:
+        from ui.validator import ValidatorTab
+
+        validator_button = QPushButton()
+        validator_button.setObjectName('validatorStatus')
+        app._validator_tab = ValidatorTab(controller, validator_button)
+        status_cluster_layout.addWidget(validator_button, 0, Qt.AlignVCenter)
     status_cluster_layout.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
     # The access state may make the badge visible immediately. Reparent it via
     # the layout first so an active Premium account cannot flash a transient

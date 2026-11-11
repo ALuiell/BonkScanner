@@ -58,6 +58,19 @@ REM
 REM BonkScanner.spec is this script's OUTPUT, not its input. Every run
 REM regenerates it from these flags, which is why it is gitignored and why
 REM editing it by hand never survives.
+REM Optional bonkscanner-validator is installed separately in this same venv.
+REM Static imports in main.py and app/validator.py bundle it when available.
+REM Set BONKSCANNER_REQUIRE_VALIDATOR=1 to prevent a Validator build from
+REM silently succeeding without the optional package installed.
+if "%BONKSCANNER_REQUIRE_VALIDATOR%"=="1" (
+    "%PYTHON_EXE%" -c "import bonkscanner_validator.controller, bonkscanner_validator.worker"
+    if errorlevel 1 (
+        echo [ERROR] Validator package is required but unavailable.
+        echo Install the trusted bonkscanner-validator checkout into this venv.
+        popd
+        exit /b 1
+    )
+)
 echo [BUILD] Building executable...
 "%PYTHON_EXE%" -m PyInstaller --clean --noupx --noconfirm --noconsole --onefile --paths="src" --additional-hooks-dir="scripts\pyinstaller_hooks" --icon="src\media\bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "src\media;media" src\main.py
 

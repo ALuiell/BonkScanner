@@ -426,6 +426,8 @@ class MegabonkApp:
         self.log("[*] Ready! Select templates and start the main process loop.")
         self.apply_run_control_mode(detach_hooks=False)
         self.supporter_access.start()
+        if self._validator_tab is not None:
+            self.after(0, self._validator_tab.start_if_configured)
         self.after(1500, self.deferred_update_check)
 
     def has_premium_feature(self, feature_code: str) -> bool:

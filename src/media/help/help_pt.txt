@@ -129,7 +129,7 @@ Comandos disponíveis:
 - `!weapons` e `!tomes`: armas melhoradas e efeitos dos tomos; o Tomo do Caos mostra seu nível.
 - `!chaos` / `!chaostome`, `!dice`, `!shrines`: bônus registrados do caos, de Gamba e dos santuários de recarga.
 - `!kps`, `!stages`, `!powerups`: ritmo de abates, resumo das etapas e potenciadores.
-- `!build`, `!luck`, `!chests` / `!chest`, `!presets` / `!preset`: build, raridade, baús e predefinições.
+- `!build`, `!luck`, `!chests` / `!chest` / `!key` / `!keys`, `!presets` / `!preset`: build, raridade, baús e predefinições.
 - `!bonkhelp`: comandos ativos; aliases `!bonkcmds`, `!bonkcommands`, `!bhelp`.
 - `!scanner`: informações do BonkScanner e link para download.
 

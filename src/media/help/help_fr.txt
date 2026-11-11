@@ -129,7 +129,7 @@ Commandes disponibles :
 - `!weapons` et `!tomes` : armes améliorées et effets des tomes ; le Tome du Chaos affiche son niveau.
 - `!chaos` / `!chaostome`, `!dice`, `!shrines` : bonus suivis du chaos, de Gamba et des sanctuaires de recharge.
 - `!kps`, `!stages`, `!powerups` : cadence d’élimination, récapitulatif des étapes et bonus temporaires.
-- `!build`, `!luck`, `!chests` / `!chest`, `!presets` / `!preset` : build, rareté, coffres et préréglages.
+- `!build`, `!luck`, `!chests` / `!chest` / `!key` / `!keys`, `!presets` / `!preset` : build, rareté, coffres et préréglages.
 - `!bonkhelp` : commandes actives ; alias `!bonkcmds`, `!bonkcommands`, `!bhelp`.
 - `!scanner` : informations sur BonkScanner et lien de téléchargement.
 

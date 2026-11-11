@@ -120,6 +120,7 @@ class StartupWindowOrderTests(unittest.TestCase):
 
             config.save_config = lambda *_args, **_kwargs: None
             config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
+            config.user_config["LIVE_VALIDATOR"] = {"autostart": True}
             qt = MegabonkApp._ensure_qt_application()
 
             shown = []

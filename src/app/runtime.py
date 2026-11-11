@@ -220,6 +220,12 @@ class AppRuntime:
         if self._shutdown_report is not None:
             return self._shutdown_report
         timed_out: list[str] = []
+        validator = getattr(self.coordinator, 'validator', None)
+        if validator is not None:
+            stopped = self._step('validator', lambda: validator.close(
+                timeout=min(5.0, deadline.remaining_seconds())))
+            if stopped is False:
+                timed_out.append('validator')
         self._step("hotkeys", self.ports.stop_hotkeys)
         self._step("refresh_loop", self.coordinator.stop_refresh_loop)
         overlay_result = self._step(

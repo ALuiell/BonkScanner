@@ -95,6 +95,47 @@ QPushButton#premiumAccessBadge:pressed {
     background-color: rgba(45, 123, 192, 0.28);
     border-color: rgba(85, 166, 226, 0.64);
 }
+QPushButton#validatorStatus {
+    color: #B9C2CE;
+    background-color: #141A22;
+    border: 1px solid #2A3542;
+    border-radius: 8px;
+    min-height: 26px;
+    padding: 0 9px;
+    font-size: 11px;
+    font-weight: 600;
+}
+QPushButton#validatorStatus[tone="pending"] {
+    color: #A9D3F5;
+    background-color: #192C40;
+    border-color: #38495E;
+}
+QPushButton#validatorStatus[tone="active"] {
+    color: #7DE68C;
+    background-color: #172820;
+    border-color: #345344;
+}
+QPushButton#validatorStatus[tone="warning"] {
+    color: #F6C788;
+    background-color: #292019;
+    border-color: #614833;
+}
+QPushButton#validatorStatus:hover, QPushButton#validatorStatus:focus {
+    border-color: #3E82C6;
+}
+QLabel#validatorTitle {
+    color: #EDF1F5;
+    font-size: 19px;
+    font-weight: 700;
+}
+QFrame#validatorRunCard {
+    background-color: #141A22;
+    border: 1px solid #2A3542;
+    border-radius: 12px;
+}
+QFrame#validatorRunCard QLabel {
+    background: transparent;
+}
 QFrame#headerDivider {           /* вертикальный разделитель 1x18 */
     background-color: #232B36;
     max-width: 1px; min-width: 1px;

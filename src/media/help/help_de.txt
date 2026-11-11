@@ -129,7 +129,7 @@ Verfügbare Befehle:
 - `!weapons` und `!tomes`: verbesserte Waffen und Schriftrolleneffekte; die Chaos-Schriftrolle zeigt ihre Stufe.
 - `!chaos` / `!chaostome`, `!dice`, `!shrines`: erfasste Boni aus Chaos, Gamba und Ladeschreinen.
 - `!kps`, `!stages`, `!powerups`: Killrate, Etappenübersicht und Power-ups.
-- `!build`, `!luck`, `!chests` / `!chest`, `!presets` / `!preset`: Build, Seltenheit, Truhen und Voreinstellungen.
+- `!build`, `!luck`, `!chests` / `!chest` / `!key` / `!keys`, `!presets` / `!preset`: Build, Seltenheit, Truhen und Voreinstellungen.
 - `!bonkhelp`: aktive Befehle; Aliasse `!bonkcmds`, `!bonkcommands`, `!bhelp`.
 - `!scanner`: Informationen zu BonkScanner und Download-Link.
 

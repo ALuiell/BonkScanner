@@ -119,6 +119,8 @@ class AppCoordinator:
         )
         self.merchant_analytics = MerchantAnalyticsService()
         self.roll_analytics = RollAnalyticsService()
+        from app.validator import create_validator_controller
+        self.validator = create_validator_controller()
 
         # Memory-client instances (step 12b). The coordinator owns their storage;
         # MegabonkApp reaches them through property delegation. Creation and close

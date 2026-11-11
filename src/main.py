@@ -8,6 +8,19 @@ from __future__ import annotations
 import os
 import sys
 
+# Worker dispatch must precede crash-journal, storage, configuration, restart
+# and GUI imports. A worker never acquires the application's profile lock.
+if __name__ == "__main__" and "--validator-worker" in sys.argv[1:]:
+    try:
+        from bonkscanner_validator.worker import main as _validator_worker_main
+    except ModuleNotFoundError as exc:
+        if exc.name == 'bonkscanner_validator':
+            raise SystemExit(4)
+        raise
+
+    raise SystemExit(_validator_worker_main(sys.argv[1:][1:])
+                     if sys.argv[1:2] == ["--validator-worker"] else 4)
+
 from infra.crash_journal import (
     install_crash_journal,
     log_runtime_event,

@@ -21,6 +21,22 @@ QPushButton#premiumAccessBadge:hover {
 QPushButton#premiumAccessBadge:pressed {
     color: #EAD9FF; background-color: #20172C; border-color: #946BCF;
 }
+QPushButton#validatorStatus[tone="pending"] {
+    color: #D6BDF2;
+    background-color: #261C34;
+    border-color: #745391;
+}
+QPushButton#validatorStatus[tone="active"] {
+    background-color: #261C34;
+    border-color: #745391;
+}
+QPushButton#validatorStatus[tone="warning"] {
+    background-color: #2C2031;
+    border-color: #805E44;
+}
+QPushButton#validatorStatus:hover, QPushButton#validatorStatus:focus {
+    border-color: #AD82D3;
+}
 QFrame#headerBar { background: transparent; border-bottom-color: #393047; }
 QWidget#centralWidget, QWidget#centralContent { background-color: #15111C; }
 QFrame#appFooter { background-color: #130F1B; }
