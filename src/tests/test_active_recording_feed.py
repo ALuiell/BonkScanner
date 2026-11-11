@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -132,6 +133,32 @@ class ActiveRecordingFeedTests(unittest.TestCase):
 
 
 class RecordingsLiveFeedTests(unittest.TestCase):
+    def test_live_update_finishing_the_first_load_closes_the_guided_library(self):
+        feed = ActiveRecordingFeed()
+        library = VodLibrary(load_cached=tuple, refresh_index=tuple, active_recording_feed=feed)
+        tab = build_recordings_tab(vod_library=library, active_recording_feed=feed)
+        self.addCleanup(tab._on_tab_destroyed)
+        tab.refresh_loaded_vod_ui = MagicMock()
+        tab.refresh_vods_list = MagicMock()
+        tab._load_lane.dispose()
+        requests = []
+        tab._load_lane = MagicMock()
+        tab._load_lane.submit.side_effect = lambda value, **kwargs: requests.append((value, kwargs))
+        tab._schedule = lambda callback: callback()
+        path = Path(tempfile.gettempdir()) / "bonkscanner-first-live-selection.jsonl"
+        feed.start(_metadata(path))
+        tab.set_recordings_chooser_expanded(True, guided=True, remember=False)
+        tab.load_selected_vod(path)
+        self.assertEqual(len(requests), 1)
+        feed.append(_metadata(path, 1), _snapshot(1))
+        self.assertEqual(len(requests), 2)
+        state, request = requests[-1]
+        prepared = request["load"](state, threading.Event(), lambda _: None)
+        request["complete"](prepared, None)
+        self.assertIsNotNone(tab._loaded_vod)
+        self.assertFalse(tab._load_in_progress)
+        self.assertFalse(tab._chooser_expanded)
+
     def test_active_run_opens_from_memory_and_manual_scrub_keeps_index_on_sync(self):
         feed = ActiveRecordingFeed()
         library = VodLibrary(

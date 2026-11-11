@@ -1,0 +1,5 @@
+ETH, USDT, USDC and BTC color SVGs from Cryptocurrency Icons 0.18.1.
+Project: https://github.com/spothq/cryptocurrency-icons
+Source: https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/svg/color/
+License: CC0 1.0 Universal (see LICENSE.md).
+Assets are bundled locally; visitors do not contact the asset CDN.

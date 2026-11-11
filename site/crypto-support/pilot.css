@@ -89,7 +89,20 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-
   text-align: center;
 }
 
+@property --radar-angle {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+
+@property --radar-revealed {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+
 .radar {
+  --radar-period: 4.8s;
   position: relative;
   display: grid;
   place-items: center;
@@ -102,6 +115,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-
   contain: layout paint;
   isolation: isolate;
   box-shadow: inset 0 0 56px rgb(41 171 224 / 9%), 0 0 76px rgb(41 171 224 / 9%);
+  animation: radar-spin var(--radar-period) linear infinite,
+    radar-first-scan var(--radar-period) linear forwards;
 }
 
 .radar::before, .radar::after {
@@ -118,13 +133,29 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-
 .ring-one { inset: 40px; }
 .ring-two { inset: 80px; }
 
+/* Instrument markings stay still while the beam scans. */
+.radar-ticks {
+  position: absolute;
+  z-index: 4;
+  inset: 4px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from -.35deg, rgb(100 186 219 / 38%) 0deg .7deg, transparent .7deg 10deg);
+  mask-image: radial-gradient(circle closest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  pointer-events: none;
+}
+.radar-direction { position: absolute; z-index: 4; color: #73a3b6; font: 8px monospace; line-height: 1; pointer-events: none; }
+.direction-n { top: 13px; left: 50%; transform: translateX(-50%); }
+.direction-e { right: 13px; top: 50%; transform: translateY(-50%); }
+.direction-s { bottom: 13px; left: 50%; transform: translateX(-50%); }
+.direction-w { left: 13px; top: 50%; transform: translateY(-50%); }
+
 .radar-sweep {
   position: absolute;
   z-index: 1;
   inset: 0;
   border-radius: 50%;
   transform-origin: 50% 50%;
-  transform: translate3d(0, 0, 0) rotate(0turn);
+  transform: translate3d(0, 0, 0) rotate(var(--radar-angle));
   backface-visibility: hidden;
   will-change: transform;
   background: conic-gradient(
@@ -136,7 +167,6 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-
     rgb(41 171 224 / 31%) 356deg,
     transparent 360deg
   );
-  animation: radar-spin 4.8s linear infinite;
 }
 
 .radar-sweep::after {
@@ -150,7 +180,26 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-
   box-shadow: 0 0 9px rgb(41 171 224 / 80%);
 }
 
+.radar-echoes {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  /* The mask shares the beam's origin and angle. Each pixel is revealed at
+     the leading edge, then fades according to how far the beam has passed. */
+  mask-image: conic-gradient(
+    from var(--radar-angle),
+    transparent 0deg 172.8deg,
+    rgb(0 0 0 / 16%) 223.2deg,
+    rgb(0 0 0 / 55%) 295.2deg,
+    rgb(0 0 0 / 92%) 342deg,
+    #000 360deg
+  ), conic-gradient(#000 0deg var(--radar-revealed), transparent var(--radar-revealed) 360deg);
+  /* The first revolution has no detections left over from a previous scan. */
+  mask-composite: intersect;
+}
+
 .radar-marker {
+  visibility: hidden;
   position: absolute;
   z-index: 2;
   display: grid;
@@ -161,18 +210,13 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-
   border-radius: 8px;
   background: rgb(10 16 22 / 92%);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--marker-color) 10%, transparent), 0 0 16px color-mix(in srgb, var(--marker-color) 28%, transparent);
-  opacity: 0;
-  transform: translate3d(0, 0, 0) scale(.72);
-  backface-visibility: hidden;
-  will-change: transform, opacity;
-  animation: marker-detected 4.8s linear infinite;
-  animation-delay: var(--detect-delay);
 }
-.radar-marker img { display: block; width: 23px; height: 23px; }
-.marker-magnet { --marker-color: #55d6be; --detect-delay: 3.87s; left: 31px; top: 79px; }
-.marker-curse { --marker-color: #d85cff; --detect-delay: .72s; right: 33px; top: 54px; }
-.marker-shop { --marker-color: #f5c84b; --detect-delay: 1.97s; right: 60px; bottom: 32px; }
-.marker-microwave { --marker-color: #48a9ff; --detect-delay: 2.85s; left: 56px; bottom: 29px; }
+.radar-marker.marker-ready { visibility: visible; }
+.radar-marker img { display: block; width: 29px; height: 29px; object-fit: contain; }
+.marker-magnet { --marker-color: #408aff; left: 31px; top: 79px; }
+.marker-curse { --marker-color: #ff4949; right: 33px; top: 54px; }
+.marker-shop { --marker-color: #f5c84b; right: 60px; bottom: 32px; }
+.marker-microwave { --marker-color: #48a9ff; left: 56px; bottom: 29px; }
 
 .eyebrow, .section-index {
   font-family: var(--font-geist-mono), monospace;
@@ -230,11 +274,27 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
   transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease;
 }
 
-.fuel-card:hover { transform: translateY(-4px); border-color: color-mix(in srgb, var(--card-accent, var(--blue)) 55%, transparent); box-shadow: 0 18px 45px rgb(0 0 0 / 22%); }
+.fuel-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 8% 0%, color-mix(in srgb, var(--card-accent) 16%, transparent), transparent 70%);
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+.fuel-card > * { position: relative; }
+.fuel-card:focus-within { border-color: color-mix(in srgb, var(--card-accent) 65%, #26313d); box-shadow: 0 0 25px color-mix(in srgb, var(--card-accent) 10%, transparent); }
+.fuel-card:focus-within::before { opacity: 1; }
+@media (hover: hover) {
+  .fuel-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--card-accent) 65%, #26313d); box-shadow: 0 10px 30px rgb(0 0 0 / 22%), 0 0 25px color-mix(in srgb, var(--card-accent) 10%, transparent); }
+  .fuel-card:hover::before { opacity: 1; }
+}
 .fuel-card::after { content: ''; position: absolute; inset: auto 0 0; height: 2px; background: linear-gradient(90deg, transparent, var(--card-accent, var(--blue)), transparent); opacity: .55; }
 
 .card-topline { display: flex; align-items: center; gap: 13px; }
-.coin-mark { display: grid; place-items: center; width: 45px; height: 45px; border: 1px solid currentColor; border-radius: 12px; font-size: 21px; font-weight: 800; }
+.coin-mark { display: grid; place-items: center; flex: 0 0 45px; width: 45px; height: 45px; border: 1px solid color-mix(in srgb, currentColor 45%, transparent); border-radius: 12px; }
+.coin-mark img { display: block; width: 32px; height: 32px; }
 .coin-mark.mint { color: #42d8b5; background: rgb(66 216 181 / 8%); }
 .coin-mark.blue { color: #4d8cff; background: rgb(77 140 255 / 8%); }
 .coin-mark.amber { color: #f5a623; background: rgb(245 166 35 / 8%); }
@@ -270,7 +330,12 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
 .unavailable-state span { font-family: var(--font-geist-mono), monospace; font-size: 28px; line-height: 1; }
 .unavailable-state p { margin: 9px 0 0; font-family: var(--font-geist-mono), monospace; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
 
-.address-box { display: flex; align-items: center; min-height: 40px; margin-top: 18px; padding: 8px 11px; border: 1px solid #283441; border-radius: 8px; background: #0b1117; }
+.address-box { display: flex; align-items: center; min-height: 40px; margin-top: 18px; padding: 8px 11px; border: 1px solid #283441; border-radius: 8px; background: #0b1117; transition: border-color .25s ease, box-shadow .25s ease; }
+.address-box.copy-confirmed { border-color: #57b889; animation: address-confirmed .85s ease-out; }
+@keyframes address-confirmed {
+  0% { box-shadow: 0 0 0 0 rgb(87 216 144 / 30%), inset 0 0 18px rgb(87 216 144 / 12%); }
+  100% { box-shadow: 0 0 0 9px transparent, inset 0 0 18px transparent; }
+}
 .address-box code { min-width: 0; flex: 1; overflow: hidden; color: #a0adbb; font-family: var(--font-geist-mono), monospace; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 
 .network-warning { display: flex; align-items: center; gap: 8px; min-height: 34px; margin: 10px 0 0; color: #a5b0bc; font-size: 13px; line-height: 1.4; }
@@ -292,7 +357,13 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
 }
 .copy-button:hover, .qr-button:not(:disabled):hover, .modal-copy:hover { border-color: #3f7891; background: #173342; }
 .copy-button:active, .qr-button:not(:disabled):active, .modal-copy:active { transform: translateY(1px); }
-.copy-button.copied { border-color: rgb(87 216 144 / 55%); color: #79dda5; background: rgb(87 216 144 / 10%); }
+.copy-button, .modal-copy { display: grid; place-items: center; }
+.copy-label, .copy-check { grid-area: 1 / 1; transition: opacity .18s ease, transform .18s ease; }
+.copy-check { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transform: scale(.8); }
+.copied .copy-label { opacity: 0; transform: translateY(-4px); }
+.copied .copy-check { opacity: 1; transform: scale(1); }
+.copy-button.copied, .modal-copy.copied { border-color: rgb(87 216 144 / 55%); color: #79dda5; background: rgb(87 216 144 / 10%); }
+.copy-button:disabled, .modal-copy:disabled { cursor: progress; }
 .qr-button { width: 47px; color: #b4bfca; border-color: #344250; background: #171f28; }
 .qr-button:disabled { width: auto; color: #687482; border-color: #2c3742; background: #131a22; cursor: not-allowed; opacity: .72; }
 
@@ -331,8 +402,20 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
 .badge-kicker { margin: 0 0 8px; color: var(--blue); font-family: var(--font-geist-mono), monospace; font-size: 9px; font-weight: 800; letter-spacing: .12em; }
 .badge-callout h3 { margin: 0 0 7px; font-size: 18px; }
 .badge-callout > p:not(.badge-kicker) { max-width: 560px; margin: 0; color: #9aa6b4; font-size: 12.5px; line-height: 1.55; }
+.badge-callout > p:not(.badge-kicker) + p { margin-top: 10px; }
 .badge-callout a { display: inline-flex; margin-top: 15px; color: #7fd6f8; font-family: var(--font-geist-mono), monospace; font-size: 10px; font-weight: 800; letter-spacing: .09em; text-decoration: none; }
 .badge-callout a:hover { color: #b5e9ff; }
+.premium-summary strong { color: #d8edf6; font-weight: 600; }
+.premium-steps { margin: 23px 0; padding: 0; list-style: none; }
+.premium-steps li { position: relative; display: grid; grid-template-columns: 30px 1fr; gap: 13px; padding-bottom: 20px; }
+.premium-steps li:last-child { padding-bottom: 0; }
+.premium-steps li:not(:last-child)::after { content: ''; position: absolute; top: 33px; bottom: 3px; left: 14px; width: 1px; background: linear-gradient(#376078, #213640); }
+.premium-step-number { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #34586b; border-radius: 9px; color: #88cce8; background: #142c38; font: 10px monospace; }
+.premium-steps h4, .premium-details h4 { margin: 0 0 5px; font-size: 14px; font-weight: 600; }
+.premium-steps p, .premium-details p { margin: 0; color: #9aa6b4; font-size: 12.5px; line-height: 1.6; }
+.premium-details { display: grid; gap: 16px; padding-top: 19px; border-top: 1px solid rgb(98 154 182 / 20%); }
+.premium-details h4 { color: #bbcad5; font-size: 12px; }
+.badge-callout a { padding: 11px 14px; border: 1px solid #30566a; border-radius: 7px; background: rgb(41 171 224 / 7%); }
 
 .footer {
   position: relative;
@@ -372,7 +455,9 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
   transition: opacity .2s ease, transform .2s ease;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
-.toast span, .toast strong { color: #79dda5; }
+.toast strong { color: #79dda5; }
+.toast.error { border-color: #955f52; background: #281d1a; }
+.toast.error strong { color: #ffab94; }
 
 .qr-dialog {
   width: min(390px, calc(100% - 32px));
@@ -392,19 +477,10 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
 .modal-note { max-width: 250px; margin: 16px auto; color: #7f8b98; font-size: 11px; line-height: 1.5; }
 .modal-copy { width: 100%; }
 
-@keyframes radar-spin { to { transform: translate3d(0, 0, 0) rotate(1turn); } }
-@keyframes marker-detected {
-  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(.72); }
-  2% { opacity: 1; transform: translate3d(0, 0, 0) scale(1.08); }
-  6% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-  22% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-  25% { opacity: 0; transform: translate3d(0, 0, 0) scale(.9); }
-  100% { opacity: 0; transform: translate3d(0, 0, 0) scale(.72); }
-}
-.animations-paused .radar-sweep,
-.animations-paused .radar-marker,
-.radar.radar-paused .radar-sweep,
-.radar.radar-paused .radar-marker {
+@keyframes radar-spin { to { --radar-angle: 360deg; } }
+@keyframes radar-first-scan { to { --radar-revealed: 360deg; } }
+.animations-paused .radar,
+.radar.radar-paused {
   animation-play-state: paused;
 }
 
@@ -415,7 +491,7 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
   .ring-one { inset: 36px; }
   .ring-two { inset: 72px; }
   .radar-marker { width: 30px; height: 30px; border-radius: 7px; }
-  .radar-marker img { width: 20px; height: 20px; }
+  .radar-marker img { width: 25px; height: 25px; }
   .marker-magnet { left: 28px; top: 72px; }
   .marker-curse { right: 29px; top: 48px; }
   .marker-shop { right: 52px; bottom: 29px; }
@@ -443,7 +519,9 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1.4px #7783
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .radar-sweep { animation: none; }
-  .radar-marker { animation: none; opacity: 1; transform: none; }
-  .fuel-card, .toast, .copy-button, .qr-button, .modal-copy { transition: none; }
+  .radar { animation: none; }
+  .radar-echoes { mask-image: none; }
+  .address-box.copy-confirmed { animation: none; }
+  .fuel-card:hover { transform: none; }
+  .fuel-card, .fuel-card::before, .address-box, .toast, .copy-button, .copy-label, .copy-check, .qr-button, .modal-copy { transition: none; }
 }

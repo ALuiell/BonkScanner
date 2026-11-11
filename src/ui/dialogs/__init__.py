@@ -1511,7 +1511,17 @@ class SettingsDialog(QDialog):
         )
         l10n.display(self.stop_scanning_on_player_movement_var, 'setToolTip', l10n.tr('While Auto-Reroll is active, pressing W, A, S, D or Space pauses it immediately.'))
         restart_layout.addWidget(self.stop_scanning_on_player_movement_var)
-
+        self.force_reset_on_double_tap_var = l10n.localized(
+            QCheckBox, l10n.tr('Double-press to skip found maps')
+        )
+        self.force_reset_on_double_tap_var.setChecked(
+            config.user_config.get("FORCE_RESET_ON_DOUBLE_TAP") is True
+        )
+        l10n.display(
+            self.force_reset_on_double_tap_var, 'setToolTip',
+            l10n.tr('After the scanner finds a target, press the scan hotkey twice quickly in MegaBonk to reset the run and keep searching.'),
+        )
+        restart_layout.addWidget(self.force_reset_on_double_tap_var)
 
         self.reset_hold_duration_entry.valueChanged.connect(
             self._refresh_reset_timing_preview
@@ -1578,6 +1588,7 @@ class SettingsDialog(QDialog):
         self.game_language_selector.currentIndexChanged.connect(self._mark_general_settings_dirty)
         for checkbox in (
             self.stop_scanning_on_player_movement_var,
+            self.force_reset_on_double_tap_var,
             self.auto_start_recording_var,
             self.show_obs_reminder_on_start_scanner_var,
         ):
@@ -1826,6 +1837,9 @@ class SettingsDialog(QDialog):
         )
         self.stop_scanning_on_player_movement_var.setChecked(
             bool(getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True))
+        )
+        self.force_reset_on_double_tap_var.setChecked(
+            config.user_config.get("FORCE_RESET_ON_DOUBLE_TAP") is True
         )
         self.auto_start_recording_var.setChecked(
             bool(getattr(config, "AUTO_START_RECORDING", False))
@@ -2279,6 +2293,9 @@ class SettingsDialog(QDialog):
             "STOP_SCANNING_ON_PLAYER_MOVEMENT": stop_scanning_on_player_movement,
             "PLAYER_STATS_RECORD_INTERVAL_SECONDS": new_interval,
         }
+        force_reset_checkbox = getattr(self, "force_reset_on_double_tap_var", None)
+        if force_reset_checkbox is not None:
+            settings_updates["FORCE_RESET_ON_DOUBLE_TAP"] = _read_bool(force_reset_checkbox)
         theme_selector = getattr(self, "theme_selector", None)
         if theme_selector is not None:
             settings_updates[THEME_CONFIG_KEY] = theme_selector.currentData()
@@ -2513,7 +2530,7 @@ class TwitchCommandSettingsDialog(QDialog):
             ("powerups", "!powerups:", default_templates.get("powerups", "Powerups: {powerups} (PM {pm})"), "Tags: {powerups}, {standard_duration}, {clock_duration}, {pm}"),
             ("kps", "!kps:", default_templates.get("kps", "KPS: {kps} | 60s Avg: {minute_avg} | 5m Avg: {five_minute_avg} | Run Avg: {run_avg}"), "Tags: {kps}, {minute_avg}, {five_minute_avg}, {run_avg}"),
             ("build", "!build:", default_templates.get("build", "{name} · {progress}{requirements}{remaining_suffix}"), "Tags: {name}, {progress}, {requirements}, {remaining_suffix}, {completion_time}"),
-            ("chests", "!chests / !chest:", default_templates.get("chests", "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})"), "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
+            ("chests", "!chests / !chest / !key / !keys:", default_templates.get("chests", "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})"), "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
             ("luck", "!luck:", default_templates.get("luck", "Luck: {tiers}"), "Tags: {tiers} (one group per rarity, already joined)"),
             ("bonkhelp", "!bonkhelp / !bonkcmds:", default_templates.get("bonkhelp", "Available commands: {commands_list}"), "Tags: {commands_list}"),
         ]

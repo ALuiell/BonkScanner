@@ -1912,6 +1912,11 @@ def _apply_loaded_config(loaded: dict, *, config_existed: bool) -> None:
 
     user_config.clear()
     user_config.update(deepcopy(loaded if isinstance(loaded, dict) else {}))
+    # End the seasonal default once in 3.1.4. Later theme choices stay saved.
+    if user_config.get("HALLOWEEN_2026_THEME_RESET_DONE") is not True:
+        user_config["DESKTOP_THEME_ID"] = "original"
+        user_config["USE_ORIGINAL_THEME"] = True
+        user_config["HALLOWEEN_2026_THEME_RESET_DONE"] = True
     if not config_existed:
         user_config["RESET_TIMING_SETUP_PENDING"] = True
     saved_native_hook_path = user_config.get("NATIVE_HOOK_DLL_PATH")

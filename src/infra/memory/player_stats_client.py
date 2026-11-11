@@ -11,8 +11,9 @@ delete them once nothing depends on this module for types.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
+from struct import unpack, unpack_from
 import time
 from typing import Iterable
 
@@ -208,6 +209,7 @@ class PlayerStatsClient:
     MAP_CONTROLLER_TYPE_INFO_OFFSET = 0x02F58E08
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
     RUN_STATS_TYPE_INFO_OFFSET = 0x02F7A170
+    STAT_TRACKING_UTILITY_TYPE_INFO_OFFSET = 0x02F87940
     RUN_UNLOCKABLES_TYPE_INFO_OFFSET = 0x02F7A210
     DATA_MANAGER_TYPE_INFO_OFFSET = 0x02F85790
     POTATO_TYPE_INFO_OFFSET = 0x02F6FC78
@@ -327,6 +329,7 @@ class PlayerStatsClient:
     STAT_MODIFIER_VALUE_OFFSET = 0x18
     RUN_STATS_DICT_OFFSET = 0x0
     RUN_STATS_ENTRY_VALUE_OFFSET = 0x10
+    KILL_KEYS_BY_SOURCE_OFFSET = 0x28
     MAX_RUN_STATS_ENTRIES = 256
     MONEY_UTILITY_CHESTS_PURCHASED_OFFSET = 0x48
     RUN_DAMAGE_SOURCES_DICT_OFFSET = 0x8
@@ -2649,6 +2652,24 @@ class PlayerStatsClient:
         if not static_fields:
             raise MemoryReadError("RunStats static fields are not initialized.")
 
+        sources = self._read_damage_sources(static_fields)
+        try:
+            kills = self._read_kills_by_source(static_fields)
+        except MemoryReadError:
+            # The first kill can initialize the key map while we read it.
+            # Damage has its own dictionary and remains usable in this frame.
+            return sources
+
+        damage_keys = {source.source_key for source in sources}
+        combined = [replace(source, kills=kills.get(source.source_key, 0)) for source in sources]
+        combined.extend(
+            DamageSourceSnapshot(key, key, 0.0, kills=count)
+            for key, count in kills.items()
+            if count > 0 and key not in damage_keys
+        )
+        return tuple(combined)
+
+    def _read_damage_sources(self, static_fields: int) -> tuple[DamageSourceSnapshot, ...]:
         damage_sources_dict = self.memory.read_ptr(static_fields + self.RUN_DAMAGE_SOURCES_DICT_OFFSET)
         if not damage_sources_dict:
             return ()
@@ -2691,6 +2712,66 @@ class PlayerStatsClient:
 
         sources.sort(key=lambda source: source.damage, reverse=True)
         return tuple(sources)
+
+    def _read_kills_by_source(self, run_stats_fields: int) -> dict[str, int]:
+        type_info = self.memory.module_offset(self.module_name, self.STAT_TRACKING_UTILITY_TYPE_INFO_OFFSET)
+        klass = self.memory.read_ptr(type_info)
+        name = self.memory.read_ptr(klass + self.KLASS_NAME_PTR_OFFSET) if klass else 0
+        if not name or self.memory.read_ascii_string(name) != "StatTrackingUtility":
+            raise MemoryReadError("StatTrackingUtility type info is unavailable.")
+        fields = self.memory.read_ptr(klass + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not fields:
+            raise MemoryReadError("StatTrackingUtility static fields are unavailable.")
+
+        mapping_address = fields + self.KILL_KEYS_BY_SOURCE_OFFSET
+        stats_address = run_stats_fields + self.RUN_STATS_DICT_OFFSET
+        mapping, mapping_header, source_keys = self._read_kill_dictionary(mapping_address)
+        stats, stats_header, stat_entries = self._read_kill_dictionary(stats_address)
+        result = {}
+        for source, key_bytes in source_keys.items():
+            key = self.memory.read_mono_string(unpack_from("<Q", key_bytes)[0])
+            if not key or not key.endswith("Kills"):
+                raise MemoryReadError("Invalid RunStats key for a kill source.")
+            value_bytes = stat_entries.get(key)
+            value = unpack_from("<f", value_bytes)[0] if value_bytes is not None else 0.0
+            if not isfinite(value) or value < 0 or not value.is_integer():
+                raise MemoryReadError("Invalid kill count in RunStats.")
+            result[source] = int(value)
+
+        for address, pointer, header in (
+            (mapping_address, mapping, mapping_header), (stats_address, stats, stats_header),
+        ):
+            if (self.memory.read_ptr(address) != pointer or
+                    self.memory.read_bytes(pointer + self.DICT_ENTRIES_OFFSET, len(header)) != header):
+                raise MemoryReadError("The kill counters changed layout during the read.")
+        return result
+
+    def _read_kill_dictionary(self, address: int) -> tuple[int, bytes, dict[str, bytes]]:
+        """Read the string-keyed layout used by both kill counter dictionaries."""
+        pointer = self.memory.read_ptr(address)
+        if not pointer:
+            raise MemoryReadError("The kill counter dictionary is not initialized.")
+        header = self.memory.read_bytes(pointer + self.DICT_ENTRIES_OFFSET, 24)
+        entries, count, _, free_count, _ = unpack("<Qiiii", header)
+        if not 0 <= free_count <= count <= self.MAX_RUN_STATS_ENTRIES:
+            raise MemoryReadError("The kill counter dictionary count is invalid.")
+
+        values = {}
+        if count:
+            if not entries or self.memory.read_i32(entries + self.ARRAY_LENGTH_OFFSET) < count:
+                raise MemoryReadError("The kill counter dictionary entries are invalid.")
+            data = self.memory.read_bytes(entries + self.DICT_ENTRY_START_OFFSET, count * self.DICT_ENTRY_SIZE)
+            for offset in range(0, len(data), self.DICT_ENTRY_SIZE):
+                hash_code, next_slot, key_ptr = unpack_from("<iiQ", data, offset)
+                if hash_code < 0 or next_slot < -1:
+                    continue
+                key = self.memory.read_mono_string(key_ptr) if key_ptr else None
+                if not key:
+                    raise MemoryReadError("The kill counter dictionary has an unreadable key.")
+                values[key] = data[offset + self.DICT_ENTRY_VALUE_OFFSET:offset + self.DICT_ENTRY_SIZE]
+        if len(values) != count - free_count:
+            raise MemoryReadError("The kill counter dictionary read was incomplete.")
+        return pointer, header, values
 
     def get_player_level(self, owner_stats: int | None = None) -> int:
         owner_stats = owner_stats or self._resolve_owner_stats()

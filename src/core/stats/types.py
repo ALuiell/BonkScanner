@@ -43,6 +43,9 @@ class MemoryReader(Protocol):
     def read_i32(self, address: int) -> int:
         ...
 
+    def read_bytes(self, address: int, size: int) -> bytes:
+        ...
+
     def read_ascii_string(self, address: int, max_length: int = 128) -> str | None:
         ...
 
@@ -522,6 +525,8 @@ class DamageSourceSnapshot:
     # an unavailable measurement, not zero damage.
     damage: float | None
     added_at_time: float | None = None
+    # The game's run counter. None means it was not available in this sample.
+    kills: int | None = None
 
 
 def calculate_chests_per_minute(

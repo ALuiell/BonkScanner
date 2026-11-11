@@ -197,6 +197,54 @@ storage.release_storage_lock()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.path.read_bytes(), raw)
 
+    def test_post_halloween_reset_is_persisted_once_and_later_choices_survive(self):
+        self.lock.release()
+        script = r'''
+import json
+import sys
+from pathlib import Path
+from unittest.mock import patch
+from infra import data_storage as storage
+
+root = Path(sys.argv[1])
+with (
+    patch.object(storage, 'is_frozen_build', return_value=True),
+    patch.object(storage, 'installation_directory', return_value=root/'installation'),
+    patch.object(storage, 'recommended_data_directory', return_value=root),
+):
+    storage.initialize_storage()
+from app import config
+from app.config_repository import ConfigRepository
+
+target = root/'config.json'
+result = config.initialize_config()
+assert not result.error
+saved = json.loads(target.read_text(encoding='utf-8'))
+assert saved['DESKTOP_THEME_ID'] == 'original'
+assert saved['USE_ORIGINAL_THEME'] is True
+assert saved['HALLOWEEN_2026_THEME_RESET_DONE'] is True
+assert saved['HOTKEY'] == 'f10'
+assert config.update_config(lambda cfg: cfg.update(
+    DESKTOP_THEME_ID='halloween', USE_ORIGINAL_THEME=False)).success
+result = config.initialize_config(ConfigRepository(target))
+assert not result.error
+assert config.user_config['DESKTOP_THEME_ID'] == 'halloween'
+assert config.user_config['USE_ORIGINAL_THEME'] is False
+assert json.loads(target.read_text(encoding='utf-8'))['DESKTOP_THEME_ID'] == 'halloween'
+storage.release_storage_lock()
+'''
+        for theme in (
+            {}, {"DESKTOP_THEME_ID": "halloween"}, {"DESKTOP_THEME_ID": "original"},
+            {"USE_ORIGINAL_THEME": False},
+        ):
+            with self.subTest(theme=theme):
+                self.path.write_text(json.dumps({"HOTKEY": "f10", **theme}), encoding="utf-8")
+                result = subprocess.run(
+                    [sys.executable, "-c", script, str(self.root)],
+                    capture_output=True, text=True, timeout=25,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_second_process_reads_but_cannot_mutate_and_never_promotes_itself(self):
         original = self.write_profile()
         (self.root / storage.STATE_LOCK_NAME).write_bytes(b'0')

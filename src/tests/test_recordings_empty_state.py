@@ -17,11 +17,12 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from tests.support.player_stats import build_recordings_tab, items_section_over
+from infra.vod_storage import LoadedVod, VodMetadata
 
 
 class _Scrubber:
@@ -45,6 +46,25 @@ class _StatCards:
 
 
 class ChooserReopensTests(unittest.TestCase):
+    def test_first_selection_closes_the_library_with_either_saved_open_state(self):
+        metadata = VodMetadata(Path("first.jsonl"), "First", "", 10, 0, 0)
+        for saved_open in (False, True):
+            with self.subTest(saved_open=saved_open), patch(
+                "ui.tabs.player_stats.recordings.recording_library_open", return_value=saved_open
+            ):
+                tab = build_recordings_tab()
+                self.addCleanup(tab._on_tab_destroyed)
+                tab.refresh_loaded_vod_ui = Mock()
+                tab.refresh_vods_list = Mock()
+                tab.ensure_recordings_chooser_for_empty_selection()
+                self.assertTrue(tab._chooser_expanded)
+                with patch("ui.tabs.player_stats.recordings.load_vod", return_value=LoadedVod(metadata, ())):
+                    tab._on_vod_selection_changed(
+                        SimpleNamespace(data=lambda _role: str(metadata.path)), None
+                    )
+                self.assertIsNotNone(tab._loaded_vod)
+                self.assertFalse(tab._chooser_expanded)
+
     def _tab(self, *, active: bool = True):
         tab = build_recordings_tab(is_active=lambda: active)
         # `_clear_loaded_vod_selection` writes ~40 widgets; none exist on this

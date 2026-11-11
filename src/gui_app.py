@@ -5,7 +5,7 @@ from ui import i18n as l10n
 import os
 import sys
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QByteArray, QRect, Qt
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -35,6 +35,21 @@ from app.shutdown import (
 from infra.crash_journal import log_runtime_event
 from infra.supporter_access_client import SupporterAccessClient
 from session_stats import SessionStats
+
+
+def _choose_window_screen(screens, primary, screen_name: str, rect: QRect | None):
+    named = next((screen for screen in screens if screen_name and screen.name() == screen_name), None)
+    if named is not None:
+        return named
+    if rect is not None:
+        def overlap(screen):
+            visible = screen.availableGeometry().intersected(rect)
+            return visible.width() * visible.height()
+
+        closest = max(screens, key=overlap)
+        if overlap(closest) > 0:
+            return closest
+    return primary or screens[0]
 
 
 # **No base classes.** Eight mixins made up this class when the refactor
@@ -1057,6 +1072,8 @@ class MegabonkApp:
             return report.completed if report is not None else not bool(
                 self.__dict__.get("_shutdown_errors", ())
             )
+        if self.__dict__.get("_window_shown", False):
+            self._save_window_placement()
         self._is_shutting_down = True
         appearance = getattr(self, "_appearance_runtime", None)
         if appearance is not None:
@@ -1188,6 +1205,58 @@ class MegabonkApp:
     # a choice about how the app should come back, so it is not recorded, and a
     # window that was minimized while maximized still reopens maximized.
     _WINDOW_STATE_KEY = "WINDOW_STATE"
+    _WINDOW_PLACEMENT_KEY = "WINDOW_PLACEMENT"
+
+    def _save_window_placement(self) -> None:
+        if not self.__dict__.get("_window_shown", False):
+            return
+        rect = self.window.normalGeometry()
+        screen = self.window.screen()
+        if not rect.isValid() or screen is None:
+            return
+        placement = {
+            "screen": screen.name(),
+            "rect": [rect.x(), rect.y(), rect.width(), rect.height()],
+            "geometry": bytes(self.window.saveGeometry().toBase64()).decode("ascii"),
+        }
+        if placement != config.user_config.get(self._WINDOW_PLACEMENT_KEY):
+            config.update_config(lambda candidate: candidate.update(
+                {self._WINDOW_PLACEMENT_KEY: placement}))
+
+    def _restore_window_placement(self) -> None:
+        screens = QApplication.screens()
+        if not screens:
+            return
+        saved = config.user_config.get(self._WINDOW_PLACEMENT_KEY)
+        rect = None
+        screen_name = ""
+        if isinstance(saved, dict):
+            values = saved.get("rect")
+            if (isinstance(values, list) and len(values) == 4
+                    and all(type(value) is int and abs(value) <= 100000 for value in values)
+                    and values[2] > 0 and values[3] > 0):
+                rect = QRect(*values)
+            if isinstance(saved.get("screen"), str):
+                screen_name = saved["screen"]
+
+        screen = _choose_window_screen(screens, QApplication.primaryScreen(), screen_name, rect)
+        available = screen.availableGeometry()
+        if not available.isValid():
+            return
+        geometry = saved.get("geometry") if isinstance(saved, dict) else None
+        restored = (isinstance(geometry, str) and geometry.isascii() and len(geometry) <= 2048
+                    and self.window.restoreGeometry(QByteArray.fromBase64(geometry.encode("ascii"))))
+        if restored and available.contains(self.window.normalGeometry().center()):
+            return
+        # Qt's geometry includes the native frame offset. If the saved screen
+        # disappeared or its screen index changed, place the window on the
+        # selected screen rather than reusing stale desktop coordinates.
+        self.window.setScreen(screen)
+        width = min(rect.width() if rect else self.window.width(), max(1, available.width() - 32))
+        height = min(rect.height() if rect else self.window.height(), max(1, available.height() - 64))
+        self.window.resize(width, height)
+        self.window.move(available.left() + (available.width() - width) // 2,
+                         available.top() + (available.height() - height) // 2)
 
     def _current_window_state_name(self) -> str:
         state = self.window.windowState()
@@ -1209,6 +1278,7 @@ class MegabonkApp:
         config.save_config(config.user_config)
 
     def _restore_window_state(self) -> None:
+        self._restore_window_placement()
         saved = config.user_config.get(self._WINDOW_STATE_KEY)
         if saved == "fullscreen":
             self.window.showFullScreen()

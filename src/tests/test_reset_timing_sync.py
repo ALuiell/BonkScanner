@@ -103,6 +103,26 @@ class ResetTimingSyncTests(unittest.TestCase):
             dialog._on_primary_action()
         save.assert_called_once_with()
 
+    def test_double_press_reset_is_opt_in_and_persists_as_a_scanner_setting(self):
+        self.running = True
+        config.user_config.pop("FORCE_RESET_ON_DOUBLE_TAP", None)
+        dialog = self.make_dialog()
+        dialog.show_page("restart")
+        original_game = self.game_path.read_bytes()
+        checkbox = dialog.force_reset_on_double_tap_var
+        self.assertTrue(dialog.restart_settings_page.isAncestorOf(checkbox))
+        self.assertFalse(checkbox.isChecked())
+        checkbox.click()
+        self.assertTrue(dialog.save(close_dialog=False))
+        self.assertIs(json.loads(self.scanner_path.read_text())["FORCE_RESET_ON_DOUBLE_TAP"], True)
+        checkbox.setChecked(False)
+        dialog.reload_from_config()
+        self.assertTrue(checkbox.isChecked())
+        checkbox.click()
+        self.assertTrue(dialog.save(close_dialog=False))
+        self.assertIs(json.loads(self.scanner_path.read_text())["FORCE_RESET_ON_DOUBLE_TAP"], False)
+        self.assertEqual(self.game_path.read_bytes(), original_game)
+
     def test_tab_switches_preserve_reset_draft_and_refresh_game_status(self):
         self.running = True
         dialog = self.make_dialog()

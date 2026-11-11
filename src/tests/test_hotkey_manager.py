@@ -20,6 +20,7 @@ class FakeKeyboard:
         self.hook_callback = None
         self.hook_remove_calls = 0
         self.add_hotkey_calls: list[tuple[str, object]] = []
+        self.fallback_release = False
         self.fallback_remove_calls = 0
 
     def key_to_scan_codes(self, key_name: str) -> tuple[int, ...]:
@@ -40,8 +41,9 @@ class FakeKeyboard:
 
         return remove
 
-    def add_hotkey(self, hotkey: str, callback):
+    def add_hotkey(self, hotkey: str, callback, *, trigger_on_release=False):
         self.add_hotkey_calls.append((hotkey, callback))
+        self.fallback_release = trigger_on_release
 
         def remove() -> None:
             self.fallback_remove_calls += 1
@@ -230,10 +232,15 @@ class ModifierAwareHotkeyManagerTests(unittest.TestCase):
         manager.start((HotkeyBinding("f9,w", callback),))
 
         self.assertEqual(keyboard.add_hotkey_calls, [("f9,w", callback)])
+        self.assertFalse(keyboard.fallback_release)
         self.assertIsNone(keyboard.hook_callback)
 
         manager.stop()
         self.assertEqual(keyboard.fallback_remove_calls, 1)
+
+        manager.start((HotkeyBinding("f9,w", callback, fallback_trigger_on_release=True),))
+        self.assertTrue(keyboard.fallback_release)
+        manager.stop()
 
     def test_stop_removes_only_the_owned_hook(self) -> None:
         keyboard, manager, _calls = self.make_manager()

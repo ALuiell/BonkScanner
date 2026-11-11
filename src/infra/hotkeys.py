@@ -14,6 +14,7 @@ class HotkeyBinding:
     hotkey: str
     callback: Callable[[], None]
     require_game_window: bool = False
+    fallback_trigger_on_release: bool = False
 
 
 @dataclass(frozen=True)
@@ -83,7 +84,8 @@ class ModifierAwareHotkeyManager:
             if parsed_bindings:
                 self._hook_remover = self.keyboard.hook(self._on_keyboard_event)
             for binding in fallback_bindings:
-                remover = self.keyboard.add_hotkey(binding.hotkey, binding.callback)
+                options = {"trigger_on_release": True} if binding.fallback_trigger_on_release else {}
+                remover = self.keyboard.add_hotkey(binding.hotkey, binding.callback, **options)
                 self._fallback_removers.append(remover)
             if (parsed_bindings or fallback_bindings) and (
                     self._state_reader is not None or self._keyboard_runtime is not None):

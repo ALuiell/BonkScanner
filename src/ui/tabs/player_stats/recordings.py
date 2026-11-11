@@ -948,6 +948,10 @@ class RecordingsTab:
             # Preserve the actual split across the loading-state transition.
             self._body_splitter.setSizes(splitter_sizes)
     def load_selected_vod(self, path):
+        if self._loaded_vod is None and not self._load_in_progress:
+            # The first pick must settle the empty-selection drawer even when
+            # it was already open from a saved preference.
+            self._guided_selection_active = self._chooser_expanded
         self._live_prepare_request = None
         path = Path(path)
         state = self._library.state_for(path)
@@ -995,17 +999,7 @@ class RecordingsTab:
             self._compare_start_index = None
             self._stage_range_anchor_index = None
             self._stage_range_anchor_number = None
-            if self._chooser_expanded and self._guided_selection_active:
-                # Settle the drawer before installing the new heading. Hiding
-                # a splitter child alone queues its resize: the old order let
-                # the new name paint once in the narrow detail, then jump.
-                self.set_recordings_chooser_expanded(
-                    False, guided=False, remember=False
-                )
-                if self._body_splitter is not None:
-                    self._body_splitter.refresh()
-                    detail = self._body_splitter.widget(1)
-                    detail.layout().activate()
+            self._close_guided_recordings_chooser()
             _clear_text_input(self._name_entry)
             _set_text_input(self._name_entry, prepared.vod.metadata.name)
             self.refresh_loaded_vod_ui(prepared=prepared)
@@ -1083,6 +1077,17 @@ class RecordingsTab:
                     )
             except Exception as exc:
                 finish(None, exc)
+
+    def _close_guided_recordings_chooser(self) -> None:
+        if not (self._chooser_expanded and self._guided_selection_active):
+            return
+        # Settle the splitter before installing the new heading, including
+        # when a live update finishes the first load.
+        self.set_recordings_chooser_expanded(False, guided=False, remember=False)
+        if self._body_splitter is not None:
+            self._body_splitter.refresh()
+            detail = self._body_splitter.widget(1)
+            detail.layout().activate()
 
     def _marshal(self, callback) -> None:
         schedule = self._schedule
@@ -1191,6 +1196,7 @@ class RecordingsTab:
             self._requested_snapshot_index = index
             self._live_applied_revision = prepared.revision
             self._live_pending_state = None
+            self._close_guided_recordings_chooser()
             self.refresh_loaded_vod_ui(prepared=prepared)
             self._set_vod_loading_state(False)
             self._refresh_live_controls()

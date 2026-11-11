@@ -1329,12 +1329,15 @@ def _character_passive_to_record(
 
 
 def _damage_source_to_record(source: DamageSourceSnapshot) -> dict[str, Any]:
-    return {
+    record = {
         "source_key": source.source_key,
         "source_name": source.source_name,
         "damage": source.damage,
         "added_at_time": source.added_at_time,
     }
+    if source.kills is not None:
+        record["kills"] = source.kills
+    return record
 
 
 def _weapon_stat_value_to_record(value: WeaponStatValue) -> dict[str, Any]:
@@ -1564,11 +1567,13 @@ def _record_to_damage_source(record: Any, share=None) -> DamageSourceSnapshot:
     share = share or (lambda value, _default: value)
     if not isinstance(record, dict):
         return DamageSourceSnapshot(source_key="Unknown", source_name="Unknown", damage=0.0, added_at_time=None)
+    kills = record.get("kills")
     return DamageSourceSnapshot(
         source_key=_shared_name(record.get("source_key") or "Unknown", share),
         source_name=_shared_name(record.get("source_name") or record.get("source_key") or "Unknown", share),
         damage=_coerce_optional_float(record.get("damage")),
         added_at_time=_coerce_optional_float(record.get("added_at_time")),
+        kills=kills if type(kills) is int and kills >= 0 else None,
     )
 
 

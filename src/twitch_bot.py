@@ -43,6 +43,8 @@ COMMAND_COOLDOWN_KEYS = {
     "!stage": "!stages",
     "!powerup": "!powerups",
     "!chest": "!chests",
+    "!key": "!chests",
+    "!keys": "!chests",
     "!preset": "!presets",
     "!bonkcmds": "!bonkhelp",
     "!bonkcommands": "!bonkhelp",
@@ -78,6 +80,8 @@ COMMAND_SETTINGS = {
     "!scanner": ("scanner", True),
     "!chests": ("chests", False),
     "!chest": ("chests", False),
+    "!key": ("chests", False),
+    "!keys": ("chests", False),
     "!luck": ("luck", False),
     "!presets": ("presets", False),
     "!preset": ("presets", False),
@@ -659,7 +663,7 @@ class TwitchBotWorker(QThread):
             self._handle_build(channel)
         elif cmd == "!scanner" and commands_cfg.get("scanner", True):
             self._handle_scanner(channel)
-        elif cmd in ("!chests", "!chest") and commands_cfg.get("chests", False):
+        elif cmd in ("!chests", "!chest", "!key", "!keys") and commands_cfg.get("chests", False):
             self._handle_chests(channel)
         elif cmd == "!luck" and commands_cfg.get("luck", False):
             self._handle_luck(channel)
