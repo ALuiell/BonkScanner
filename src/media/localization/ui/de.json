@@ -1,4 +1,9 @@
 {
+  "app.14a69131a9fc2b81": "Teilweise ETW-Abdeckung ab {p0} nach dem Verbinden",
+  "app.4a97f4a8e737696b": "Ein unbekannter Prozess hat MegaBonk erfolgreich geöffnet und Schreibzugriff angefordert.",
+  "app.5676e28fc9b62288": "Lokales ETW: {p0}",
+  "app.945cfdfebce2c972": "Übersprungene lokale ETW-Diagnoseaktualisierungen: {p0}",
+  "app.f78e6702dac7cb01": "Teilweise ETW-Abdeckung zwischen {p0} und {p1} nach dem Verbinden",
   "common.cancel": "Abbrechen",
   "common.done": "Fertig",
   "common.help": "Hilfe",

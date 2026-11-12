@@ -1,4 +1,9 @@
 {
+  "app.14a69131a9fc2b81": "Partial ETW coverage since {p0} after attachment",
+  "app.4a97f4a8e737696b": "An unknown process successfully opened MegaBonk and requested write access.",
+  "app.5676e28fc9b62288": "Local ETW: {p0}",
+  "app.945cfdfebce2c972": "Local ETW diagnostic updates skipped: {p0}",
+  "app.f78e6702dac7cb01": "Partial ETW coverage from {p0} to {p1} after attachment",
   "common.cancel": "Cancel",
   "common.done": "Done",
   "common.help": "Help",

@@ -228,8 +228,10 @@ class ValidatorTab(QScrollArea):
             self._reports.refresh(snapshot, self._active_base)
         state = snapshot['state']
         coverage = snapshot['coverage']
-        if state == 'observing' and any(
-            channel.get('status') in ('partial', 'unknown') for channel in coverage.values()
+        access = snapshot.get('process_access') or {}
+        if state == 'observing' and (
+            access.get('mode') == 'fallback'
+            or any(channel.get('status') in ('partial', 'unknown') for channel in coverage.values())
         ):
             state = 'partial'
         labels = {
@@ -270,10 +272,37 @@ class ValidatorTab(QScrollArea):
                          'fileIntegrity': l10n.tr('File integrity')}
         coverage_states = {'active': l10n.tr('Observing'), 'complete': l10n.tr('Complete'),
                            'partial': l10n.tr('Partial coverage'), 'unknown': l10n.tr('Unknown')}
-        self.coverage.setText(' · '.join(
+        coverage_text = [
             f'{channel_names.get(name, name)}: {coverage_states.get(value.get("status"), l10n.tr("Unknown"))}'
             for name, value in coverage.items()
-        ) or l10n.tr('Coverage: unknown'))
+        ]
+        if access:
+            etw_status = {
+                'healthy': l10n.tr('Observing'),
+                'fallback': l10n.tr('Partial coverage'),
+                'stopped': l10n.tr('Off'),
+            }
+            coverage_text.append(l10n.tr('Local ETW: {p0}', p0=etw_status.get(access.get('mode'), l10n.tr('Unknown'))))
+        self.coverage.setText(' · '.join(coverage_text) or l10n.tr('Coverage: unknown'))
+        details = []
+        origin = access.get('attachedMonotonic')
+        if origin is not None:
+            for gap in access.get('gaps', ()):
+                start = f"{gap['fromMonotonic'] - origin:.1f} s"
+                end = gap['toMonotonic']
+                if end is None:
+                    details.append(l10n.tr('Partial ETW coverage since {p0} after attachment', p0=start))
+                else:
+                    details.append(l10n.tr('Partial ETW coverage from {p0} to {p1} after attachment',
+                                           p0=start, p1=f'{end - origin:.1f} s'))
+        run_id = snapshot['active_run_id']
+        if run_id and any(row['priority'] == 'review' and row['localRunId'] == run_id
+                          for row in access.get('findings', ())):
+            details.append(l10n.tr('An unknown process successfully opened MegaBonk and requested write access.'))
+        skipped = snapshot.get('process_access_ipc_skipped', 0)
+        if skipped:
+            details.append(l10n.tr('Local ETW diagnostic updates skipped: {p0}', p0=skipped))
+        self.coverage.setToolTip('\n'.join(details))
         self._refresh_delivery(snapshot)
         if self._reports is not None:
             if self.isVisible():

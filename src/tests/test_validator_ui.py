@@ -87,6 +87,23 @@ class ValidatorUITests(unittest.TestCase):
         self.assertEqual(self.button.accessibleName(), 'Validator · Limited')
         self.assertEqual(self.button.property('tone'), 'warning')
 
+    def test_etw_coverage_and_write_priority_are_scoped_to_the_current_run(self):
+        tab = self.tab()
+        self.controller.value.update(state='observing', enabled=True, active_run_id='second',
+                                     process_access={'mode': 'fallback', 'attachedMonotonic': 5,
+                                         'gaps': [{'fromMonotonic': 6, 'toMonotonic': None}],
+                                         'findings': [{'priority': 'review', 'localRunId': 'first'},
+                                                      {'priority': 'review', 'localRunId': None}]})
+        tab.refresh()
+        self.assertEqual(self.button.property('tone'), 'warning')
+        self.assertIn('Local ETW: Partial coverage', tab.coverage.text())
+        self.assertIn('since 1.0 s', tab.coverage.toolTip())
+        self.assertNotIn('requested write access', tab.coverage.toolTip())
+        self.controller.value['process_access']['findings'].append(
+            {'priority': 'review', 'localRunId': 'second'})
+        tab.refresh()
+        self.assertIn('requested write access', tab.coverage.toolTip())
+
     def test_autostart_persists_and_relaunches_once_with_saved_endpoint(self):
         tab = self.tab()
         tab.url.setText(' http://127.0.0.1:8765/ ')

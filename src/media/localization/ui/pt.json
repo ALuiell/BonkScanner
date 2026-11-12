@@ -1,4 +1,9 @@
 {
+  "app.14a69131a9fc2b81": "Cobertura parcial de ETW a partir de {p0} após a ligação",
+  "app.4a97f4a8e737696b": "Um processo desconhecido abriu o MegaBonk com sucesso e solicitou acesso de escrita.",
+  "app.5676e28fc9b62288": "ETW local: {p0}",
+  "app.945cfdfebce2c972": "Atualizações de diagnóstico local de ETW ignoradas: {p0}",
+  "app.f78e6702dac7cb01": "Cobertura parcial de ETW entre {p0} e {p1} após a ligação",
   "common.cancel": "Cancelar",
   "common.done": "Concluído",
   "common.help": "Ajuda",
