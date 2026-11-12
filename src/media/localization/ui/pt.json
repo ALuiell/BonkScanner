@@ -1404,5 +1404,9 @@
   "app.7f1ce72372728bca": "Ainda não há relatórios do Validator",
   "app.bf63a9fb460208bd": "Não foi possível salvar o histórico de relatórios.",
   "app.99c40ab405926cb5": "Data",
-  "app.d676b8c185df45a0": "Último relatório"
+  "app.d676b8c185df45a0": "Último relatório",
+  "app.6723d14f92cd6ac9": "Acesso ao processo no relatório: apenas instantâneos",
+  "app.38f5cb270d000d52": "Acesso ao processo no relatório: ETW negociado",
+  "app.54b07baf4c01394b": "Acesso ao processo no relatório: ETW pendente ou indisponível",
+  "app.1c3e8261562f3a9c": "Acesso ao processo no relatório: negociação pendente"
 }

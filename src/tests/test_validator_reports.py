@@ -97,3 +97,43 @@ def test_pending_enrollment_does_not_offer_previous_link_and_final_status_is_ret
     assert history.live() is None
     restored = ValidatorReports().recent()
     assert len(restored) == 1 and restored[0].status == 'finished' and restored[0].partial
+
+
+def test_reenrollment_requires_new_samples_and_preserves_each_report(settings):
+    history = ValidatorReports()
+    first_samples = ((10, 500, 0, 2), (11, 500, 0, 3))
+    history.refresh(snapshot('current', current=run(None, first_samples, status='enrolling')), BASE)
+    history.observe_recording(recording('recording', 10.5, 2.5), client(), client())
+    history.refresh(snapshot('current', current=run(None, first_samples, status='enrolling')))
+    history.refresh(snapshot('current', current=run('first', first_samples)), force=True)
+    assert history.for_recording('recording').url.endswith('/first')
+
+    # Expiry clears the transport samples. A replacement alone cannot inherit
+    # the old association, even when it belongs to the same run.
+    second = run('second', (), previous_session_id='first')
+    history.refresh(snapshot('current', current=second), force=True)
+    reports = {report.url.rsplit('/', 1)[-1]: report for report in history.recent()}
+    assert reports['first'].status == 'interrupted' and reports['first'].partial
+    assert reports['first'].recording_ids == ('recording',)
+    assert reports['second'].recording_ids == ()
+    assert history.for_recording('recording').url.endswith('/first')
+
+    # A new recording snapshot bracketed by the replacement's samples links
+    # both reports, with the latest link preferred in the recording UI.
+    history.observe_recording(recording('recording', 20.5, 12.5), client(), client())
+    second_samples = ((20, 500, 0, 12), (21, 500, 0, 13))
+    history.refresh(snapshot('current', current=run('second', second_samples, previous_session_id='first')), force=True)
+    assert history.for_recording('recording').url.endswith('/second')
+    assert all(report.recording_ids == ('recording',) for report in history.recent())
+    assert ValidatorReports().for_recording('recording').url.endswith('/second')
+
+    # A subsequent expiry must likewise wait for its own samples, including
+    # when the match arrives while the replacement is still enrolling.
+    history.refresh(snapshot('current', current=run(None, (), previous_session_id='second', status='enrolling')))
+    history.observe_recording(recording('recording', 30.5, 22.5), client(), client())
+    third_samples = ((30, 500, 0, 22), (31, 500, 0, 23))
+    history.refresh(snapshot('current', current=run(None, third_samples, previous_session_id='second', status='enrolling')))
+    history.refresh(snapshot('current', current=run('third', third_samples, previous_session_id='second')), force=True)
+    assert history.for_recording('recording').url.endswith('/third')
+    assert len(history.recent()) == 3
+    assert all(report.recording_ids == ('recording',) for report in ValidatorReports().recent())

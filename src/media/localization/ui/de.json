@@ -1404,5 +1404,9 @@
   "app.7f1ce72372728bca": "Noch keine Validator-Berichte",
   "app.bf63a9fb460208bd": "Der Berichtsverlauf konnte nicht gespeichert werden.",
   "app.99c40ab405926cb5": "Datum",
-  "app.d676b8c185df45a0": "Letzter Bericht"
+  "app.d676b8c185df45a0": "Letzter Bericht",
+  "app.6723d14f92cd6ac9": "Prozesszugriff im Bericht: nur Momentaufnahmen",
+  "app.38f5cb270d000d52": "Prozesszugriff im Bericht: ETW ausgehandelt",
+  "app.54b07baf4c01394b": "Prozesszugriff im Bericht: ETW ausstehend oder nicht verfügbar",
+  "app.1c3e8261562f3a9c": "Prozesszugriff im Bericht: Aushandlung ausstehend"
 }

@@ -1404,5 +1404,9 @@
   "app.7f1ce72372728bca": "Aucun rapport Validator pour le moment",
   "app.bf63a9fb460208bd": "Impossible d’enregistrer l’historique des rapports.",
   "app.99c40ab405926cb5": "Date",
-  "app.d676b8c185df45a0": "Dernier rapport"
+  "app.d676b8c185df45a0": "Dernier rapport",
+  "app.6723d14f92cd6ac9": "Accès au processus dans le rapport : instantanés uniquement",
+  "app.38f5cb270d000d52": "Accès au processus dans le rapport : ETW négocié",
+  "app.54b07baf4c01394b": "Accès au processus dans le rapport : ETW en attente ou indisponible",
+  "app.1c3e8261562f3a9c": "Accès au processus dans le rapport : négociation en attente"
 }

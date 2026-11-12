@@ -139,7 +139,7 @@ class ValidatorReports:
             del self._recording_details[old]
             self._recording_runs.pop(old, None)
         if (
-            state.status == RECORDING and recording_id not in self._recording_runs
+            state.status == RECORDING and self._enabled
             and (previous is None or previous[2] != snapshot.captured_at)
         ):
             process = _process_identity(stats_client)
@@ -169,6 +169,7 @@ class ValidatorReports:
             report = self._reports.get(url)
             if report is None:
                 report = ValidatorReport(url, run.get('started_at') or datetime.now(timezone.utc).isoformat(), 'active')
+                self._reports = {url: report, **self._reports}
             status = run['status']
             if status == 'finished' and run.get('finish_reason') not in (None, 'run_ended'):
                 status = 'interrupted'
@@ -178,11 +179,9 @@ class ValidatorReports:
             self._reports[url] = report
             self._run_reports[run_id] = url
 
-        self._apply_recording_details()
-        for run in runs.values():
-            previous_url = report_url(base, run.get('previous_session_id'))
-            if previous_url in self._reports and run.get('session_id'):
-                self._reports[previous_url] = replace(self._reports[previous_url], recording_ids=())
+        self._apply_recording_details(runs)
+        # Sessions from the same run can share a start time. Prefer the newer
+        # report on ties, including after a history reload.
         ordered = sorted(self._reports.values(), key=lambda item: item.started, reverse=True)[:HISTORY_LIMIT]
         self._reports = {report.url: report for report in ordered}
         for url in self._run_reports.values():
@@ -196,8 +195,9 @@ class ValidatorReports:
     def _match_recordings(self, runs):
         if not self._pending_recordings:
             return
-        for recording_id, process, snapshot in self._pending_recordings:
-            if recording_id in self._recording_runs or recording_id not in self._recording_details:
+        consumed = set()
+        for index, (recording_id, process, snapshot) in enumerate(self._pending_recordings):
+            if recording_id not in self._recording_details:
                 continue
             # Both samples must bracket the recording's actual capture on
             # the Windows monotonic clock, on the same process and stage.
@@ -207,26 +207,32 @@ class ValidatorReports:
                 if run.get('process') == process and _matches_recording(run.get('samples', ()), snapshot)
             ]
             if len(candidates) == 1:
-                self._recording_runs[recording_id] = candidates[0]
+                run_id = candidates[0]
+                generation = (run_id, runs[run_id].get('previous_session_id'))
+                self._recording_runs.setdefault(recording_id, set()).add(generation)
+                consumed.add(index)
         self._pending_recordings = deque(
-            (entry for entry in self._pending_recordings
-             if entry[0] in self._recording_details and entry[0] not in self._recording_runs),
+            (entry for index, entry in enumerate(self._pending_recordings)
+             if index not in consumed and entry[0] in self._recording_details),
             maxlen=self._pending_recordings.maxlen,
         )
 
-    def _apply_recording_details(self):
-        for recording_id, run_id in self._recording_runs.items():
-            url = self._run_reports.get(run_id)
-            if not url:
-                continue
-            report = self._reports[url]
-            metadata, kills, _ = self._recording_details[recording_id]
-            recording_ids = tuple(dict.fromkeys((*report.recording_ids, recording_id)))
-            name = _recording_name(metadata, kills) if recording_ids[0] == recording_id else report.name
-            kills = max((count for count in (report.kills, kills) if count is not None), default=None)
-            self._reports[url] = replace(
-                report, recording_ids=recording_ids, name=name, kills=kills,
-            )
+    def _apply_recording_details(self, runs):
+        current_generations = {(run_id, run.get('previous_session_id')) for run_id, run in runs.items()}
+        for recording_id, generations in self._recording_runs.items():
+            # Earlier associations are already in history. Keep pending matches
+            # only for transport generations that can still receive metadata.
+            generations.intersection_update(current_generations)
+            for run_id, _ in generations:
+                url = self._run_reports.get(run_id)
+                if not url or url not in self._reports:
+                    continue
+                report = self._reports[url]
+                metadata, kills, _ = self._recording_details[recording_id]
+                recording_ids = tuple(dict.fromkeys((*report.recording_ids, recording_id)))
+                name = _recording_name(metadata, kills) if recording_ids[0] == recording_id else report.name
+                kills = max((count for count in (report.kills, kills) if count is not None), default=None)
+                self._reports[url] = replace(report, recording_ids=recording_ids, name=name, kills=kills)
 
     def save(self, *, force=False):
         reports = tuple(
@@ -266,7 +272,4 @@ class ValidatorReports:
     def for_recording(self, recording_id) -> ValidatorReport | None:
         if not recording_id:
             return None
-        run_id = self._recording_runs.get(recording_id)
-        if url := self._run_reports.get(run_id):
-            return self._reports.get(url)
         return next((report for report in self._reports.values() if recording_id in report.recording_ids), None)

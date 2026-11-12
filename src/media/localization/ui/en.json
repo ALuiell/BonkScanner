@@ -1404,5 +1404,9 @@
   "app.7f1ce72372728bca": "No Validator reports yet",
   "app.bf63a9fb460208bd": "Report history could not be saved.",
   "app.99c40ab405926cb5": "Date",
-  "app.d676b8c185df45a0": "Last report"
+  "app.d676b8c185df45a0": "Last report",
+  "app.6723d14f92cd6ac9": "Report process access: snapshots only",
+  "app.38f5cb270d000d52": "Report process access: ETW negotiated",
+  "app.54b07baf4c01394b": "Report process access: ETW pending or unavailable",
+  "app.1c3e8261562f3a9c": "Report process access: negotiation pending"
 }

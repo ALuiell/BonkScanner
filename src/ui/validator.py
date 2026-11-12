@@ -142,6 +142,8 @@ class ValidatorTab(QScrollArea):
         layout.setContentsMargins(12, 10, 12, 10)
         self.coverage = self._plain_label()
         layout.addWidget(self.coverage)
+        self.report_access = self._plain_label()
+        layout.addWidget(self.report_access)
         url_label = l10n.localized(QLabel, l10n.tr('Validator service:'))
         layout.addWidget(url_label)
         stored_url = settings.get('service_url')
@@ -361,6 +363,18 @@ class ValidatorTab(QScrollArea):
         else:
             message = l10n.tr('Delivery: {p0}', p0=delivery_states.get(current.get('status'), l10n.tr('Waiting')))
         self.delivery.setText(message)
+        report_run = last if last.get('finish_requested') else current
+        negotiated = report_run.get('direct_open_negotiated')
+        if negotiated is False:
+            report_access = l10n.tr('Report process access: snapshots only')
+        elif negotiated is True and report_run.get('direct_open_available') is True:
+            report_access = l10n.tr('Report process access: ETW negotiated')
+        elif negotiated is True:
+            report_access = l10n.tr('Report process access: ETW pending or unavailable')
+        else:
+            report_access = l10n.tr('Report process access: negotiation pending')
+        self.report_access.setVisible(bool(report_run) and delivery.get('configured', False))
+        self.report_access.setText(report_access)
 
     def add_to(self, tabs):
         l10n.tab(tabs, self, l10n.tr('Validator'))

@@ -188,6 +188,31 @@ class ValidatorUITests(unittest.TestCase):
         self.assertIn('unconfirmed', tab.delivery.text())
         self.assertFalse(tab.copy_link.isEnabled())
 
+    def test_report_process_access_separates_negotiation_from_local_etw(self):
+        tab = self.tab()
+        run = {'status': 'enrolling', 'direct_open_negotiated': None,
+               'direct_open_available': False}
+        self.controller.value.update(state='observing', enabled=True, active_run_id='run',
+                                     process_access={'mode': 'healthy'},
+                                     delivery={'configured': True, 'runs': {'run': run}})
+        tab.refresh()
+        self.assertIn('negotiation pending', tab.report_access.text())
+        self.assertIn('Local ETW: Observing', tab.coverage.text())
+        run['direct_open_negotiated'] = False
+        tab.refresh()
+        self.assertIn('snapshots only', tab.report_access.text())
+        run['direct_open_negotiated'] = True
+        tab.refresh()
+        self.assertIn('pending or unavailable', tab.report_access.text())
+        run['direct_open_available'] = True
+        tab.refresh()
+        self.assertIn('ETW negotiated', tab.report_access.text())
+        run.update(status='finished', finish_requested=True, direct_open_available=False)
+        self.controller.value.update(enabled=False, active_run_id=None)
+        tab.refresh()
+        self.assertIn('Last report', tab.delivery.text())
+        self.assertIn('pending or unavailable', tab.report_access.text())
+
     def test_recording_report_action_rechecks_the_selected_recording(self):
         shown = ValidatorReport('https://validator.example/v2/sessions/shown', '2026-11-11T18:42:00Z', 'finished')
         selection = [shown]
