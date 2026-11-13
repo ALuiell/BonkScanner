@@ -1408,5 +1408,22 @@
   "app.6723d14f92cd6ac9": "Report process access: snapshots only",
   "app.38f5cb270d000d52": "Report process access: ETW negotiated",
   "app.54b07baf4c01394b": "Report process access: ETW pending or unavailable",
-  "app.1c3e8261562f3a9c": "Report process access: negotiation pending"
+  "app.1c3e8261562f3a9c": "Report process access: negotiation pending",
+  "app.b65bdb2a7d8428e0": "Armed",
+  "app.31f1ba2b9bb4789c": "Collecting",
+  "app.1533d367e933e4c2": "Collected",
+  "app.d353a99eb4556847": "Cancelled",
+  "app.4f7838402f37674e": "Verified",
+  "app.de44f9ecec0049e6": "External change preserved",
+  "app.031a8f0f659df890": "Failed",
+  "app.331551b0de4157c9": "Pending",
+  "app.9ccacf99fee1e017": "Not needed",
+  "app.ea63a418d9f09544": "Security event 4663 records exercised access rights. Counts refer to journal records. Path-only matches are ambiguous. This diagnostic stays local.",
+  "app.efd42aaf812998f4": "Security 4663 (local): {p0}",
+  "app.fe00b67b6dd1143f": "Confirmed",
+  "app.70a8b6912f2ef82f": "Ambiguous",
+  "app.e0575c883290ed7c": "Restoration: {p0}",
+  "app.879b0e829c9a5652": "Issues: {p0}",
+  "app.862cbc33ecb445c4": "{p0}: {p1} read records, {p2} write records",
+  "app.2cd33e6d8c4e78d2": "Last Security 4663 result (local): {p0}"
 }

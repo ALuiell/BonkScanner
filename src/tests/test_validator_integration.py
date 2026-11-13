@@ -68,3 +68,21 @@ print('isolated')
         result = subprocess.run([sys.executable, "-I", "-c", code, SOURCE], capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertIn(b"isolated", result.stdout)
+
+    def test_audit_recovery_dispatch_stays_outside_scanner_runtime(self):
+        code = r'''
+import os,runpy,sys
+from bonkscanner_validator import audit_recovery
+sys.path.insert(0,sys.argv[1])
+sys.argv=['main.py','--validator-audit-recovery','1','2','3','4']
+def recovery(arguments):
+    assert arguments == ['1','2','3','4']
+    for name in ('infra.crash_journal','infra.data_storage','app.config','gui_app','PySide6'):
+        assert name not in sys.modules,name
+    return 17
+audit_recovery.main=recovery
+runpy.run_path(sys.path[0]+'/main.py',run_name='__main__')
+'''
+        result = subprocess.run([sys.executable, "-c", code, SOURCE],
+                                capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 17, result.stderr.decode())

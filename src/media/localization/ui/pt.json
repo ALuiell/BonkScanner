@@ -1408,5 +1408,22 @@
   "app.6723d14f92cd6ac9": "Acesso ao processo no relatório: apenas instantâneos",
   "app.38f5cb270d000d52": "Acesso ao processo no relatório: ETW negociado",
   "app.54b07baf4c01394b": "Acesso ao processo no relatório: ETW pendente ou indisponível",
-  "app.1c3e8261562f3a9c": "Acesso ao processo no relatório: negociação pendente"
+  "app.1c3e8261562f3a9c": "Acesso ao processo no relatório: negociação pendente",
+  "app.b65bdb2a7d8428e0": "Preparado",
+  "app.31f1ba2b9bb4789c": "A recolher",
+  "app.1533d367e933e4c2": "Recolhido",
+  "app.d353a99eb4556847": "Cancelado",
+  "app.4f7838402f37674e": "Verificada",
+  "app.de44f9ecec0049e6": "Alteração externa preservada",
+  "app.031a8f0f659df890": "Falha",
+  "app.331551b0de4157c9": "Pendente",
+  "app.9ccacf99fee1e017": "Desnecessária",
+  "app.ea63a418d9f09544": "O evento de segurança 4663 regista a utilização de permissões de acesso. Os contadores indicam o número de registos. As correspondências baseadas apenas no caminho são ambíguas. O diagnóstico fica no dispositivo.",
+  "app.efd42aaf812998f4": "Security 4663 (local): {p0}",
+  "app.fe00b67b6dd1143f": "Confirmados",
+  "app.70a8b6912f2ef82f": "Ambíguos",
+  "app.e0575c883290ed7c": "Restauro: {p0}",
+  "app.879b0e829c9a5652": "Problemas: {p0}",
+  "app.862cbc33ecb445c4": "{p0}: {p1} registos de leitura, {p2} de escrita",
+  "app.2cd33e6d8c4e78d2": "Último resultado do Security 4663 (local): {p0}"
 }

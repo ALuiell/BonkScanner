@@ -1408,5 +1408,22 @@
   "app.6723d14f92cd6ac9": "Accès au processus dans le rapport : instantanés uniquement",
   "app.38f5cb270d000d52": "Accès au processus dans le rapport : ETW négocié",
   "app.54b07baf4c01394b": "Accès au processus dans le rapport : ETW en attente ou indisponible",
-  "app.1c3e8261562f3a9c": "Accès au processus dans le rapport : négociation en attente"
+  "app.1c3e8261562f3a9c": "Accès au processus dans le rapport : négociation en attente",
+  "app.b65bdb2a7d8428e0": "Prêt",
+  "app.31f1ba2b9bb4789c": "Collecte en cours",
+  "app.1533d367e933e4c2": "Collecté",
+  "app.d353a99eb4556847": "Annulé",
+  "app.4f7838402f37674e": "Vérifiée",
+  "app.de44f9ecec0049e6": "Modification externe conservée",
+  "app.031a8f0f659df890": "Échec",
+  "app.331551b0de4157c9": "En attente",
+  "app.9ccacf99fee1e017": "Non nécessaire",
+  "app.ea63a418d9f09544": "L’événement de sécurité 4663 consigne l’utilisation des droits d’accès. Les compteurs indiquent le nombre d’enregistrements. Les correspondances fondées uniquement sur le chemin sont ambiguës. Le diagnostic reste local.",
+  "app.efd42aaf812998f4": "Security 4663 (local) : {p0}",
+  "app.fe00b67b6dd1143f": "Confirmés",
+  "app.70a8b6912f2ef82f": "Ambigus",
+  "app.e0575c883290ed7c": "Restauration : {p0}",
+  "app.879b0e829c9a5652": "Problèmes : {p0}",
+  "app.862cbc33ecb445c4": "{p0} : {p1} enregistrements de lecture, {p2} d’écriture",
+  "app.2cd33e6d8c4e78d2": "Dernier résultat de Security 4663 (local) : {p0}"
 }

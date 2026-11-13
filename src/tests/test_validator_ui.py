@@ -213,6 +213,44 @@ class ValidatorUITests(unittest.TestCase):
         self.assertIn('Last report', tab.delivery.text())
         self.assertIn('pending or unavailable', tab.report_access.text())
 
+    def test_security_audit_current_and_completed_results_are_local_and_distinct(self):
+        tab = self.tab()
+        self.assertTrue(tab.security_audit.isHidden())
+        completed = {'status': 'partial', 'restoration': 'verified',
+                     'confirmed': {'readRecords': 2, 'writeRecords': 1},
+                     'ambiguous': {'readRecords': 3, 'writeRecords': 0},
+                     'issues': ['journal_gap']}
+        self.controller.value.update(last_security_audit=completed,
+                                     security_audit={'status': 'collecting', 'restoration': 'pending'})
+        tab.refresh()
+        self.assertIn('Collecting', tab.security_audit.text())
+        self.assertNotIn('2 read records', tab.security_audit.text())
+        self.controller.value['security_audit'] = None
+        tab.refresh()
+        self.assertFalse(tab.security_audit.isHidden())
+        self.assertIn('Last Security 4663 result (local)', tab.security_audit.text())
+        self.assertIn('Partial coverage', tab.security_audit.text())
+        self.assertIn('Confirmed: 2 read records, 1 write records', tab.security_audit.text())
+        self.assertIn('Ambiguous: 3 read records, 0 write records', tab.security_audit.text())
+        self.assertIn('Restoration: Verified', tab.security_audit.text())
+        self.assertIn('exercised access rights', tab.security_audit.toolTip())
+        self.assertIn('Path-only matches are ambiguous', tab.security_audit.toolTip())
+        self.assertIn('stays local', tab.security_audit.toolTip())
+        self.assertIn('journal_gap', tab.security_audit.text())
+        self.controller.value['security_audit'] = {'status': 'armed', 'restoration': 'pending'}
+        tab.refresh()
+        self.assertIn('Last Security 4663 result (local)', tab.security_audit.text())
+
+    def test_security_audit_unknown_and_missing_fields_do_not_imply_zero_counts(self):
+        tab = self.tab()
+        self.controller.value['security_audit'] = {'status': 'unavailable',
+                                                    'restoration': 'failed',
+                                                    'confirmed': {}}
+        tab.refresh()
+        self.assertIn('Unavailable', tab.security_audit.text())
+        self.assertIn('Restoration: Failed', tab.security_audit.text())
+        self.assertNotIn('read records', tab.security_audit.text())
+
     def test_recording_report_action_rechecks_the_selected_recording(self):
         shown = ValidatorReport('https://validator.example/v2/sessions/shown', '2026-11-11T18:42:00Z', 'finished')
         selection = [shown]

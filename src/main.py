@@ -10,6 +10,17 @@ import sys
 
 # Worker dispatch must precede crash-journal, storage, configuration, restart
 # and GUI imports. A worker never acquires the application's profile lock.
+if __name__ == "__main__" and "--validator-audit-recovery" in sys.argv[1:]:
+    if sys.argv[1:2] != ["--validator-audit-recovery"]:
+        raise SystemExit(4)
+    try:
+        from bonkscanner_validator.audit_recovery import main as _audit_recovery_main
+    except ModuleNotFoundError as exc:
+        if exc.name == 'bonkscanner_validator':
+            raise SystemExit(4)
+        raise
+    os._exit(_audit_recovery_main(sys.argv[2:]))
+
 if __name__ == "__main__" and "--validator-worker" in sys.argv[1:]:
     try:
         from bonkscanner_validator.worker import main as _validator_worker_main

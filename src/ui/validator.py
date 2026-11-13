@@ -144,6 +144,9 @@ class ValidatorTab(QScrollArea):
         layout.addWidget(self.coverage)
         self.report_access = self._plain_label()
         layout.addWidget(self.report_access)
+        self.security_audit = self._plain_label()
+        self.security_audit.hide()
+        layout.addWidget(self.security_audit)
         url_label = l10n.localized(QLabel, l10n.tr('Validator service:'))
         layout.addWidget(url_label)
         stored_url = settings.get('service_url')
@@ -305,6 +308,7 @@ class ValidatorTab(QScrollArea):
         if skipped:
             details.append(l10n.tr('Local ETW diagnostic updates skipped: {p0}', p0=skipped))
         self.coverage.setToolTip('\n'.join(details))
+        self._refresh_security_audit(snapshot)
         self._refresh_delivery(snapshot)
         if self._reports is not None:
             if self.isVisible():
@@ -328,6 +332,54 @@ class ValidatorTab(QScrollArea):
         self.disable.setEnabled(snapshot['enabled'])
         for widget in (self.url, self.local_test, self.save_service):
             widget.setEnabled(not snapshot['busy'])
+
+    def _refresh_security_audit(self, snapshot):
+        current = snapshot.get('security_audit')
+        last = snapshot.get('last_security_audit')
+        show_current = isinstance(current, dict) and bool(current) and (
+            current.get('status') != 'armed' or not last)
+        report = current if show_current else last
+        skipped = snapshot.get('security_audit_ipc_skipped', 0)
+        self.security_audit.setVisible(bool(report) or bool(skipped))
+        if not isinstance(report, dict) or not report:
+            self.security_audit.setText(str(l10n.tr('Security 4663 (local): {p0}',
+                                                    p0=l10n.tr('Unknown'))) if skipped else '')
+            return
+        states = {
+            'armed': l10n.tr('Armed'), 'collecting': l10n.tr('Collecting'),
+            'collected': l10n.tr('Collected'), 'partial': l10n.tr('Partial coverage'),
+            'unavailable': l10n.tr('Unavailable'), 'cancelled': l10n.tr('Cancelled'),
+        }
+        restoration = {
+            'verified': l10n.tr('Verified'),
+            'preserved_external_change': l10n.tr('External change preserved'),
+            'failed': l10n.tr('Failed'), 'pending': l10n.tr('Pending'),
+            'not_needed': l10n.tr('Not needed'), 'unknown': l10n.tr('Unknown'),
+        }
+        status = states.get(report.get('status'), l10n.tr('Unknown'))
+        if show_current:
+            parts = [str(l10n.tr('Security 4663 (local): {p0}', p0=status))]
+        else:
+            parts = [str(l10n.tr('Last Security 4663 result (local): {p0}', p0=status))]
+        if report.get('status') in ('collected', 'partial'):
+            for key, label in (('confirmed', l10n.tr('Confirmed')), ('ambiguous', l10n.tr('Ambiguous'))):
+                counts = report.get(key)
+                if isinstance(counts, dict):
+                    reads, writes = counts.get('readRecords'), counts.get('writeRecords')
+                    if type(reads) is int and type(writes) is int:
+                        parts.append(str(l10n.tr('{p0}: {p1} read records, {p2} write records',
+                                                  p0=label, p1=reads, p2=writes)))
+        parts.append(str(l10n.tr('Restoration: {p0}',
+                                 p0=restoration.get(report.get('restoration'), l10n.tr('Unknown')))))
+        self.security_audit.setText('\n'.join(parts))
+        help_text = str(l10n.tr('Security event 4663 records exercised access rights. Counts refer to journal records. Path-only matches are ambiguous. This diagnostic stays local.'))
+        issues = list(report.get('issues') or ())
+        if skipped and 'audit_update_lost' not in issues:
+            issues.append('audit_update_lost')
+        if isinstance(issues, list) and issues:
+            issue_text = str(l10n.tr('Issues: {p0}', p0=', '.join(str(issue) for issue in issues)))
+            self.security_audit.setText(self.security_audit.text() + '\n' + issue_text)
+        self.security_audit.setToolTip(help_text)
 
     def _refresh_delivery(self, snapshot):
         delivery = snapshot['delivery'] or {}
