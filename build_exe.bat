@@ -11,6 +11,7 @@ if errorlevel 1 (
 
 set "VENV_DIR=.venv"
 set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
+set "PYINSTALLER_VERSION=6.22.3"
 
 if not exist "%PYTHON_EXE%" (
     echo [ERROR] Virtual environment was not found.
@@ -32,12 +33,12 @@ if exist "docs\.git" (
 )
 
 
-"%PYTHON_EXE%" -m PyInstaller --version >nul 2>nul
+"%PYTHON_EXE%" -c "import sys; from importlib.metadata import version; sys.exit(version('pyinstaller') != sys.argv[1])" "%PYINSTALLER_VERSION%" >nul 2>nul
 if errorlevel 1 (
-    echo [SETUP] Installing PyInstaller...
-    "%PYTHON_EXE%" -m pip install pyinstaller
+    echo [SETUP] Installing PyInstaller %PYINSTALLER_VERSION%...
+    "%PYTHON_EXE%" -m pip install "pyinstaller==%PYINSTALLER_VERSION%"
     if errorlevel 1 (
-        echo [ERROR] Failed to install PyInstaller.
+        echo [ERROR] Failed to install PyInstaller %PYINSTALLER_VERSION%.
         pause
         popd
         exit /b 1
