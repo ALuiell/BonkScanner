@@ -15,6 +15,7 @@ from infra.vod_storage import format_recording_kill_count
 
 HISTORY_KEY = 'LIVE_VALIDATOR_REPORTS'
 HISTORY_LIMIT = 100
+MIN_HISTORY_OBSERVATION_MS = 15_000
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,15 @@ class ValidatorReport:
     recording_ids: tuple[str, ...] = ()
     name: str | None = None
     kills: int | None = None
+    short_attempt: bool | None = None
+
+    @property
+    def hidden_by_default(self) -> bool:
+        # Interrupted rows saved by older versions have no duration metadata.
+        return not self.recording_ids and (
+            self.short_attempt is True
+            or (self.short_attempt is None and self.status == 'interrupted')
+        )
 
 
 class _RecordingSample(NamedTuple):
@@ -39,6 +49,11 @@ def report_url(base: str, session_id: str | None) -> str:
     if not base or not session_id:
         return ''
     return f"{base}/v2/sessions/{quote(session_id, safe='')}"
+
+
+def report_available(run) -> bool:
+    # Packages predating local retention have no explicit availability state.
+    return bool(run.get('session_id')) and run.get('local_report_available') is not False
 
 
 def _read_report(value) -> ValidatorReport | None:
@@ -63,7 +78,8 @@ def _read_report(value) -> ValidatorReport | None:
         return None
     if report.status not in ('finished', 'interrupted', 'failed', 'expired', 'finish_unconfirmed'):
         report = replace(report, status='finish_unconfirmed')
-    return replace(report, recording_ids=tuple(report.recording_ids))
+    short_attempt = report.short_attempt if type(report.short_attempt) is bool else None
+    return replace(report, recording_ids=tuple(report.recording_ids), short_attempt=short_attempt)
 
 
 def _process_identity(client):
@@ -114,6 +130,7 @@ class ValidatorReports:
         self._recording_runs = {}
         self._recording_details = {}
         self._active_id = None
+        self._active_report = None
         self._last_url = ''
         self._base = ''
         self._enabled = False
@@ -163,6 +180,8 @@ class ValidatorReports:
                 self._reports[previous_url] = replace(
                     self._reports[previous_url], status='interrupted', partial=True,
                 )
+            if not report_available(run):
+                continue
             url = report_url(base, run.get('session_id'))
             if not url:
                 continue
@@ -171,23 +190,37 @@ class ValidatorReports:
                 report = ValidatorReport(url, run.get('started_at') or datetime.now(timezone.utc).isoformat(), 'active')
                 self._reports = {url: report, **self._reports}
             status = run['status']
-            if status == 'finished' and run.get('finish_reason') not in (None, 'run_ended'):
+            reason = run.get('finish_reason')
+            if status == 'finished' and reason not in (None, 'run_ended'):
                 status = 'interrupted'
             elif run.get('finish_requested') and status in ('active', 'enrolling', 'retrying'):
                 status = 'finish_pending'
-            report = replace(report, status=status, partial=bool(run.get('partial')))
+            short_attempt = report.short_attempt
+            observed_ms = run.get('observed_ms')
+            if run.get('local_report_available') is True or reason == 'run_ended' or status in ('finished', 'failed', 'expired'):
+                short_attempt = False
+            elif type(observed_ms) is int and observed_ms >= 0:
+                short_attempt = observed_ms < MIN_HISTORY_OBSERVATION_MS
+            report = replace(report, status=status, partial=bool(run.get('partial')), short_attempt=short_attempt)
             self._reports[url] = report
             self._run_reports[run_id] = url
 
         self._apply_recording_details(runs)
+        self._active_report = self._reports.get(self._run_reports.get(self._active_id))
         # Sessions from the same run can share a start time. Prefer the newer
         # report on ties, including after a history reload.
-        ordered = sorted(self._reports.values(), key=lambda item: item.started, reverse=True)[:HISTORY_LIMIT]
-        self._reports = {report.url: report for report in ordered}
+        ordered = sorted(self._reports.values(), key=lambda item: item.started, reverse=True)
+        prioritized = sorted(ordered, key=lambda item: item.hidden_by_default)
+        retained = {report.url for report in prioritized[:HISTORY_LIMIT]}
+        self._reports = {report.url: report for report in ordered if report.url in retained}
+        last = self._reports.get(self._last_url)
+        if last is None or last.hidden_by_default:
+            self._last_url = ''
         for url in self._run_reports.values():
-            if url in self._reports and (
-                self._last_url not in self._reports
-                or self._reports[url].started >= self._reports[self._last_url].started
+            report = self._reports.get(url)
+            if report is not None and not report.hidden_by_default and (
+                not self._last_url
+                or report.started >= self._reports[self._last_url].started
             ):
                 self._last_url = url
         self.save(force=force)
@@ -266,8 +299,7 @@ class ValidatorReports:
         return tuple(reports)
 
     def live(self) -> ValidatorReport | None:
-        url = self._run_reports.get(self._active_id) if self._active_id else self._last_url
-        return self._reports.get(url)
+        return self._active_report if self._active_id else self._reports.get(self._last_url)
 
     def for_recording(self, recording_id) -> ValidatorReport | None:
         if not recording_id:

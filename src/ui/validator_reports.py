@@ -7,7 +7,7 @@ from functools import lru_cache
 from PySide6.QtCore import QDateTime, QLocale, QPointF, QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
+    QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
     QSizePolicy, QVBoxLayout, QWidget,
 )
 
@@ -285,9 +285,15 @@ class ValidatorHistory(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 3, 0, 0)
         self._layout.setSpacing(7)
+        title_row = QHBoxLayout()
         title = l10n.localized(QLabel, l10n.tr('Recent reports'))
         title.setObjectName('validatorHistoryTitle')
-        self._layout.addWidget(title)
+        title_row.addWidget(title, 1)
+        self.show_all = l10n.localized(QCheckBox, l10n.tr('Show all'))
+        self.show_all.hide()
+        self.show_all.toggled.connect(self._render_reports)
+        title_row.addWidget(self.show_all)
+        self._layout.addLayout(title_row)
         self._headers = QWidget()
         columns = QGridLayout(self._headers)
         columns.setContentsMargins(12, 0, 9, 0)
@@ -309,7 +315,7 @@ class ValidatorHistory(QWidget):
         compact = event.size().width() < 680
         if compact != self._compact:
             self._compact = compact
-            self._headers.setVisible(bool(self._reports) and not compact)
+            self._headers.setVisible(bool(self._rows) and not compact)
             for row in self._rows.values():
                 row.set_compact(compact)
 
@@ -319,6 +325,14 @@ class ValidatorHistory(QWidget):
             return
         self._reports = reports
         self._language = language
+        self._render_reports()
+
+    def _render_reports(self):
+        reports = self._reports or ()
+        visible = tuple(report for report in reports if not report.hidden_by_default)
+        self.show_all.setVisible(len(visible) != len(reports))
+        if not self.show_all.isChecked():
+            reports = visible
         existing = set(self._rows)
         for index, report in enumerate(reports):
             row = self._rows.get(report.url)
@@ -329,6 +343,9 @@ class ValidatorHistory(QWidget):
             row.update_report(report)
             existing.discard(report.url)
         for url in existing:
-            self._rows.pop(url).deleteLater()
+            row = self._rows.pop(url)
+            self._layout.removeWidget(row)
+            row.hide()
+            row.deleteLater()
         self._headers.setVisible(bool(reports) and not self._compact)
-        self._empty.setVisible(not reports)
+        self._empty.setVisible(not self._reports)

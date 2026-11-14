@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
-from app.validator_reports import report_url
+from app.validator_reports import report_available, report_url
 from ui import i18n as l10n
 from ui.validator_reports import ValidatorHistory, ValidatorReportStrip, validator_icon
 
@@ -435,7 +435,8 @@ class ValidatorTab(QScrollArea):
         active_id = snapshot.get('active_run_id')
         current = runs.get(active_id, {}) if snapshot['enabled'] else {}
         session_id = current.get('session_id')
-        if not self._active_base or current.get('finish_requested') or current.get('status') not in ('active', 'retrying'):
+        if (not self._active_base or not report_available(current) or current.get('finish_requested')
+                or current.get('status') not in ('active', 'retrying')):
             session_id = None
         self.run_id.setVisible(bool(session_id))
         self.run_id.setText(session_id or '')
@@ -453,10 +454,12 @@ class ValidatorTab(QScrollArea):
                            'expired': l10n.tr('Observation interrupted'),
                            'finished': l10n.tr('Completion confirmed'), 'failed': l10n.tr('Delivery interrupted')}
         last = next(reversed(runs.values()), {}) if not active_id else {}
+        last_report = next((run for run in reversed(runs.values())
+                            if run.get('finish_requested') and report_available(run)), {}) if not active_id else {}
         if not delivery.get('configured'):
             message = l10n.tr('Service not configured; local observation only')
-        elif last.get('finish_requested'):
-            status = last.get('status')
+        elif last_report:
+            status = last_report.get('status')
             if status in ('active', 'enrolling'):
                 status = 'finish_pending'
             message = l10n.tr('Last report: {p0}', p0=delivery_states.get(status, l10n.tr('Waiting')))

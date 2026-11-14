@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QPushButton, QTabWidget, QWidget
 from app import config
 from app.validator_reports import ValidatorReport
 from ui.validator import SETTINGS_KEY, ValidatorTab
-from ui.validator_reports import ValidatorReportStrip
+from ui.validator_reports import ValidatorHistory, ValidatorReportStrip
 
 
 class Controller:
@@ -54,6 +54,27 @@ class ValidatorUITests(unittest.TestCase):
         self.addCleanup(self.button.deleteLater)
         self.addCleanup(tab.deleteLater)
         return tab
+
+    def test_history_hides_short_and_legacy_interrupted_reports_by_default(self):
+        history = ValidatorHistory()
+        self.addCleanup(history.deleteLater)
+        legacy = ValidatorReport('https://validator.example/legacy', '2026-11-11T18:42:00Z', 'interrupted')
+        short = ValidatorReport('https://validator.example/short', '2026-11-11T18:42:00Z', 'interrupted',
+                                short_attempt=True)
+        long = ValidatorReport('https://validator.example/long', '2026-11-11T18:42:00Z', 'interrupted',
+                               short_attempt=False)
+        history.update_reports((legacy, short))
+        self.assertEqual(history._rows, {})
+        self.assertTrue(history._empty.isHidden())
+        history.update_reports((legacy, short, long))
+        self.assertEqual(set(history._rows), {long.url})
+        self.assertFalse(history.show_all.isHidden())
+        history.show_all.click()
+        self.assertEqual(set(history._rows), {legacy.url, short.url, long.url})
+        history.show_all.click()
+        self.assertEqual(set(history._rows), {long.url})
+        history.update_reports((long,))
+        self.assertTrue(history.show_all.isHidden())
 
     def test_header_opens_tab_and_default_startup_is_off(self):
         tab = self.tab()
@@ -188,6 +209,12 @@ class ValidatorUITests(unittest.TestCase):
         }
         self.controller.value.update(state='observing', enabled=True, busy=True, active_run_id='current',
                                      delivery={'configured': True, 'runs': runs})
+        runs['current']['local_report_available'] = False
+        tab.refresh()
+        self.assertEqual(tab.run_id.text(), '')
+        self.assertFalse(tab.copy_link.isEnabled())
+        self.assertEqual(self.button.accessibleName(), 'Validator · Observing')
+        runs['current']['local_report_available'] = True
         tab.refresh()
         self.assertEqual(tab.run_id.text(), 'current-id')
         self.assertTrue(tab.copy_link.isEnabled())
@@ -237,7 +264,7 @@ class ValidatorUITests(unittest.TestCase):
         run['direct_open_available'] = True
         tab.refresh()
         self.assertIn('ETW negotiated', tab.report_access.text())
-        run.update(status='finished', finish_requested=True, direct_open_available=False)
+        run.update(status='finished', session_id='closed', finish_requested=True, direct_open_available=False)
         self.controller.value.update(enabled=False, active_run_id=None)
         tab.refresh()
         self.assertIn('Last report', tab.delivery.text())

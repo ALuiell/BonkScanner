@@ -7,7 +7,7 @@ import pytest
 
 from app import config
 from app.active_recording_feed import ActiveRecordingState, RECORDING
-from app.validator_reports import HISTORY_KEY, ValidatorReports
+from app.validator_reports import HISTORY_KEY, HISTORY_LIMIT, ValidatorReports
 from infra.vod_storage import VodMetadata, VodSnapshot
 
 BASE = 'https://validator.example'
@@ -99,14 +99,83 @@ def test_pending_enrollment_does_not_offer_previous_link_and_final_status_is_ret
     assert len(restored) == 1 and restored[0].status == 'finished' and restored[0].partial
 
 
+def test_short_attempt_keeps_current_link_and_prefers_prior_report_after_restart(settings):
+    history = ValidatorReports()
+    completed = run('completed', status='finished', finish_reason='run_ended', observed_ms=6000)
+    quick = run('quick', observed_ms=0, started_at='2026-11-11T18:43:00Z')
+    history.refresh(snapshot('quick', completed=completed, quick=quick), BASE, force=True)
+    assert history.live().url.endswith('/quick')
+    assert history.live().hidden_by_default
+    assert next(report for report in ValidatorReports().recent() if report.url.endswith('/quick')).hidden_by_default
+
+    pending = dict(quick, status='finish_pending', finish_requested=True, finish_reason='context_lost', observed_ms=14999)
+    history.refresh(snapshot(None, completed=completed, quick=pending), force=True)
+    assert history.live().url.endswith('/completed')
+    assert history.recent()[0].hidden_by_default
+
+    long = dict(pending, session_id='long', status='finished', observed_ms=15000)
+    ended = dict(pending, status='finished')
+    history.refresh(snapshot(None, completed=completed, quick=ended, long=long), force=True)
+    restored = ValidatorReports().recent()
+    assert [report.url.rsplit('/', 1)[-1] for report in restored if not report.hidden_by_default] == ['long', 'completed']
+    assert history.live().url.endswith('/long')
+
+
+def test_short_restarts_do_not_displace_visible_history(settings):
+    settings[HISTORY_KEY] = [{'url': f'{BASE}/v2/sessions/legacy', 'started': '2026-11-11T18:00:00Z',
+                              'status': 'interrupted'}]
+    history = ValidatorReports()
+    assert history.recent()[0].hidden_by_default
+    completed = run('completed', status='finished', finish_reason='run_ended', observed_ms=45000)
+    restarts = {
+        f'restart-{index}': run(f'restart-{index}', status='finished', finish_reason='context_lost',
+                                observed_ms=3000, started_at='2026-11-11T18:43:00Z')
+        for index in range(HISTORY_LIMIT)
+    }
+    history.refresh(snapshot(None, completed=completed, **restarts), BASE, force=True)
+    assert len(history.recent()) == HISTORY_LIMIT
+    assert history.live().url.endswith('/completed')
+    assert [report.url.rsplit('/', 1)[-1] for report in ValidatorReports().recent()
+            if not report.hidden_by_default] == ['completed']
+
+
+def test_provisional_sessions_never_write_history_and_recording_links_wait_for_eligibility(settings):
+    history = ValidatorReports()
+    samples = ((10, 500, 0, 2), (11, 500, 0, 3))
+    current = run('current', samples, observed_ms=14999, local_report_available=False)
+    history.refresh(snapshot('first', first=current), BASE, force=True)
+    history.observe_recording(recording('recording', 10.5, 2.5), client(), client())
+    history.refresh(snapshot('first', first=current), force=True)
+    assert history.live() is None
+    assert history.recent() == ()
+    assert history.for_recording('recording') is None
+    assert HISTORY_KEY not in settings
+
+    qualified = dict(current, local_report_available=True, observed_ms=15000)
+    history.refresh(snapshot('first', first=qualified), force=True)
+    assert history.live().url.endswith('/current')
+    assert history.for_recording('recording').url.endswith('/current')
+
+    interrupted = dict(qualified, status='finished', finish_reason='context_lost')
+    short = run('short', status='finished', finish_reason='run_ended', observed_ms=5000,
+                local_report_available=False)
+    finding = run('finding', status='finished', finish_reason='context_lost', observed_ms=3000,
+                  local_report_available=True)
+    history.refresh(snapshot(None, first=interrupted, short=short, finding=finding), force=True)
+    reloaded = ValidatorReports().recent()
+    assert {report.url.rsplit('/', 1)[-1] for report in reloaded} == {'current', 'finding'}
+    assert all(report.status == 'interrupted' and not report.hidden_by_default for report in reloaded)
+
+
 def test_reenrollment_requires_new_samples_and_preserves_each_report(settings):
     history = ValidatorReports()
     first_samples = ((10, 500, 0, 2), (11, 500, 0, 3))
     history.refresh(snapshot('current', current=run(None, first_samples, status='enrolling')), BASE)
     history.observe_recording(recording('recording', 10.5, 2.5), client(), client())
     history.refresh(snapshot('current', current=run(None, first_samples, status='enrolling')))
-    history.refresh(snapshot('current', current=run('first', first_samples)), force=True)
+    history.refresh(snapshot('current', current=run('first', first_samples, observed_ms=2000)), force=True)
     assert history.for_recording('recording').url.endswith('/first')
+    assert not history.live().hidden_by_default
 
     # Expiry clears the transport samples. A replacement alone cannot inherit
     # the old association, even when it belongs to the same run.
