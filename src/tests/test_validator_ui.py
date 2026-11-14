@@ -104,6 +104,36 @@ class ValidatorUITests(unittest.TestCase):
         tab.refresh()
         self.assertIn('requested write access', tab.coverage.toolTip())
 
+    def test_local_image_history_shows_counts_gaps_and_attachment_relative_rows(self):
+        tab = self.tab()
+        self.assertTrue(tab.image_events.isHidden())
+        self.controller.value.update(state='observing', enabled=True, process_access={
+            'mode': 'healthy', 'attachedMonotonic': 10.0,
+            'imageEvents': {'status': 'partial', 'loaded': 4, 'unloaded': 2,
+                            'dropped': 3, 'decodeErrors': 1, 'identityUnknown': 2,
+                            'historyOmitted': 5,
+                            'rows': [{'kind': 'load', 'name': 'example.dll', 'occurredMonotonic': 11.5},
+                                     {'kind': 'unload', 'name': 'C:\\private\\old.dll', 'occurredMonotonic': 12.0}]}})
+        tab.refresh()
+        self.assertFalse(tab.image_events.isHidden())
+        self.assertIn('Local image history', tab.image_events.text())
+        self.assertIn('Partial coverage', tab.image_events.text())
+        for text in ('Loaded: 4', 'Unloaded: 2', 'Dropped: 3', 'Decode errors: 1',
+                     'Unknown identity: 2', 'History omitted: 5'):
+            self.assertIn(text, tab.image_events.text())
+        self.assertIn('1.5 s after attachment: Loaded example.dll', tab.image_events.toolTip())
+        self.assertIn('2.0 s after attachment: Unloaded old.dll', tab.image_events.toolTip())
+        self.assertNotIn('private', tab.image_events.toolTip())
+        self.assertEqual(self.button.property('tone'), 'active')
+        self.controller.value['process_access']['imageEvents'] = {'status': 'stopped'}
+        tab.refresh()
+        self.assertIn('Stopped', tab.image_events.text())
+        self.assertNotIn('Loaded: 0', tab.image_events.text())
+        self.assertNotIn('example.dll', tab.image_events.toolTip())
+        del self.controller.value['process_access']['imageEvents']
+        tab.refresh()
+        self.assertTrue(tab.image_events.isHidden())
+
     def test_autostart_persists_and_relaunches_once_with_saved_endpoint(self):
         tab = self.tab()
         tab.url.setText(' http://127.0.0.1:8765/ ')

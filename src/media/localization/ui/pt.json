@@ -1425,5 +1425,16 @@
   "app.e0575c883290ed7c": "Restauro: {p0}",
   "app.879b0e829c9a5652": "Problemas: {p0}",
   "app.862cbc33ecb445c4": "{p0}: {p1} registos de leitura, {p2} de escrita",
-  "app.2cd33e6d8c4e78d2": "Último resultado do Security 4663 (local): {p0}"
+  "app.2cd33e6d8c4e78d2": "Último resultado do Security 4663 (local): {p0}",
+  "app.1a4f630ac1b69fd0": "Parado",
+  "app.73525008c124034b": "Histórico local de módulos (ligação atual ou última ligação): {p0}",
+  "app.d01476dfee7ed2de": "Carga",
+  "app.16711fa96081bcc3": "Descarga",
+  "app.739f68fe97ad306e": "Perdidos",
+  "app.df83bc5766578f22": "Erros de descodificação",
+  "app.02092f484981dd3e": "Atribuição desconhecida",
+  "app.faf7fda75ce71ef3": "Eventos anteriores ocultos",
+  "app.702d089cb88c77c9": "Eventos ETW locais para esta instância do jogo. Perdas, erros de descodificação e atribuição desconhecida indicam cobertura parcial. O histórico apresenta os últimos eventos conservados.",
+  "app.07e3a63ea0ed5b58": "{p0}: {p1}",
+  "app.d039f02e397fca04": "{p0} s após a ligação: {p1} {p2}"
 }

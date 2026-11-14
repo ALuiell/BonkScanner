@@ -1,6 +1,8 @@
 """Live Validator controls and header status for the Scanner window."""
 from __future__ import annotations
 
+import math
+import ntpath
 import os
 
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer
@@ -144,6 +146,9 @@ class ValidatorTab(QScrollArea):
         layout.addWidget(self.coverage)
         self.report_access = self._plain_label()
         layout.addWidget(self.report_access)
+        self.image_events = self._plain_label()
+        self.image_events.hide()
+        layout.addWidget(self.image_events)
         self.security_audit = self._plain_label()
         self.security_audit.hide()
         layout.addWidget(self.security_audit)
@@ -308,6 +313,7 @@ class ValidatorTab(QScrollArea):
         if skipped:
             details.append(l10n.tr('Local ETW diagnostic updates skipped: {p0}', p0=skipped))
         self.coverage.setToolTip('\n'.join(details))
+        self._refresh_image_events(access)
         self._refresh_security_audit(snapshot)
         self._refresh_delivery(snapshot)
         if self._reports is not None:
@@ -332,6 +338,48 @@ class ValidatorTab(QScrollArea):
         self.disable.setEnabled(snapshot['enabled'])
         for widget in (self.url, self.local_test, self.save_service):
             widget.setEnabled(not snapshot['busy'])
+
+    def _refresh_image_events(self, access):
+        events = access.get('imageEvents')
+        self.image_events.setVisible(isinstance(events, dict) and bool(events))
+        if not isinstance(events, dict) or not events:
+            self.image_events.clear()
+            self.image_events.setToolTip('')
+            return
+        states = {'active': l10n.tr('Observing'), 'partial': l10n.tr('Partial coverage'),
+                  'unavailable': l10n.tr('Unavailable'), 'stopped': l10n.tr('Stopped')}
+        parts = [str(l10n.tr('Local image history (current or last attachment): {p0}',
+                             p0=states.get(events.get('status'), l10n.tr('Unknown'))))]
+        for key, label in (('loaded', l10n.tr('Loaded')), ('unloaded', l10n.tr('Unloaded')),
+                           ('dropped', l10n.tr('Dropped')), ('decodeErrors', l10n.tr('Decode errors')),
+                           ('identityUnknown', l10n.tr('Unknown identity')),
+                           ('historyOmitted', l10n.tr('History omitted'))):
+            count = events.get(key)
+            if type(count) is int and count >= 0:
+                parts.append(str(l10n.tr('{p0}: {p1}', p0=label, p1=count)))
+        self.image_events.setText(' · '.join(parts))
+        details = [str(l10n.tr('Local ETW image events for this process attachment. Dropped events, decode errors or unknown identity indicate incomplete history; omitted history means older retained rows were removed.'))]
+        origin = access.get('attachedMonotonic')
+        rows = events.get('rows')
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, dict) or row.get('kind') not in ('load', 'unload'):
+                    continue
+                name = row.get('name')
+                if not isinstance(name, str) or not name:
+                    continue
+                name = ''.join(c for c in ntpath.basename(name) if c.isprintable())
+                if not name:
+                    continue
+                kind = l10n.tr('Loaded') if row['kind'] == 'load' else l10n.tr('Unloaded')
+                when = row.get('occurredMonotonic')
+                if (type(origin) in (int, float) and type(when) in (int, float)
+                        and math.isfinite(origin) and math.isfinite(when)):
+                    details.append(str(l10n.tr('{p0} s after attachment: {p1} {p2}',
+                                               p0=f'{when - origin:.1f}', p1=kind, p2=name)))
+                else:
+                    details.append(str(l10n.tr('{p0}: {p1}', p0=kind, p1=name)))
+        self.image_events.setToolTip('\n'.join(details))
 
     def _refresh_security_audit(self, snapshot):
         current = snapshot.get('security_audit')
