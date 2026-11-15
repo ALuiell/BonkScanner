@@ -1900,20 +1900,20 @@ def format_segment_headline(
     if changes is None:
         changes = summarize_item_segment_changes(span)
     # Levels, items, kills -- the mockup's order, and the order they grow in.
-    level_delta = _segment_counter_delta(span, "player_level")
+    level_delta = segment_counter_delta(span, "player_level")
     if level_delta:
         pieces.append(_segment_headline_total(level_delta, "levels"))
     pieces.append(
         _segment_headline_total(sum(gain for _name, gain in changes["gained"]), "items")
     )
-    kill_delta = _segment_counter_delta(span, "mob_kills")
+    kill_delta = segment_counter_delta(span, "mob_kills")
     if kill_delta:
         pieces.append(_segment_headline_total(kill_delta, "kills"))
     separator = f'<span style="color:{_COMPARE_MUTED_COLOR};"> · </span>'
     return separator.join(pieces)
 
 
-def _segment_counter_delta(snapshots, attr_name: str) -> int | None:
+def segment_counter_delta(snapshots, attr_name: str) -> int | None:
     """How far a monotonic counter moved across the segment.
 
     Read off the segment rather than off the A/B pair, for two reasons the old

@@ -325,8 +325,12 @@ class QuickGuide(QDialog):
         layout.setSpacing(10)
         layout.addWidget(_label(topic.breadcrumb, "GuidePath"))
         layout.addWidget(_label(lambda: topic.text("title"), "GuideTitle"))
-        layout.addWidget(_label(topic.summary, "GuideSummary"))
-        layout.addSpacing(4)
+        if topic.key == "shady":
+            layout.setContentsMargins(20, 14, 20, 14)
+            layout.setSpacing(7)
+        else:
+            layout.addWidget(_label(topic.summary, "GuideSummary"))
+            layout.addSpacing(4)
         if topic.key == "welcome":
             preview = self._welcome_choices()
         elif topic.key == "premium":
@@ -334,10 +338,13 @@ class QuickGuide(QDialog):
         elif topic.key == "live":
             preview = LiveStatsGuidePreview()
         elif topic.key == "recordings":
-            preview = RecordingsGuidePreview(self._app)
+            preview = RecordingsGuidePreview()
         elif topic.key in ("obs", "game_overlay"):
             preview = build_overlay_previews(topic.key, self._overlay_widgets)
-        elif topic.key in ("stock", "shady"):
+        elif topic.key == "shady":
+            snapshot = self._app.coordinator.merchant_analytics.snapshot()
+            preview = build_merchant_preview(topic.key, self._overlay_widgets, snapshot=snapshot)
+        elif topic.key == "stock":
             preview = build_merchant_preview(topic.key, self._overlay_widgets)
         elif topic.key == "roll":
             preview = build_roll_analytics_preview()
@@ -349,6 +356,8 @@ class QuickGuide(QDialog):
             layout.addWidget(preview, 1)
         elif topic.key == "premium":
             layout.addWidget(preview)
+        elif topic.key == "shady":
+            layout.addWidget(preview, 1)
         else:
             preview.setMinimumHeight(max(214, preview.minimumHeight()))
             preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)

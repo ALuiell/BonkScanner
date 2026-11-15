@@ -1,184 +1,122 @@
-"""Readable, interactive Roll Analytics example built from the Scanner's view."""
-from types import SimpleNamespace
-
-from PySide6.QtCore import Qt
+"""Compact Roll Analytics examples with the recording's confirmed counts."""
+from PySide6.QtCore import QLocale, QSize, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QBoxLayout, QFrame, QHBoxLayout, QHeaderView, QLabel, QScrollArea, QSizePolicy, QTableView, QVBoxLayout, QWidget,
+    QBoxLayout, QButtonGroup, QFrame, QGridLayout, QHeaderView, QLabel,
+    QPushButton, QScrollArea, QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
-from core.roll_analytics import ROLL_STATS, aggregate_roll_counts, confirmed_roll_counts
-from .guide_locale import bind, message
-from .run_sample import game_clock, load_run_example
+from core.roll_analysis_view import expected_rolls, recorded_source_from_snapshot
 from ui import i18n as l10n
-from ui.dialogs.roll_analytics import RollAnalyticsWindow
+from ui.shared import resource_path
+
+from .guide_locale import bind, localization, message
+from .run_sample import game_clock, load_run_example
 
 
-_STAT_NAMES = dict(ROLL_STATS)
-_COLUMN_GROUPS = (tuple(range(5)), tuple(range(6, 11)))
 _STYLE = """
-QFrame#rollAnalyticsGuidePreview {background:#101925; border:1px solid #2b3c50; border-radius:10px;}
-QLabel#GuideRollContext, QLabel#GuideRollSort {background:transparent; color:#b7cadc; font-size:12px;}
-QWidget#GuideRollTables {background:transparent;}
-QTableView#GuideRollTable {
-    background:#101923; alternate-background-color:#162130; color:#e4edf5;
-    border:1px solid #32445a; border-radius:6px; font-size:14px;
+QFrame#rollAnalyticsGuidePreview {background:#172333; border:1px solid #2d4258; border-radius:11px;}
+QLabel#GuideRollContext, QLabel#GuideRollSummaryName {background:transparent; color:#a7bcd1; font-size:12px;}
+QLabel#GuideRollSummaryValue {background:transparent; color:#f0f7ff; font-size:20px; font-weight:700;}
+QPushButton#RollAnalyticsSource {
+    background:#1c3046; border:1px solid #38516b; border-radius:6px;
+    color:#d7eaff; font-size:12px; font-weight:600; padding:5px 9px;
 }
-QTableView#GuideRollTable QHeaderView::section {
-    background:#1a2a3b; color:#c7daee; font-size:12px; font-weight:700;
-    border:0; border-bottom:1px solid #32445a; padding:5px 7px;
+QPushButton#RollAnalyticsSource:hover {background:#28445e;}
+QPushButton#RollAnalyticsSource:checked {background:#31577a; border-color:#5d93c1; color:#fff;}
+QPushButton#RollAnalyticsSource:focus {border-color:#7ebcff;}
+QTableWidget#GuideRollTable {
+    background:#142131; alternate-background-color:#19293a; color:#e4edf5;
+    border:1px solid #30445a; border-radius:6px; font-size:13px;
+}
+QTableWidget#GuideRollTable::item {border:0; padding:0 6px;}
+QTableWidget#GuideRollTable QHeaderView::section {
+    background:#1d3044; color:#c7daee; border:0; border-bottom:1px solid #30445a;
+    font-size:12px; font-weight:700; padding:3px 6px;
 }
 """
 
+_ROW_HEIGHT = 21
 
-class _ExampleService:
+
+def _recording_example():
+    example = load_run_example()
+    for snapshot in reversed(example.snapshots):
+        dice = recorded_source_from_snapshot(snapshot, "dice")
+        chaos = recorded_source_from_snapshot(snapshot, "chaos")
+        if dice.analytics is not None and chaos.analytics is not None:
+            seconds = dice.game_time_seconds if dice.game_time_seconds is not None else dice.elapsed_seconds
+            return example.character, game_clock(seconds or 0), {"dice": dice.analytics, "chaos": chaos.analytics}
+    raise ValueError("The guide recording needs confirmed Dice and Chaos Tome counters")
+
+
+def _wrapped_label(role):
+    label = QLabel()
+    label.setObjectName(role)
+    label.setWordWrap(True)
+    label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+    return label
+
+
+class _RollTable(QTableWidget):
     def __init__(self):
-        example = load_run_example()
-        self.character = example.character
-        for snapshot in reversed(example.snapshots):
-            counts = confirmed_roll_counts(snapshot.chaos_tome, snapshot.character_passive)
-            if "dice" in counts and "chaos" in counts:
-                self.clock = game_clock(snapshot.game_time_seconds or snapshot.elapsed_seconds)
-                self._snapshots = {
-                    source: aggregate_roll_counts(source, rows) for source, rows in counts.items()
-                }
-                break
-        else:
-            raise ValueError("The guide recording needs confirmed Dice and Chaos Tome counters")
+        super().__init__(0, 4)
+        self.setObjectName("GuideRollTable")
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.setAlternatingRowColors(True)
+        self.setShowGrid(False)
+        self.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.setSelectionMode(QTableWidget.NoSelection)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.verticalHeader().hide()
+        self.verticalHeader().setMinimumSectionSize(_ROW_HEIGHT)
+        self.verticalHeader().setDefaultSectionSize(_ROW_HEIGHT)
+        self.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        self.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for column in range(1, self.columnCount()):
+            self.horizontalHeader().setSectionResizeMode(column, QHeaderView.Fixed)
 
-    def status(self):
-        return SimpleNamespace(error=None, revision=1)
-
-    def set_collection_active(self, _active):
-        pass
-
-    def snapshot(self, source):
-        return self._snapshots[source]
-
-
-class _ExampleAnalytics(RollAnalyticsWindow):
-    """Keep production formatting, sorting and calculations on the sample."""
-
-    def _save_preferences(self, selected, expected):
-        self._selected = frozenset(selected)
-        self._show_expected = bool(expected)
-        self._last_key = None
-        self.refresh()
-
-    def translate_stats(self):
-        for column in (0, 6):
-            for row in range(self._table.rowCount()):
-                item = self._table.item(row, column)
-                name = _STAT_NAMES.get(item.data(Qt.UserRole))
-                if name:
-                    l10n.display(item, "setText", l10n.stat(name))
-
-
-class _RollStatTable(QTableView):
     def wheelEvent(self, event):
-        # This table shows every row. Wheel movement belongs to the guide page.
+        # Scrolling belongs to the guide page, including over table rows.
         parent = self.parentWidget()
         while parent is not None and not isinstance(parent, QScrollArea):
             parent = parent.parentWidget()
-        if parent is None:
-            super().wheelEvent(event)
-        else:
+        if parent is not None:
             parent.wheelEvent(event)
+        else:
+            super().wheelEvent(event)
 
-
-class _RollTables(QWidget):
-    """The two groups in the production table, stacked when width is limited."""
-
-    def __init__(self, analytics, parent):
-        super().__init__(parent)
-        self.setObjectName("GuideRollTables")
-        self._analytics = analytics
-        self._layout = QBoxLayout(QBoxLayout.TopToBottom, self)
-        self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(8)
-        self._views = []
-        model = analytics._table.model()
-        for columns in _COLUMN_GROUPS:
-            view = _RollStatTable(self)
-            view.setObjectName("GuideRollTable")
-            view.setModel(model)
-            view.setAlternatingRowColors(True)
-            view.setShowGrid(False)
-            view.setEditTriggers(QTableView.NoEditTriggers)
-            view.setSelectionMode(QTableView.NoSelection)
-            view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            view.setFocusPolicy(Qt.NoFocus)
-            view.verticalHeader().hide()
-            view.verticalHeader().setMinimumSectionSize(28)
-            view.verticalHeader().setDefaultSectionSize(28)
-            view.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-            header = view.horizontalHeader()
-            header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            header.setSectionResizeMode(columns[0], QHeaderView.Stretch)
-            for column in columns[1:]:
-                header.setSectionResizeMode(column, QHeaderView.Fixed)
-            self._views.append(view)
-            self._layout.addWidget(view, 1, Qt.AlignTop)
-
-        l10n.RefreshBinding(self, self.refresh)
-
-    def refresh(self):
-        self._analytics.translate_stats()
-        for view, columns in zip(self._views, _COLUMN_GROUPS, strict=True):
-            # The right-hand group has 13 stats. The shared model also has the
-            # left group's 14th row, which should only appear in the left view.
-            last_row = view.model().rowCount() - 1
-            item = self._analytics._table.item(last_row, columns[0])
-            view.setRowHidden(last_row, item.data(Qt.UserRole) is None)
-        self._fit_tables()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._fit_tables()
-
-    def _fit_tables(self):
-        table = self._analytics._table
-        model = table.model()
-        expected = self._analytics._show_expected
-        compact = expected and self.width() < 500
-        rolls = message("roll.guide.count_short") if compact else l10n.tr("Rolls")
-        reference = message("roll.guide.expected_short") if compact else l10n.tr("Exp.")
-        for columns in _COLUMN_GROUPS:
-            l10n.display(table.horizontalHeaderItem(columns[1]), "setText", rolls)
-            l10n.display(table.horizontalHeaderItem(columns[3]), "setText", reference)
-
-        widths = []
-        for view, columns in zip(self._views, _COLUMN_GROUPS, strict=True):
-            for column in range(model.columnCount()):
-                view.setColumnHidden(column, column not in columns)
-            view.setColumnHidden(columns[3], not expected)
-            names = (model.index(i, columns[0]).data() or "" for i in range(model.rowCount()))
-            name_width = max(
-                max(map(view.fontMetrics().horizontalAdvance, names), default=0) + 22,
-                view.sizeHintForColumn(columns[0]),
-            )
-            numeric = {}
-            for column in columns[1:]:
-                if view.isColumnHidden(column):
-                    continue
-                width = max(
-                    view.sizeHintForColumn(column), view.horizontalHeader().sectionSizeHint(column), 36,
-                ) + 3
-                view.setColumnWidth(column, width)
-                numeric[column] = view.columnWidth(column)
-            delta_width = numeric.pop(columns[4])
-            values_width = sum(numeric.values())
-            show_delta = expected and name_width + values_width + delta_width <= self.width()
-            view.setColumnHidden(columns[4], not show_delta)
-            widths.append(name_width + values_width + (delta_width if show_delta else 0))
-        fits_side_by_side = 2 * max(widths) + self._layout.spacing() <= self.width()
-        direction = QBoxLayout.LeftToRight if fits_side_by_side else QBoxLayout.TopToBottom
-        if direction != self._layout.direction():
-            self._layout.setDirection(direction)
-
-        for view in self._views:
-            visible_height = sum(view.rowHeight(row) for row in range(model.rowCount()) if not view.isRowHidden(row))
-            view.setFixedHeight(view.horizontalHeader().sizeHint().height() + visible_height + 2)
+    def set_rows(self, rows, expected, locale):
+        self.setUpdatesEnabled(False)
+        try:
+            self.setHorizontalHeaderLabels((str(l10n.tr("Stat")), message("roll.guide.rolls"), str(l10n.tr("Share")), "Δ"))
+            self.horizontalHeaderItem(2).setToolTip(str(l10n.tr("Share of all confirmed rolls for this source.")))
+            self.horizontalHeaderItem(3).setToolTip(message("roll.guide.delta_note"))
+            self.setRowCount(len(rows))
+            for index, row in enumerate(rows):
+                name = str(l10n.stat(row.label))
+                count = locale.toString(row.count)
+                share = f"{locale.toString(row.percent, 'f', 1)}%" if row.percent is not None else "—"
+                delta = "—"
+                if expected is not None:
+                    difference = row.count - expected
+                    sign = "+" if difference >= 0.05 else "−" if difference <= -0.05 else ""
+                    delta = sign + locale.toString(abs(difference), "f", 1)
+                for column, text in enumerate((name, count, share, delta)):
+                    item = QTableWidgetItem(text)
+                    item.setTextAlignment((Qt.AlignLeft if column == 0 else Qt.AlignRight) | Qt.AlignVCenter)
+                    item.setToolTip(name if column == 0 else text)
+                    self.setItem(index, column, item)
+            self.ensurePolished()
+            for column in range(1, self.columnCount()):
+                heading = self.horizontalHeader().sectionSizeHint(column)
+                self.setColumnWidth(column, max(37, heading, self.sizeHintForColumn(column) + 4))
+            self.setFixedHeight(self.horizontalHeader().sizeHint().height() + len(rows) * _ROW_HEIGHT + 2)
+        finally:
+            self.setUpdatesEnabled(True)
 
 
 class _RollPreview(QFrame):
@@ -186,65 +124,119 @@ class _RollPreview(QFrame):
         super().__init__()
         self.setObjectName("rollAnalyticsGuidePreview")
         self.setStyleSheet(_STYLE)
+        self._character, self._clock, self._snapshots = _recording_example()
+        self._source = "dice"
+        self._two_columns = True
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(11, 9, 11, 11)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(6)
 
-        service = _ExampleService()
-        proxy = SimpleNamespace(coordinator=SimpleNamespace(roll_analytics=service), has_premium_access=lambda: True)
-        analytics = _ExampleAnalytics(proxy, self)
-        context = bind(QLabel(), lambda: message(
-            "run.live_snapshot", character=str(l10n.game("characters", service.character)), time=service.clock,
-        ))
-        context.setObjectName("GuideRollContext")
-        layout.addWidget(context)
-        self._source_buttons = tuple(analytics._source_buttons.values())
-        self._source_frame = self._source_buttons[0].parentWidget()
-        self._source_frame.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        layout.addWidget(self._source_frame)
+        self._header = QBoxLayout(QBoxLayout.LeftToRight)
+        self._header.setSpacing(7)
+        self._source_layout = QBoxLayout(QBoxLayout.LeftToRight)
+        self._source_layout.setSpacing(7)
+        self._header.addLayout(self._source_layout)
+        self._buttons = QButtonGroup(self)
+        for source, caption, icon in (
+            ("dice", "Dice passive", "roll_dice.svg"), ("chaos", "Chaos Tome", "roll_chaos.svg"),
+        ):
+            button = QPushButton(QIcon(resource_path(f"media/{icon}")), "")
+            title = l10n.tr(caption)
+            if source == "dice":
+                bind(button, lambda: message("roll.guide.dice_source"))
+            else:
+                l10n.display(button, "setText", title)
+            l10n.display(button, "setToolTip", title)
+            l10n.display(button, "setAccessibleName", title)
+            button.setObjectName("RollAnalyticsSource")
+            button.setProperty("source", source)
+            button.setIconSize(QSize(15, 15))
+            button.setCursor(Qt.PointingHandCursor)
+            button.setAutoDefault(False)
+            button.setCheckable(True)
+            button.setChecked(source == self._source)
+            button.clicked.connect(lambda _checked, name=source: self._select_source(name))
+            self._buttons.addButton(button)
+            self._source_layout.addWidget(button)
+        self._context = _wrapped_label("GuideRollContext")
+        self._context.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._header.addWidget(self._context, 1)
+        layout.addLayout(self._header)
 
-        options = QHBoxLayout()
-        options.setSpacing(7)
-        sort_label = l10n.localized(QLabel, l10n.tr("Sort by"))
-        sort_label.setObjectName("GuideRollSort")
-        sort_label.setBuddy(analytics._sort_by)
-        options.addWidget(sort_label)
-        options.addWidget(analytics._sort_by)
-        options.addStretch(1)
-        l10n.display(analytics._expected_switch, "setText", l10n.tr("Expected"))
-        options.addWidget(analytics._expected_switch)
-        layout.addLayout(options)
+        summary = QGridLayout()
+        summary.setHorizontalSpacing(10)
+        summary.setVerticalSpacing(1)
+        self._summary_values = []
+        for column, key in enumerate(("confirmed", "chance", "expected")):
+            name = bind(_wrapped_label("GuideRollSummaryName"), lambda item=key: message(f"roll.guide.{item}"))
+            value = _wrapped_label("GuideRollSummaryValue")
+            summary.addWidget(name, 0, column)
+            summary.addWidget(value, 1, column)
+            summary.setColumnStretch(column, 1)
+            self._summary_values.append(value)
+        layout.addLayout(summary)
 
-        summary = analytics._total.parentWidget()
-        caption = summary.findChild(QLabel, "kpiLabel")
-        l10n.display(caption, "setText", l10n.tr("Rolls"))
-        analytics._stat_count.hide()
-        stat_count = bind(QLabel(), lambda: message("roll.guide.stat_count", count=len(ROLL_STATS)))
-        stat_count.setObjectName("dialogSubtitle")
-        summary.layout().addWidget(stat_count)
-        layout.addWidget(summary)
+        tables = QBoxLayout(QBoxLayout.LeftToRight)
+        tables.setSpacing(8)
+        self._tables = (_RollTable(), _RollTable())
+        for table in self._tables:
+            tables.addWidget(table, 1, Qt.AlignTop)
+        layout.addLayout(tables)
+        layout.addStretch(1)
 
-        tables = _RollTables(analytics, self)
-        for button in self._source_buttons:
-            button.clicked.connect(tables.refresh)
-        analytics._sort_by.currentIndexChanged.connect(tables.refresh)
-        analytics._expected_switch.toggled.connect(tables.refresh)
-        layout.addWidget(tables)
-        l10n.RefreshBinding(self, self._fit_source_buttons)
+        l10n.RefreshBinding(self, self._refresh)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._fit_source_buttons()
+        old_columns = self._two_columns
+        self._two_columns = self.width() >= 610
+        self._fit_header()
+        if old_columns != self._two_columns:
+            self._refresh_tables()
 
-    def _fit_source_buttons(self):
-        tabs = self._source_frame.layout()
-        left, _, right, _ = self.layout().getContentsMargins()
-        inset = tabs.contentsMargins()
-        needed = sum(button.minimumSizeHint().width() for button in self._source_buttons)
-        needed += inset.left() + inset.right() + tabs.spacing()
-        horizontal = self.width() - left - right - 2 >= needed
-        tabs.setDirection(QBoxLayout.LeftToRight if horizontal else QBoxLayout.TopToBottom)
+    def _fit_header(self):
+        buttons_width = sum(button.sizeHint().width() for button in self._buttons.buttons())
+        horizontal = self.width() >= buttons_width + 220
+        self._header.setDirection(QBoxLayout.LeftToRight if horizontal else QBoxLayout.TopToBottom)
+        self._source_layout.setDirection(
+            QBoxLayout.LeftToRight if self.width() >= buttons_width + 33 else QBoxLayout.TopToBottom,
+        )
+        self._context.setAlignment(Qt.AlignRight | Qt.AlignVCenter if horizontal else Qt.AlignLeft)
+
+    def _select_source(self, source):
+        self._source = source
+        self._refresh()
+
+    def _refresh(self):
+        snapshot = self._snapshots[self._source]
+        character = str(l10n.game("characters", self._character))
+        stamp = message("run.live_snapshot", character=character, time=self._clock)
+        self._context.setText(f"{stamp} · {message('roll.guide.stat_count', count=len(snapshot.rows))}")
+        locale = QLocale(localization().translator.language)
+        expected = expected_rolls(snapshot.source, snapshot.total, (snapshot.rows[0].stat_id,))
+        metrics = (locale.toString(snapshot.total), "—", "—")
+        if expected is not None:
+            chance = locale.toString(expected / snapshot.total * 100, 'f', 1)
+            metrics = (metrics[0], f"{chance}%", locale.toString(expected, 'f', 1))
+        for label, value in zip(self._summary_values, metrics, strict=True):
+            label.setText(value)
+        self._summary_values[1].setToolTip(message("roll.guide.model_note"))
+        self._summary_values[2].setToolTip(message("roll.guide.model_note"))
+        self._fit_header()
+        self._refresh_tables()
+
+    def _refresh_tables(self):
+        snapshot = self._snapshots[self._source]
+        rows = snapshot.rows
+        locale = QLocale(localization().translator.language)
+        expected = expected_rolls(snapshot.source, snapshot.total, (rows[0].stat_id,))
+        left, right = self._tables
+        split = (len(rows) + 1) // 2 if self._two_columns else len(rows)
+        left.set_rows(rows[:split], expected, locale)
+        right.setVisible(self._two_columns)
+        if self._two_columns:
+            right.set_rows(rows[split:], expected, locale)
 
 
-def build_roll_analytics_preview() -> QWidget:
+def build_roll_analytics_preview() -> QFrame:
     return _RollPreview()

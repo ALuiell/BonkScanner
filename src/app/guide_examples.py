@@ -17,6 +17,7 @@ class RunExample:
     live_snapshot: VodSnapshot
     vod: LoadedVod
     live_shrines: ChargeShrineSnapshot | None = None
+    damage_example: VodSnapshot | None = None
 
 
 def read_run_example(asset_path: str | Path) -> RunExample:
@@ -42,8 +43,10 @@ def read_run_example(asset_path: str | Path) -> RunExample:
         for record in sample.get("powerup_samples", ())
     )
     history = PowerupHistory(observations, finalized=True) if observations else None
+    damage_record = sample.get("damage_example")
     return RunExample(
         character, kill_count, snapshots, live_snapshot,
         LoadedVod(metadata, snapshots, powerup_history=history),
         live_shrines=_record_to_charge_shrines(sample.get("live_shrines")),
+        damage_example=_record_to_snapshot(damage_record, pool) if damage_record else None,
     )

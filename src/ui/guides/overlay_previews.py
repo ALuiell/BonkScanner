@@ -203,7 +203,7 @@ def build_overlay_previews(topic: str, widgets: OverlayPreviewWidgets) -> QWidge
         QLabel#GuideWidgetName {color:#e6eff9; font-size:13px; font-weight:700; background:transparent;}
         QFrame#overlayGuidePreview[overlay="obs"] QLabel#GuideWidgetName {font-size:14px;}
         QLabel#GuideWidgetNote {color:#adc0d1; font-size:12px; background:transparent;}
-        QWidget#GuideWidgetShot {background:#101925; border:1px solid #304358; border-radius:5px;}
+        QWidget#GuideWidgetShot {background:transparent; border:none;}
     """)
     layout = QVBoxLayout(panel)
     obs = topic == "obs"

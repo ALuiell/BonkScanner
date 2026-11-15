@@ -8,7 +8,7 @@ _TOPICS = {
         "welcome": ("Quick start", "What would you like to do?", "Find a map, review a run, or show stats over the game.", "Open this guide again from the top bar.", "Find a map"),
         "restart": ("Map Search", "Find the map you want", "Choose Templates or Scores, then press Start to search.", "Recommended hold time: 0.01 s threshold + 0.05 s margin = 0.06 s.", "Open Restart"),
         "live": ("Live Stats", "Follow your current run", "See how lucky your drops were and where your stat bonuses came from.", "", "Open Live"),
-        "recordings": ("Recordings", "Review a saved run", "Jump to a saved moment, compare two points or check where your damage came from.", "", "Open Recordings"),
+        "recordings": ("Recordings", "Review a saved run", "Compare time, levels, total kills and item changes between A and B.", "", "Open Recordings"),
         "obs": ("OBS", "Edit your OBS layout", "Open the browser layout editor. Drag to move, resize, and rearrange widgets.", "Copy the browser-source URL into OBS.", "Open layout editor"),
         "game_overlay": ("Game Overlay", "See data over your game", "Show Full Map markers, active powerups, and Luck over the game.", "Arrange the widgets in Game Overlay.", "Open Game Overlay"),
         "premium": ("Overview", "What Premium includes", "Choose a feature to see an example.", "One supporter key activates all Premium features.", "How to get Premium"),
@@ -22,7 +22,7 @@ _TOPICS = {
         "welcome": ("Быстрый старт", "Что вы хотите сделать?", "Найдите карту, изучите забег или выведите статистику поверх игры.", "Откройте гид снова на верхней панели.", "Найти карту"),
         "restart": ("Поиск карты", "Найдите нужную карту", "Выберите Templates или Scores и нажмите Start для поиска.", "Рекомендуемое удержание: 0,01 с порог + 0,05 с запас = 0,06 с.", "Открыть Restart"),
         "live": ("Статистика Live", "Следите за текущим забегом", "Смотрите, насколько повезло с добычей и откуда взялись бонусы к характеристикам.", "", "Открыть Live"),
-        "recordings": ("Записи", "Разберите сохранённый забег", "Перейдите к нужному моменту, сравните две точки или посмотрите, что нанесло больше всего урона.", "", "Открыть записи"),
+        "recordings": ("Записи", "Разберите сохранённый забег", "Сравните время, уровни, общее число убийств и изменения предметов между A и B.", "", "Открыть записи"),
         "obs": ("OBS", "Измените раскладку OBS", "Откройте редактор в браузере. Перетаскивайте виджеты, меняйте их размеры и расположение.", "Скопируйте URL браузерного источника в OBS.", "Открыть редактор"),
         "game_overlay": ("Game Overlay", "Данные поверх игры", "Показывайте метки Full Map, активные усиления и Luck поверх игры.", "Разместите виджеты в Game Overlay.", "Открыть Game Overlay"),
         "premium": ("Обзор", "Возможности Premium", "Выберите функцию, чтобы посмотреть пример.", "Один ключ поддержки открывает все функции Premium.", "Как получить Premium"),
@@ -36,7 +36,7 @@ _TOPICS = {
         "welcome": ("Швидкий старт", "Що ви хочете зробити?", "Знайдіть мапу, перегляньте забіг або виведіть статистику поверх гри.", "Відкрийте гід знову на верхній панелі.", "Знайти мапу"),
         "restart": ("Пошук мапи", "Знайдіть потрібну мапу", "Оберіть Templates або Scores і натисніть Start для пошуку.", "Рекомендоване утримання: 0,01 с поріг + 0,05 с запас = 0,06 с.", "Відкрити Restart"),
         "live": ("Статистика наживо", "Стежте за поточним забігом", "Дивіться, наскільки пощастило зі здобиччю і звідки взялися бонуси до характеристик.", "", "Відкрити Live"),
-        "recordings": ("Записи", "Перегляньте збережений забіг", "Перейдіть до потрібного моменту, порівняйте дві точки або перегляньте джерела шкоди.", "", "Відкрити записи"),
+        "recordings": ("Записи", "Перегляньте збережений забіг", "Порівняйте час, рівні, загальну кількість убивств і зміни предметів між A і B.", "", "Відкрити записи"),
         "obs": ("OBS", "Змініть розкладку OBS", "Відкрийте редактор у браузері. Перетягуйте віджети, змінюйте їхні розміри та розташування.", "Скопіюйте URL джерела браузера в OBS.", "Відкрити редактор"),
         "game_overlay": ("Game Overlay", "Дані поверх гри", "Показуйте мітки Full Map, активні підсилення та Luck поверх гри.", "Розташуйте віджети в Game Overlay.", "Відкрити Game Overlay"),
         "premium": ("Огляд", "Можливості Premium", "Оберіть функцію, щоб переглянути приклад.", "Один ключ підтримки відкриває всі функції Premium.", "Як отримати Premium"),
@@ -50,7 +50,7 @@ _TOPICS = {
         "welcome": ("Schnellstart", "Was möchtest du tun?", "Finde eine Karte, sieh einen Lauf an oder zeige Werte im Spiel.", "Öffne diesen Guide erneut über die obere Leiste.", "Karte finden"),
         "restart": ("Kartensuche", "Finde deine Karte", "Wähle Templates oder Scores und drücke Start für die Suche.", "Empfohlene Haltedauer: 0,01 s Schwelle + 0,05 s Reserve = 0,06 s.", "Restart öffnen"),
         "live": ("Live-Statistik", "Verfolge deinen aktuellen Lauf", "Sieh, wie viel Glück du bei der Beute hattest und woher deine Werteboni kommen.", "", "Live öffnen"),
-        "recordings": ("Aufnahmen", "Sieh dir einen gespeicherten Lauf an", "Springe zu einem Zeitpunkt, vergleiche zwei Punkte oder prüfe die Schadensquellen.", "", "Aufnahmen öffnen"),
+        "recordings": ("Aufnahmen", "Sieh dir einen gespeicherten Lauf an", "Vergleiche Zeit, Stufen, Kills insgesamt und Itemänderungen zwischen A und B.", "", "Aufnahmen öffnen"),
         "obs": ("OBS", "OBS-Layout bearbeiten", "Öffne den Browser-Layouteditor. Verschiebe und ordne Widgets per Ziehen an und ändere ihre Größe.", "Kopiere die Browserquellen-URL in OBS.", "Layouteditor öffnen"),
         "game_overlay": ("Game Overlay", "Daten im Spiel sehen", "Zeige Full-Map-Markierungen, aktive Powerups und Luck über dem Spiel.", "Ordne Widgets im Game Overlay an.", "Game Overlay öffnen"),
         "premium": ("Übersicht", "Das bietet Premium", "Wähle eine Funktion, um ein Beispiel zu sehen.", "Ein Supporter-Schlüssel schaltet alle Premium-Funktionen frei.", "So erhältst du Premium"),
@@ -64,7 +64,7 @@ _TOPICS = {
         "welcome": ("Démarrage rapide", "Que voulez-vous faire ?", "Trouvez une carte, consultez une partie ou affichez les stats sur le jeu.", "Rouvrez ce guide depuis la barre supérieure.", "Trouver une carte"),
         "restart": ("Recherche de carte", "Trouvez votre carte", "Choisissez Templates ou Scores, puis appuyez sur Start pour lancer la recherche.", "Maintien recommandé : 0,01 s de seuil + 0,05 s de marge = 0,06 s.", "Ouvrir Restart"),
         "live": ("Stats en direct", "Suivez votre partie en cours", "Voyez si la chance vous a souri côté butin et d’où viennent vos bonus de stats.", "", "Ouvrir Live"),
-        "recordings": ("Enregistrements", "Revoyez une partie enregistrée", "Accédez à un moment sauvegardé, comparez deux points ou consultez les sources de dégâts.", "", "Ouvrir les enregistrements"),
+        "recordings": ("Enregistrements", "Revoyez une partie enregistrée", "Comparez le temps, les niveaux, le total des éliminations et les objets entre A et B.", "", "Ouvrir les enregistrements"),
         "obs": ("OBS", "Modifier la disposition OBS", "Ouvrez l'éditeur de disposition dans le navigateur. Déplacez, redimensionnez et réorganisez les widgets par glisser-déposer.", "Copiez l'URL de la source navigateur dans OBS.", "Ouvrir l'éditeur"),
         "game_overlay": ("Game Overlay", "Voir les données sur le jeu", "Affichez les marqueurs Full Map, les bonus actifs et Luck sur le jeu.", "Disposez les widgets dans Game Overlay.", "Ouvrir Game Overlay"),
         "premium": ("Aperçu", "Les fonctions Premium", "Choisissez une fonction pour voir un exemple.", "Une clé de soutien active toutes les fonctions Premium.", "Comment obtenir Premium"),
@@ -78,7 +78,7 @@ _TOPICS = {
         "welcome": ("Inicio rápido", "¿Qué quieres hacer?", "Encuentra un mapa, revisa una partida o muestra estadísticas sobre el juego.", "Vuelve a abrir esta guía desde la barra superior.", "Buscar un mapa"),
         "restart": ("Búsqueda de mapa", "Encuentra tu mapa", "Elige Templates o Scores y pulsa Start para buscar.", "Pulsación recomendada: 0,01 s de umbral + 0,05 s de margen = 0,06 s.", "Abrir Restart"),
         "live": ("Estadísticas en directo", "Sigue tu partida actual", "Mira cuánta suerte tuviste con el botín y de dónde vienen tus bonificaciones de estadísticas.", "", "Abrir Live"),
-        "recordings": ("Grabaciones", "Revisa una partida guardada", "Salta a un momento guardado, compara dos puntos o consulta las fuentes de daño.", "", "Abrir grabaciones"),
+        "recordings": ("Grabaciones", "Revisa una partida guardada", "Compara el tiempo, los niveles, el total de bajas y los cambios de objetos entre A y B.", "", "Abrir grabaciones"),
         "obs": ("OBS", "Edita el diseño de OBS", "Abre el editor de diseño en el navegador. Arrastra para mover, redimensionar y reorganizar widgets.", "Copia la URL de la fuente de navegador en OBS.", "Abrir editor de diseño"),
         "game_overlay": ("Game Overlay", "Datos sobre el juego", "Muestra los marcadores de Full Map, mejoras activas y Luck sobre el juego.", "Organiza los widgets en Game Overlay.", "Abrir Game Overlay"),
         "premium": ("Resumen", "Qué incluye Premium", "Elige una función para ver un ejemplo.", "Una clave de apoyo activa todas las funciones Premium.", "Cómo obtener Premium"),
@@ -92,7 +92,7 @@ _TOPICS = {
         "welcome": ("Início rápido", "O que você quer fazer?", "Encontre um mapa, reveja uma partida ou mostre estatísticas sobre o jogo.", "Abra este guia novamente pela barra superior.", "Encontrar mapa"),
         "restart": ("Busca de mapa", "Encontre seu mapa", "Escolha Templates ou Scores e pressione Start para buscar.", "Tempo recomendado: 0,01 s de limite + 0,05 s de margem = 0,06 s.", "Abrir Restart"),
         "live": ("Estatísticas ao vivo", "Acompanhe sua partida atual", "Veja quanta sorte teve com o saque e de onde vieram os bônus de atributos.", "", "Abrir Live"),
-        "recordings": ("Gravações", "Reveja uma partida salva", "Vá até um momento salvo, compare dois pontos ou confira as fontes de dano.", "", "Abrir gravações"),
+        "recordings": ("Gravações", "Reveja uma partida salva", "Compare o tempo, os níveis, o total de eliminações e as mudanças nos itens entre A e B.", "", "Abrir gravações"),
         "obs": ("OBS", "Edite o layout do OBS", "Abra o editor de layout no navegador. Arraste para mover, redimensionar e reorganizar os widgets.", "Copie a URL da fonte de navegador para o OBS.", "Abrir editor de layout"),
         "game_overlay": ("Game Overlay", "Dados sobre o jogo", "Mostre marcadores do Full Map, melhorias ativas e Luck sobre o jogo.", "Organize os widgets no Game Overlay.", "Abrir Game Overlay"),
         "premium": ("Visão geral", "O que o Premium inclui", "Escolha um recurso para ver um exemplo.", "Uma chave de apoiador ativa todos os recursos Premium.", "Como obter Premium"),
@@ -406,38 +406,50 @@ for _language, _values in _PREMIUM_DESCRIPTIONS.items():
         (f"premium.feature.{key}", description) for key, description in zip(_keys, _values, strict=True)
     )
 
-_RUN_SHORTCUTS = {
+_RUN_CARD_COPY = {
     "en": (
-        "Drag A with LMB or click a stage card to jump there.",
-        "Drag A with LMB or Shift + LMB. Drag B with Shift + RMB. Esc clears B.",
+        "A/B comparison", "Show on timeline", "Example · {span}", "Levels", "Total kills", "Items",
+        "Shift + right-click to set B.", "Another run · snapshot at {time}", "Time Stop",
+        "Estimated from observed Time Stop intervals longer than {seconds} s in the selected range. The displayed duration is their sum.",
     ),
     "ru": (
-        "Перетащите A левой кнопкой мыши или нажмите на карточку этапа, чтобы перейти к нему.",
-        "Двигайте A через ЛКМ или Shift + ЛКМ, B через Shift + ПКМ. Esc убирает B.",
+        "Сравнение A/B", "На графике", "Пример · {span}", "Уровни", "Всего убийств", "Предметы",
+        "Shift + ПКМ ставит точку B.", "Другой забег · снимок на {time}", "Time Stop",
+        "Оценка по наблюдаемым отрезкам Time Stop длиннее {seconds} с в выбранном диапазоне. Показано их суммарное время.",
     ),
     "uk": (
-        "Перетягніть A лівою кнопкою миші або натисніть картку етапу, щоб перейти до нього.",
-        "Рухайте A лівою кнопкою (можна з Shift), а B — Shift + ПКМ. Esc прибирає B.",
+        "Порівняння A/B", "На графіку", "Приклад · {span}", "Рівні", "Усього вбивств", "Предмети",
+        "Shift + ПКМ ставить точку B.", "Інший забіг · знімок на {time}", "Зупинка часу",
+        "Оцінка за спостереженими відрізками зупинки часу довше ніж {seconds} с у вибраному діапазоні. Показано їхній сумарний час.",
     ),
     "de": (
-        "Ziehe A mit der linken Maustaste oder klicke auf eine Abschnittskarte, um dorthin zu springen.",
-        "Ziehe A mit der linken Maustaste, auch mit Shift. B ziehst du mit Shift und rechter Maustaste. Esc entfernt B.",
+        "A/B-Vergleich", "Im Diagramm", "Beispiel · {span}", "Stufen", "Kills insgesamt", "Items",
+        "Shift + Rechtsklick setzt B.", "Anderer Lauf · Schnappschuss bei {time}", "Zeitstopp",
+        "Schätzung anhand beobachteter Zeitstopps über {seconds} s im gewählten Bereich. Angezeigt wird ihre Gesamtdauer.",
     ),
     "fr": (
-        "Déplacez A par clic gauche ou cliquez sur une carte d’étape pour y accéder.",
-        "Déplacez A par clic gauche, avec ou sans Maj, et B avec Maj + clic droit. Échap retire B.",
+        "Comparaison A/B", "Sur le graphe", "Exemple · {span}", "Niveaux", "Total éliminations", "Objets",
+        "Maj + clic droit place B.", "Autre partie · instantané à {time}", "Arrêt du temps",
+        "Estimation à partir des arrêts du temps observés de plus de {seconds} s sur le segment choisi. La durée affichée est leur somme.",
     ),
     "es": (
-        "Arrastra A con el botón izquierdo o pulsa una tarjeta de etapa para ir a ella.",
-        "Mueve A con clic izquierdo, con o sin Mayús, y B con Mayús + clic derecho. Esc quita B.",
+        "Comparación A/B", "En el gráfico", "Ejemplo · {span}", "Niveles", "Bajas totales", "Objetos",
+        "Mayús + clic derecho fija B.", "Otra partida · captura en {time}", "Parada del tiempo",
+        "Estimación basada en las paradas del tiempo observadas de más de {seconds} s en el tramo elegido. Se muestra su duración total.",
     ),
     "pt": (
-        "Arraste A com o botão esquerdo ou clique no cartão de uma fase para ir até ela.",
-        "Mova A com clique esquerdo, com ou sem Shift, e B com Shift + clique direito. Esc remove B.",
+        "Comparação A/B", "No gráfico", "Exemplo · {span}", "Níveis", "Total de eliminações", "Itens",
+        "Shift + clique direito marca B.", "Outra partida · registro em {time}", "Parada do tempo",
+        "Estimativa baseada nas paradas do tempo observadas de mais de {seconds} s no trecho escolhido. O tempo exibido é a soma delas.",
     ),
 }
-for _language, _values in _RUN_SHORTCUTS.items():
-    MESSAGES[_language].update(zip(("run.keys.timeline", "run.keys.compare"), _values, strict=True))
+for _language, _values in _RUN_CARD_COPY.items():
+    MESSAGES[_language].update(zip(
+        ("run.compare.title", "run.compare.show", "run.compare.example", "run.compare.levels",
+         "run.compare.kills", "run.compare.items", "run.compare.keys", "run.damage.source",
+         "run.timeline.time_stop", "run.timeline.time_stop_estimate"),
+        _values, strict=True,
+    ))
 
 _RUN_SOURCE_COPY = {
     "en": ("{character} · {kills} kills", "{character} · recorded at {time}"),
@@ -451,61 +463,61 @@ _RUN_SOURCE_COPY = {
 for _language, _values in _RUN_SOURCE_COPY.items():
     MESSAGES[_language].update(zip(("run.real_recording", "run.live_snapshot"), _values, strict=True))
 
-for _language, _values in {
-    "en": ("{count} stats", "Count", "Exp."),
-    "ru": ("{count} характеристик", "Кол-во", "Ожид."),
-    "uk": ("{count} характеристик", "К-сть", "Очік."),
-    "de": ("{count} Werte", "Anz.", "Erw."),
-    "fr": ("{count} caractéristiques", "Nbre", "Att."),
-    "es": ("{count} estadísticas", "Cant.", "Esp."),
-    "pt": ("{count} atributos", "Qtd.", "Esp."),
-}.items():
-    MESSAGES[_language].update(zip(
-        ("roll.guide.stat_count", "roll.guide.count_short", "roll.guide.expected_short"), _values, strict=True,
-    ))
-
-_RUN_SCREEN_COPY = {
+_ANALYTICS_GUIDE_COPY = {
     "en": (
-        "Point A shows the run during Time Stop at 51:11 in game. {powerups} and {diff_cap} are enabled.",
-        "Compare two moments to see levels gained, kills, and items gained or lost between them.",
-        "Switch between damage dealt and kills credited to each source.",
+        "{count} stats", "Confirmed rolls", "Chance per stat", "Expected per stat",
+        "The 27-stat reference model gives every stat an equal chance. Expected rolls are the total divided by 27.",
+        "Actual rolls minus expected rolls.", "Merchants viewed", "Offers recorded", "Rolls", "% of merchants", "Dice passive",
     ),
     "ru": (
-        "Точка A показывает забег во время Time Stop на 51:11 по игровому таймеру. Включены «{powerups}» и «{diff_cap}».",
-        "Сравните два момента, чтобы увидеть, сколько уровней и убийств прибавилось и какие предметы получили или потеряли.",
-        "Переключайтесь между уроном и убийствами по каждому источнику.",
+        "{count} характеристик", "Подтверждённые броски", "Шанс на характеристику", "Ожидалось на характеристику",
+        "В модели 27 характеристик с равным шансом. Ожидаемое число — всего подтверждённых бросков, делённое на 27.",
+        "Фактическое число бросков минус ожидаемое.", "Просмотрено продавцов", "Предложений записано", "Броски", "% продавцов", "Пассивка Dice",
     ),
     "uk": (
-        "Точка A показує забіг під час зупинки часу на 51:11 за ігровим таймером. Увімкнено «{powerups}» і «{diff_cap}».",
-        "Порівняйте два моменти, щоб побачити приріст рівнів та вбивств, а також отримані й втрачені предмети.",
-        "Перемикайтеся між шкодою та вбивствами за кожним джерелом.",
+        "{count} характеристик", "Підтверджені кидки", "Шанс на характеристику", "Очікувалося на характеристику",
+        "У моделі 27 характеристик з однаковим шансом. Очікуване число — загальна кількість кидків, поділена на 27.",
+        "Фактична кількість кидків мінус очікувана.", "Переглянуто продавців", "Записано пропозицій", "Кидки", "% продавців", "Пасивка Dice",
     ),
     "de": (
-        "Punkt A zeigt den Lauf während des Zeitstopps bei 51:11 Spielzeit. „{powerups}“ und „{diff_cap}“ sind aktiviert.",
-        "Vergleiche zwei Momente und sieh hinzugewonnene Stufen, Kills sowie erhaltene und verlorene Items.",
-        "Wechsle zwischen verursachtem Schaden und Kills pro Quelle.",
+        "{count} Werte", "Bestätigte Würfe", "Chance je Wert", "Erwartet je Wert",
+        "Im Referenzmodell haben alle 27 Werte die gleiche Chance. Der Erwartungswert ist die Anzahl der Würfe geteilt durch 27.",
+        "Beobachtete minus erwartete Würfe.", "Händler angesehen", "Angebote erfasst", "Würfe", "% Händler", "Dice-Passiv",
     ),
     "fr": (
-        "Le point A montre la partie pendant l’arrêt du temps, à 51:11 en jeu. « {powerups} » et « {diff_cap} » sont activés.",
-        "Comparez deux moments pour voir les niveaux gagnés, les éliminations et les objets obtenus ou perdus.",
-        "Basculez entre les dégâts infligés et les éliminations par source.",
+        "{count} caractéristiques", "Tirages confirmés", "Chance par caractéristique", "Attendu par caractéristique",
+        "Le modèle de référence donne la même chance aux 27 caractéristiques. Le nombre attendu correspond au total des tirages divisé par 27.",
+        "Tirages observés moins tirages attendus.", "Marchands consultés", "Offres enregistrées", "Tirages", "% des marchands", "Passif de Dice",
     ),
     "es": (
-        "El punto A muestra la partida durante la parada del tiempo, en 51:11 del juego. «{powerups}» y «{diff_cap}» están activados.",
-        "Compara dos momentos para ver los niveles ganados, las bajas y los objetos obtenidos o perdidos.",
-        "Alterna entre el daño infligido y las bajas atribuidas a cada fuente.",
+        "{count} estadísticas", "Tiradas confirmadas", "Probabilidad por estadística", "Esperadas por estadística",
+        "El modelo de referencia da la misma probabilidad a las 27 estadísticas. El número esperado es el total de tiradas dividido entre 27.",
+        "Tiradas observadas menos tiradas esperadas.", "Mercaderes consultados", "Ofertas registradas", "Tiradas", "% de mercaderes", "Pasiva de Dice",
     ),
     "pt": (
-        "O ponto A mostra a partida durante a parada do tempo, em 51:11 no jogo. ‘{powerups}’ e ‘{diff_cap}’ estão ativados.",
-        "Compare dois momentos para ver níveis ganhos, eliminações e itens ganhos ou perdidos.",
-        "Alterne entre o dano causado e as eliminações atribuídas a cada fonte.",
+        "{count} atributos", "Rolagens confirmadas", "Chance por atributo", "Esperadas por atributo",
+        "No modelo de referência, os 27 atributos têm a mesma chance. O total esperado por atributo é o número de rolagens dividido por 27.",
+        "Rolagens observadas menos rolagens esperadas.", "Mercadores consultados", "Ofertas registradas", "Rolagens", "% de mercadores", "Passiva do Dice",
     ),
 }
-for _language, _values in _RUN_SCREEN_COPY.items():
+for _language, _values in _ANALYTICS_GUIDE_COPY.items():
     MESSAGES[_language].update(zip(
-        ("run.screen.timeline", "run.screen.compare", "run.screen.damage"),
+        ("roll.guide.stat_count", "roll.guide.confirmed", "roll.guide.chance", "roll.guide.expected",
+         "roll.guide.model_note", "roll.guide.delta_note", "guide.shady_merchants", "guide.shady_offers",
+         "roll.guide.rolls", "guide.shady_share", "roll.guide.dice_source"),
         _values, strict=True,
     ))
+
+for _language, _label in {
+    "en": "Your saved merchant history",
+    "ru": "Ваша сохранённая история",
+    "uk": "Ваша збережена історія",
+    "de": "Deine gespeicherte Händlerhistorie",
+    "fr": "Votre historique des marchands",
+    "es": "Tu historial de mercaderes",
+    "pt": "Seu histórico de mercadores",
+}.items():
+    MESSAGES[_language]["guide.shady_saved"] = _label
 
 _GUIDE_SHORTCUT_COPY = {
     "en": ("Guide", "Open the Premium guide.", "Premium is active. Open the Premium guide.", "Premium is active from a recent check. Open the Premium guide."),
