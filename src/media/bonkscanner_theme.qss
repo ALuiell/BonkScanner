@@ -95,6 +95,24 @@ QPushButton#premiumAccessBadge:pressed {
     background-color: rgba(45, 123, 192, 0.28);
     border-color: rgba(85, 166, 226, 0.64);
 }
+QPushButton#premiumAccessBadge[connection="online"],
+QPushButton#premiumAccessBadge[connection="cached"] {
+    border-color: rgba(85, 166, 226, 0.64);
+}
+QPushButton#GuideShortcut {
+    background-color: #152435;
+    border: 1px solid #355373;
+    border-radius: 6px;
+    color: #BADDFF;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton#GuideShortcut:hover {
+    background-color: #1E3952;
+    border-color: #689DCB;
+}
+QPushButton#GuideShortcut:focus { border-color: #76B9F3; }
 QFrame#headerDivider {           /* вертикальный разделитель 1x18 */
     background-color: #232B36;
     max-width: 1px; min-width: 1px;

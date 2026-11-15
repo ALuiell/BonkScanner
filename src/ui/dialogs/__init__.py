@@ -35,7 +35,6 @@ from ui.dialogs.shell import (
     ask_app_confirmation,
     dialog_body,
     dialog_card,
-    dialog_danger_card,
     dialog_footer,
     dialog_info_card,
     dialog_note,
@@ -947,55 +946,6 @@ class ObsRecordingReminderDialog(QDialog):
         dialog_footer(self, primary=ok_btn)
 
 
-class AutoRerollSetupGuideDialog(QDialog):
-    """Versioned setup guide shown after meaningful Auto-Reroll changes."""
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.acknowledged = False
-        l10n.display(self, 'setWindowTitle', l10n.tr('Auto-Reroll Setup'))
-        self.setModal(True)
-        margin = config.RESET_HOLD_SAFETY_MARGIN
-        minimum_hold = config.minimum_reset_hold_duration(margin)
-        minimum_game_value = config.reset_hold_duration_to_game_value(
-            minimum_hold,
-            safety_margin=margin,
-        )
-        example_margin = min(config.MAX_RESET_HOLD_SAFETY_MARGIN, margin + 0.02)
-
-        layout = dialog_body(self, title=l10n.tr('Configure Auto-Reroll'), subtitle=l10n.tr("To configure BonkScanner's Auto-Reroll feature correctly, make these small changes in Megabonk's game settings."), width=DIALOG_WIDE, height=DIALOG_TALL)
-        scroll, _content, guide_layout = _make_scroll_section()
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        layout.addWidget(scroll, 1)
-        layout = guide_layout
-        layout.addWidget(dialog_card(l10n.tr('<b>1. Enable quick resets</b><br><br>Open <b>Settings &rarr; Game</b> in Megabonk and make sure these settings are <b>ON</b>:<br><br><b>Quick Reset</b><br><b>Skip Portal Animation</b><br><b>Super Quick Resets</b>')))
-        layout.addWidget(dialog_card(l10n.tr("<b>2. Set the reset key hold</b><br><br>In BonkScanner <b>Settings &rarr; Restart</b>, <b>Reset key hold</b> is how long the reset key stays pressed. A shorter hold can make resets faster; map loading also affects the time between runs.<br><br><b>Use recommended values</b> applies game 0.01 s + extra 0.05 s = hold 0.06 s. On a new installation, this setup is applied when the game is closed. If it could not be applied, close the game and use this button in Settings. The hold must cover the game's reset threshold plus <b>Extra hold time (Safety Margin)</b>. For example: game 0.20 s + extra 0.05 s = hold 0.25 s.<br><br>With your {p0:.2f}-second safety margin, the lowest selectable hold is <b>{p1:.2f} s</b> (game minimum {p2:.2f} s).<br><br>Settings shows the current game-file value and what Save will change. <b>Close Megabonk only if its config needs changing.</b> A game-file change takes effect on the next game launch. Changed config files are verified.", p0=margin, p1=minimum_hold, p2=minimum_game_value)))
-        layout.addWidget(
-            dialog_danger_card(
-                "<b>3. If a reset is missed</b><br><br>"
-                "Open <b>Advanced</b> and increase <b>Extra hold time</b>, "
-                f"for example from {margin:.2f} s to {example_margin:.2f} s. This lengthens "
-                "the key hold while preserving the current or planned game threshold. "
-                "Save and try several resets.<br><br>"
-                "Very short holds or a zero margin may release the key before the game "
-                "registers it reliably. The best value depends on game performance and "
-                "system timing.<br><br>Before Auto-Reroll starts, BonkScanner rechecks "
-                "the game config and automatically raises a hold that is too short."
-            )
-        )
-        details = CollapsibleSection(l10n.tr('Game config location'))
-        details.body_layout.addWidget(dialog_note(l10n.tr("Megabonk's game config: %USERPROFILE%\\AppData\\LocalLow\\Ved\\Megabonk\\Saves\\LocalDir\\config.json. This is the saved file, not a live read of the running game's settings.")))
-        layout.addWidget(details)
-
-        got_it_btn = l10n.localized(QPushButton, l10n.tr('Got it'))
-        got_it_btn.clicked.connect(self.confirm)
-        dialog_footer(self, primary=got_it_btn)
-
-    def confirm(self) -> None:
-        self.acknowledged = True
-        self.accept()
-
-
 class GameResetTimeNoticeDialog(QDialog):
     """App-styled, explicit outcome of the verified Reset Speed transaction."""
 
@@ -1323,6 +1273,11 @@ class SettingsDialog(QDialog):
             parent=self.settings_tabs,
         )
         l10n.tab(self.settings_tabs, self.supporter_access_page, l10n.tr('Support'))
+        from ui.guides.shortcuts import guide_button
+        from ui.guides.guide_locale import message
+        support_guide = guide_button(lambda: message("guide.support_hint"), lambda: message("guide.open_premium"), premium=True)
+        support_guide.clicked.connect(lambda: self.master.open_quick_guide("premium", owner=self))
+        self.supporter_access_page.access_guide_section.layout().addWidget(support_guide)
         self.settings_tabs.tabBar().hide()
         self.settings_header_tabs.currentChanged.connect(
             self.settings_tabs.setCurrentIndex
@@ -1499,6 +1454,9 @@ class SettingsDialog(QDialog):
         self.advanced_reset_timing.body_layout.addWidget(self.reset_minimum_label)
         self.reset_timing_hint = dialog_info_card(l10n.tr("Reset key hold includes the game's reset time plus extra hold time.<br><b>Recommended:</b> 0.01 s in the game + 0.05 s extra = 0.06 s key hold."))
         self.reset_timing_hint.setParent(restart_content)
+        restart_guide = guide_button(lambda: message("guide.restart_hint"), lambda: message("guide.restart_hint"))
+        restart_guide.clicked.connect(lambda: self.master.open_quick_guide("restart", owner=self))
+        self.reset_timing_hint.layout().addWidget(restart_guide, 0, Qt.AlignLeft)
         self.reset_timing_limits_label.setParent(self)
         self.reset_timing_limits_label.hide()
         restart_layout.addWidget(self.advanced_reset_timing)

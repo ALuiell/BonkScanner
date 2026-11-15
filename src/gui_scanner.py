@@ -98,6 +98,7 @@ class Scanner:
         open_roll_analytics_dialog: Callable[[], None] = lambda: None,
         toggle_roll_analytics: Callable[[bool], bool] = lambda _enabled: False,
         roll_analytics_status: Callable[[], Any] = lambda: None,
+        open_quick_guide: Callable[..., None] = lambda *_args, **_kwargs: None,
     ) -> None:
         self._coordinator = coordinator
         self._run_control = run_control
@@ -118,6 +119,7 @@ class Scanner:
         self._open_roll_analytics_dialog = open_roll_analytics_dialog
         self._toggle_roll_analytics = toggle_roll_analytics
         self._roll_analytics_status = roll_analytics_status
+        self._open_quick_guide = open_quick_guide
         self._is_recording = is_recording
         self._refresh_timeline = refresh_timeline
         self._is_shutting_down = is_shutting_down
@@ -1366,6 +1368,7 @@ class Scanner:
             on_toggle_merchant_analytics=self._toggle_merchant_analytics,
             on_open_roll_analytics=self._open_roll_analytics_dialog,
             on_toggle_roll_analytics=self._toggle_roll_analytics,
+            on_open_quick_guide=self._open_quick_guide,
         )
         self.tab_stats = self._stats_view.build()
         # See the slot's comment: two callers outside this file read it as
@@ -1400,7 +1403,34 @@ def build_scanner(
     `gui_dialogs` is top-level debt, so the composition root supplies the
     factory rather than the component importing it.
     """
-    scanner = Scanner(coordinator, run_control=run_control, filters=filters, schedule=lambda delay_ms, callback: app.after(delay_ms, callback), can_log=lambda: app.__dict__.get('_invoker') is not None, log_box=lambda: app.log_box, status_label=lambda: app.status_label, toggle_btn=lambda: app.toggle_btn, add_tab=lambda widget, title: l10n.tab(app.tabview, widget, title), refresh_session_stats_snapshot=lambda: app._refresh_session_stats_snapshot(), refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(), open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(), open_merchant_analytics_dialog=lambda: _open_merchant_analytics_for_app(app), toggle_merchant_analytics=lambda enabled: _toggle_merchant_analytics_for_app(app, enabled), merchant_analytics_status=coordinator.merchant_analytics.status, open_roll_analytics_dialog=lambda: _open_roll_analytics_for_app(app), toggle_roll_analytics=lambda enabled: _toggle_roll_analytics_for_app(app, enabled), roll_analytics_status=coordinator.roll_analytics.status, has_premium_access=lambda: app.has_premium_access(), is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording), refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(update_slider=False), is_shutting_down=lambda: bool(app._is_shutting_down), current_runtime_snapshot=coordinator.live_run_tracker.runtime_snapshot, reroll_warning_dialog=lambda: RerollWarningDialog(app.window), obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window))
+    scanner = Scanner(
+        coordinator,
+        run_control=run_control,
+        filters=filters,
+        schedule=lambda delay_ms, callback: app.after(delay_ms, callback),
+        can_log=lambda: app.__dict__.get("_invoker") is not None,
+        log_box=lambda: app.log_box,
+        status_label=lambda: app.status_label,
+        toggle_btn=lambda: app.toggle_btn,
+        add_tab=lambda widget, title: l10n.tab(app.tabview, widget, title),
+        refresh_session_stats_snapshot=lambda: app._refresh_session_stats_snapshot(),
+        refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(),
+        open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(),
+        open_merchant_analytics_dialog=lambda: _open_merchant_analytics_for_app(app),
+        toggle_merchant_analytics=lambda enabled: _toggle_merchant_analytics_for_app(app, enabled),
+        merchant_analytics_status=coordinator.merchant_analytics.status,
+        open_roll_analytics_dialog=lambda: _open_roll_analytics_for_app(app),
+        toggle_roll_analytics=lambda enabled: _toggle_roll_analytics_for_app(app, enabled),
+        roll_analytics_status=coordinator.roll_analytics.status,
+        open_quick_guide=lambda topic, **kwargs: app.open_quick_guide(topic, **kwargs),
+        has_premium_access=lambda: app.has_premium_access(),
+        is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording),
+        refresh_timeline=lambda: app.runtime.ports.player_stats_view().refresh_player_stats_timeline_ui(update_slider=False),
+        is_shutting_down=lambda: bool(app._is_shutting_down),
+        current_runtime_snapshot=coordinator.live_run_tracker.runtime_snapshot,
+        reroll_warning_dialog=lambda: RerollWarningDialog(app.window),
+        obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window),
+    )
     app.supporter_access.add_listener(scanner.on_supporter_access_changed)
     return scanner
 

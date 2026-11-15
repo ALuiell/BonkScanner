@@ -20,6 +20,8 @@ import os
 from functools import partial
 
 from ui.footer import build_footer
+from ui.guides.guide_locale import message as guide_message
+from ui.guides.shortcuts import guide_button
 from ui.log_view import LogView
 from ui.scanner_toggle import ScannerToggle
 from ui.status_indicators import (
@@ -344,13 +346,6 @@ def _build_header(app, parent_layout):
     title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     header.addWidget(title, 0, Qt.AlignVCenter)
 
-    status_cluster = QWidget()
-    status_cluster.setObjectName("headerStatusCluster")
-    status_cluster_layout = QHBoxLayout(status_cluster)
-    status_cluster_layout.setContentsMargins(0, 0, 0, 0)
-    status_cluster_layout.setSpacing(6)
-    header.addWidget(status_cluster, 0, Qt.AlignVCenter)
-
     app.premium_access_badge = PremiumAccessBadge()
     _apply_button_icon(
         app.premium_access_badge,
@@ -358,14 +353,18 @@ def _build_header(app, parent_layout):
         14,
     )
     app.premium_access_badge.clicked.connect(
-        lambda: app.open_settings_dialog(page="support")
+        lambda: app.open_quick_guide("premium")
     )
     app.supporter_access.add_listener(app.premium_access_badge.set_access_state)
-    status_cluster_layout.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
-    # The access state may make the badge visible immediately. Reparent it via
-    # the layout first so an active Premium account cannot flash a transient
-    # top-level native window during startup.
+    header.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
     app.premium_access_badge.set_access_state(app.supporter_access.state)
+
+    status_cluster = QWidget()
+    status_cluster.setObjectName("headerStatusCluster")
+    status_cluster_layout = QHBoxLayout(status_cluster)
+    status_cluster_layout.setContentsMargins(0, 0, 0, 0)
+    status_cluster_layout.setSpacing(6)
+    header.addWidget(status_cluster, 0, Qt.AlignVCenter)
 
     divider = QFrame()
     divider.setObjectName("headerDivider")
@@ -1280,6 +1279,9 @@ def _build_header_controls(app, controls):
     app.help_btn.clicked.connect(app.open_help_dialog)
 
     controls.addWidget(app.help_btn)
+    tour = guide_button(lambda: guide_message("guide.tour"), lambda: guide_message("guide.open_tour"))
+    tour.clicked.connect(lambda: app.open_quick_guide("welcome"))
+    controls.addWidget(tour)
     controls.addWidget(app.settings_btn)
 
 

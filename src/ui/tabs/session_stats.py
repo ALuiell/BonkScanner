@@ -108,12 +108,14 @@ class SessionStatsTab:
         on_toggle_merchant_analytics: Callable[[bool], bool] = lambda _enabled: False,
         on_open_roll_analytics: Callable[[], None] = lambda: None,
         on_toggle_roll_analytics: Callable[[bool], bool] = lambda _enabled: False,
+        on_open_quick_guide: Callable[..., None] = lambda *_args, **_kwargs: None,
     ) -> None:
         self._on_open_tracked_item_settings = on_open_tracked_item_settings
         self._on_open_merchant_analytics = on_open_merchant_analytics
         self._on_toggle_merchant_analytics = on_toggle_merchant_analytics
         self._on_open_roll_analytics = on_open_roll_analytics
         self._on_toggle_roll_analytics = on_toggle_roll_analytics
+        self._on_open_quick_guide = on_open_quick_guide
 
         self._root = None
         self._kpi_values: dict[str, QLabel] = {}
@@ -229,6 +231,9 @@ class SessionStatsTab:
         layout.addSpacing(10)
         layout.addWidget(_divider())
         layout.addSpacing(10)
+        from ui.guides.shortcuts import guide_button
+        from ui.guides.guide_locale import message
+
         analytics = QHBoxLayout()
         analytics.setContentsMargins(0, 0, 0, 0)
         analytics.setSpacing(12)
@@ -237,6 +242,9 @@ class SessionStatsTab:
             self._toggle_merchant_analytics
         )
         analytics.addWidget(self._merchant_analytics_collect, 1)
+        shady_guide = guide_button(lambda: message("guide.shortcut"), lambda: message("guide.premium_for", feature=message("topic.shady.menu")))
+        shady_guide.clicked.connect(lambda: self._on_open_quick_guide("shady"))
+        analytics.addWidget(shady_guide)
         self._merchant_analytics_collect.hide()
         locked = QFrame()
         locked.setObjectName("PremiumFeatureLocked")
@@ -277,6 +285,9 @@ class SessionStatsTab:
         self._roll_analytics_collect = l10n.localized(QCheckBox, l10n.tr('Collect roll analytics'))
         self._roll_analytics_collect.toggled.connect(self._toggle_roll_analytics)
         rolls.addWidget(self._roll_analytics_collect, 1)
+        roll_guide = guide_button(lambda: message("guide.shortcut"), lambda: message("guide.premium_for", feature=message("topic.roll.menu")))
+        roll_guide.clicked.connect(lambda: self._on_open_quick_guide("roll"))
+        rolls.addWidget(roll_guide)
         self._roll_analytics_collect.hide()
         locked = QFrame()
         locked.setObjectName("PremiumFeatureLocked")

@@ -7,14 +7,14 @@ import sys
 
 from PySide6.QtCore import QByteArray, QRect, Qt
 from PySide6.QtGui import QCloseEvent, QIcon
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog
 
 from app import config
 from app.runtime import AppRuntime, AppRuntimePorts
 from app.supporter_access import SupporterAccessController
 from app.version import CURRENT_VERSION
 from core.supporter_service import supporter_service_base_url
-from ui.dialogs import AutoRerollSetupGuideDialog, HelpDialog, SettingsDialog
+from ui.dialogs import HelpDialog, SettingsDialog
 from ui.layout import build_layout, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
@@ -874,6 +874,22 @@ class MegabonkApp:
                 except RuntimeError:
                     pass
 
+    def open_quick_guide(self, topic: str = "welcome", *, owner=None):
+        try:
+            from gui_in_game_overlay_window import DraggableOverlayWidget, LuckRarityOverlayWidget, MapMarkerLayer
+            from ui.guides.controller import open_quick_guide
+            from ui.guides.overlay_previews import OverlayPreviewWidgets
+
+            widgets = OverlayPreviewWidgets(
+                draggable=DraggableOverlayWidget,
+                luck_rarity=LuckRarityOverlayWidget,
+                map_markers=MapMarkerLayer,
+            )
+            return open_quick_guide(self, topic, owner=owner, overlay_widgets=widgets)
+        except Exception as exc:
+            self._log_dialog_failure("Quick Guide", exc)
+            return None
+
     def _log_dialog_failure(self, name: str, exc: Exception) -> None:
         try:
             self.log(
@@ -899,18 +915,15 @@ class MegabonkApp:
             None,
         ) is not None:
             return
-        dialog = AutoRerollSetupGuideDialog(self.window)
-        self._auto_reroll_setup_guide = dialog
-        dialog.finished.connect(self._finish_auto_reroll_setup_guide)
-        dialog.open()
-
-    def _finish_auto_reroll_setup_guide(self, _result: int) -> None:
-        dialog = getattr(self, "_auto_reroll_setup_guide", None)
+        dialog = self.open_quick_guide("welcome")
         if dialog is None:
             return
+        self._auto_reroll_setup_guide = dialog
+        dialog.finished.connect(self._finish_auto_reroll_setup_guide)
+
+    def _finish_auto_reroll_setup_guide(self, result: int) -> None:
         self._auto_reroll_setup_guide = None
-        if not dialog.acknowledged:
-            dialog.deleteLater()
+        if result != QDialog.Accepted:
             return
         config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
         config.user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"] = True
@@ -918,7 +931,6 @@ class MegabonkApp:
             config.AUTO_REROLL_SETUP_GUIDE_VERSION
         )
         config.save_config(config.user_config)
-        dialog.deleteLater()
 
     # -- tab-bar predicates (step 26) --------------------------------------
     #

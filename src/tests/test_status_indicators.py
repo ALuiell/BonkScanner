@@ -163,7 +163,8 @@ class StatusIndicatorTests(unittest.TestCase):
             QHBoxLayout(host).addWidget(badge)
             host.show()
             app.processEvents()
-            assert badge.isHidden()
+            assert badge.isVisible()
+            assert badge.property("connection") == "inactive"
 
             badge.set_access_state(SimpleNamespace(active=True, online=True))
             app.processEvents()
@@ -180,7 +181,8 @@ class StatusIndicatorTests(unittest.TestCase):
 
             badge.set_access_state(SimpleNamespace(active=False, online=True))
             app.processEvents()
-            assert badge.isHidden()
+            assert badge.isVisible()
+            assert badge.property("connection") == "inactive"
             """
         )
 
@@ -203,7 +205,7 @@ class StatusIndicatorTests(unittest.TestCase):
             opened = []
             shell = SimpleNamespace(
                 supporter_access=AccessController(),
-                open_settings_dialog=lambda **kwargs: opened.append(kwargs.get("page")),
+                open_quick_guide=opened.append,
             )
             host = QWidget()
             host.resize(820, 80)
@@ -240,6 +242,8 @@ class StatusIndicatorTests(unittest.TestCase):
             assert 1.5 <= optical_offset <= 2.5, optical_offset
             assert "QLabel#statusText" in app.styleSheet()
             assert "padding: 0px;" in app.styleSheet()
+            assert title.mapTo(host, title.rect().topRight()).x() < shell.premium_access_badge.mapTo(host, QPoint()).x()
+            assert shell.premium_access_badge.mapTo(host, shell.premium_access_badge.rect().topRight()).x() < status_cluster.mapTo(host, QPoint()).x()
 
             shell.supporter_access.listener(
                 SimpleNamespace(active=True, online=True)
@@ -247,7 +251,7 @@ class StatusIndicatorTests(unittest.TestCase):
             app.processEvents()
             assert shell.premium_access_badge.isVisible()
             shell.premium_access_badge.click()
-            assert opened == ["support"], opened
+            assert opened == ["premium"], opened
             """
         )
 

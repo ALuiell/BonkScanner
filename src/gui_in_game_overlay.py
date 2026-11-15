@@ -144,6 +144,7 @@ class InGameOverlay:
         analytics_collection_enabled: Callable[[], bool] = lambda: False,
         record_merchant_capture: Callable[[Any, Any], None] = lambda *_args: None,
         open_support_settings: Callable[[], None] = lambda: None,
+        open_quick_guide: Callable[..., None] = lambda *_args, **_kwargs: None,
         map_marker_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._tracker = tracker
@@ -153,6 +154,7 @@ class InGameOverlay:
         self._analytics_collection_enabled = analytics_collection_enabled
         self._record_merchant_capture = record_merchant_capture
         self._open_support_settings = open_support_settings
+        self._open_quick_guide = open_quick_guide
         self._is_scanning = is_scanning
         self._is_recording = is_recording
         self._is_game_window_active = is_game_window_active
@@ -1777,6 +1779,7 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
             )
         ),
         open_support_settings=lambda: app.open_settings_dialog(page="support"),
+        open_quick_guide=lambda topic, **kwargs: app.open_quick_guide(topic, **kwargs),
         is_scanning=lambda: app._scanner.is_scanning(),
         is_recording=lambda: _recording_indicator_active(app),
         is_game_window_active=lambda process_name: app._run_control.is_game_window_active(process_name),

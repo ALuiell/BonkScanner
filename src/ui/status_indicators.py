@@ -34,6 +34,7 @@ step with the colour.
 from __future__ import annotations
 
 from ui import i18n as l10n
+from ui.guides.guide_locale import message as guide_message
 
 from PySide6.QtCore import Property, QEasingCurve, QEvent, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QPainter
@@ -170,22 +171,34 @@ class PulsingDot(QLabel):
 
 
 class PremiumAccessBadge(QPushButton):
-    """Quiet header shortcut shown only while supporter access is active."""
+    """Open Premium help and display the current access state."""
 
     def __init__(self, parent=None) -> None:
         super().__init__("PREMIUM", parent)
         self.setObjectName("premiumAccessBadge")
         self.setCursor(Qt.PointingHandCursor)
-        l10n.display(self, 'setToolTip', l10n.tr('Premium access is active. Open Settings.'))
-        self.setVisible(False)
+        self._connection = "inactive"
+        self.setProperty("connection", self._connection)
+        l10n.RefreshBinding(self, self._refresh_tooltip)
+
+    def _refresh_tooltip(self) -> None:
+        text = guide_message(f"guide.premium_badge.{self._connection}")
+        self.setToolTip(text)
+        self.setAccessibleDescription(text)
 
     def set_access_state(self, state) -> None:
         """Follow the controller's effective access, including its offline grace."""
         active = bool(getattr(state, "active", False))
         online = bool(getattr(state, "online", False))
-        self.setProperty("connection", "online" if online else "cached")
-        l10n.display(self, 'setToolTip', l10n.tr('Premium access is active. Open Settings.') if online else l10n.tr('Premium access is active from a recent check. Open Settings.'))
-        self.setVisible(active)
+        connection = ("online" if online else "cached") if active else "inactive"
+        if connection == self._connection:
+            return
+        self._connection = connection
+        self.setProperty("connection", connection)
+        self._refresh_tooltip()
+        style = self.style()
+        style.unpolish(self)
+        style.polish(self)
 
 
 class RecordingFlag(QWidget):
