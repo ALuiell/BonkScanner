@@ -549,8 +549,12 @@ class TwitchTab:
         self._target_channel_entry.editingFinished.connect(self.refresh_chat_preview)
         for checkbox in self._command_cbs.values():
             checkbox.stateChanged.connect(lambda _state: self.refresh_chat_preview())
-        self._global_cooldown_spin.valueChanged.connect(on_settings_changed)
-        self._cooldown_spin.valueChanged.connect(on_settings_changed)
+        self._global_cooldown_spin.valueChanged.connect(
+            lambda _value: on_settings_changed(deferred=True)
+        )
+        self._cooldown_spin.valueChanged.connect(
+            lambda _value: on_settings_changed(deferred=True)
+        )
         for key, checkbox in self._command_cbs.items():
             # `bonkhelp` is the one command checkbox with its own handler: it
             # raises the alias dialog before saving.

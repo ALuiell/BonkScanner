@@ -255,6 +255,10 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
     # state. Refresh them together so WAITING does not remain after the game
     # comes to the foreground and the overlay becomes visible.
     parent_mixin.igo_target_window_timer = QTimer(parent_mixin.tab_in_game_overlay)
+    parent_mixin.igo_settings_apply_timer = QTimer(parent_mixin.tab_in_game_overlay)
+    parent_mixin.igo_settings_apply_timer.setSingleShot(True)
+    parent_mixin.igo_settings_apply_timer.setInterval(33)
+    parent_mixin.igo_settings_apply_timer.timeout.connect(parent_mixin.apply_in_game_overlay_settings)
     parent_mixin.igo_target_window_timer.setInterval(1500)
     parent_mixin.igo_target_window_timer.timeout.connect(
         lambda: refresh_in_game_overlay_tab_state(parent_mixin)
@@ -476,7 +480,7 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
     parent_mixin.igo_map_markers_scale_spin.setMaximumWidth(88)
     parent_mixin.igo_map_markers_scale_spin.setValue(marker_cfg.get("scale", 1.0))
     parent_mixin.igo_map_markers_scale_spin.valueChanged.connect(
-        parent_mixin._on_igo_settings_changed
+        lambda _value: parent_mixin._on_igo_settings_changed(deferred=True)
     )
     table.addWidget(parent_mixin.igo_map_markers_scale_spin, marker_row, 2)
 
@@ -620,7 +624,7 @@ def _igo_scale_spin(parent_mixin: Any, widget_id: str) -> QDoubleSpinBox:
     spin.setSingleStep(0.1)
     spin.setMaximumWidth(88)
     spin.setValue(config.IN_GAME_OVERLAY["widgets"][widget_id].get("scale", 1.0))
-    spin.valueChanged.connect(parent_mixin._on_igo_settings_changed)
+    spin.valueChanged.connect(lambda _value: parent_mixin._on_igo_settings_changed(deferred=True))
     setattr(parent_mixin, IGO_SCALE_SPIN_ATTRIBUTES[widget_id], spin)
     return spin
 
@@ -686,7 +690,7 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
         )
         parent_mixin.igo_event_warning_spin.setSuffix(" s")
         parent_mixin.igo_event_warning_spin.valueChanged.connect(
-            parent_mixin._on_igo_settings_changed
+            lambda _value: parent_mixin._on_igo_settings_changed(deferred=True)
         )
         row.addWidget(parent_mixin.igo_event_warning_spin)
         row.addStretch(1)
@@ -715,7 +719,7 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
         parent_mixin.igo_build_max_rows_spin = QSpinBox()
         parent_mixin.igo_build_max_rows_spin.setRange(1, 20)
         parent_mixin.igo_build_max_rows_spin.setValue(int(settings.get("max_rows", 5)))
-        parent_mixin.igo_build_max_rows_spin.valueChanged.connect(parent_mixin._on_igo_settings_changed)
+        parent_mixin.igo_build_max_rows_spin.valueChanged.connect(lambda _value: parent_mixin._on_igo_settings_changed(deferred=True))
         obind(parent_mixin.igo_build_max_rows_spin, 'Rows ', method='setPrefix')
         obind(parent_mixin.igo_build_max_rows_spin, 'Limits remaining and failed rows. Completed rows are appended when enabled.', method='setToolTip')
         row.addWidget(parent_mixin.igo_build_max_rows_spin)

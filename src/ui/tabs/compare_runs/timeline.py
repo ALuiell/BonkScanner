@@ -443,8 +443,9 @@ class CompareRunsTimeline(QWidget):
                     if tooltip:
                         QToolTip.showText(event.globalPos(), str(tooltip), self)
                         return True
-            for rect, text in self._marker_hits:
-                if rect.contains(QPointF(event.pos())):
+            if hasattr(self._marker_hits, 'tooltip_at'):
+                text = self._marker_hits.tooltip_at(QPointF(event.pos()))
+                if text:
                     QToolTip.showText(event.globalPos(), text, self)
                     return True
         return super().event(event)
@@ -501,7 +502,8 @@ class CompareRunsTimeline(QWidget):
 
     def _paint_static(self, painter: QPainter) -> None:
         lane_rects = self._lane_rects()
-        hits: list[tuple[QRectF, str]] = []
+        from ui.powerup_timeline import TimelineHitGroups
+        hits = []
         for side, lane, rect, side_color, stage_color in (
             ("A", self._lane_a, lane_rects[0], RUN_A_COLOR, STAGE_A),
             ("B", self._lane_b, lane_rects[1], RUN_B_COLOR, STAGE_B),
@@ -530,10 +532,10 @@ class CompareRunsTimeline(QWidget):
                                      -2.0, -(self._marker_height() + 4.0))
                 projection = TimelineAxisProjection(lane.times, lane.positions,
                                                     self._common_duration, self._axis_mode)
-                hits.extend(paint_powerups(painter, self._powerups[side.lower()], plot,
+                hits.append(paint_powerups(painter, self._powerups[side.lower()], plot,
                                           self._common_duration, axis_projection=projection,
                                           lane_height=self._powerup_lane_height()))
-            hits.extend(self._paint_markers(painter, lane, rect))
+            hits.append(self._paint_markers(painter, lane, rect))
             powerups = self._powerups[side.lower()]
             lane_end = max(lane.times[-1] if lane.times else 0.0,
                            powerups.latest_axis if powerups is not None
@@ -547,7 +549,7 @@ class CompareRunsTimeline(QWidget):
                 )
                 painter.setPen(MUTED)
                 painter.drawText(QRectF(start, rect.top(), rect.right() - start, rect.height()), Qt.AlignCenter, l10n.tr('RUN ENDED'))
-        self._marker_hits = tuple(hits)
+        self._marker_hits = TimelineHitGroups(hits)
 
     def _paint_stages(
         self,

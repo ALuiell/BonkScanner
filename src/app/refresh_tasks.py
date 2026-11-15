@@ -672,7 +672,7 @@ class RefreshTasks:
             # from the live tracker -- so unguarded it is the third writer of
             # a panel a pinned scrub owns, alongside the two stage-summary
             # writes. Found by counting the writers rather than by the report.
-            if not self._pinned():
+            if self._tab_active() and not self._pinned():
                 self._view().refresh_powerups_card()
             return accepted is not False
         except Exception as exc:
@@ -680,7 +680,7 @@ class RefreshTasks:
             self._mark_fast_feature_failed("powerups", exc)
             if self._is_vod_recording():
                 self._capture().observe_powerups(None, getattr(self._tracker(), "run_id", None))
-            if not self._pinned():
+            if self._tab_active() and not self._pinned():
                 self._view().refresh_powerups_card()
             return False
 

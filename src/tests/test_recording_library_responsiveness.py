@@ -43,6 +43,16 @@ class RecordingLibraryResponsivenessTests(unittest.TestCase):
                                 log=lambda *_a, **_kw:None)
             comp = CompareRunsTab(tabview=tabs, vod_library=library, is_active=lambda:True)
             rec.build(); comp.build()
+            window.show()
+
+            def settle(view):
+                tabs.setCurrentWidget(view._tab)
+                for _ in range(10000):
+                    app.processEvents()
+                    job = view._list_rows_job
+                    if job is None or job._steps is None:
+                        return
+                raise AssertionError("library refresh did not settle")
 
             # A refresh delivered between row batches must not race the staged
             # iterator or leave stale rows from its older metadata snapshot.
@@ -63,6 +73,7 @@ class RecordingLibraryResponsivenessTests(unittest.TestCase):
 
             rec.refresh_vods_list(refresh_index=False)
             comp.refresh_compare_runs_list(refresh_index=False)
+            settle(rec); settle(comp)
             # Ordinary playhead moves within a stage must not repeatedly
             # repolish every chapter label; real state transitions still do.
             card = rec._stage_cards[0]
@@ -90,6 +101,7 @@ class RecordingLibraryResponsivenessTests(unittest.TestCase):
                 assert rec._list_frame.currentItem() is picked
                 for view in (rec, comp):
                     view._sort_combo.setCurrentIndex(view._sort_combo.findData(RECORDING_SORT_SNAPSHOTS))
+            settle(rec); settle(comp)
             assert rec._list_rows_by_path == original_rec
             assert comp._list_rows == original_comp
             assert rec._list_frame.item(0).data(Qt.UserRole) == str(vods[-1].path)
@@ -105,6 +117,7 @@ class RecordingLibraryResponsivenessTests(unittest.TestCase):
             for view, refresh, invalidate in ((rec,rec.refresh_vods_list,rec.invalidate_vods_list),
                                               (comp,comp.refresh_compare_runs_list,comp.invalidate_compare_runs_list)):
                 invalidate(); refresh(refresh_index=False)
+            settle(rec); settle(comp)
             for key in map(str, (v.path for v in vods[1:])):
                 assert rec._list_rows_by_path[key] is original_rec[key]
                 for side in ('a','b'): assert comp._list_rows[side][key] is original_comp[side][key]
@@ -116,12 +129,39 @@ class RecordingLibraryResponsivenessTests(unittest.TestCase):
                 comp._compare_run_widget(side,'search').setText('Renamed')
                 assert sum(not item.isHidden() for item in comp._list_items[side].values()) == 1
 
+            # An interrupted, growing refresh must stop while hidden, accept a
+            # newer library and sort, and resume without restoring stale rows.
+            larger = tuple(replace(vods[i % len(vods)], path=Path(f'new-{i}.jsonl'),
+                                   name=f'New {i:03}', snapshot_count=i) for i in range(180))
+            for view, refresh, invalidate, rows in (
+                (rec, rec.refresh_vods_list, rec.invalidate_vods_list, lambda:rec._list_items_by_path),
+                (comp, comp.refresh_compare_runs_list, comp.invalidate_compare_runs_list, lambda:comp._list_items['a']),
+            ):
+                tabs.setCurrentWidget(view._tab); app.processEvents()
+                library._index = larger
+                invalidate(); refresh(refresh_index=False)
+                assert len(rows()) < len(larger)  # no synchronous construction
+                app.processEvents()
+                tabs.setCurrentIndex(0); app.processEvents()
+                count = len(rows())
+                for _ in range(5): app.processEvents()
+                assert len(rows()) == count
+                library._index = tuple(reversed(larger[:40]))
+                invalidate(); refresh(refresh_index=False)
+                view._sort_combo.setCurrentIndex(view._sort_combo.findData(RECORDING_SORT_SNAPSHOTS))
+                settle(view)
+                assert set(rows()) == {str(v.path) for v in larger[:40]}
+                frame = rec._list_frame if view is rec else comp._run_a_list_frame
+                assert frame.item(0).data(Qt.UserRole) == str(larger[39].path)
+                assert not frame.signalsBlocked()
+
             # Empty -> populated -> empty never leaves a stale placeholder or
             # blocks selection signals, including interrupted staged iteration.
             for index in ((), vods, ()):
                 library._index = index
                 rec.invalidate_vods_list(); rec.refresh_vods_list(refresh_index=False)
                 comp.invalidate_compare_runs_list(); comp.refresh_compare_runs_list(refresh_index=False)
+            settle(rec); settle(comp)
             assert rec._list_frame.count() == 1
             assert comp._run_a_list_frame.count() == 1
             steps = sync_recording_rows(rec._list_frame, vods, rec._list_items_by_path,

@@ -38,6 +38,7 @@ from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
+from app.deferred_config import request_config_save
 from ui.localization import localization
 from app.map_marker_hotkeys import MapMarkerHotkeyController
 from app.map_marker_tracker import MapMarkerTracker
@@ -1567,7 +1568,7 @@ class InGameOverlay:
     def _update_igo_status_ui(self) -> None:
         update_in_game_overlay_status_ui(self)
 
-    def _on_igo_settings_changed(self, *_args) -> None:
+    def _on_igo_settings_changed(self, *_args, deferred: bool = False) -> None:
         """Save everything the widgets table holds.
 
         It used to save only the seven enable toggles, because the scales and
@@ -1636,8 +1637,21 @@ class InGameOverlay:
         if self.igo_map_markers_scale_spin is not None:
             marker_cfg["scale"] = self.igo_map_markers_scale_spin.value()
 
-        self.apply_in_game_overlay_settings()
-        config.save_config(config.user_config)
+        apply_timer = getattr(self, "igo_settings_apply_timer", None)
+        if deferred and apply_timer is not None:
+            if not apply_timer.isActive():
+                apply_timer.start()
+        else:
+            if apply_timer is not None:
+                apply_timer.stop()
+            self.apply_in_game_overlay_settings()
+        if deferred:
+            request_config_save(
+                ("IN_GAME_OVERLAY",), config.IN_GAME_OVERLAY,
+                lambda error: self._log(f"Could not save in-game overlay settings: {error}", tag="warning"),
+            )
+        else:
+            config.save_config(config.user_config)
 
     def _queue_igo_weapon_tracker_layout_change(self, *_args) -> None:
         """Remember the latest layout and coalesce expensive UI-side work."""

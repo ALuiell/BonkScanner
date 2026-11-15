@@ -67,6 +67,7 @@ shadows it, and the ``except`` clauses depend on that.
 """
 from __future__ import annotations
 
+from concurrent.futures import Future
 from dataclasses import replace
 import time
 from typing import Any, Callable
@@ -75,7 +76,7 @@ from app import config
 from app.read_sources import MAP_ACTIVITY_VALUES, read_source
 from core.game_state import MapStat, RuntimeGameMode
 from infra.memory.game_data_client import GameDataClient
-from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from infra.memory.reader import MemoryReadError
 from core.tracker.live_run import LiveRunSnapshot, PowerupMapContext
 from projections.vod import build_vod_capture_payload
 from projections import formatting
@@ -111,12 +112,9 @@ class PlayerStatsRefresh:
     ``_tab_is_active``/``_live_tracker``/``_live_stats_view`` and friends are
     distinct from every name already taken.
 
-    This service owns **no** state. Every field the old mixin touched has a
-    named owner elsewhere: the snapshot buffer and the selected index are
-    app-owned (``gui_layout`` and the two Player Stats tabs read them), the two
-    clients are the ``AppCoordinator``'s, and the reconnect streaks are
-    ``PlayerStatsMemory``'s. There was nothing left to pull in, which is why
-    this is the one conversion that adds no fields.
+    The production caller attaches a worker for full samples. The worker owns
+    its memory handles. This service applies its result on the UI thread while
+    the tracker, recording state, and views still describe the same run.
     """
 
     def __init__(
@@ -159,6 +157,60 @@ class PlayerStatsRefresh:
         self._game_data_client = game_data_client
         self._set_game_data_client = set_game_data_client
         self._active_recording_feed = active_recording_feed or (lambda: None)
+        self._sampler = None
+        self._post_sample = None
+        self._pending_sample = None
+        self._sampling_stopped = False
+
+    def use_background_sampler(self, sampler, post_to_ui) -> None:
+        self._sampler = sampler
+        self._post_sample = post_to_ui
+
+    def stop_sampling(self):
+        self._sampling_stopped = True
+        if self._sampler is not None:
+            return self._sampler.begin_close()
+        return None
+
+    def _sample_identity(self, context=None):
+        state = self._lifecycle_service().state_for_refresh(context)
+        recorder = self._recorder_handle()
+        return state.mode, state.current_stage_ptr, recorder.path if recorder.is_recording else None
+
+    def _request_sample(self, status_text, context):
+        if self._pending_sample is not None:
+            return self._pending_sample
+        identity = self._sample_identity(context)
+        active_run = identity[0] in (RuntimeGameMode.IN_GAME, RuntimeGameMode.PAUSED_IN_GAME)
+        request = self._sampler.submit(self._memory_service().optional_full_stats_requested(), active_run)
+        applied = self._pending_sample = Future()
+
+        def deliver(job):
+            def apply():
+                self._pending_sample = None
+                try:
+                    if self._sampling_stopped or self._shutdown_requested() or self._sample_identity() != identity:
+                        applied.set_result(False)
+                        return
+                    try:
+                        sample, activity = job.result()
+                    except Exception:
+                        self._mark_unavailable()
+                        applied.set_result(False)
+                        return
+                    if identity[1] and sample.stage_ptr and sample.stage_ptr != identity[1]:
+                        applied.set_result(False)
+                        return
+                    self._memory_service().accept_sample_match(sample)
+                    applied.set_result(self._apply_sample(sample, status_text, activity=activity))
+                except Exception as exc:
+                    applied.set_exception(exc)
+
+            if self._post_sample(apply) is False:
+                applied.set_result(False)
+
+        request.add_done_callback(deliver)
+        return applied
 
     def tick(self) -> None:
         """The per-tick body of the fast refresh loop.
@@ -185,7 +237,7 @@ class PlayerStatsRefresh:
         unavailable_status_prefix: str = "Player stats unavailable",
         context=None,
         finalize_recording_capture: bool = False,
-    ) -> bool:
+    ) -> bool | Future:
         """``context`` is the current ``RefreshTickContext`` when this runs from
         the ``full_player_snapshot`` task, and ``None`` for every manual and
         off-tick caller (``gui_layout``/``gui_twitch`` reach this through
@@ -222,42 +274,43 @@ class PlayerStatsRefresh:
                 return False
             recorder.capture(capture_payload)
             return True
+        if self._sampler is not None:
+            if self._sampling_stopped or self._shutdown_requested():
+                return False
+            return self._request_sample(status_text, context)
         try:
             sample = self._memory_service().read_full_sample(context)
-            # The source DTO exposes an immutable mapping. Runtime snapshots are
-            # deep-copied by the tracker, so cross that boundary as a plain dict.
-            stats = dict(sample.stats)
-            items, items_available = sample.items, sample.items_available
-            weapons, weapons_available = sample.weapons, sample.weapons_available
-            tomes, tomes_available = sample.tomes, sample.tomes_available
-            banishes, banishes_available = sample.banishes, sample.banishes_available
-            damage_sources = sample.damage_sources
-            damage_sources_available = sample.damage_sources_available
-            run_timer_seconds = sample.run_timer_seconds
-            stage_timer_seconds = sample.stage_timer_seconds
-            stage_duration_seconds = sample.stage_duration_seconds
-            mob_kills, player_level = sample.mob_kills, sample.player_level
-            map_seed, stage_ptr, stage_index = sample.map_seed, sample.stage_ptr, sample.stage_index
-            disabled_items = sample.disabled_items
-            disabled_items_available = sample.disabled_items_available
-            is_final_boss_stage = sample.is_final_boss_stage
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            self._memory_service().record_memory_failure(exc)
-            try:
-                self._overlay().mark_overlay_read_failed(no_game=False)
-            except Exception:
-                pass
-            return False
         except Exception as exc:
             self._memory_service().record_memory_failure(exc)
-            try:
-                self._overlay().mark_overlay_read_failed(no_game=False)
-            except Exception:
-                pass
+            self._mark_unavailable()
             return False
-
         self._memory_service().record_memory_success()
+        return self._apply_sample(sample, status_text, context)
 
+    def _mark_unavailable(self):
+        try:
+            self._overlay().mark_overlay_read_failed(no_game=False)
+        except Exception:
+            pass
+
+    def _apply_sample(self, sample, status_text, context=None, *, activity=None):
+        # The source DTO exposes an immutable mapping. Runtime snapshots are
+        # deep-copied by the tracker, so cross that boundary as a plain dict.
+        stats = dict(sample.stats)
+        items, items_available = sample.items, sample.items_available
+        weapons, weapons_available = sample.weapons, sample.weapons_available
+        tomes, tomes_available = sample.tomes, sample.tomes_available
+        banishes, banishes_available = sample.banishes, sample.banishes_available
+        damage_sources = sample.damage_sources
+        damage_sources_available = sample.damage_sources_available
+        run_timer_seconds = sample.run_timer_seconds
+        stage_timer_seconds = sample.stage_timer_seconds
+        stage_duration_seconds = sample.stage_duration_seconds
+        mob_kills, player_level = sample.mob_kills, sample.player_level
+        map_seed, stage_ptr, stage_index = sample.map_seed, sample.stage_ptr, sample.stage_index
+        disabled_items = sample.disabled_items
+        disabled_items_available = sample.disabled_items_available
+        is_final_boss_stage = sample.is_final_boss_stage
         items_text = None if items_available else "Items unavailable"
         snapshot_store = self._store()
 
@@ -294,29 +347,31 @@ class PlayerStatsRefresh:
         map_pots_total = None
         map_activity_max = {}
         try:
-            if self._game_data_client() is None:
-                self._set_game_data_client(GameDataClient(config.PROCESS_NAME))
-            map_activity_values = (
-                read_source(
-                    context,
-                    MAP_ACTIVITY_VALUES,
-                    self._game_data_client().get_map_activity_values,
+            map_activity_values = activity
+            if map_activity_values is None:
+                if self._game_data_client() is None:
+                    self._set_game_data_client(GameDataClient(config.PROCESS_NAME))
+                map_activity_values = (
+                    read_source(
+                        context,
+                        MAP_ACTIVITY_VALUES,
+                        self._game_data_client().get_map_activity_values,
+                    )
+                    or {}
                 )
-                or {}
-            )
-            if not map_activity_values and self._lifecycle_service().is_active_run():
-                # An empty dictionary is not an exception: `get_map_activity_values`
-                # returns `{}` whenever any pointer in its chain reads zero, so
-                # a client that has gone stale answers "no activities" forever
-                # without ever advancing the reconnect streak. During a run
-                # there are always activities on the map, so empty here means
-                # the chain did not resolve. Outside a run -- menu, loading --
-                # empty is legitimate, which is what the lifecycle gate is for.
-                raise MemoryReadError(
-                    "Map activity dictionary resolved empty during an active run."
-                )
-            self._memory_service().record_game_data_success()
-            self._memory_service().record_game_data_source_success(_MAP_ACTIVITY_SOURCE)
+                if not map_activity_values and self._lifecycle_service().is_active_run():
+                    # An empty dictionary is not an exception: `get_map_activity_values`
+                    # returns `{}` whenever any pointer in its chain reads zero, so
+                    # a client that has gone stale answers "no activities" forever
+                    # without ever advancing the reconnect streak. During a run
+                    # there are always activities on the map, so empty here means
+                    # the chain did not resolve. Outside a run -- menu, loading --
+                    # empty is legitimate, which is what the lifecycle gate is for.
+                    raise MemoryReadError(
+                        "Map activity dictionary resolved empty during an active run."
+                    )
+                self._memory_service().record_game_data_success()
+                self._memory_service().record_game_data_source_success(_MAP_ACTIVITY_SOURCE)
             map_activity_max = {
                 label: int(value.max)
                 for label, value in map_activity_values.items()
@@ -491,7 +546,8 @@ class PlayerStatsRefresh:
                 feed.append(self._recorder_handle().current_metadata(), snapshot)
             if not pinned:
                 self._select_snapshot(len(self._snapshot_buffer()) - 1)
-            view.refresh_player_stats_timeline_ui()
+            if is_live_tab_active:
+                view.refresh_player_stats_timeline_ui()
             if is_live_tab_active and not pinned:
                 # The newest capture is still the live view. Keep its Stage
                 # Summary on the same fast tracker projection OBS just received;
@@ -506,6 +562,7 @@ class PlayerStatsRefresh:
             return True
 
         if is_live_tab_active:
+            view.refresh_player_stats_timeline_ui()
             current_ui_kps_reader = getattr(self._live_tracker(), "current_ui_kps", None)
             current_minute_kps_reader = getattr(self._live_tracker(), "current_minute_avg_kps", None)
             current_five_minute_kps_reader = getattr(self._live_tracker(), "current_five_minute_avg_kps", None)

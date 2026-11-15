@@ -95,7 +95,7 @@ from projections.item_sort import ITEM_SORT_RARITY_DESC
 from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
 from projections.timeline_axis import AXIS_TIME, build_axis_projection
 from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
-from ui.recording_library import sync_recording_rows
+from ui.recording_library import RecordingRowsJob, sync_recording_rows
 from ui.tabs.player_stats.metrics import (
     LIVE_STATS_VALUE_WIDTH,
     RECORDINGS_LIST_MAX_WIDTH,
@@ -523,6 +523,8 @@ class RecordingsTab:
         self._library_width_throttle = UiUpdateThrottle(500)
         self._list_signature = None
         self._list_refresh_pending = False
+        self._list_rows_job = None
+        self._list_refresh_needs_index = False
         self._load_generation = 0
         self._load_in_progress = False
         self._loading_path: Path | None = None
@@ -602,14 +604,29 @@ class RecordingsTab:
             self._feed_token = self._active_feed.subscribe(
                 self._on_active_recording_state,
                 lambda callback: self._marshal(callback),
+                coalesce_powerups=True,
             )
 
     def refresh_vods_list(self, *, refresh_index: bool = True):
+        if self._tab is None:
+            return
         if self._tab is not None and not self._tab.is_built:
             self._list_refresh_pending = True
             return
-        for _step in self._refresh_vods_list_steps(refresh_index=refresh_index):
-            pass
+        if self._list_rows_job is None:
+            self._list_rows_job = RecordingRowsJob(self._tab)
+        if self._list_rows_job._steps is not None:
+            self._list_signature = None
+        self._list_refresh_needs_index |= refresh_index
+
+        def steps():
+            needs_index = self._list_refresh_needs_index
+            self._list_refresh_needs_index = False
+            yield from self._refresh_vods_list_steps(
+                refresh_index=needs_index, batch_size=2
+            )
+
+        self._list_rows_job.request(steps())
 
     def _refresh_vods_list_steps(self, *, refresh_index: bool = True, batch_size: int = 0):
         if self._disposed:
@@ -672,7 +689,7 @@ class RecordingsTab:
         self._list_longest_seconds = longest_seconds
 
         if self._list_signature == signature:
-            for vod in matches:
+            for row_index, vod in enumerate(matches):
                 path_key = str(vod.path)
                 widget = self._list_rows_by_path.get(path_key)
                 if widget is not None:
@@ -681,6 +698,9 @@ class RecordingsTab:
                         longest_seconds=longest_seconds,
                         live=self._is_live_path(vod.path),
                     )
+                if batch_size and (row_index + 1) % batch_size == 0:
+                    yield None
+            selected_path = self._loaded_vod.metadata.path if self._loaded_vod is not None else None
             if selected_path is not None:
                 item = self._list_items_by_path.get(str(selected_path))
                 if item is not None and self._list_frame.currentItem() is not item:
@@ -694,7 +714,12 @@ class RecordingsTab:
             self._list_frame, matches, self._list_items_by_path,
             self._list_rows_by_path, longest_seconds=longest_seconds,
             is_live=self._is_live_path, batch_size=batch_size,
+            item_filter=lambda item, vod: item.setHidden(bool(
+                (query := _read_text(self._search_entry).strip().casefold())
+                and query not in vod.name.casefold()
+            )) if self._search_entry else None,
         )
+        selected_path = self._loaded_vod.metadata.path if self._loaded_vod is not None else None
         item = self._list_items_by_path.get(str(selected_path))
         if item is not None:
             blocked = self._list_frame.blockSignals(True)
@@ -746,7 +771,12 @@ class RecordingsTab:
         """
         self._save_recording_preference(
             "minimum snapshot count",
-            lambda: set_minimum_snapshot_count(int(value)),
+            lambda: set_minimum_snapshot_count(
+                int(value),
+                on_error=lambda error: self._log(
+                    f"Could not save minimum snapshot count: {error}", tag="warning"
+                ),
+            ),
         )
 
     def _recordings_sort_mode(self) -> str:
@@ -2531,7 +2561,9 @@ class RecordingsTab:
         vods_detail_layout.setContentsMargins(0, 0, 0, 0)
         self._body_splitter.addWidget(vods_detail)
         vods_detail_layout.addWidget(self._build_record_plaque())
+        yield None
         vods_detail_layout.addLayout(self._build_scrubber_header())
+        yield None
         self._scrubber = RecordingScrubber()
         if self._uses_default_snapshot_throttle:
             # A queued scrub frame writes dozens of child widgets. Bind its
@@ -2715,6 +2747,7 @@ class RecordingsTab:
         vod_summary_grid.addWidget(self._build_stage_chapters(), 0, 0)
         vod_summary_grid.setColumnStretch(0, 1)
         recordings_main_layout.addLayout(vod_summary_grid)
+        yield None
         # "Segment Compare" is gone. It was a card whose height followed its
         # own contents, so every scrub frame resized it and shoved the stage
         # cards beside it around; and it duplicated the anchor readout the
@@ -2806,6 +2839,7 @@ class RecordingsTab:
             parent=_vods_scroll_content,
         )
         compact_stats_grid.setProperty("viewMode", "compact")
+        vods_scroll_layout.addWidget(compact_stats_grid)
         for group in PLAYER_STAT_GROUPS:
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
@@ -2849,6 +2883,7 @@ class RecordingsTab:
             parent=_vods_scroll_content,
         )
         expanded_stats_grid.setProperty("viewMode", "expanded")
+        vods_scroll_layout.addWidget(expanded_stats_grid)
         for group in PLAYER_STAT_GROUPS:
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
@@ -2877,8 +2912,6 @@ class RecordingsTab:
         )
         # Parented before shown -- see the note on the same four lines in
         # `live_stats.py`. This copy was the second blank window.
-        vods_scroll_layout.addWidget(compact_stats_grid)
-        vods_scroll_layout.addWidget(expanded_stats_grid)
         compact_stats_grid.setHidden(self._stats_expanded_toggle.isChecked())
         expanded_stats_grid.setVisible(self._stats_expanded_toggle.isChecked())
         vods_scroll_layout.addStretch(1)
@@ -3062,6 +3095,7 @@ class RecordingsTab:
 
         self._list_frame = QListWidget()
         self._list_frame.setObjectName("RecordingsList")
+        self._list_frame.setUniformItemSizes(True)
         # The drawer owns the width limits. Repeating its minimum here makes
         # the list wider than the space left after the group box's insets,
         # clipping its right border when the splitter narrows the drawer.
@@ -3136,6 +3170,6 @@ class RecordingsTab:
         self._list_signature = None
         while True:
             self._list_refresh_pending = False
-            yield from self._refresh_vods_list_steps(batch_size=8)
+            yield from self._refresh_vods_list_steps(batch_size=2)
             if not self._list_refresh_pending:
                 break

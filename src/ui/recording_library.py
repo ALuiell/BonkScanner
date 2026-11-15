@@ -4,10 +4,74 @@ from __future__ import annotations
 
 from ui import i18n as l10n
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, QTimer, Qt
 from PySide6.QtWidgets import QLabel, QListWidgetItem, QProgressBar, QVBoxLayout, QWidget
 
 from ui import formatting
+
+
+class RecordingRowsJob(QObject):
+    """Run the newest library reconciliation in short, visibility-aware turns."""
+
+    def __init__(self, page):
+        super().__init__(page)
+        self._page = page
+        self._steps = None
+        self._advancing = False
+        self._replacement = None
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._advance)
+        page.installEventFilter(self)
+
+    def request(self, steps):
+        if self._advancing:
+            if self._replacement is not None:
+                self._replacement.close()
+            self._replacement = iter(steps)
+            return
+        self.cancel()
+        self._steps = iter(steps)
+        if self._is_exposed():
+            self._timer.start(0)
+
+    def _is_exposed(self):
+        return self._page.isVisible() and not self._page.window().isMinimized()
+
+    def cancel(self):
+        self._timer.stop()
+        steps, self._steps = self._steps, None
+        if steps is not None:
+            steps.close()
+
+    def eventFilter(self, watched, event):
+        if watched is self._page:
+            if event.type() == QEvent.Hide:
+                self._timer.stop()
+            elif event.type() == QEvent.Show and self._steps is not None and self._is_exposed():
+                self._timer.start(0)
+        return False
+
+    def _advance(self):
+        if self._steps is None or not self._is_exposed():
+            return
+        current = self._steps
+        self._advancing = True
+        try:
+            next(current)
+        except StopIteration:
+            self._steps = None
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Recording library refresh failed")
+            self._steps = None
+        finally:
+            self._advancing = False
+        if self._replacement is not None:
+            current.close()
+            self._steps, self._replacement = self._replacement, None
+        if self._steps is not None and self._is_exposed():
+            self._timer.start(0)
 
 
 class RecordingLibraryRow(QWidget):
@@ -80,7 +144,7 @@ class RecordingLibraryItem(QListWidgetItem):
 
 def sync_recording_rows(
     list_frame, vods, items, rows, *, longest_seconds,
-    is_live, batch_size: int = 0, search_role=None,
+    is_live, batch_size: int = 0, search_role=None, item_filter=None,
 ):
     """Reconcile metadata without rebuilding unchanged Qt widget subtrees.
 
@@ -100,6 +164,12 @@ def sync_recording_rows(
                 item = items.pop(key)
                 rows.pop(key, None)
                 list_frame.takeItem(list_frame.row(item))
+                if batch_size:
+                    list_frame.blockSignals(blocked)
+                    signals_held = False
+                    yield None
+                    list_frame.blockSignals(True)
+                    signals_held = True
         # Remove the empty-library placeholder before real rows arrive.
         if not items:
             list_frame.clear()
@@ -119,12 +189,17 @@ def sync_recording_rows(
             rows[key].set_metadata(vod, longest_seconds=longest_seconds, live=is_live(vod.path))
             if search_role is not None:
                 item.setData(search_role, recording_search_text(vod))
+            if item_filter is not None:
+                item_filter(item, vod)
             if batch_size and (rank + 1) % batch_size == 0:
                 list_frame.blockSignals(blocked)
                 signals_held = False
                 yield None
                 list_frame.blockSignals(True)
                 signals_held = True
+        for row in range(list_frame.count() - 1, -1, -1):
+            if not list_frame.item(row).data(Qt.UserRole):
+                list_frame.takeItem(row)
         if any(
             str(vod.path) != list_frame.item(rank).data(Qt.UserRole)
             for rank, vod in enumerate(vods)

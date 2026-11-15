@@ -79,7 +79,7 @@ from projections.item_sort import ITEM_SORT_RARITY_DESC
 from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
 from projections.timeline_axis import SnapshotTimeIndex
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
-from ui.recording_library import recording_search_text, sync_recording_rows
+from ui.recording_library import RecordingRowsJob, recording_search_text, sync_recording_rows
 from ui.shared import (
     FullWidthTabWidget,
     LabeledSwitch,
@@ -403,6 +403,8 @@ class CompareRunsTab:
         self._index_b = None
         self._list_signature = None
         self._list_refresh_pending = False
+        self._list_rows_job = None
+        self._list_refresh_needs_index = False
         self._chooser_expanded = False
         self._guided_selection_active = False
         self._stats_config_expanded = False
@@ -527,10 +529,13 @@ class CompareRunsTab:
             self._feed_token = self._active_feed.subscribe(
                 self._on_active_recording_state,
                 lambda callback: self._marshal(callback),
+                coalesce_powerups=True,
             )
 
     def refresh_compare_runs_list(self, *, refresh_index: bool = True):
         """Reuse chooser rows after the initial staged build."""
+        if self._tab is None:
+            return
         if self._disposed:
             return
         if self._tab is not None and not self._tab.is_built:
@@ -541,10 +546,20 @@ class CompareRunsTab:
                 pending = self._live_pending[side]
                 if pending is not None and self._live_auto_sync[side]:
                     self._submit_compare_live_state(side, pending)
-        for _step in self._refresh_compare_runs_list_steps(
-            batch_size=0, refresh_index=refresh_index
-        ):
-            pass
+        if self._list_rows_job is None:
+            self._list_rows_job = RecordingRowsJob(self._tab)
+        if self._list_rows_job._steps is not None:
+            self._list_signature = None
+        self._list_refresh_needs_index |= refresh_index
+
+        def steps():
+            needs_index = self._list_refresh_needs_index
+            self._list_refresh_needs_index = False
+            yield from self._refresh_compare_runs_list_steps(
+                batch_size=2, refresh_index=needs_index
+            )
+
+        self._list_rows_job.request(steps())
 
     def _refresh_compare_runs_list_steps(
         self, *, batch_size: int, refresh_index: bool = True
@@ -620,7 +635,7 @@ class CompareRunsTab:
             )
             self._list_longest_seconds = longest_seconds
             for side, selected in (("a", selected_a), ("b", selected_b)):
-                for vod in vods:
+                for row_index, vod in enumerate(vods):
                     key = str(vod.path)
                     row = self._list_rows[side].get(key)
                     item = self._list_items[side].get(key)
@@ -632,6 +647,10 @@ class CompareRunsTab:
                         )
                     if item is not None:
                         item.setData(_RECORDING_SEARCH_ROLE, recording_search_text(vod))
+                    if batch_size and (row_index + 1) % batch_size == 0:
+                        yield None
+                selected_vod = self._compare_run_vod(side)
+                selected = selected_vod.metadata.path if selected_vod is not None else None
                 selected_item = self._list_items[side].get(str(selected))
                 frame = self._compare_run_widget(side, "list_frame")
                 if selected_item is not None and frame.currentItem() is not selected_item:
@@ -744,7 +763,14 @@ class CompareRunsTab:
             list_frame, vods, self._list_items[side], self._list_rows[side],
             longest_seconds=longest_seconds, is_live=self._is_live_path,
             batch_size=batch_size, search_role=_RECORDING_SEARCH_ROLE,
+            item_filter=lambda item, vod: item.setHidden(bool(
+                (query := (getattr(self, f"_run_{side}_search", None).text().strip().casefold()
+                           if getattr(self, f"_run_{side}_search", None) is not None else ""))
+                and query not in recording_search_text(vod)
+            )),
         )
+        selected_vod = self._compare_run_vod(side)
+        selected_path = selected_vod.metadata.path if selected_vod is not None else None
         selected = self._list_items[side].get(str(selected_path))
         if selected is not None:
             blocked = list_frame.blockSignals(True)
@@ -2615,6 +2641,7 @@ class CompareRunsTab:
         header = QHBoxLayout()
         header.setSpacing(8)
         plaque_a, self._run_a_status_label = self._build_run_plaque("a")
+        yield None
         plaque_b, self._run_b_status_label = self._build_run_plaque("b")
         self._select_btn = self._run_a_change_btn
         self._swap_btn = l10n.localized(QPushButton, l10n.tr('Swap'))
@@ -2680,6 +2707,7 @@ class CompareRunsTab:
             )
             self._series_slot_buttons.append(button)
             timeline_series_row.addWidget(button)
+            yield None
 
         # Beside the slots, because they answer the same question -- what is
         # drawn on the track -- but as checkboxes rather than slots, because a
@@ -2752,14 +2780,15 @@ class CompareRunsTab:
         yield from self._build_overview_page_steps()
         self._build_stats_page()
         yield None
-        self._build_stages_page()
-        yield None
-        self._build_items_page()
+        yield from self._build_stages_page()
+        yield from self._build_items_page()
         yield None
         self._build_table_page("Weapons", "_diff_weapons_group", "_diff_weapons_table")
+        yield None
         self._build_table_page("Tomes", "_diff_tomes_group", "_diff_tomes_table")
         yield None
         self._build_table_page("Chaos", "_diff_chaos_group", "_diff_chaos_table")
+        yield None
         self._build_table_page("Shrines", "_diff_shrines_group", "_diff_shrines_table")
         yield None
         self._build_table_page("Passives", "_diff_passives_group", "_diff_passives_table")
@@ -2792,7 +2821,7 @@ class CompareRunsTab:
         # a large library cannot freeze the A/B loading ring for the whole pass.
         while True:
             self._list_refresh_pending = False
-            yield from self._refresh_compare_runs_list_steps(batch_size=8)
+            yield from self._refresh_compare_runs_list_steps(batch_size=2)
             if not self._list_refresh_pending:
                 break
         self.refresh_compare_runs_ui()
@@ -2868,6 +2897,7 @@ class CompareRunsTab:
             setattr(self, f"_run_{side}_search", search)
             list_frame = QListWidget()
             list_frame.setObjectName("CompareRunsRecordingList")
+            list_frame.setUniformItemSizes(True)
             list_frame.setProperty("side", side.upper())
             list_frame.setMinimumHeight(320)
             list_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -2941,9 +2971,10 @@ class CompareRunsTab:
         """
         page, _content, layout = self._new_scroll_page()
         l10n.tab(self._detail_tabs, page, l10n.tr('Overview'))
-        self._luck_loot_view = CompareRunsLuckLootView()
+        self._luck_loot_view = CompareRunsLuckLootView(staged=True)
         layout.addWidget(self._luck_loot_view)
         yield None
+        yield from self._luck_loot_view.build_steps()
         self._axis_view = CompareRunsAxisView()
         layout.addWidget(self._axis_view)
         yield None
@@ -2999,12 +3030,12 @@ class CompareRunsTab:
         self._stats_config_btn = choose
         l10n.tab(self._detail_tabs, page, l10n.tr('Stats'))
 
-    def _build_stages_page(self) -> None:
+    def _build_stages_page(self):
         page, _content, layout = self._new_scroll_page()
         self._diff_stage_summary_group = l10n.localized(QGroupBox, l10n.tr('Stage comparison'))
         stage_layout = QVBoxLayout(self._diff_stage_summary_group)
         self._diff_stages_table = CompactMetricCardGridView(
-            section_capacity=4,
+            section_capacity=0,
             metric_capacity=4,
             metrics_per_row=4,
         )
@@ -3015,8 +3046,12 @@ class CompareRunsTab:
         layout.addWidget(self._diff_stage_summary_group)
         layout.addStretch(1)
         l10n.tab(self._detail_tabs, page, l10n.tr('Stages'))
+        yield None
+        for count in range(1, 5):
+            self._diff_stages_table._ensure_section_capacity(count)
+            yield None
 
-    def _build_items_page(self) -> None:
+    def _build_items_page(self):
         page, _content, layout = self._new_scroll_page()
         self._diff_items_group, self._diff_items_label = self._build_diff_card(
             "Item comparison", "--"
@@ -3031,6 +3066,7 @@ class CompareRunsTab:
             group, view = self._build_inventory_panel(side)
             setattr(self, f"_run_{side}_items_view", view)
             inventories.addWidget(group, 1)
+            yield None
         layout.addLayout(inventories)
         layout.addStretch(1)
         l10n.tab(self._detail_tabs, page, l10n.tr('Items'))

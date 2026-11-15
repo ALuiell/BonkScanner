@@ -1,11 +1,11 @@
 """Task scheduler for shared runtime refresh work.
 
-The coordinator deliberately has no Qt dependency.  Its owner calls ``tick``
-from the existing UI thread, keeping game-memory reads and tracker mutation
-single-writer while allowing consumers to declare demand independently.
+The owner calls ``tick`` on the UI thread. Tasks can return a future to track
+work completed elsewhere without waiting in the tick.
 """
 from __future__ import annotations
 
+from concurrent.futures import Future
 from dataclasses import dataclass
 import time
 from typing import Any, Callable
@@ -147,7 +147,7 @@ class RefreshTask:
     task_id: str
     interval_ms: int
     required: Callable[[], bool]
-    run: Callable[[RefreshTickContext], bool | None]
+    run: Callable[[RefreshTickContext], bool | None | Future]
     phase: int = 0
     after: tuple[str, ...] = ()
     failure_retry_ms: int | None = None
@@ -159,6 +159,7 @@ class RefreshTask:
     state_changed_at: float | None = None
     last_health_event_at: float | None = None
     last_health_error: str | None = None
+    pending: Future | None = None
 
 
 class RefreshCoordinator:
@@ -217,6 +218,15 @@ class RefreshCoordinator:
         context = RefreshTickContext(pass_id=self._pass_id, started_at=now, clock=self._now)
         ran: list[str] = []
         for task in self._ordered_tasks():
+            if task.pending is not None:
+                if not task.pending.done():
+                    continue
+                job, task.pending = task.pending, None
+                try:
+                    self._record_result(task, job.result(), now)
+                except Exception as exc:
+                    self._record_failure(task, exc, now=now)
+                task.last_duration_ms = max(0.0, (now - task.last_started_at) * 1000.0)
             try:
                 required = bool(task.required())
             except Exception as exc:
@@ -231,23 +241,24 @@ class RefreshCoordinator:
             except Exception as exc:  # Diagnostics must not stop other tasks.
                 self._record_failure(task, exc, now=self._now())
             else:
-                if succeeded is False:
-                    self._record_failure(
-                        task,
-                        RuntimeError("refresh returned failure"),
-                        now=self._now(),
-                    )
+                if isinstance(succeeded, Future):
+                    task.pending = succeeded
                 else:
-                    finished_at = self._now()
-                    task.last_succeeded_at = finished_at
-                    self._record_recovery(task, finished_at)
+                    self._record_result(task, succeeded, self._now())
             finally:
-                finished_at = self._now()
-                task.last_duration_ms = max(
-                    0.0, (finished_at - task_run_started_at) * 1000.0
-                )
+                if task.pending is None:
+                    task.last_duration_ms = max(
+                        0.0, (self._now() - task_run_started_at) * 1000.0
+                    )
             ran.append(task.task_id)
         return tuple(ran)
+
+    def _record_result(self, task: RefreshTask, succeeded: bool | None, now: float) -> None:
+        if succeeded is False:
+            self._record_failure(task, RuntimeError("refresh returned failure"), now=now)
+        else:
+            task.last_succeeded_at = now
+            self._record_recovery(task, now)
 
     def diagnostics(self) -> tuple[RefreshTaskDiagnostics, ...]:
         now = self._now()

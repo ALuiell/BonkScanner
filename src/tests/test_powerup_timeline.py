@@ -71,8 +71,8 @@ assert recordings._powerup_row.isVisible()
 assert recordings._powerup_row.entries[0][3]
 assert recordings._powerup_row.entries[0][2] == '×1 · 0:08'
 assert recordings._powerup_row.entries[3][2] == '×0+ · 0:01'
-assert 'confirmed minimum' in recordings._powerup_row.entries[3][4]
-assert 'Observed pickups: 1' in recordings._powerup_row.entries[0][4]
+assert 'confirmed minimum' in recordings._powerup_row._effect_tooltip(4)
+assert 'Observed pickups: 1' in recordings._powerup_row._effect_tooltip(1)
 assert len(recordings._powerup_row.entries) == 4
 assert recordings._powerup_row.parentWidget() is recordings._scrubber
 assert recordings._powerup_row.geometry().bottom() < recordings._scrubber._plot_rect().top()
@@ -92,9 +92,9 @@ assert 'Rage' in recordings._scrubber._marker_tooltip_at(rect.center())
 old_plot = recordings._scrubber._plot_rect()
 old_path = recordings._scrubber._cached_paths[0][0]
 recordings.set_vod_compare_start(2)
-assert 'A–B 00:04' in recordings._powerup_row.entries[0][4]
+assert 'A–B 00:04' in recordings._powerup_row._effect_tooltip(1)
 assert recordings._powerup_row.entries[0][2] == '×0 · 0:06'
-assert 'Observed pickups: 0' in recordings._powerup_row.entries[0][4]
+assert 'Observed pickups: 0' in recordings._powerup_row._effect_tooltip(1)
 recordings.clear_vod_compare_start()
 slots.set_powerups_enabled(False)
 recordings._scrubber.grab()

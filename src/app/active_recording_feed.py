@@ -48,8 +48,9 @@ class ActiveRecordingFeed:
         self._revision = 0
         self._next_token = 0
         self._subscribers: dict[
-            int, tuple[Callable[[ActiveRecordingState], None], Callable[[Callable[[], None]], Any]]
+            int, tuple[Callable[[ActiveRecordingState], None], Callable[[Callable[[], None]], Any], bool]
         ] = {}
+        self._powerup_deliveries: dict[int, list[ActiveRecordingState]] = {}
 
     @staticmethod
     def _key(path: Path | str) -> Path:
@@ -70,11 +71,13 @@ class ActiveRecordingFeed:
         self,
         callback: Callable[[ActiveRecordingState], None],
         schedule: Callable[[Callable[[], None]], Any],
+        *,
+        coalesce_powerups: bool = False,
     ) -> int:
         with self._lock:
             self._next_token += 1
             token = self._next_token
-            self._subscribers[token] = (callback, schedule)
+            self._subscribers[token] = (callback, schedule, coalesce_powerups)
             state = self.active_state
         if state is not None:
             self._deliver(callback, schedule, state)
@@ -83,6 +86,7 @@ class ActiveRecordingFeed:
     def unsubscribe(self, token: int) -> None:
         with self._lock:
             self._subscribers.pop(int(token), None)
+            self._powerup_deliveries.pop(int(token), None)
 
     def start(self, metadata: VodMetadata) -> ActiveRecordingState:
         key = self._key(metadata.path)
@@ -144,7 +148,7 @@ class ActiveRecordingFeed:
             self._revision += 1
             state = replace(current, powerup_history=history, revision=self._revision)
             self._states[current.path] = state
-        self._publish(state)
+        self._publish(state, powerup_only=True)
         return state
 
     def discard(self, reason: str) -> ActiveRecordingState | None:
@@ -201,11 +205,43 @@ class ActiveRecordingFeed:
         self._publish(state)
         return state
 
-    def _publish(self, state: ActiveRecordingState) -> None:
+    def _publish(self, state: ActiveRecordingState, *, powerup_only: bool = False) -> None:
         with self._lock:
-            subscribers = tuple(self._subscribers.values())
-        for callback, schedule in subscribers:
-            self._deliver(callback, schedule, state)
+            subscribers = tuple(self._subscribers.items())
+        for token, (callback, schedule, coalesce) in subscribers:
+            if powerup_only and coalesce:
+                self._queue_powerup_state(token, callback, schedule, state)
+            else:
+                # Snapshot and terminal revisions include the effect history;
+                # invalidate any obsolete effect-only delivery ahead of them.
+                with self._lock:
+                    self._powerup_deliveries.pop(token, None)
+                self._deliver(callback, schedule, state)
+
+    def _queue_powerup_state(self, token, callback, schedule, state):
+        with self._lock:
+            pending = self._powerup_deliveries.get(token)
+            if pending is not None:
+                pending[0] = state
+                return
+            pending = self._powerup_deliveries[token] = [state]
+
+        def deliver():
+            with self._lock:
+                if self._powerup_deliveries.get(token) is not pending:
+                    return
+                del self._powerup_deliveries[token]
+                latest = pending[0]
+            callback(latest)
+
+        try:
+            if schedule(deliver) is not False:
+                return
+        except Exception:
+            pass
+        with self._lock:
+            if self._powerup_deliveries.get(token) is pending:
+                del self._powerup_deliveries[token]
 
     @staticmethod
     def _deliver(callback, schedule, state) -> None:

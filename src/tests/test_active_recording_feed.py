@@ -16,6 +16,7 @@ from app.active_recording_feed import (
     ActiveRecordingFeed,
 )
 from app.vod_library import VodLibrary
+from core.powerup_history import PowerupHistory
 from infra.vod_storage import VodMetadata, VodSnapshot
 from tests.support.player_stats import build_recordings_tab
 from ui.tabs.player_stats import recordings as recordings_module
@@ -39,6 +40,22 @@ def _snapshot(index: int) -> VodSnapshot:
 
 
 class ActiveRecordingFeedTests(unittest.TestCase):
+    def test_delayed_ui_effect_updates_preserve_snapshot_and_final_revisions(self):
+        feed = ActiveRecordingFeed()
+        queued, delivered = [], []
+        feed.subscribe(delivered.append, queued.append, coalesce_powerups=True)
+        path = Path("live.jsonl")
+        start = feed.start(_metadata(path))
+        feed.update_powerups(PowerupHistory())
+        latest = feed.update_powerups(PowerupHistory())
+        self.assertEqual(len(queued), 2)
+        appended = feed.append(_metadata(path, 1), _snapshot(1))
+        final = feed.finalize(_metadata(path, 1))
+        for callback in queued:
+            callback()
+        self.assertEqual(delivered, [start, appended, final])
+        self.assertIs(appended.powerup_history, latest.powerup_history)
+
     def test_start_append_finalize_keeps_snapshot_identity_and_monotonic_revision(self):
         feed = ActiveRecordingFeed()
         path = Path("live.jsonl")

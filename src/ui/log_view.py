@@ -47,7 +47,7 @@ import html
 import time
 from typing import Callable, Sequence
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -66,6 +66,7 @@ from ui.throttle import UiUpdateThrottle
 
 #: At this many records, the next unique line starts a fresh history.
 LOG_BUFFER_LIMIT = 2000
+RENDER_BATCH_SIZE = 32
 
 #: The severities a scalar tag may name, in the order the filter shows them.
 SEVERITIES = ("info", "success", "warning", "error")
@@ -226,6 +227,17 @@ class LogView(QWidget):
         self._severities: set[str] = set()
         self._search = ""
         self._render_throttle = throttle or UiUpdateThrottle(qt_context=self)
+        # Explicit throttles are also used by synchronous widget tests.
+        self._synchronous_render = throttle is not None
+        self._batch_timer = QTimer(self)
+        self._batch_timer.setSingleShot(True)
+        self._batch_timer.timeout.connect(self._render_batch)
+        self._render_queue = None
+        self._render_position = None
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(120)
+        self._search_timer.timeout.connect(self._start_render)
         self._show_target_gaps_initial = bool(show_target_gaps)
         self._on_target_gaps_changed = on_target_gaps_changed
 
@@ -341,6 +353,13 @@ class LogView(QWidget):
             self._records.clear()
             self._document.clear()
         self._records.append(record)
+        if self._search_timer.isActive():
+            # The pending search render will include this line, even when the
+            # search was just cleared and the document still shows old results.
+            return
+        if self._render_queue is not None:
+            self._request_render()
+            return
         if self._is_filtered():
             self._request_render()
             return
@@ -350,6 +369,8 @@ class LogView(QWidget):
     # -- commands -------------------------------------------------------------
 
     def clear(self) -> None:
+        self._search_timer.stop()
+        self._cancel_render()
         self._records.clear()
         self._render()
 
@@ -362,6 +383,9 @@ class LogView(QWidget):
         clipboard = QApplication.clipboard()
         if clipboard is None:
             return
+        if self._synchronous_render and self._search_timer.isActive():
+            self._search_timer.stop()
+            self._render()
         l10n.display(clipboard, 'setText', self.visible_text())
 
     def visible_text(self) -> str:
@@ -372,17 +396,19 @@ class LogView(QWidget):
         )
 
     def _on_chip(self, key: str) -> None:
+        self._search_timer.stop()
         if key == "":
             self._severities = set()
         else:
             self._severities = {key}
         for chip_key, chip in self._chips.items():
             chip.setChecked(chip_key == key)
-        self._render()
+        self._start_render()
 
     def _on_search(self, text: str) -> None:
         self._search = str(text)
-        self._render()
+        self._batch_timer.stop()
+        self._search_timer.start()
 
     def _on_target_gaps_toggled(self, enabled: bool) -> None:
         callback = self._on_target_gaps_changed
@@ -416,10 +442,58 @@ class LogView(QWidget):
         return bool(self._severities or self._search)
 
     def _request_render(self) -> None:
-        self._render_throttle.request(self._render)
+        self._render_throttle.request(self._render_when_search_ready)
+
+    def _render_when_search_ready(self) -> None:
+        if not self._search_timer.isActive():
+            self._start_render()
+
+    def _cancel_render(self) -> None:
+        self._batch_timer.stop()
+        self._render_queue = None
+        self._render_position = None
+
+    def _start_render(self) -> None:
+        if self._synchronous_render:
+            self._render()
+            return
+        # Preserve the original reading position across restarts. A new filter
+        # or arriving line can supersede a partially built document.
+        position = self._render_position if self._render_queue is not None else self._capture_manual_position()
+        self._batch_timer.stop()
+        visible = self._visible_records()
+        self._render_position = position
+        self._render_queue = iter(visible)
+        self._document.clear()
+        l10n.display(self._footer, 'setText', self._footer_text(len(visible)))
+        if not visible:
+            l10n.display(self._document, 'setHtml', self._empty_html())
+            self._restore_manual_position(position)
+            self._cancel_render()
+            return
+        self._batch_timer.start(0)
+
+    def _render_batch(self) -> None:
+        if self._render_queue is None:
+            return
+        from itertools import islice
+        batch = list(islice(self._render_queue, RENDER_BATCH_SIZE))
+        if batch:
+            cursor = QTextCursor(self._document.document())
+            cursor.movePosition(QTextCursor.End)
+            if not self._document.document().isEmpty():
+                cursor.insertBlock()
+            cursor.insertHtml('<br>'.join(render_record_html(record) for record in batch))
+            self._batch_timer.start(0)
+            return
+        position = self._render_position
+        self._cancel_render()
+        self._scroll_to_end()
+        self._restore_manual_position(position)
 
     def _render(self) -> None:
         """Rebuild the document from the buffer. The slow, complete path."""
+        self._cancel_render()
         manual_position = self._capture_manual_position()
         visible = self._visible_records()
         if not visible:
@@ -488,7 +562,8 @@ class LogView(QWidget):
         self._document.verticalScrollBar().setValue(vertical)
 
     def _update_footer(self) -> None:
-        l10n.display(self._footer, 'setText', self._footer_text(len(self._visible_records())))
+        # This path is used only for unfiltered incremental appends.
+        l10n.display(self._footer, 'setText', self._footer_text(len(self._records)))
 
     def _empty_html(self) -> str:
         if self._records:

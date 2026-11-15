@@ -4,12 +4,20 @@ from ui import i18n as l10n
 
 import os
 import sys
+from dataclasses import replace
 
 from PySide6.QtCore import QByteArray, QRect, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
 from app import config
+from app.deferred_config import (
+    begin_config_save_shutdown,
+    config_save_shutdown_complete,
+    config_save_shutdown_result,
+    request_config_save,
+    start_config_saves,
+)
 from app.runtime import AppRuntime, AppRuntimePorts
 from app.supporter_access import SupporterAccessController
 from app.version import CURRENT_VERSION
@@ -82,6 +90,7 @@ class MegabonkApp:
         return app
 
     def __init__(self, *, terminate_process=None):
+        start_config_saves()
         self._ensure_qt_application()
         self.window = _AppWindow(self)
         self._window_shown = False
@@ -311,6 +320,7 @@ class MegabonkApp:
             stop_twitch=self.stop_twitch_bot,
             wait_background_threads=self._wait_for_background_threads,
             close_overlay_server=self.close_overlay_server,
+            post_to_ui=self.marshal_to_ui,
         )
         self.runtime = AppRuntime.create(
             ports=runtime_ports,
@@ -939,7 +949,11 @@ class MegabonkApp:
     # differently -- and `self.tabview` is declared by `__init__`, so neither
     # is a hidden read.
     def _is_live_stats_tab_active(self) -> bool:
-        return _is_tab_active(self.tabview, "Live")
+        return (
+            self.window.isVisible()
+            and not self.window.isMinimized()
+            and _is_tab_active(self.tabview, "Live")
+        )
 
     def _is_overlay_tab_active(self) -> bool:
         return _is_tab_active(self.tabview, "OBS")
@@ -969,7 +983,7 @@ class MegabonkApp:
     def update_player_stats_timer(self) -> None:
         return self.runtime.player_stats_refresh.tick()
 
-    def refresh_live_player_stats_now(self, **kwargs) -> bool:
+    def refresh_live_player_stats_now(self, **kwargs):
         return self.runtime.player_stats_refresh.refresh_now(**kwargs)
 
     # -- the four recording-tab delegators (steps 21c/21d), deleted at 26 ---
@@ -1072,7 +1086,7 @@ class MegabonkApp:
             return report.completed if report is not None else not bool(
                 self.__dict__.get("_shutdown_errors", ())
             )
-        if self.__dict__.get("_window_shown", False):
+        if self.__dict__.get("_window_shown", False) and not self.__dict__.get("_async_close_io", False):
             self._save_window_placement()
         self._is_shutting_down = True
         appearance = getattr(self, "_appearance_runtime", None)
@@ -1084,6 +1098,11 @@ class MegabonkApp:
             report = self.runtime.shutdown(deadline, validator_timeout=0.0)
         else:
             report = self.runtime.shutdown(deadline)
+        if self.__dict__.get("_async_close_io", False):
+            if not config_save_shutdown_complete():
+                report = replace(report, timed_out_resources=(*report.timed_out_resources, "config_save"))
+            elif error := config_save_shutdown_result():
+                report = replace(report, errors=(*report.errors, ("config_save", error)))
         self._shutdown_report = report
         log_runtime_event(
             "application.shutdown.resources_stopped",
@@ -1280,6 +1299,18 @@ class MegabonkApp:
         if self.__dict__.get("_is_shutting_down", False):
             return
         name = self._current_window_state_name()
+        minimized = self.window.isMinimized()
+        was_minimized = self.__dict__.get("_window_was_minimized", False)
+        self._window_was_minimized = minimized
+        if was_minimized and not minimized:
+            router = self.__dict__.get("_tab_router")
+            if router is not None:
+                resume_loading = getattr(self.tabview.currentWidget(), "resume_loading", None)
+                if callable(resume_loading):
+                    resume_loading()
+                if router.is_live_stats_tab_active():
+                    self._player_stats_view.refresh_player_stats_timeline_ui()
+                router.on_right_tab_changed()
         if not name or name == config.user_config.get(self._WINDOW_STATE_KEY):
             return
         config.user_config[self._WINDOW_STATE_KEY] = name
@@ -1308,7 +1339,8 @@ class MegabonkApp:
             return
         handler = self._close_protocol_handler or getattr(self, "on_closing", None)
         validator = getattr(getattr(self, "coordinator", None), "validator", None)
-        if validator is not None and callable(handler) and handler == self.on_closing:
+        begin_io = getattr(getattr(self, "runtime", None), "begin_shutdown_io", None)
+        if (validator is not None or callable(begin_io)) and callable(handler) and handler == self.on_closing:
             # The observer and network sender need time to flush their final
             # evidence, but joining them inside a close event freezes Qt. Keep
             # the window alive and the event loop running until they finish.
@@ -1318,17 +1350,38 @@ class MegabonkApp:
             self._validator_close_pending = True
             self._pending_shutdown_deadline = ShutdownDeadline.after()
             validator_deadline = ShutdownDeadline.after(5.0)
+            self._async_close_io = callable(begin_io)
+            if self._async_close_io:
+                validator_tab = self.__dict__.get("_validator_tab")
+                if validator_tab is not None:
+                    validator_tab.stop_polling()
+                placement = self.__dict__.get("_pending_window_placement")
+                if placement is not None and placement != config.user_config.get(self._WINDOW_PLACEMENT_KEY):
+                    config.user_config[self._WINDOW_PLACEMENT_KEY] = placement
+                    if not config.profile_read_only_reason():
+                        request_config_save((self._WINDOW_PLACEMENT_KEY,), placement)
+                begin_config_save_shutdown()
+                begin_io(self._pending_shutdown_deadline)
             self.window.hide()
+            validator_finished = validator is None
 
             def poll_validator_close() -> None:
-                try:
-                    finished = validator.close(timeout=0.0)
-                except Exception:
-                    # Let the normal shutdown path record the failure.
-                    finished = True
-                if not finished and not validator_deadline.expired():
-                    QTimer.singleShot(25, poll_validator_close)
-                    return
+                nonlocal validator_finished
+                if self._async_close_io:
+                    deadline = self._pending_shutdown_deadline
+                    io_finished = self.runtime.poll_shutdown_io(deadline)
+                    if not deadline.expired() and (not io_finished or not config_save_shutdown_complete()):
+                        QTimer.singleShot(25, poll_validator_close)
+                        return
+                elif not validator_finished and not validator_deadline.expired():
+                    try:
+                        validator_finished = bool(validator.close(timeout=0.0))
+                    except Exception:
+                        # Let the normal shutdown path record the failure.
+                        pass
+                    if not validator_finished:
+                        QTimer.singleShot(25, poll_validator_close)
+                        return
                 self._validator_close_poll_finished = True
                 try:
                     handler()
@@ -1354,14 +1407,14 @@ class MegabonkApp:
         event.accept()
 
     def after(self, delay_ms: int, callback):
-        if self.__dict__.get("_is_shutting_down", False):
+        if self.__dict__.get("_is_shutting_down", False) or self.__dict__.get("_validator_close_pending", False):
             return None
         invoker = self.__dict__.get("_invoker")
         if invoker is None:
             return None
 
         def run_if_alive() -> None:
-            if not self.__dict__.get("_is_shutting_down", False):
+            if not self.__dict__.get("_is_shutting_down", False) and not self.__dict__.get("_validator_close_pending", False):
                 callback()
 
         try:
@@ -1377,14 +1430,14 @@ class MegabonkApp:
 
     def marshal_to_ui(self, callback) -> bool:
         """Queue a guarded UI callback, or drop it once teardown has begun."""
-        if self.__dict__.get("_is_shutting_down", False):
+        if self.__dict__.get("_is_shutting_down", False) or self.__dict__.get("_validator_close_pending", False):
             return False
         invoker = self.__dict__.get("_invoker")
         if invoker is None:
             return False
 
         def run_if_alive() -> None:
-            if not self.__dict__.get("_is_shutting_down", False):
+            if not self.__dict__.get("_is_shutting_down", False) and not self.__dict__.get("_validator_close_pending", False):
                 callback()
 
         try:

@@ -354,6 +354,16 @@ class VodCapture:
         self.player_stats_auto_start_detection_streak = 0
         return vod_path
 
+    def begin_stop_for_shutdown(self):
+        recorder = self._recorder()
+        if not recorder.is_recording:
+            return None
+        try:
+            self._refresh_now(finalize_recording_capture=True)
+        except Exception:
+            pass
+        return recorder.begin_stop()
+
     def stop_recording(
         self,
         *,
@@ -362,6 +372,7 @@ class VodCapture:
         refresh_live_stats: bool = True,
         finalize_snapshot: bool = True,
         refresh_library: bool = True,
+        completed_stop=None,
     ) -> None:
         recorder = self._recorder()
         if finalize_snapshot and recorder.is_recording:
@@ -374,7 +385,7 @@ class VodCapture:
         stop_error = None
         stop_status = None
         try:
-            stop_status = recorder.stop()
+            stop_status = recorder.stop() if completed_stop is None else completed_stop.result()
         except Exception as exc:
             stop_error = exc
             try:

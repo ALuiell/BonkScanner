@@ -383,12 +383,7 @@ class PlayerStatsMemory:
         # 5. Read optional live stats if relevant tabs/features are active.
         # Weapon Tracker is narrower than those consumers: it needs weapons
         # only, not tomes, banishes, disabled items or damage sources.
-        optional_live_stats_requested = (
-            self._recording_active()
-            or self._live_stats_tab_active()
-            or self._overlay_refresh_wanted()
-            or self._twitch_bot_active()
-        )
+        optional_live_stats_requested = self.optional_full_stats_requested()
         if optional_live_stats_requested or in_game_overlay_weapon_tracker_active():
             try:
                 client = self._get_player_stats_client()
@@ -507,6 +502,25 @@ class PlayerStatsMemory:
             disabled_items_available=disabled_items_available,
             is_final_boss_stage=is_final_boss_stage,
         )
+
+    def optional_full_stats_requested(self) -> bool:
+        return (
+            self._recording_active()
+            or self._live_stats_tab_active()
+            or self._overlay_refresh_wanted()
+            or self._twitch_bot_active()
+        )
+
+    def accept_sample_match(self, sample: FullPlayerSample) -> None:
+        store = self._snapshot_store()
+        match = dict(map_seed=sample.map_seed, run_timer_seconds=sample.run_timer_seconds)
+        if store.is_new_match(**match):
+            store.reset_for_new_match()
+            self._write_disabled_items_refresh_pending(True)
+        if sample.disabled_items_available:
+            self._write_disabled_items_cache(sample.disabled_items)
+            self._write_disabled_items_refresh_pending(False)
+        store.record_match_tick(**match)
 
     def _read_live_player_stats_data(self, context=None):
         """Compatibility wrapper for old fixtures; production uses the DTO."""

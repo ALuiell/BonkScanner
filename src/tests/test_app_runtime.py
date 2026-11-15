@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from concurrent.futures import Future
+from pathlib import Path
+
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from app.runtime import AppRuntime, AppRuntimePorts
 from app.shutdown import ShutdownDeadline
+from core.game_state import RuntimeGameMode, RuntimeGameState
 
 
 class _Recorder:
@@ -93,6 +97,26 @@ def _ports(
 
 
 class AppRuntimeTests(unittest.TestCase):
+    def test_sample_from_previous_recording_does_not_reach_the_view(self):
+        runtime = AppRuntime(_Coordinator([]), _ports([], []))
+        recorder = runtime.vod_recorder
+        recorder.is_recording = True
+        recorder.path = Path("first.jsonl")
+        runtime.run_lifecycle = SimpleNamespace(state_for_refresh=lambda _context=None: RuntimeGameState(
+            mode=RuntimeGameMode.IN_GAME, current_stage_ptr=42,
+        ))
+        work, queued = Future(), []
+        service = runtime.player_stats_refresh
+        service.use_background_sampler(SimpleNamespace(submit=lambda *_args: work), queued.append)
+        with patch.object(service, "_apply_sample") as apply:
+            result = service.refresh_now()
+            recorder.path = Path("second.jsonl")
+            work.set_result((object(), {}))
+            self.assertFalse(result.done())
+            queued.pop()()
+            self.assertFalse(result.result())
+            apply.assert_not_called()
+
     def test_roll_collection_demands_context_without_live_tab_or_recording(self):
         runtime = AppRuntime(_Coordinator([]), _ports([], [], roll_analytics_active=True))
         with patch("app.runtime.in_game_overlay_requires_player_stats_refresh", return_value=False), patch(
@@ -230,6 +254,24 @@ class AppRuntimeTests(unittest.TestCase):
 
         self.assertEqual(timeouts, [0.0])
         self.assertEqual(report.timed_out_resources, ('validator',))
+
+    def test_window_close_polls_final_history_without_waiting_on_qt(self):
+        coordinator = _Coordinator([])
+        coordinator.validator = SimpleNamespace(close=lambda *, timeout: True, snapshot=lambda: {})
+        runtime = AppRuntime(coordinator, _ports([], []))
+        close, history = Future(), Future()
+        runtime._begin_validator_close = lambda _deadline: close
+        runtime.validator_reports = SimpleNamespace(
+            refresh=lambda *_args, **_kwargs: None, begin_final_save=lambda: history,
+        )
+        deadline = ShutdownDeadline.after()
+        runtime.begin_shutdown_io(deadline)
+        self.assertFalse(runtime.poll_shutdown_io(deadline))
+        close.set_result(True)
+        self.assertFalse(runtime.poll_shutdown_io(deadline))
+        history.set_result(True)
+        self.assertTrue(runtime.poll_shutdown_io(deadline))
+        self.assertTrue(runtime.shutdown(deadline).completed)
 
 
 if __name__ == "__main__":

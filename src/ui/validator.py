@@ -249,6 +249,9 @@ class ValidatorTab(QScrollArea):
     def _poll(self):
         self.refresh(polling=True)
 
+    def stop_polling(self):
+        self._timer.stop()
+
     def _diagnostics_toggled(self, opened):
         if opened:
             self.refresh()

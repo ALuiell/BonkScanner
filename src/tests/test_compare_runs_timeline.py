@@ -825,7 +825,10 @@ def test_recording_chooser_replaces_workspace_and_uses_available_height() -> Non
     compare._sort_combo.setCurrentIndex(
         compare._sort_combo.findData(RECORDING_SORT_SNAPSHOTS)
     )
-    app.processEvents()
+    for _ in range(100):
+        app.processEvents()
+        if compare._list_rows_job is None or compare._list_rows_job._steps is None:
+            break
     reordered = compare._run_a_list_frame.itemWidget(compare._run_a_list_frame.item(0))
     assert reordered.findChild(QLabel, "RecordingRowName").text() == "950k"
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 import json
@@ -350,6 +351,7 @@ class VodRecorder:
         interval_seconds: int = 30,
         clock=time.monotonic,
         settings: RecordingSettings | None = None,
+        write_in_background: bool = False,
     ) -> None:
         self.vods_dir = vods_dir or RECORDINGS_DIR
         self.interval_seconds = interval_seconds
@@ -372,6 +374,11 @@ class VodRecorder:
         self._recording_id: str | None = None
         self._final_duration_seconds: int | None = None
         self.powerup_history = PowerupHistory()
+        self._background_writer = write_in_background
+        self._writer = None
+        self._stop_job = None
+        self._write_error = None
+        self._write_slots = threading.BoundedSemaphore(128)
 
     @property
     def interval_seconds(self) -> int:
@@ -394,6 +401,7 @@ class VodRecorder:
     ) -> Path:
         if self.is_recording or self._file is not None:
             raise RuntimeError("VOD recorder is already active.")
+        self._write_error = None
         from infra.data_storage import require_profile_write
         require_profile_write(self.vods_dir)
         self.vods_dir.mkdir(parents=True, exist_ok=True)
@@ -460,13 +468,32 @@ class VodRecorder:
         return self.path
 
     def stop(self) -> str:
+        if self._stop_job is not None or self._writer is not None:
+            job = self.begin_stop()
+            try:
+                return job.result()
+            finally:
+                self._stop_job = None
+        self.is_recording = False
+        return self._finish_stop()
+
+    def begin_stop(self):
+        if self._stop_job is None:
+            self._final_duration_seconds = self.elapsed_seconds()
+            self.is_recording = False
+            self._stop_job = self._writer_executor().submit(self._finish_stop)
+        return self._stop_job
+
+    def _finish_stop(self) -> str:
         self.is_recording = False
         self.powerup_history = replace(self.powerup_history, finalized=True)
         status = "kept"
         if self._file is not None:
             stop_error = None
             try:
-                self._final_duration_seconds = self.elapsed_seconds()
+                self._raise_write_error()
+                if self._final_duration_seconds is None:
+                    self._final_duration_seconds = self.elapsed_seconds()
                 if (
                     self._uses_automatic_name
                     and self._created_at is not None
@@ -510,9 +537,12 @@ class VodRecorder:
         return status
 
     def close(self) -> None:
+        if self._writer is not None:
+            writer, self._writer = self._writer, None
+            writer.shutdown(wait=True)
         if self._file is not None:
-            self._file.close()
-            self._file = None
+            opened_file, self._file = self._file, None
+            opened_file.close()
         self.is_recording = False
 
     def observe_powerups(self, observation: PowerupObservation) -> PowerupHistory:
@@ -533,7 +563,7 @@ class VodRecorder:
                                              previous.run_id, False)
         self.powerup_history = PowerupHistory(observations + (observation,))
         # Small append-only observations; never copy full player-stat snapshots.
-        self._write_record(observation.to_record())
+        self._append_record(observation.to_record)
         return self.powerup_history
 
     def elapsed_seconds(self) -> int:
@@ -644,13 +674,46 @@ class VodRecorder:
             loot_actual=dict(payload.loot_actual) if payload.loot_actual is not None else None,
             loot_expected=dict(payload.loot_expected) if payload.loot_expected is not None else None,
         )
-        self.snapshot_count += 1
-        self._write_record(
-            _snapshot_to_record(snapshot),
-            flush=(self.snapshot_count % SNAPSHOT_FLUSH_EVERY == 0),
+        self._append_record(
+            lambda: _snapshot_to_record(snapshot),
+            flush=((self.snapshot_count + 1) % SNAPSHOT_FLUSH_EVERY == 0),
         )
+        self.snapshot_count += 1
         self.last_snapshot_time = now
         return snapshot
+
+    def _writer_executor(self):
+        if self._writer is None:
+            self._writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vod-writer")
+        return self._writer
+
+    def _raise_write_error(self):
+        if self._write_error is not None:
+            raise OSError(f"Recording writer failed: {self._write_error}") from self._write_error
+
+    def _append_record(self, make_record, *, flush=False) -> None:
+        if not self._background_writer:
+            self._write_record(make_record(), flush=flush)
+            return
+        self._raise_write_error()
+        if not self._write_slots.acquire(blocking=False):
+            self._write_error = OSError("Recording writer could not keep up with capture.")
+            self._raise_write_error()
+
+        def write():
+            try:
+                self._write_record(make_record(), flush=flush)
+            except Exception as exc:
+                if self._write_error is None:
+                    self._write_error = exc
+            finally:
+                self._write_slots.release()
+
+        try:
+            self._writer_executor().submit(write)
+        except Exception:
+            self._write_slots.release()
+            raise
 
     def _write_record(self, record: dict[str, Any], *, flush: bool = False) -> None:
         if self._file is None:

@@ -15,13 +15,60 @@ from ui import i18n as l10n
 from core.localization_context import using_translator
 
 
+class PowerupHits:
+    """Exact interval hits with rectangles and translated text made on demand."""
+    def __init__(self, entries, lane_height):
+        self.entries = entries
+        self.hit_height = min(8.0, lane_height / 4)
+
+    def __len__(self):
+        return len(self.entries)
+
+    def __getitem__(self, index):
+        x1, x2, y, span = self.entries[index]
+        elapsed = time_label(span.seconds) if span.seconds >= 1 else str(l10n.tr("{value:.3f} s", value=span.seconds))
+        name = next(p[1] for p in POWERUPS if p[0] == span.effect_id)
+        return (QRectF(x1 - 2, y - self.hit_height / 2, x2 - x1 + 4, self.hit_height),
+                f"{l10n.game('powerups', name)}  {time_label(span.start_axis)} → "
+                f"{time_label(span.end_axis)} · {elapsed}")
+
+    def tooltip_at(self, point):
+        x, y = point.x(), point.y()
+        half = self.hit_height / 2
+        for index, (x1, x2, center, _span) in enumerate(self.entries):
+            if x1 - 2 <= x <= x2 + 2 and center - half <= y <= center + half:
+                return self[index][1]
+        return ""
+
+
+class TimelineHitGroups:
+    """Preserve paint-order precedence without materializing interval labels."""
+    def __init__(self, groups):
+        self.groups = tuple(groups)
+
+    def __iter__(self):
+        for group in self.groups:
+            yield from group
+
+    def tooltip_at(self, point):
+        for group in self.groups:
+            if isinstance(group, PowerupHits):
+                text = group.tooltip_at(point)
+                if text:
+                    return text
+            else:
+                for rect, text in group:
+                    if rect.contains(point):
+                        return text
+        return ""
+
+
 def paint_powerups(painter, projection, plot, duration, *, axis_projection=None,
                    lane_height=POWERUP_LANE_HEIGHT):
     """Paint four subdued lanes immediately above the existing event strip."""
     if projection is None:
         return ()
     hits = []
-    names = {p[0]: p[1] for p in POWERUPS}
     styles = {p[0]: (p[3], i) for i, p in enumerate(POWERUPS)}
 
     def position(value):
@@ -44,32 +91,29 @@ def paint_powerups(painter, projection, plot, duration, *, axis_projection=None,
     painter.setPen(QPen(QColor(70, 89, 103, 90), .5))
     painter.drawLine(strip.topLeft(), strip.topRight())
     pixels = max(1.0, painter.device().devicePixelRatioF())
+    left, right, width = plot.left(), plot.right(), plot.width()
+    lane_centers = [
+        plot.bottom() - 19.0 + lane * 5.0 if lane_height == POWERUP_LANE_HEIGHT
+        else strip.top() + (lane + .5) * lane_height / 4
+        for lane in range(len(styles))
+    ]
     ranges = {effect_id: [] for effect_id in styles}
     for span in projection.intervals:
         _, lane = styles[span.effect_id]
         first, last = sorted((position(span.start_axis), position(span.end_axis)))
-        x1 = floor((plot.left() + first * plot.width()) * pixels) / pixels
-        x2 = ceil((plot.left() + last * plot.width()) * pixels) / pixels
-        x1 = min(x1, plot.right() - 2.0)
-        x2 = min(plot.right(), max(x1 + 2.0, x2))
-        y = (plot.bottom() - 19.0 + lane * 5.0 if lane_height == POWERUP_LANE_HEIGHT
-             else strip.top() + (lane + .5) * lane_height / 4)
+        x1 = min(right - 2.0, floor((left + first * width) * pixels) / pixels)
+        x2 = min(right, max(x1 + 2.0, ceil((left + last * width) * pixels) / pixels))
         ranges[span.effect_id].append((x1, x2))
-        elapsed = time_label(span.seconds) if span.seconds >= 1 else str(l10n.tr("{value:.3f} s", value=span.seconds))
-        hit_height = min(8.0, lane_height / 4)
-        hits.append((QRectF(x1 - 2, y - hit_height / 2, x2 - x1 + 4, hit_height),
-                     f"{l10n.game('powerups', names[span.effect_id])}  {time_label(span.start_axis)} → "
-                     f"{time_label(span.end_axis)} · {elapsed}"))
+        hits.append((x1, x2, lane_centers[lane], span))
     # Pauses and Clock can project distinct observations onto the same pixels.
     # Union their visible footprints before applying alpha, while keeping exact
     # intervals separate for hover and uptime calculations.
     painter.setRenderHint(QPainter.Antialiasing, False)
+    painter.setPen(Qt.NoPen)
     thickness = max(1, round((1.0 if lane_height < POWERUP_LANE_HEIGHT else 2.0) * pixels)) / pixels
     for effect_id, parts in ranges.items():
         color, lane = styles[effect_id]
-        y = (plot.bottom() - 19.0 + lane * 5.0 if lane_height == POWERUP_LANE_HEIGHT
-             else strip.top() + (lane + .5) * lane_height / 4)
-        top = round((y - thickness / 2) * pixels) / pixels
+        top = round((lane_centers[lane] - thickness / 2) * pixels) / pixels
         ink = QColor(color)
         ink.setAlphaF(.65)
         merged = []
@@ -78,10 +122,11 @@ def paint_powerups(painter, projection, plot, duration, *, axis_projection=None,
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
                 merged.append((start, end))
-        for start, end in merged:
-            painter.fillRect(QRectF(start, top, end - start, thickness), ink)
+        if merged:
+            painter.setBrush(ink)
+            painter.drawRects([QRectF(start, top, end - start, thickness) for start, end in merged])
     painter.restore()
-    return tuple(hits)
+    return PowerupHits(hits, lane_height)
 
 
 def _ink_bounds(image):
@@ -159,20 +204,7 @@ class PowerupTimelineRow(QWidget):
                 count_label += "+"
             label = ("—" if seconds is None else
                      f"×{count_label} · {int(seconds) // 60}:{int(seconds) % 60:02d}")
-            with using_translator(l10n.active_translator()):
-                tooltip = projection.tooltip(effect_id, capture_a, capture_b) if available else str(l10n.tr("Power-up data unavailable"))
-            if available:
-                if capture_b is None:
-                    tooltip += str(l10n.tr("\nObserved uptime through A ({time}).", time=time_label(axis_a)))
-                    effect = active.get(effect_id)
-                    if effect is not None:
-                        tooltip += str(l10n.tr("\nActive interval known at A: {start} → {end}", start=time_label(effect.start_axis), end=time_label(effect.end_axis)))
-                    elif projection.observed_at(capture_a):
-                        tooltip += str(l10n.tr("\nInactive at A."))
-                else:
-                    low, high = sorted((axis_a, axis_b if axis_b is not None else axis_a))
-                    tooltip += f"\nA–B {time_label(low)} → {time_label(high)}"
-            entries.append((effect_id, asset, label, effect_id in selected, tooltip))
+            entries.append((effect_id, asset, label, effect_id in selected))
         self.entries = tuple(entries)
         self.note = ("No data" if not available else
                      "Unknown" if capture_b is None and not projection.observed_at(capture_a) else "")
@@ -187,10 +219,32 @@ class PowerupTimelineRow(QWidget):
         self.setFixedSize(ceil(width), 17)
 
     def tooltip_at(self, point):
-        for rect, tooltip in self._hits:
+        for rect, effect_id in self._hits:
             if rect.contains(point):
-                return tooltip
+                if effect_id is None:
+                    return (str(l10n.tr("Power-up data unavailable")) if self.note == "No data" else
+                            str(l10n.tr("Power-up state was not observed at this point. Hover an effect for coverage details.")))
+                return self._effect_tooltip(effect_id)
         return ""
+
+    def _effect_tooltip(self, effect_id):
+        (projection, capture_a, capture_b), kwargs = self._last_state
+        axis_a, axis_b = kwargs["axis_a"], kwargs["axis_b"]
+        if projection.history is None or not projection.observations:
+            return str(l10n.tr("Power-up data unavailable"))
+        with using_translator(l10n.active_translator()):
+            tooltip = projection.tooltip(effect_id, capture_a, capture_b)
+        if capture_b is None:
+            tooltip += str(l10n.tr("\nObserved uptime through A ({time}).", time=time_label(axis_a)))
+            effect = next((item for item in projection.active(capture_a) if item.effect_id == effect_id), None)
+            if effect is not None:
+                tooltip += str(l10n.tr("\nActive interval known at A: {start} → {end}", start=time_label(effect.start_axis), end=time_label(effect.end_axis)))
+            elif projection.observed_at(capture_a):
+                tooltip += str(l10n.tr("\nInactive at A."))
+        else:
+            low, high = sorted((axis_a, axis_b if axis_b is not None else axis_a))
+            tooltip += f"\nA–B {time_label(low)} → {time_label(high)}"
+        return tooltip
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -201,7 +255,7 @@ class PowerupTimelineRow(QWidget):
         metrics = QFontMetricsF(font)
         hits = []
         x = 0.0
-        for effect_id, asset, label, active, tooltip in self.entries:
+        for effect_id, asset, label, active in self.entries:
             pixmap, ink = _icon_ink(asset)
             ratio = min(12 / max(ink.width(), 1), 12 / max(ink.height(), 1))
             width, height = ink.width() * ratio, ink.height() * ratio
@@ -212,15 +266,13 @@ class PowerupTimelineRow(QWidget):
             text_width = metrics.horizontalAdvance(label)
             painter.drawText(QRectF(x + 19, 0, text_width + 2, 17), Qt.AlignLeft | Qt.AlignVCenter, label)
             item_width = 19 + text_width + 13
-            hits.append((QRectF(x, 0, item_width - 5, 17), tooltip))
+            hits.append((QRectF(x, 0, item_width - 5, 17), effect_id))
             x += item_width
         painter.setOpacity(1.0)
         if self.note:
             painter.setPen(QColor("#94A3B8"))
             painter.drawText(QRectF(x, 0, self.width() - x, 17), Qt.AlignLeft | Qt.AlignVCenter, str(l10n.term(self.note)))
-            hits.append((QRectF(x, 0, self.width() - x, 17),
-                         str(l10n.tr("Power-up data unavailable")) if self.note == "No data" else
-                         str(l10n.tr("Power-up state was not observed at this point. Hover an effect for coverage details."))))
+            hits.append((QRectF(x, 0, self.width() - x, 17), None))
         self._hits = tuple(hits)
         painter.end()
 

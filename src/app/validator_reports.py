@@ -173,7 +173,7 @@ class ValidatorReports:
                     snapshot.captured_at, snapshot.stage_ptr, snapshot.stage_index, snapshot.game_time_seconds,
                 )))
 
-    def refresh(self, snapshot, base=None, *, force=False):
+    def refresh(self, snapshot, base=None, *, force=False, persist=True):
         if base is not None:
             self._base = base
         base = self._base
@@ -248,7 +248,8 @@ class ValidatorReports:
                 or report.started >= self._reports[self._last_url].started
             ):
                 self._last_url = url
-        self.save(force=force)
+        if persist:
+            self.save(force=force)
 
     def _match_recordings(self, runs):
         if not self._pending_recordings:
@@ -301,11 +302,7 @@ class ValidatorReports:
             self.save_failed = not job.result()
             if not self.save_failed:
                 self._saved = saved
-        reports = tuple(
-            replace(report, status='finish_unconfirmed', kills=None)
-            if report.status in ('active', 'retrying', 'finish_pending', 'enrolling') else report
-            for report in self._reports.values()
-        )
+        reports = self._reports_to_save()
         now = time.monotonic()
         if reports == self._saved or not force and now - self._last_save_attempt < 2:
             return
@@ -326,6 +323,41 @@ class ValidatorReports:
         self.save_failed = not self._write_reports(reports)
         if not self.save_failed:
             self._saved = reports
+
+    def _reports_to_save(self):
+        return tuple(
+            replace(report, status='finish_unconfirmed', kills=None)
+            if report.status in ('active', 'retrying', 'finish_pending', 'enrolling') else report
+            for report in self._reports.values()
+        )
+
+    def begin_final_save(self):
+        reports = self._reports_to_save()
+        result = Future()
+        previous = self._saving
+        self._saving = None
+        saved = self._saved
+        if previous is None and reports == saved:
+            result.set_result(True)
+            return result
+
+        def work():
+            last_saved = saved
+            if previous is not None:
+                job, pending = previous
+                if job.result():
+                    last_saved = pending
+            result.set_result(reports == last_saved or self._write_reports(reports))
+
+        def finish():
+            try:
+                work()
+            except Exception as exc:
+                result.set_exception(exc)
+
+        thread = threading.Thread(target=finish, name='ValidatorHistoryFinalize', daemon=True)
+        thread.start()
+        return result
 
     @staticmethod
     def _write_reports(reports):

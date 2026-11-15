@@ -314,6 +314,8 @@ class StagedLoadingSpinner(QWidget):
         self._timer.timeout.connect(self._advance)
 
     def _advance(self) -> None:
+        if self.window().isMinimized():
+            return
         now = time.perf_counter()
         previous = self._last_advance_at
         self._last_advance_at = now
@@ -480,7 +482,7 @@ class StagedLoadingPage(QWidget):
             or self._advancing
         ):
             return
-        if not self.isVisible():
+        if not self.isVisible() or self.window().isMinimized():
             return
         self._advancing = True
         try:
@@ -495,7 +497,9 @@ class StagedLoadingPage(QWidget):
         finally:
             self._advancing = False
         if has_more:
-            self._timer.start(0)
+            # A zero timer can repeatedly outrun queued paint events while a
+            # large page is being assembled. Give Qt a turn to paint the ring.
+            self._timer.start(1)
 
     def _fail_build(self, exc: Exception) -> None:
         self._timer.stop()
@@ -538,7 +542,16 @@ class StagedLoadingPage(QWidget):
         self._ensure_started()
         super().showEvent(event)
         self._sync_loading_overlay()
-        if not self._built and self._failure is None and not self._timer.isActive():
+        self.resume_loading()
+
+    def resume_loading(self) -> None:
+        if (
+            self.isVisible()
+            and not self.window().isMinimized()
+            and not self._built
+            and self._failure is None
+            and not self._timer.isActive()
+        ):
             self._timer.start(self.FIRST_STAGE_DELAY_MS)
 
     def resizeEvent(self, event) -> None:

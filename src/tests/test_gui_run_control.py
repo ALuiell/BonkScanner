@@ -4080,7 +4080,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(powerup_reads, [0x1234])
         self.assertEqual(powerup_updates, [powerup_snapshot])
-        self.assertEqual(refreshed, ["label"])
+        self.assertEqual(refreshed, [])
 
     def test_refresh_chaos_tome_tracker_updates_fast_stage_timer_when_event_timer_enabled(self) -> None:
         fast_stage_updates: list[dict[str, object]] = []
@@ -4845,7 +4845,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIsNotNone(app.player_stats_vod_recorder.capture_calls[0]["chests_total"])
         self.assertIsNotNone(app.player_stats_vod_recorder.capture_calls[0]["pots_total"])
         self.assertEqual(snapshot_calls, [])
-        self.assertEqual(timeline_calls, ["timeline"])
+        self.assertEqual(timeline_calls, [])
 
     def test_recording_captures_chest_rate_from_live_minute_kps(self) -> None:
         app = self.build_recording_app()

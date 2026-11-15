@@ -299,6 +299,59 @@ class LogViewWidgetTests(unittest.TestCase):
             """
         )
 
+    def test_search_coalesces_edits_and_includes_intervening_logs(self) -> None:
+        self._run(
+            """
+            from PySide6.QtTest import QTest
+            view.append_log("alpha")
+            view.append_log("beta")
+            renders = []
+            # The timer is already connected to the original bound method, so
+            # count actual document changes instead of patching that method.
+            view._document.textChanged.connect(lambda: renders.append(True))
+            view._search_entry.setText("a")
+            view._search_entry.setText("al")
+            view.append_log("alphabet")
+            assert not renders, renders
+            QTest.qWait(180)
+            assert len(renders) == 1, renders
+            assert "alpha" in view._document.toPlainText()
+            assert "alphabet" in view._document.toPlainText()
+            assert "beta" not in view._document.toPlainText()
+            assert "2 of 3" in view._footer.text()
+
+            # Copy flushes the latest query before reading the displayed lines.
+            view._search_entry.setText("beta")
+            view.copy_visible()
+            assert "beta" in app.clipboard().text()
+            assert "alpha" not in view._document.toPlainText()
+            QTest.qWait(180)
+            assert len(renders) == 2, renders
+            """
+        )
+
+    def test_batched_render_restarts_for_new_filters_and_lines(self) -> None:
+        self._run(
+            """
+            from PySide6.QtTest import QTest
+            batched = LogView()
+            for i in range(150):
+                batched.append_log(f"entry {i}", "error" if i % 2 else "info")
+            batched._on_chip("error")
+            # Supersede a partially rendered filter, then add a matching line.
+            app.processEvents()
+            batched._search_entry.setText("entry 1")
+            batched.append_log("entry 1999", "error")
+            batched.copy_visible()
+            assert "entry 1999" in app.clipboard().text()
+            QTest.qWait(300)
+            assert batched._render_queue is None
+            assert "entry 1999" in batched._document.toPlainText()
+            assert "entry 2" not in batched._document.toPlainText()
+            assert len(batched._document.toPlainText().splitlines()) == len(batched.visible_text().splitlines())
+            """
+        )
+
     def test_copy_hides_the_map_stats_repeat_count(self) -> None:
         self._run(
             """

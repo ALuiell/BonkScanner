@@ -170,7 +170,7 @@ def set_recording_library_width(width: int):
     return config.save_config(config.user_config)
 
 
-def set_minimum_snapshot_count(value: int):
+def set_minimum_snapshot_count(value: int, *, on_error=None):
     """Persist the auto-filter threshold through the recording settings.
 
     Here rather than in ``infra.vod_storage`` beside its reader, because the
@@ -178,9 +178,12 @@ def set_minimum_snapshot_count(value: int):
     Recordings tab is allowed to call. The reader is re-exported above for the
     same reason.
     """
-    return ConfigRecordingSettings().write_minimum_snapshot_count(
-        max(0, int(value))
-    )
+    from app.deferred_config import request_config_save
+
+    normalized = max(0, int(value))
+    key = ConfigRecordingSettings._MINIMUM_SNAPSHOT_COUNT_KEY
+    config.user_config[key] = normalized
+    request_config_save((key,), normalized, on_error)
 
 
 def minimum_snapshot_count() -> int:
@@ -238,6 +241,7 @@ class VodLibrary:
             self._feed_token = self._active_feed.subscribe(
                 self._on_active_state,
                 lambda callback: self._marshal(callback),
+                coalesce_powerups=True,
             )
 
     @property

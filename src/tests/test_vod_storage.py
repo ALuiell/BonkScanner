@@ -6,6 +6,7 @@ from infra import vod_storage as vod_storage
 
 from types import SimpleNamespace
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -46,6 +47,37 @@ def capture(recorder, stats, *values, **fields):
 
 
 class VodStorageTests(unittest.TestCase):
+    def test_background_capture_drains_in_order_before_summary(self):
+        release_writer = threading.Event()
+        first_write_started = threading.Event()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(vods_dir=Path(temp_dir), write_in_background=True)
+            path = recorder.start()
+            write_record = recorder._write_record
+
+            def stalled_write(record, **kwargs):
+                if record.get("mob_kills") == 3:
+                    first_write_started.set()
+                    if not release_writer.wait(timeout=5):
+                        raise TimeoutError("test did not release the writer")
+                write_record(record, **kwargs)
+
+            recorder._write_record = stalled_write
+            try:
+                capture(recorder, {}, mob_kills=3)
+                self.assertTrue(first_write_started.wait(timeout=2))
+                capture(recorder, {}, mob_kills=8)
+                completion = recorder.begin_stop()
+                self.assertFalse(completion.done())
+                release_writer.set()
+                self.assertEqual(completion.result(timeout=2), "kept")
+                loaded = load_vod(path)
+                self.assertEqual([snap.mob_kills for snap in loaded.snapshots], [3, 8])
+                self.assertEqual(loaded.metadata.mob_kills, 8)
+            finally:
+                release_writer.set()
+                recorder.close()
+
     def test_effective_weapon_values_are_frozen_per_recorded_snapshot(self) -> None:
         weapon = WeaponSnapshot(
             weapon_id=7, name="Aegis", level=2, upgrade_stat_ids=(12, 18),

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
+from app.deferred_config import request_config_save
 from ui.canvas_preview import CanvasPreview, PreviewWidget
 from ui.dialogs.tracked_items import show_tracked_items_dialog
 from ui.dialogs.build_progression import show_build_progression_manager
@@ -700,7 +701,7 @@ class Overlay:
             lambda _state: self.save_overlay_settings_from_ui()
         )
         build_layout.addWidget(self.overlay_build_completed_checkbox)
-        self.overlay_build_max_rows_spin.valueChanged.connect(lambda _value: self.save_overlay_settings_from_ui())
+        self.overlay_build_max_rows_spin.valueChanged.connect(self._on_overlay_build_rows_changed)
         rows_line = QHBoxLayout()
         rows_line.addWidget(l10n.localized(QLabel, l10n.tr('Maximum non-completed rows')))
         rows_line.addWidget(self.overlay_build_max_rows_spin)
@@ -1007,6 +1008,20 @@ class Overlay:
             self._log(f"[-] Could not stop OBS overlay server cleanly: {exc}", tag="error")
         finally:
             self.refresh_overlay_ui()
+
+    def _on_overlay_build_rows_changed(self, value: int) -> None:
+        # This control is the only rapid editor in the dialog. Apply it without
+        # taking the repository lock, which may be held by the disk worker.
+        for widget in config.OVERLAY.get("widgets", []):
+            if widget.get("id") == "build_progression":
+                widget["max_rows"] = value
+                break
+        config.user_config["OVERLAY"] = config.OVERLAY
+        self.update_overlay_state_from_tracker()
+        request_config_save(
+            ("OVERLAY",), config.OVERLAY,
+            lambda error: self._log(f"Could not save OBS overlay settings: {error}", tag="warning"),
+        )
 
     def save_overlay_settings_from_ui(self, *, persist: bool = True) -> None:
         with config.config_lock:

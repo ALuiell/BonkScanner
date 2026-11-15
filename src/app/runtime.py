@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, Future, wait
 from dataclasses import dataclass
 import inspect
+import threading
 from typing import Any, Callable
 
 from app import config
@@ -11,6 +13,7 @@ from app.active_recording_feed import ActiveRecordingFeed
 from app.coordinator import AppCoordinator
 from app.player_stats_memory import PlayerStatsMemory
 from app.player_stats_refresh import PlayerStatsRefresh
+from app.player_sample_worker import PlayerSampleWorker
 from app.refresh_tasks import (
     RefreshTasks,
     build_refresh_coordinator,
@@ -55,6 +58,7 @@ class AppRuntimePorts:
     wait_background_threads: Callable[..., Any]
     close_overlay_server: Callable[..., Any]
     roll_analytics_collection_active: Callable[[], bool] = lambda: False
+    post_to_ui: Callable[[Callable[[], None]], bool] | None = None
 
 
 class AppRuntime:
@@ -82,6 +86,9 @@ class AppRuntime:
         self._started = False
         self._shutdown_report: ShutdownReport | None = None
         self._shutdown_errors: list[tuple[str, str]] = []
+        self._shutdown_jobs: dict[str, Any] | None = None
+        self._shutdown_io_finished = False
+        self._shutdown_timeouts: list[str] = []
 
         self.player_stats_memory = PlayerStatsMemory(
             read_stats_client=lambda: coordinator.player_stats_client,
@@ -204,6 +211,10 @@ class AppRuntime:
         if self._started:
             return
         self._started = True
+        if self.ports.post_to_ui is not None:
+            self.player_stats_refresh.use_background_sampler(
+                PlayerSampleWorker(), self.ports.post_to_ui,
+            )
         self.coordinator.start_refresh_loop(
             tick=self.player_stats_refresh.tick,
             schedule=schedule,
@@ -227,35 +238,159 @@ class AppRuntime:
     def diagnostics(self) -> tuple[Any, ...]:
         return self.refresh_coordinator.diagnostics()
 
+    def begin_shutdown_io(self, deadline: ShutdownDeadline) -> None:
+        if self._shutdown_jobs is not None:
+            return
+        self.coordinator.stop_refresh_loop()
+        self._shutdown_jobs = {
+            "validator": self._step("validator", lambda: self._begin_validator_close(deadline)),
+            "player_sample": self._step("player_sample", self.player_stats_refresh.stop_sampling),
+            "vod_recorder": self._step("vod_recorder", self.vod_capture.begin_stop_for_shutdown),
+        }
+
+    def _begin_validator_close(self, deadline):
+        validator = getattr(self.coordinator, "validator", None)
+        if validator is None:
+            return None
+        result = Future()
+
+        def close():
+            try:
+                result.set_result(validator.close(timeout=min(5.0, deadline.remaining_seconds())))
+            except Exception as exc:
+                result.set_exception(exc)
+
+        threading.Thread(target=close, daemon=True, name="validator-close").start()
+        return result
+
+    def poll_shutdown_io(self, deadline: ShutdownDeadline) -> bool:
+        jobs = self._shutdown_jobs
+        for name in ("player_sample", "vod_recorder"):
+            if name not in jobs:
+                continue
+            job = jobs[name]
+            if job is not None and not job.done():
+                if not deadline.expired():
+                    return False
+                self._shutdown_timeouts.append(name)
+            elif name == "vod_recorder":
+                self._finish_recording_shutdown(job)
+            elif job is not None:
+                self._step(name, job.result)
+            del jobs[name]
+        if "validator_reports" not in jobs:
+            validator_job = jobs.get("validator")
+            validator_finished = False
+            if validator_job is not None:
+                if not validator_job.done():
+                    if not deadline.expired():
+                        return False
+                    self._shutdown_timeouts.append("validator")
+                else:
+                    validator_finished = self._step("validator", validator_job.result)
+                    if validator_finished is False:
+                        self._shutdown_timeouts.append("validator")
+            jobs["validator_reports"] = self._step(
+                "validator_reports", lambda: self._prepare_report_save(validator_finished),
+            )
+        job = jobs["validator_reports"]
+        if job is None:
+            self._shutdown_io_finished = True
+            return True
+        if not job.done():
+            if not deadline.expired():
+                return False
+            self._shutdown_timeouts.append("validator_reports")
+        else:
+            self._step("validator_reports", lambda: self._check_report_save(job.result()))
+        jobs["validator_reports"] = None
+        self._shutdown_io_finished = True
+        return True
+
+    def _finish_recording_shutdown(self, job):
+        if job is not None:
+            self._step("vod_recorder.write", job.result)
+            self._step("vod_recorder", lambda: self.vod_capture.stop_recording(
+                refresh_live_stats=False,
+                finalize_snapshot=False,
+                refresh_library=False,
+                completed_stop=job,
+            ))
+        self._step("vod_recorder.close", self.vod_recorder.close)
+
+    def _prepare_report_save(self, validator_finished):
+        validator = getattr(self.coordinator, "validator", None)
+        reports = self.validator_reports
+        if validator is None or reports is None:
+            return None
+        if validator_finished:
+            try_snapshot = getattr(validator, "try_snapshot", None)
+            snapshot = try_snapshot(diagnostics=False) if callable(try_snapshot) else validator.snapshot()
+            if snapshot is not None:
+                reports.refresh(snapshot, persist=False)
+        return reports.begin_final_save()
+
+    @staticmethod
+    def _check_report_save(saved):
+        if not saved and not config.profile_read_only_reason():
+            raise OSError("Validator report history could not be saved.")
+
+    def _wait_shutdown_job(self, name, job, deadline):
+        if job is None:
+            return True
+        done, _ = wait((job,), timeout=deadline.remaining_seconds())
+        if done:
+            return True
+        self._shutdown_timeouts.append(name)
+        return False
+
     def shutdown(self, deadline: ShutdownDeadline, *, validator_timeout: float = 5.0) -> ShutdownReport:
         if self._shutdown_report is not None:
             return self._shutdown_report
+        # A system quit can leave the polling loop before the close job finishes.
+        # The normal window-close path reaches this point with every job settled.
+        if self._shutdown_jobs is not None and not self._shutdown_io_finished:
+            while not self.poll_shutdown_io(deadline):
+                pending = [job for job in self._shutdown_jobs.values() if job is not None and not job.done()]
+                wait(pending, timeout=deadline.remaining_seconds(), return_when=FIRST_COMPLETED)
         timed_out: list[str] = []
+        stopped = True
         validator = getattr(self.coordinator, 'validator', None)
-        if validator is not None:
+        if validator is not None and self._shutdown_jobs is None:
             stopped = self._step('validator', lambda: validator.close(
                 timeout=min(validator_timeout, deadline.remaining_seconds())))
             if stopped is False:
                 timed_out.append('validator')
         self._step("hotkeys", self.ports.stop_hotkeys)
-        self._step("refresh_loop", self.coordinator.stop_refresh_loop)
+        if self._shutdown_jobs is None:
+            self._step("refresh_loop", self.coordinator.stop_refresh_loop)
+            sampling = self._step("player_sample", self.player_stats_refresh.stop_sampling)
+            if sampling is not None and self._wait_shutdown_job("player_sample", sampling, deadline):
+                self._step("player_sample", sampling.result)
         overlay_result = self._step(
             "in_game_overlay", lambda: self._with_deadline(self.ports.stop_in_game_overlay, deadline)
         )
         timed_out.extend(f"in_game_overlay.{name}" for name in self._pending(overlay_result))
-        self._step(
-            "vod_recorder",
-            lambda: self.vod_capture.stop_recording(
-                refresh_live_stats=False,
-                refresh_library=False,
-            )
-            if self.vod_recorder.is_recording
-            else self.vod_recorder.close(),
-        )
-        if validator is not None and self.validator_reports is not None:
-            self._step('validator_reports', lambda: self.validator_reports.refresh(
-                validator.snapshot(), force=True,
-            ))
+        if self._shutdown_jobs is None:
+            if self.vod_recorder.is_recording and hasattr(self.vod_recorder, "begin_stop"):
+                job = self._step("vod_recorder", self.vod_capture.begin_stop_for_shutdown)
+                if self._wait_shutdown_job("vod_recorder", job, deadline):
+                    self._finish_recording_shutdown(job)
+            elif self.vod_recorder.is_recording:
+                self._step("vod_recorder", lambda: self.vod_capture.stop_recording(
+                    refresh_live_stats=False, refresh_library=False,
+                ))
+            else:
+                self._step("vod_recorder", self.vod_recorder.close)
+            if validator is not None and self.validator_reports is not None:
+                if hasattr(self.validator_reports, "begin_final_save"):
+                    job = self._step("validator_reports", lambda: self._prepare_report_save(stopped))
+                    if self._wait_shutdown_job("validator_reports", job, deadline) and job is not None:
+                        self._step("validator_reports", lambda: self._check_report_save(job.result()))
+                elif stopped:
+                    self._step("validator_reports", lambda: self.validator_reports.refresh(
+                        validator.snapshot(), force=True,
+                    ))
         if self.vod_library is not None:
             library_result = self._step(
                 "vod_library", lambda: self.vod_library.shutdown(deadline)
@@ -291,7 +426,7 @@ class AppRuntime:
             )
         self._shutdown_report = ShutdownReport(
             errors=tuple(self._shutdown_errors),
-            timed_out_resources=tuple(dict.fromkeys(timed_out)),
+            timed_out_resources=tuple(dict.fromkeys(timed_out + self._shutdown_timeouts)),
             elapsed_ms=deadline.elapsed_ms(),
         )
         return self._shutdown_report

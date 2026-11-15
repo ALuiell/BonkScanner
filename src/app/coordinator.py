@@ -116,6 +116,7 @@ class AppCoordinator:
         self.vod_recorder = VodRecorder(
             interval_seconds=vod_interval_seconds,
             settings=self.recording_settings,
+            write_in_background=True,
         )
         self.merchant_analytics = MerchantAnalyticsService()
         self.roll_analytics = RollAnalyticsService()

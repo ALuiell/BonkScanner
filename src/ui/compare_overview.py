@@ -453,7 +453,7 @@ class _ChestCell(QFrame):
 class CompareRunsLuckLootView(_Card):
     """Did the run build better, or draw better?"""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, staged=False) -> None:
         super().__init__(
             "Luck & Loot", "what dropped against what the run's Luck predicted", parent
         )
@@ -468,7 +468,7 @@ class CompareRunsLuckLootView(_Card):
         self._tiles_grid.setContentsMargins(0, 0, 0, 0)
         self._tiles_grid.setHorizontalSpacing(8)
         self._tiles_grid.setVerticalSpacing(8)
-        self._tiles = [_LuckTile(self._tiles_host) for _ in range(4)]
+        self._tiles = []
         self.body_layout().addWidget(self._tiles_host)
 
         self._ladder_host = QWidget(self.body)
@@ -476,13 +476,8 @@ class CompareRunsLuckLootView(_Card):
         ladder_layout = QVBoxLayout(self._ladder_host)
         ladder_layout.setContentsMargins(0, 0, 0, 0)
         ladder_layout.setSpacing(5)
-        self._rungs = [
-            _RungView(self._ladder_host)
-            for _ in range(len(ITEM_RARITY_COLOR_MAP))
-        ]
-        for rung in self._rungs:
-            rung.setVisible(False)
-            ladder_layout.addWidget(rung)
+        self._rungs = []
+        self._ladder_layout = ladder_layout
         self.body_layout().addWidget(self._ladder_host)
 
         self._chest_host = QWidget(self.body)
@@ -491,12 +486,35 @@ class CompareRunsLuckLootView(_Card):
         self._chest_grid.setContentsMargins(0, 0, 0, 0)
         self._chest_grid.setHorizontalSpacing(8)
         self._chest_grid.setVerticalSpacing(8)
-        self._chests = [_ChestCell(self._chest_host) for _ in range(4)]
+        self._chests = []
         self.body_layout().addWidget(self._chest_host)
 
         self._columns = 0
         self._payload: LuckLoot = EMPTY_LUCK_LOOT
-        self._reflow(4)
+        if not staged:
+            for _ in self.build_steps():
+                pass
+
+    def build_steps(self):
+        """Create the pooled children in small stages when the page is opening."""
+        for _ in range(4):
+            self._tiles.append(_LuckTile(self._tiles_host))
+            columns = self._columns or 4
+            self._columns = 0
+            self._reflow(columns)
+            yield None
+        for _ in range(len(ITEM_RARITY_COLOR_MAP)):
+            rung = _RungView(self._ladder_host)
+            rung.setVisible(False)
+            self._rungs.append(rung)
+            self._ladder_layout.addWidget(rung)
+            yield None
+        for _ in range(4):
+            self._chests.append(_ChestCell(self._chest_host))
+            columns = self._columns or 4
+            self._columns = 0
+            self._reflow(columns)
+            yield None
 
     def set_payload(self, payload: LuckLoot | None) -> None:
         payload = payload if payload is not None else EMPTY_LUCK_LOOT

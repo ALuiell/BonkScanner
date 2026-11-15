@@ -37,6 +37,7 @@ from typing import Any, Callable
 from app.shutdown import ShutdownDeadline
 
 from app import config
+from app.deferred_config import request_config_save
 from infra.crash_journal import log_runtime_event
 from infra.twitch_credentials import (
     delete_twitch_oauth_token,
@@ -186,12 +187,18 @@ class TwitchSession:
         config.TWITCH_BOT["auto_connect"] = self._view.auto_connect_enabled()
         config.save_config(config.user_config)
 
-    def save_settings(self, *_) -> None:
+    def save_settings(self, *_, deferred: bool = False) -> None:
         settings = self._view.read_settings()
         commands = settings.pop("commands")
         config.TWITCH_BOT.update(settings)
         config.TWITCH_BOT["commands"].update(commands)
-        config.save_config(config.user_config)
+        if deferred:
+            request_config_save(
+                ("TWITCH_BOT",), config.TWITCH_BOT,
+                lambda error: self._log(f"Could not save Twitch settings: {error}", tag="warning"),
+            )
+        else:
+            config.save_config(config.user_config)
 
     def on_bonkhelp_toggled(self, *_) -> None:
         if self._view.bonkhelp_enabled():

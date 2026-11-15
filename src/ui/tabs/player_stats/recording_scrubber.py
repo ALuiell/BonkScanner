@@ -343,9 +343,8 @@ class RecordingScrubber(QWidget):
         for glyph in self._cached_markers:
             if glyph.hit_rect.contains(point):
                 return glyph.tooltip
-        for rect, text in self._powerup_hits:
-            if rect.contains(point):
-                return text
+        if self._powerup_hits:
+            return self._powerup_hits.tooltip_at(point)
         return ""
 
     def keyPressEvent(self, event) -> None:

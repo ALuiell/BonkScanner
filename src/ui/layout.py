@@ -130,6 +130,7 @@ class TabRouter:
         update_status,
         refresh_live_player_stats,
         schedule_idle,
+        window_exposed=lambda: True,
     ) -> None:
         self._left_tabview = left_tabview
         self._tabview = tabview
@@ -141,6 +142,7 @@ class TabRouter:
         self._update_status = update_status
         self._refresh_live_player_stats = refresh_live_player_stats
         self._schedule_idle = schedule_idle
+        self._window_exposed = window_exposed
         self._right_refresh_generation = 0
 
     # -- the left bar: Templates <-> Scores --------------------------------
@@ -198,16 +200,16 @@ class TabRouter:
             compare_runs_view.ensure_compare_runs_chooser_for_empty_selection()
 
     def is_live_stats_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), "Live")
+        return self._window_exposed() and _is_tab_active(self._tabview(), "Live")
 
     def is_overlay_tab_active(self) -> bool:
         return _is_tab_active(self._tabview(), "OBS")
 
     def is_recordings_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), "Recordings")
+        return self._window_exposed() and _is_tab_active(self._tabview(), "Recordings")
 
     def is_compare_runs_tab_active(self) -> bool:
-        return _is_tab_active(self._tabview(), "Compare")
+        return self._window_exposed() and _is_tab_active(self._tabview(), "Compare")
 
     # `RecordingsListView`'s single operation (`app/player_stats_view.py`).
     # The underscore is the protocol's, not a privacy claim: `vod_capture` and
@@ -1333,6 +1335,7 @@ def _build_tab_router(app):
         update_status=app.update_status_ui,
         refresh_live_player_stats=app.refresh_live_player_stats_now,
         schedule_idle=app.after_idle,
+        window_exposed=lambda: app.window.isVisible() and not app.window.isMinimized(),
     )
     app._recordings_list_view = router
     return router
