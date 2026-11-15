@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+import threading
 
 import pytest
 
@@ -74,6 +75,35 @@ def test_recording_link_survives_restart_and_same_seed_does_not_link_old_attempt
     assert reloaded.for_recording('new-recording').status == 'finish_unconfirmed'
     renamed = replace(state.metadata, name='My tournament run')
     assert any(report.name == 'My tournament run' and report.kills == 19 for report in reloaded.recent([renamed]))
+
+
+def test_background_save_does_not_block_refresh_and_final_save_keeps_latest_status(settings, monkeypatch):
+    save = config.update_config
+    entered = threading.Event()
+    release = threading.Event()
+    writes = []
+
+    def blocked_save(mutate):
+        writes.append(threading.current_thread().name)
+        if len(writes) == 1:
+            entered.set()
+            assert release.wait(2)
+        return save(mutate)
+
+    monkeypatch.setattr(config, 'update_config', blocked_save)
+    history = ValidatorReports(save_in_background=True)
+    history.refresh(snapshot('run', run=run('one')), BASE)
+    try:
+        assert entered.wait(1)
+        history.refresh(snapshot(None, run=run('one', status='finished', finish_reason='run_ended')), BASE)
+        assert history.live().status == 'finished'
+        assert HISTORY_KEY not in settings
+        assert writes == ['ValidatorHistorySave']
+    finally:
+        release.set()
+    history.save(force=True)
+    assert settings[HISTORY_KEY][0]['status'] == 'finished'
+    assert len(writes) == 2
 
 
 def test_recording_requires_same_process_and_bracketing_samples(settings):

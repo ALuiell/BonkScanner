@@ -53,7 +53,7 @@ from PySide6.QtWidgets import (
 from app import config
 from gui_app import MegabonkApp
 
-config.save_config = lambda *_args, **_kwargs: None
+config.save_config = lambda *_args, **_kwargs: config.ConfigSaveResult(True)
 # These tests exercise focus inside the main window, not the versioned setup
 # guide. The production default deliberately opens that modal again for this
 # release, so acknowledge it only inside the isolated subprocess.
@@ -146,7 +146,7 @@ class FocusAfterPressTests(unittest.TestCase):
         """
         self._run(
             """
-            open_tab("OBS Overlay")
+            open_tab("OBS")
             overlay = app._overlay
             copy_button = [
                 button
@@ -180,7 +180,7 @@ class FocusAfterPressTests(unittest.TestCase):
         """
         self._run(
             """
-            open_tab("OBS Overlay")
+            open_tab("OBS")
             overlay = app._overlay
             copy_button = [
                 button
@@ -219,7 +219,7 @@ class FocusAfterPressTests(unittest.TestCase):
         """
         self._run(
             """
-            open_tab("In-Game Overlay")
+            open_tab("Game Overlay")
             toggle = app._in_game_overlay.igo_toggle_btn
             hotkey = app._in_game_overlay.igo_hotkey_entry
             assert hotkey is not None
@@ -260,7 +260,7 @@ class FocusAfterPressTests(unittest.TestCase):
         """
         self._run(
             """
-            open_tab("Twitch Bot")
+            open_tab("Twitch")
             panel = app._twitch_tab
             assert panel is not None
 

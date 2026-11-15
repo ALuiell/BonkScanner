@@ -203,6 +203,7 @@ class StatusIndicatorTests(unittest.TestCase):
             opened = []
             shell = SimpleNamespace(
                 supporter_access=AccessController(),
+                coordinator=SimpleNamespace(validator=None),
                 open_settings_dialog=lambda **kwargs: opened.append(kwargs.get("page")),
             )
             host = QWidget()

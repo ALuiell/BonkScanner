@@ -25,6 +25,7 @@ class _Owner:
     _current_window_state_name = MegabonkApp._current_window_state_name
     _handle_window_state_changed = MegabonkApp._handle_window_state_changed
     _save_window_placement = MegabonkApp._save_window_placement
+    _capture_window_placement = MegabonkApp._capture_window_placement
     _restore_window_placement = MegabonkApp._restore_window_placement
     _restore_window_state = MegabonkApp._restore_window_state
 

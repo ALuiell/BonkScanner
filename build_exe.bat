@@ -72,6 +72,10 @@ if "%BONKSCANNER_REQUIRE_VALIDATOR%"=="1" (
         exit /b 1
     )
 )
+REM PyInstaller searches PATH for DLL dependencies. Tool runtimes may contain
+REM incompatible ICU or CRT libraries with the same names as system DLLs.
+REM Limit only this build's search path to the venv and Windows.
+set "PATH=%~dp0%VENV_DIR%\Scripts;%SystemRoot%\System32;%SystemRoot%;%SystemRoot%\System32\Wbem"
 echo [BUILD] Building executable...
 "%PYTHON_EXE%" -m PyInstaller --clean --noupx --noconfirm --noconsole --onefile --paths="src" --additional-hooks-dir="scripts\pyinstaller_hooks" --icon="src\media\bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "src\media;media" src\main.py
 

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QTabWidget, QWidget
 
 from app import config
@@ -76,6 +77,40 @@ class ValidatorUITests(unittest.TestCase):
         self.assertEqual(set(history._rows), {long.url})
         history.update_reports((long,))
         self.assertTrue(history.show_all.isHidden())
+
+    def test_history_coalesces_resize_across_compact_breakpoint(self):
+        history = ValidatorHistory()
+        self.addCleanup(history.deleteLater)
+        report = ValidatorReport('https://validator.example/run', '2026-11-11T18:42:00Z', 'finished')
+        history.update_reports((report,))
+        history.resize(750, 250)
+        history.show()
+        row = history._rows[report.url]
+        with patch.object(row, 'set_compact', wraps=row.set_compact) as reflow:
+            for width in (650, 720, 640, 700, 630):
+                history.resize(width, 250)
+            reflow.assert_not_called()
+            QTest.qWait(85)
+            reflow.assert_called_once_with(True)
+            self.assertTrue(history._headers.isHidden())
+            history.resize(750, 250)
+            QTest.qWait(85)
+            self.assertEqual([call.args for call in reflow.call_args_list], [(True,), (False,)])
+            self.assertFalse(history._headers.isHidden())
+
+    def test_background_poll_skips_hidden_diagnostics_and_retains_last_state_on_contention(self):
+        with patch.object(self.controller, 'try_snapshot', create=True) as snapshot:
+            snapshot.return_value = self.controller.value
+            tab = self.tab()
+            self.controller.value.update(state='waiting_game', enabled=True, busy=True)
+            with patch.object(tab, '_refresh_diagnostics') as repaint:
+                tab._poll()
+                snapshot.assert_called_with(diagnostics=False)
+                repaint.assert_not_called()
+                self.assertEqual(self.button.accessibleName(), 'Validator · Waiting for run')
+                snapshot.return_value = None
+                self.assertFalse(tab.refresh())
+                self.assertEqual(self.button.accessibleName(), 'Validator · Waiting for run')
 
     def test_header_opens_tab_and_default_startup_is_off(self):
         tab = self.tab()

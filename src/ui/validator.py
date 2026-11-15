@@ -43,6 +43,7 @@ class ValidatorTab(QScrollArea):
         self._active_base = ''
         self._current_link = ''
         self._copied_link = ''
+        self._rendered_diagnostics = None
 
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
@@ -116,6 +117,7 @@ class ValidatorTab(QScrollArea):
         self.diagnostics.layout().addWidget(self.copy_feedback)
         self.diagnostics.hide()
         self.diagnostics_toggle.toggled.connect(self.diagnostics.setVisible)
+        self.diagnostics_toggle.toggled.connect(self._diagnostics_toggled)
         layout.addWidget(self.diagnostics)
         if reports is not None:
             self._history = ValidatorHistory()
@@ -128,7 +130,7 @@ class ValidatorTab(QScrollArea):
 
         self._timer = QTimer(self)
         self._timer.setInterval(250)
-        self._timer.timeout.connect(self.refresh)
+        self._timer.timeout.connect(self._poll)
         self._timer.start()
         self.refresh()
 
@@ -238,17 +240,32 @@ class ValidatorTab(QScrollArea):
     def _copy_link(self):
         displayed_link = self._current_link
         # A run can end between painting the button and handling the click.
-        self.refresh()
-        if displayed_link and self._current_link == displayed_link:
+        if self.refresh() and displayed_link and self._current_link == displayed_link:
             QApplication.clipboard().setText(displayed_link)
             self._copied_link = displayed_link
             l10n.display(self.copy_feedback, 'setText', l10n.tr('Link copied'))
             self.copy_feedback.show()
 
-    def refresh(self):
-        snapshot = self.controller.snapshot()
+    def _poll(self):
+        self.refresh(polling=True)
+
+    def _diagnostics_toggled(self, opened):
+        if opened:
+            self.refresh()
+
+    def refresh(self, *, polling=False):
+        visible = self.isVisible() and not self.window().isMinimized()
+        diagnostics = not polling or (visible and self.diagnostics_toggle.isChecked())
+        get_snapshot = getattr(self.controller, 'try_snapshot', None)
+        snapshot = (get_snapshot(diagnostics=diagnostics) if get_snapshot is not None
+                    else self.controller.snapshot())
+        if snapshot is None:
+            return False
         if self._reports is not None:
             self._reports.refresh(snapshot, self._active_base)
+        # Recordings and report history keep advancing while the window is minimized.
+        if polling and self.window().isMinimized():
+            return True
         state = snapshot['state']
         coverage = snapshot['coverage']
         access = snapshot.get('process_access') or {}
@@ -281,15 +298,54 @@ class ValidatorTab(QScrollArea):
         if error:
             detail = f"{detail} · {error_labels.get(error, l10n.tr('Incomplete observation'))}"
             tone = 'warning'
-        self.state.setText(detail)
         caption = l10n.tr('Validator · {p0}', p0=short)
-        self.header_button.setAccessibleName(caption)
-        self.header_button.setToolTip(f'{l10n.tr("Live Validator")} · {detail}')
+        if self.header_button.accessibleName() != caption:
+            self.header_button.setAccessibleName(caption)
+        tooltip = f'{l10n.tr("Live Validator")} · {detail}'
+        if self.header_button.toolTip() != tooltip:
+            self.header_button.setToolTip(tooltip)
         if self.header_button.property('tone') != tone:
             self.header_button.setProperty('tone', tone)
             color = {'active': '#75B9E4', 'warning': '#DFB773'}.get(tone, '#5C6675')
             self.header_button.setIcon(validator_icon('dot', color, 10))
 
+        if diagnostics:
+            diagnostic_data = (l10n.active_translator().language, coverage, access,
+                               snapshot.get('active_run_id'), snapshot.get('process_access_ipc_skipped'),
+                               snapshot.get('security_audit'), snapshot.get('last_security_audit'),
+                               snapshot.get('security_audit_ipc_skipped'))
+            if not polling or diagnostic_data != self._rendered_diagnostics:
+                self._refresh_diagnostics(snapshot, coverage, access)
+                self._rendered_diagnostics = diagnostic_data
+
+        if not polling or visible:
+            self.state.setText(detail)
+            self._refresh_delivery(snapshot)
+            self.enable.setVisible(not snapshot['enabled'])
+            self.enable.setEnabled(not snapshot['busy'])
+            self.disable.setVisible(snapshot['enabled'])
+            self.disable.setEnabled(snapshot['enabled'])
+            for widget in (self.url, self.local_test, self.save_service):
+                widget.setEnabled(not snapshot['busy'])
+
+        if self._reports is not None:
+            if visible:
+                self._history.update_reports(self._reports.recent(self._known_recordings))
+                self._history_feedback.setVisible(self._reports.save_failed)
+            if self._live_strip is not None:
+                current = ((snapshot.get('delivery') or {}).get('runs') or {}).get(snapshot['active_run_id'], {})
+                fallback = (
+                    l10n.tr('Registering session') if current.get('status') == 'enrolling'
+                    else short if snapshot['enabled'] or snapshot['busy'] else None
+                )
+                self._live_strip.update_report(
+                    self._reports.live(), fallback, last=not snapshot['active_run_id'],
+                )
+            if self._refresh_recording_report is not None:
+                self._refresh_recording_report()
+        return True
+
+    def _refresh_diagnostics(self, snapshot, coverage, access):
         channel_names = {'processAccess': l10n.tr('Process access'),
                          'environment': l10n.tr('Game environment'),
                          'fileIntegrity': l10n.tr('File integrity')}
@@ -339,29 +395,6 @@ class ValidatorTab(QScrollArea):
         self.coverage.setToolTip('\n'.join(details))
         self._refresh_image_events(access)
         self._refresh_security_audit(snapshot)
-        self._refresh_delivery(snapshot)
-        if self._reports is not None:
-            if self.isVisible():
-                self._history.update_reports(self._reports.recent(self._known_recordings))
-            self._history_feedback.setVisible(self._reports.save_failed)
-            if self._live_strip is not None:
-                current = ((snapshot.get('delivery') or {}).get('runs') or {}).get(snapshot['active_run_id'], {})
-                fallback = (
-                    l10n.tr('Registering session') if current.get('status') == 'enrolling'
-                    else short if snapshot['enabled'] or snapshot['busy'] else None
-                )
-                self._live_strip.update_report(
-                    self._reports.live(), fallback, last=not snapshot['active_run_id'],
-                )
-            if self._refresh_recording_report is not None:
-                self._refresh_recording_report()
-
-        self.enable.setVisible(not snapshot['enabled'])
-        self.enable.setEnabled(not snapshot['busy'])
-        self.disable.setVisible(snapshot['enabled'])
-        self.disable.setEnabled(snapshot['enabled'])
-        for widget in (self.url, self.local_test, self.save_service):
-            widget.setEnabled(not snapshot['busy'])
 
     def _refresh_image_events(self, access):
         events = access.get('imageEvents')
@@ -443,14 +476,13 @@ class ValidatorTab(QScrollArea):
                                                   p0=label, p1=reads, p2=writes)))
         parts.append(str(l10n.tr('Restoration: {p0}',
                                  p0=restoration.get(report.get('restoration'), l10n.tr('Unknown')))))
-        self.security_audit.setText('\n'.join(parts))
         help_text = str(l10n.tr('Security event 4663 records exercised access rights. Counts refer to journal records. Path-only matches are ambiguous. This diagnostic stays local.'))
         issues = list(report.get('issues') or ())
         if skipped and 'audit_update_lost' not in issues:
             issues.append('audit_update_lost')
         if isinstance(issues, list) and issues:
-            issue_text = str(l10n.tr('Issues: {p0}', p0=', '.join(str(issue) for issue in issues)))
-            self.security_audit.setText(self.security_audit.text() + '\n' + issue_text)
+            parts.append(str(l10n.tr('Issues: {p0}', p0=', '.join(str(issue) for issue in issues))))
+        self.security_audit.setText('\n'.join(parts))
         self.security_audit.setToolTip(help_text)
 
     def _refresh_delivery(self, snapshot):
@@ -463,7 +495,8 @@ class ValidatorTab(QScrollArea):
                 or current.get('status') not in ('active', 'retrying')):
             session_id = None
         self.run_id.setVisible(bool(session_id))
-        self.run_id.setText(session_id or '')
+        if self.run_id.text() != (session_id or ''):
+            self.run_id.setText(session_id or '')
         self.copy_link.setVisible(bool(session_id))
         self.copy_link.setEnabled(bool(session_id))
         self._current_link = report_url(self._active_base, session_id, current.get('protocol_version', '2'))
@@ -515,8 +548,7 @@ class ValidatorTab(QScrollArea):
         return self._live_strip
 
     def _live_report_for_action(self):
-        self.refresh()
-        return self._reports.live()
+        return self._reports.live() if self.refresh() else None
 
     def bind_recordings(self, refresh):
         self._refresh_recording_report = refresh

@@ -5,7 +5,7 @@ from ui import i18n as l10n
 import os
 import sys
 
-from PySide6.QtCore import QByteArray, QRect, Qt
+from PySide6.QtCore import QByteArray, QRect, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -1078,9 +1078,12 @@ class MegabonkApp:
         appearance = getattr(self, "_appearance_runtime", None)
         if appearance is not None:
             appearance.dispose()
-        deadline = ShutdownDeadline.after()
+        deadline = self.__dict__.get("_pending_shutdown_deadline") or ShutdownDeadline.after()
         log_runtime_event("application.shutdown.begin")
-        report = self.runtime.shutdown(deadline)
+        if self.__dict__.get("_validator_close_poll_finished", False):
+            report = self.runtime.shutdown(deadline, validator_timeout=0.0)
+        else:
+            report = self.runtime.shutdown(deadline)
         self._shutdown_report = report
         log_runtime_event(
             "application.shutdown.resources_stopped",
@@ -1210,18 +1213,23 @@ class MegabonkApp:
     def _save_window_placement(self) -> None:
         if not self.__dict__.get("_window_shown", False):
             return
+        placement = self.__dict__.get("_pending_window_placement")
+        if placement is None:
+            placement = self._capture_window_placement()
+        if placement is not None and placement != config.user_config.get(self._WINDOW_PLACEMENT_KEY):
+            config.update_config(lambda candidate: candidate.update(
+                {self._WINDOW_PLACEMENT_KEY: placement}))
+
+    def _capture_window_placement(self):
         rect = self.window.normalGeometry()
         screen = self.window.screen()
         if not rect.isValid() or screen is None:
-            return
-        placement = {
+            return None
+        return {
             "screen": screen.name(),
             "rect": [rect.x(), rect.y(), rect.width(), rect.height()],
             "geometry": bytes(self.window.saveGeometry().toBase64()).decode("ascii"),
         }
-        if placement != config.user_config.get(self._WINDOW_PLACEMENT_KEY):
-            config.update_config(lambda candidate: candidate.update(
-                {self._WINDOW_PLACEMENT_KEY: placement}))
 
     def _restore_window_placement(self) -> None:
         screens = QApplication.screens()
@@ -1295,10 +1303,42 @@ class MegabonkApp:
         if self._close_in_progress:
             event.accept()
             return
-        if self._is_shutting_down:
+        if self._is_shutting_down or self.__dict__.get("_validator_close_pending", False):
             event.ignore()
             return
         handler = self._close_protocol_handler or getattr(self, "on_closing", None)
+        validator = getattr(getattr(self, "coordinator", None), "validator", None)
+        if validator is not None and callable(handler) and handler == self.on_closing:
+            # The observer and network sender need time to flush their final
+            # evidence, but joining them inside a close event freezes Qt. Keep
+            # the window alive and the event loop running until they finish.
+            event.ignore()
+            if self.__dict__.get("_window_shown", False):
+                self._pending_window_placement = self._capture_window_placement()
+            self._validator_close_pending = True
+            self._pending_shutdown_deadline = ShutdownDeadline.after()
+            validator_deadline = ShutdownDeadline.after(5.0)
+            self.window.hide()
+
+            def poll_validator_close() -> None:
+                try:
+                    finished = validator.close(timeout=0.0)
+                except Exception:
+                    # Let the normal shutdown path record the failure.
+                    finished = True
+                if not finished and not validator_deadline.expired():
+                    QTimer.singleShot(25, poll_validator_close)
+                    return
+                self._validator_close_poll_finished = True
+                try:
+                    handler()
+                finally:
+                    # Hiding a window does not emit lastWindowClosed, so end
+                    # the event loop explicitly after all shutdown steps.
+                    self.qt_app.quit()
+
+            QTimer.singleShot(0, poll_validator_close)
+            return
         if callable(handler):
             event.ignore()
             try:

@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from collections import deque
+from concurrent.futures import Future
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
+import logging
 from math import isfinite
+import threading
 import time
 from typing import NamedTuple
 from urllib.parse import quote, urlsplit
@@ -123,7 +126,7 @@ def _matches_recording(samples, snapshot) -> bool:
 class ValidatorReports:
     """Keeps report links and display metadata. Transport and write keys stay in RAM."""
 
-    def __init__(self):
+    def __init__(self, *, save_in_background=False):
         raw = config.user_config.get(HISTORY_KEY, [])
         saved = [_read_report(value) for value in raw[:HISTORY_LIMIT]] if isinstance(raw, list) else []
         self._reports = {report.url: report for report in saved if report is not None}
@@ -138,6 +141,8 @@ class ValidatorReports:
         self._base = ''
         self._enabled = False
         self._last_save_attempt = float('-inf')
+        self._save_in_background = save_in_background
+        self._saving = None
         self.save_failed = False
 
     def observe_recording(self, state, stats_client, game_client):
@@ -288,6 +293,14 @@ class ValidatorReports:
                 self._reports[url] = replace(report, recording_ids=recording_ids, name=name, kills=kills)
 
     def save(self, *, force=False):
+        if self._saving is not None:
+            job, saved = self._saving
+            if not force and not job.done():
+                return
+            self._saving = None
+            self.save_failed = not job.result()
+            if not self.save_failed:
+                self._saved = saved
         reports = tuple(
             replace(report, status='finish_unconfirmed', kills=None)
             if report.status in ('active', 'retrying', 'finish_pending', 'enrolling') else report
@@ -297,15 +310,33 @@ class ValidatorReports:
         if reports == self._saved or not force and now - self._last_save_attempt < 2:
             return
         self._last_save_attempt = now
-        if config.profile_read_only_reason():
-            self.save_failed = True
+        if self._save_in_background and not force:
+            job = Future()
+            worker = threading.Thread(
+                target=lambda: job.set_result(self._write_reports(reports)),
+                name='ValidatorHistorySave', daemon=True,
+            )
+            try:
+                worker.start()
+            except RuntimeError:
+                self.save_failed = True
+            else:
+                self._saving = job, reports
             return
-        result = config.update_config(lambda settings: settings.update({
-            HISTORY_KEY: [asdict(report) for report in reports],
-        }))
-        self.save_failed = not result.success
-        if result.success:
+        self.save_failed = not self._write_reports(reports)
+        if not self.save_failed:
             self._saved = reports
+
+    @staticmethod
+    def _write_reports(reports):
+        try:
+            if config.profile_read_only_reason():
+                return False
+            serialized = [asdict(report) for report in reports]
+            return config.update_config(lambda settings: settings.update({HISTORY_KEY: serialized})).success
+        except Exception:
+            logging.getLogger(__name__).exception('Could not save Validator report history')
+            return False
 
     def recent(self, recordings=()):
         by_id = {recording.recording_id: recording for recording in recordings if recording.recording_id}

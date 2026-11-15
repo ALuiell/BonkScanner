@@ -71,7 +71,7 @@ class AppRuntime:
         if getattr(coordinator, 'validator', None) is not None:
             from app.validator_reports import ValidatorReports
 
-            self.validator_reports = ValidatorReports()
+            self.validator_reports = ValidatorReports(save_in_background=True)
             self.active_recording_feed.subscribe(
                 lambda state: self.validator_reports.observe_recording(
                     state, coordinator.player_stats_client, coordinator.player_stats_game_data_client,
@@ -227,14 +227,14 @@ class AppRuntime:
     def diagnostics(self) -> tuple[Any, ...]:
         return self.refresh_coordinator.diagnostics()
 
-    def shutdown(self, deadline: ShutdownDeadline) -> ShutdownReport:
+    def shutdown(self, deadline: ShutdownDeadline, *, validator_timeout: float = 5.0) -> ShutdownReport:
         if self._shutdown_report is not None:
             return self._shutdown_report
         timed_out: list[str] = []
         validator = getattr(self.coordinator, 'validator', None)
         if validator is not None:
             stopped = self._step('validator', lambda: validator.close(
-                timeout=min(5.0, deadline.remaining_seconds())))
+                timeout=min(validator_timeout, deadline.remaining_seconds())))
             if stopped is False:
                 timed_out.append('validator')
         self._step("hotkeys", self.ports.stop_hotkeys)

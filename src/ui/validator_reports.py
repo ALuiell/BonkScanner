@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from functools import lru_cache
 
-from PySide6.QtCore import QDateTime, QLocale, QPointF, QRectF, QSize, Qt, QUrl
+from PySide6.QtCore import QDateTime, QLocale, QPointF, QRectF, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
@@ -168,6 +168,8 @@ class _RunTitle(QLabel):
         self._title = ''
 
     def set_title(self, title):
+        if self._title == title:
+            return
         self._title = title
         self.setToolTip(title)
         self._elide()
@@ -231,6 +233,8 @@ class _ReportRow(QFrame):
         self._layout.setContentsMargins(12, 7, 9, 7)
         self._layout.setHorizontalSpacing(10)
         self._layout.setVerticalSpacing(4)
+        self._compact = None
+        self._displayed_report = None
         self._dividers = []
         for cell in self._cells[1:]:
             divider = QFrame(cell)
@@ -241,6 +245,9 @@ class _ReportRow(QFrame):
         self.set_compact(False)
 
     def set_compact(self, compact):
+        if self._compact == compact:
+            return
+        self._compact = compact
         for cell in self._cells:
             self._layout.removeWidget(cell)
             cell.setContentsMargins(0 if compact else 10, 0, 0, 0)
@@ -261,9 +268,13 @@ class _ReportRow(QFrame):
         for divider in self._dividers:
             divider.setVisible(not compact)
 
-    def update_report(self, report):
+    def update_report(self, report, language):
+        display = report, language
+        if display == self._displayed_report:
+            return
+        self._displayed_report = display
         self._title.set_title(report.name or str(l10n.tr('Run')))
-        locale = QLocale(l10n.active_translator().language)
+        locale = QLocale(language)
         self._kills.setText(locale.toString(report.kills) if report.kills is not None else '—')
         started = datetime.fromisoformat(report.started)
         self._date.setText(locale.toString(QDateTime(started.astimezone()), 'dd MMM · HH:mm'))
@@ -282,6 +293,10 @@ class ValidatorHistory(QWidget):
         self._reports = None
         self._language = None
         self._compact = False
+        self._reflow = QTimer(self)
+        self._reflow.setSingleShot(True)
+        self._reflow.setInterval(50)
+        self._reflow.timeout.connect(self._apply_width)
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 3, 0, 0)
         self._layout.setSpacing(7)
@@ -312,7 +327,15 @@ class ValidatorHistory(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        compact = event.size().width() < 680
+        if (event.size().width() < 680) != self._compact:
+            # Crossing the breakpoint can reposition every row. Coalesce
+            # resize events so a drag does not rebuild the layout repeatedly.
+            self._reflow.start()
+        else:
+            self._reflow.stop()
+
+    def _apply_width(self):
+        compact = self.width() < 680
         if compact != self._compact:
             self._compact = compact
             self._headers.setVisible(bool(self._rows) and not compact)
@@ -339,8 +362,11 @@ class ValidatorHistory(QWidget):
             if row is None:
                 row = self._rows[report.url] = _ReportRow(report.url)
                 row.set_compact(self._compact)
-            self._layout.insertWidget(index + 3, row)
-            row.update_report(report)
+            position = index + 3
+            item = self._layout.itemAt(position)
+            if item is None or item.widget() is not row:
+                self._layout.insertWidget(position, row)
+            row.update_report(report, self._language)
             existing.discard(report.url)
         for url in existing:
             row = self._rows.pop(url)

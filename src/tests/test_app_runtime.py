@@ -195,6 +195,42 @@ class AppRuntimeTests(unittest.TestCase):
         self.assertEqual(report.timed_out_resources, ("scanner",))
         self.assertFalse(report.completed)
 
+    def test_validator_snapshot_is_saved_after_final_close(self) -> None:
+        calls: list[str] = []
+        coordinator = _Coordinator(calls)
+        state = {'final': False}
+
+        def close(*, timeout):
+            calls.append('validator')
+            state['final'] = True
+            return True
+
+        coordinator.validator = SimpleNamespace(close=close, snapshot=lambda: dict(state))
+        runtime = AppRuntime(coordinator, _ports(calls, []))
+        saved = []
+        runtime.validator_reports = SimpleNamespace(
+            refresh=lambda snapshot, **options: saved.append((snapshot, options)))
+
+        report = runtime.shutdown(ShutdownDeadline.after(), validator_timeout=0.0)
+
+        self.assertTrue(report.completed)
+        self.assertEqual(saved, [({'final': True}, {'force': True})])
+        self.assertEqual(calls[0], 'validator')
+
+    def test_pending_validator_at_shutdown_is_reported_as_timeout(self) -> None:
+        coordinator = _Coordinator([])
+        timeouts = []
+        coordinator.validator = SimpleNamespace(
+            close=lambda *, timeout: timeouts.append(timeout) or False,
+            snapshot=lambda: {})
+        runtime = AppRuntime(coordinator, _ports([], []))
+        runtime.validator_reports = SimpleNamespace(refresh=lambda *_args, **_kwargs: None)
+
+        report = runtime.shutdown(ShutdownDeadline.after(), validator_timeout=0.0)
+
+        self.assertEqual(timeouts, [0.0])
+        self.assertEqual(report.timed_out_resources, ('validator',))
+
 
 if __name__ == "__main__":
     unittest.main()
