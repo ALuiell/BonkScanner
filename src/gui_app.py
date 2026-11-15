@@ -26,7 +26,7 @@ from ui.shared import UiInvoker, _AppWindow, resource_path
 from ui.dialogs.update_prompt import start_supporters_load, start_update_check
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
-from ui.themes import apply_theme
+from ui.themes import apply_theme, prepare_startup_style
 from app.shutdown import (
     FORCED_SHUTDOWN_EXIT_CODE,
     ShutdownDeadline,
@@ -393,6 +393,7 @@ class MegabonkApp:
         # owners; the assignment in ``main`` has not completed yet, so no caller
         # has an application reference it could use for cleanup.
         try:
+            prepare_startup_style(self)
             build_layout(self)
             self._twitch_session = build_twitch_session(
                 self,
@@ -937,7 +938,8 @@ class MegabonkApp:
     # differently -- and `self.tabview` is declared by `__init__`, so neither
     # is a hidden read.
     def _is_live_stats_tab_active(self) -> bool:
-        return _is_tab_active(self.tabview, "Live")
+        view = getattr(self, "_player_stats_view", None)
+        return _is_tab_active(self.tabview, "Live") and getattr(view, "is_ready", True)
 
     def _is_overlay_tab_active(self) -> bool:
         return _is_tab_active(self.tabview, "OBS")
@@ -1194,8 +1196,25 @@ class MegabonkApp:
         # layout pass under `Qt.WA_DontShowOnScreen` before mapping anything.
         # It is not worth a hack that only looks like it does that: kept, these
         # lines would read as load-bearing to whoever finds them next.
+        startup_error = None
+
+        def start_services() -> None:
+            nonlocal startup_error
+            try:
+                self.start()
+            except BaseException as exc:
+                # Exceptions escaping a Qt callback don't reach main's crash
+                # journal. End the loop and rethrow through its normal path.
+                startup_error = exc
+                self.qt_app.quit()
+
+        if not self._started:
+            self.window.run_after_first_paint(start_services)
         self._restore_window_state()
-        return self.qt_app.exec()
+        result = self.qt_app.exec()
+        if startup_error is not None:
+            raise startup_error
+        return result
 
     # -- remembered window state -------------------------------------------
     #
@@ -1353,11 +1372,11 @@ class MegabonkApp:
         return True
 
     def run_after_window_shown(self, callback) -> None:
-        """Run native auxiliary-window setup only after the main window maps."""
+        """Run native auxiliary-window setup after the main window paints."""
         if self.__dict__.get("_is_shutting_down", False):
             return
         if self._window_shown:
-            self.after(0, callback)
+            self.window.run_after_first_paint(callback)
             return
         self._after_window_shown_callbacks.append(callback)
 
@@ -1368,4 +1387,4 @@ class MegabonkApp:
         callbacks = tuple(self._after_window_shown_callbacks)
         self._after_window_shown_callbacks.clear()
         for callback in callbacks:
-            self.after(0, callback)
+            self.window.run_after_first_paint(callback)

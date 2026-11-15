@@ -28,16 +28,13 @@ class MainEntrypointTests(unittest.TestCase):
             def protocol(self, _name, _callback) -> None:
                 pass
 
-            def start(self) -> None:
-                events.append("start")
-
             def mainloop(self) -> None:
-                pass
+                events.append("mainloop")
 
             def on_closing(self) -> bool:
                 return True
 
-        with patch.object(
+        with patch("infra.data_storage.profile_read_only_reason", return_value=None), patch.object(
             main, "install_crash_journal", side_effect=lambda: events.append("journal")
         ), patch.object(
             main,
@@ -58,7 +55,7 @@ class MainEntrypointTests(unittest.TestCase):
             events[:6],
             ["storage", "journal", "config", "keyboard", "gui", "construct"],
         )
-        self.assertIn("start", events)
+        self.assertIn("mainloop", events)
         self.release_storage_lock.assert_called_once_with()
 
     def test_storage_failure_stops_before_crash_journal_and_gui(self) -> None:
@@ -105,9 +102,6 @@ class MainEntrypointTests(unittest.TestCase):
         events: list[tuple[str, object] | str] = []
 
         class FakeApp:
-            def start(self) -> None:
-                events.append("start")
-
             def protocol(self, name: str, callback: object) -> None:
                 events.append((name, callback))
 
@@ -128,13 +122,12 @@ class MainEntrypointTests(unittest.TestCase):
             with patch.object(main, "MegabonkApp", return_value=FakeApp()):
                 main.main()
 
-        self.assertEqual(len(events), 4)
+        self.assertEqual(len(events), 3)
         protocol_name, close_handler = events[0]
         self.assertEqual(protocol_name, "WM_DELETE_WINDOW")
         self.assertTrue(callable(close_handler))
-        self.assertEqual(events[1], "start")
-        self.assertEqual(events[2], "mainloop")
-        self.assertEqual(events[3], "closed")
+        self.assertEqual(events[1], "mainloop")
+        self.assertEqual(events[2], "closed")
         mark_clean_exit.assert_called_once_with()
 
     def test_main_cleans_up_when_the_event_loop_raises_without_marking_clean_exit(self) -> None:

@@ -6,8 +6,8 @@ opened. Measured on the real library that is about 12 MB and most of a second
 of startup.
 
 What is deferred is the contents, not the tab: the bar's order is part of the
-design, and a tab that appears late is a tab that moves. Recordings and Compare
-Runs first paint lightweight loading rings, then yield between construction
+design, and a tab that appears late is a tab that moves. Live, Recordings and
+Compare first paint lightweight loading rings, then yield between construction
 batches so the tab switch itself remains responsive.
 
 Run in a subprocess against the real application, as `test_startup_window_order`
@@ -104,9 +104,9 @@ class LazyTabsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_the_tabs_are_registered_without_heavy_contents(self) -> None:
-        """Both tabs exist, but neither pays for its heavy workspace at startup.
+        """All three tabs exist without eagerly building their workspaces.
 
-        Both heavy tabs keep only their tiny loading shells eager so Qt can give
+        The tabs keep only their small loading shells eager so Qt can give
         them the final viewport before the first click.
         """
         self._run(
@@ -133,11 +133,56 @@ class LazyTabsTests(unittest.TestCase):
             assert app._recordings_view._body_splitter is None
             assert app._recordings_view._scrubber is None
 
-            # Live Stats is built eagerly and must stay that way: the recording
-            # path writes into it with no active-tab gate. A future change that
-            # defers it would land here first.
             live_page = page_for("Live")[1]
-            assert live_page.findChildren(QWidget), "Live Stats stopped building eagerly"
+            assert not live_page.is_built
+            assert live_page.findChild(QWidget, "LiveStatsLoadingSpinner") is not None
+            assert app._player_stats_view._detail_tabs is None
+            """
+        )
+
+    def test_opening_live_reads_stats_and_renders_an_existing_recording(self) -> None:
+        self._run(
+            """
+            from types import SimpleNamespace
+
+            live_index, live_page = page_for("Live")
+            view = app._player_stats_view
+            recorder = app.player_stats_vod_recorder
+            refreshes = []
+            app.refresh_live_player_stats_now = lambda: refreshes.append(view.is_ready)
+            recorder.is_recording = True
+            app.player_stats_vod_snapshots = [
+                SimpleNamespace(time_label="00:10"),
+                SimpleNamespace(time_label="00:20"),
+                SimpleNamespace(time_label="00:30"),
+            ]
+
+            try:
+                # A recording can change while the Logs tab is selected.
+                view.refresh_player_stats_timeline_ui()
+                view.set_recording_status_text("Existing recording")
+                assert view._recording_timeline is None
+                tabs.setCurrentIndex(live_index)
+                app._tab_router._refresh_right_tab_after_switch()
+                assert not refreshes
+                assert not app._is_live_stats_tab_active()
+                assert live_page.findChild(QWidget, "LiveStatsLoadingPage").isVisible()
+
+                deadline = time.monotonic() + 10
+                while (not live_page.is_built or not refreshes) and time.monotonic() < deadline:
+                    qt.processEvents()
+                    time.sleep(0.002)
+                assert live_page.is_built and view.is_ready
+                assert app._is_live_stats_tab_active()
+                assert refreshes == [True], refreshes
+                assert view._status_label.text() == "Existing recording"
+                timeline = view._recording_timeline
+                assert timeline._slider.isEnabled()
+                assert timeline._slider.maximum() == 2
+                assert timeline._slider.value() == 2
+                assert app.player_stats_selected_snapshot_index is None
+            finally:
+                recorder.is_recording = False
             """
         )
 

@@ -13,6 +13,57 @@ import src  # noqa: F401  -- path bootstrap
 
 
 class StartupWindowOrderTests(unittest.TestCase):
+    def test_services_start_after_the_first_paint_and_failures_reach_mainloop(self) -> None:
+        script = textwrap.dedent(
+            """
+            from pathlib import Path
+            from tempfile import TemporaryDirectory
+
+            import src
+            from infra import data_storage
+
+            with TemporaryDirectory() as temp:
+                path = Path(temp)
+                data_storage._context = data_storage.StorageContext("source", path, path, None, None)
+                from app import config
+                from gui_app import MegabonkApp
+                from PySide6.QtCore import QTimer
+
+                config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
+                app = MegabonkApp()
+                app._after_window_shown_callbacks.clear()
+                failure = RuntimeError("test startup failure")
+                calls = []
+
+                def start():
+                    calls.append((app.window.isVisible(), app.window._painted))
+                    raise failure
+
+                try:
+                    app.start = start
+                    QTimer.singleShot(5_000, app.qt_app.quit)
+                    try:
+                        app.mainloop()
+                    except RuntimeError as caught:
+                        assert caught is failure
+                    else:
+                        raise AssertionError("Startup failure did not reach mainloop")
+                    assert calls == [(True, True)], calls
+                finally:
+                    app.on_closing()
+                    app.qt_app.processEvents()
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[2],
+            env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_the_main_window_precedes_every_native_helper_window(self) -> None:
         script = textwrap.dedent(
             """
@@ -24,7 +75,7 @@ class StartupWindowOrderTests(unittest.TestCase):
             from app import config
             from gui_app import MegabonkApp
 
-            config.save_config = lambda *_args, **_kwargs: None
+            config.save_config = lambda _candidate: config.ConfigSaveResult(True)
             config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
             app = MegabonkApp()
             # Keep an assertion failure from reaching interpreter teardown with
@@ -67,9 +118,8 @@ class StartupWindowOrderTests(unittest.TestCase):
             # Deferred helpers may now be created, but only behind a mapped main
             # window. In particular, the in-game overlay no longer exists during
             # MegabonkApp.__init__.
-            # The show event posts ``start_runtime``; that callback deliberately
-            # posts the native helper construction once more.  One pass was only
-            # enough while UiInvoker's AutoConnection ran after_idle inline.
+            # The first paint posts start_runtime, which then posts the helper
+            # construction. Each callback runs after the previous event returns.
             qt.processEvents()
             qt.processEvents()
             qt.processEvents()
@@ -118,7 +168,7 @@ class StartupWindowOrderTests(unittest.TestCase):
             from app import config
             from gui_app import MegabonkApp
 
-            config.save_config = lambda *_args, **_kwargs: None
+            config.save_config = lambda _candidate: config.ConfigSaveResult(True)
             config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
             qt = MegabonkApp._ensure_qt_application()
 

@@ -1315,7 +1315,9 @@ def _build_tab_router(app):
         overlay=app._overlay,
         template_filters=app._template_filters,
         update_status=app.update_status_ui,
-        refresh_live_player_stats=app.refresh_live_player_stats_now,
+        refresh_live_player_stats=lambda: (
+            app.refresh_live_player_stats_now() if app._is_live_stats_tab_active() else None
+        ),
         schedule_idle=app.after_idle,
     )
     app._recordings_list_view = router
@@ -1509,7 +1511,7 @@ def _build_live_stats_view(app):
         build_progression_snapshot=lambda: app.coordinator.build_progression_service.snapshot(),
         open_build_progression_settings=lambda: _open_build_progression_settings(app),
     )
-    return view.build()
+    return view.build_deferred(on_ready=app._tab_router.on_right_tab_changed)
 
 
 def _open_build_progression_settings(app) -> None:

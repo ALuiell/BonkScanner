@@ -391,8 +391,10 @@ class RecordingTimelineInitialPaintTests(unittest.TestCase):
                 on_snapshot_selected=select,
             )
             view.install(layout)
+            assert selections == [], selections
+            view.handle_slider_value(1)
+            assert selections == [1], selections
             selections.clear()
-            state["selected"] = 1
             view.handle_slider_value(0)
             assert selections == [], selections
 

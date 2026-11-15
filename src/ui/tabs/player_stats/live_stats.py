@@ -79,6 +79,7 @@ from ui.shared import (
     FlowLayout,
     FullWidthTabWidget,
     LabeledSwitch,
+    StagedLoadingPage,
     _apply_summary_label_padding,
     _make_scroll_section,
     _set_text,
@@ -451,6 +452,8 @@ class LiveStatsTab:
         # owns is readable in one place rather than scattered through 260
         # lines of builder.
         self._root = None
+        self._staged_page = None
+        self._initial_recording_status = None
         self._status_label = None
         self._detail_tabs = None
         self._stat_value_rows: dict = {}
@@ -491,7 +494,13 @@ class LiveStatsTab:
     @property
     def root_widget(self):
         """The tab's own QWidget, for harnesses that need to inspect it."""
-        return self._root
+        return self._staged_page if self._staged_page is not None else self._root
+
+    @property
+    def is_ready(self) -> bool:
+        if self._staged_page is not None:
+            return self._staged_page.is_built
+        return self._root is not None
 
     # -- PlayerStatsView --------------------------------------------------
 
@@ -840,6 +849,9 @@ class LiveStatsTab:
         widget whose creator had already moved here in step 14b. It now goes
         through `PlayerStatsView` instead.
         """
+        if self._status_label is None:
+            self._initial_recording_status = text
+            return
         _set_text(self._status_label, text)
 
     def set_mob_kills_text(self, text: str) -> None:
@@ -984,7 +996,8 @@ class LiveStatsTab:
         outside `app/` this module's header names; the rendering itself lives
         in `RecordingTimelineView`. The name and signature predate the pilot.
         """
-        self._recording_timeline.refresh(update_slider=update_slider)
+        if self._recording_timeline is not None:
+            self._recording_timeline.refresh(update_slider=update_slider)
 
     def toggle_player_items_expanded(self) -> None:
         self._items_section.toggle_expanded()
@@ -1042,18 +1055,27 @@ class LiveStatsTab:
     # -- construction -----------------------------------------------------
 
     def build(self):
-        """Create this tab's widgets and add it to the parent tab bar.
+        root = QWidget()
+        for _ in self._build_steps(root):
+            pass
+        l10n.tab(self._tabview, root, l10n.tr('Live'))
+        return self
 
-        Was `_build_live_stats_tab` on the mixin, called from
-        `gui_layout._build_layout`. Same body, same order, same position in the
-        tab bar -- the widgets it assigns are this object's now rather than
-        `MegabonkApp`'s.
-        """
-        self._root = QWidget()
-        player_layout = QVBoxLayout(self._root)
+    def build_deferred(self, *, on_ready):
+        self._staged_page = StagedLoadingPage(self._build_steps, object_prefix="LiveStats")
+        self._staged_page.ready.connect(on_ready)
+        l10n.tab(self._tabview, self._staged_page, l10n.tr('Live'))
+        return self
+
+    def _build_steps(self, root):
+        self._root = root
+        player_layout = QVBoxLayout(root)
         player_scroll, _player_content, player_content_layout = _make_scroll_section()
         player_layout.addWidget(player_scroll)
         self._status_label = l10n.localized(QLabel, l10n.tr('Waiting for game...'))
+        if self._initial_recording_status is not None:
+            self.set_recording_status_text(self._initial_recording_status)
+            self._initial_recording_status = None
         player_content_layout.addWidget(self._status_label)
         # Step-18 pilot: the timeline strip is a component, not four more
         # attributes on the shared `self`. Its seven collaborators are named
@@ -1088,24 +1110,31 @@ class LiveStatsTab:
             on_snapshot_selected=_select_snapshot,
         )
         self._recording_timeline.install(player_content_layout)
+        yield
 
-        live_page = QWidget()
+        live_page = QWidget(_player_content)
         live_page.setObjectName("LiveStatsPage")
         live_page_layout = QGridLayout(live_page)
         live_page_layout.setContentsMargins(0, 0, 0, 0)
         live_page_layout.setHorizontalSpacing(10)
         live_page_layout.setVerticalSpacing(0)
+        player_content_layout.addWidget(live_page)
 
-        live_main = QWidget()
+        live_main = QWidget(live_page)
         live_main.setObjectName("LiveStatsMain")
         live_main_layout = QVBoxLayout(live_main)
         live_main_layout.setContentsMargins(0, 0, 0, 0)
         live_main_layout.setSpacing(14)
+        live_page_layout.addWidget(live_main, 0, 0)
+        live_page_layout.setColumnStretch(0, 3)
+        live_page_layout.setColumnStretch(1, 1)
+        live_page_layout.setRowStretch(0, 1)
 
-        items_group = l10n.localized(QGroupBox, l10n.tr('Items'))
+        items_group = l10n.localized(QGroupBox, l10n.tr('Items'), live_page)
         items_group.setObjectName("LiveStatsItems")
         items_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         items_group.setMinimumWidth(220)
+        live_page_layout.addWidget(items_group, 0, 1)
         items_layout = QVBoxLayout(items_group)
         items_layout.setContentsMargins(11, 11, 11, 11)
         items_layout.setSpacing(8)
@@ -1198,6 +1227,7 @@ class LiveStatsTab:
             chips_scroll=banishes_chips_scroll,
         )
         items_layout.addWidget(banishes_section)
+        yield
 
         chest_rate_group = l10n.localized(QGroupBox, l10n.tr('Run Summary'), live_main)
         chest_rate_group.setObjectName("LiveStatsRunSummary")
@@ -1228,6 +1258,7 @@ class LiveStatsTab:
             self._kps_averages_label,
             self._level_label,
         )
+        yield
         live_stage_summary_group = l10n.localized(QGroupBox, l10n.tr('Stage Summary'), live_main)
         live_stage_summary_group.setObjectName("LiveStatsStageSummary")
         live_stage_summary_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
@@ -1283,12 +1314,15 @@ class LiveStatsTab:
             tuple(self._powerup_labels.values()),
             parent=live_main,
         ))
-        self._detail_tabs = FullWidthTabWidget()
+        yield
+        self._detail_tabs = FullWidthTabWidget(live_main)
         self._detail_tabs.setObjectName("subTabs")
         # The detail pages scroll their own contents. Their card grids must not
         # enlarge the whole Live Stats page and create a second outer scrollbar.
         self._detail_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
-        player_stats_tab = QWidget()
+        live_main_layout.addWidget(self._detail_tabs)
+        player_stats_tab = QWidget(self._detail_tabs)
+        l10n.tab(self._detail_tabs, player_stats_tab, l10n.tr('Stats'))
         player_stats_tab_layout = QVBoxLayout(player_stats_tab)
         self._stats_expanded_toggle = l10n.localized(LabeledSwitch, l10n.tr('Expanded'))
         self._stats_expanded_toggle.setObjectName("LiveStatsExpandedToggle")
@@ -1340,8 +1374,10 @@ class LiveStatsTab:
                 compact_rows_layout.addWidget(compact_stat)
             group_layout.addWidget(compact_rows)
             compact_stats_grid.add_card(stat_group)
+            yield
 
         compact_stats_grid.fit_localized_stat_names()
+        yield
 
         expanded_stats_grid = _ResponsiveCardGrid(
             minimum_card_width=300,
@@ -1368,6 +1404,7 @@ class LiveStatsTab:
                 self._stat_value_rows[spec.label] = value_label
                 l10n.form_row(group_layout, name_label, value_label)
             expanded_stats_grid.add_card(stat_group)
+            yield
 
         compact_stats_grid.setVisible(False)
         self._stats_expanded_toggle.toggled.connect(compact_stats_grid.setHidden)
@@ -1393,7 +1430,8 @@ class LiveStatsTab:
         # there, items per tier here -- so the group titles say which, which is
         # the labelling-apart the design asks for without touching the chests
         # card's own layout.
-        loot_tab = QWidget()
+        loot_tab = QWidget(self._detail_tabs)
+        l10n.tab(self._detail_tabs, loot_tab, l10n.tr('Loot'))
         loot_tab_layout = QVBoxLayout(loot_tab)
         loot_scroll, _loot_scroll_content, loot_scroll_layout = _make_scroll_section()
         loot_tab_layout.addWidget(loot_scroll)
@@ -1420,8 +1458,10 @@ class LiveStatsTab:
             loot_grid.setColumnStretch(column, 1)
         loot_scroll_layout.addLayout(loot_grid)
         loot_scroll_layout.addStretch(1)
+        yield
 
-        weapons_tab = QWidget()
+        weapons_tab = QWidget(self._detail_tabs)
+        l10n.tab(self._detail_tabs, weapons_tab, l10n.tr('Weapons'))
         weapons_tab_layout = QVBoxLayout(weapons_tab)
         weapons_status_label = l10n.localized(QLabel, l10n.tr('Waiting for weapon data...'))
         weapons_status_label.setWordWrap(True)
@@ -1429,7 +1469,8 @@ class LiveStatsTab:
         player_weapons_scroll, _player_weapons_scroll_content, player_weapons_scroll_layout = _make_scroll_section()
         player_weapons_scroll_layout.setContentsMargins(0, 0, 0, 0)
         weapons_tab_layout.addWidget(player_weapons_scroll)
-        tomes_tab = QWidget()
+        tomes_tab = QWidget(self._detail_tabs)
+        l10n.tab(self._detail_tabs, tomes_tab, l10n.tr('Tomes'))
         tomes_tab_layout = QVBoxLayout(tomes_tab)
         tomes_status_label = l10n.localized(QLabel, l10n.tr('Waiting for tome data...'))
         tomes_status_label.setWordWrap(True)
@@ -1437,7 +1478,8 @@ class LiveStatsTab:
         player_tomes_scroll, _player_tomes_scroll_content, player_tomes_scroll_layout = _make_scroll_section()
         player_tomes_scroll_layout.setContentsMargins(0, 0, 0, 0)
         tomes_tab_layout.addWidget(player_tomes_scroll)
-        chaos_tab = QWidget()
+        chaos_tab = QWidget(self._detail_tabs)
+        l10n.tab(self._detail_tabs, chaos_tab, l10n.tr('Chaos'))
         chaos_tab_layout = QVBoxLayout(chaos_tab)
         chaos_status_label = l10n.localized(QLabel, l10n.tr('Waiting for Chaos Tome data...'))
         chaos_status_label.setWordWrap(True)
@@ -1445,7 +1487,8 @@ class LiveStatsTab:
         player_chaos_scroll, _player_chaos_scroll_content, player_chaos_scroll_layout = _make_scroll_section()
         player_chaos_scroll_layout.setContentsMargins(0, 0, 0, 0)
         chaos_tab_layout.addWidget(player_chaos_scroll)
-        shrine_tab = QWidget()
+        shrine_tab = QWidget(self._detail_tabs)
+        l10n.tab(self._detail_tabs, shrine_tab, l10n.tr('Shrines'))
         shrine_tab_layout = QVBoxLayout(shrine_tab)
         shrine_status_label = l10n.localized(QLabel, l10n.tr('Waiting for Charge Shrine data...'))
         shrine_status_label.setWordWrap(True)
@@ -1453,7 +1496,8 @@ class LiveStatsTab:
         player_shrine_scroll, _player_shrine_content, player_shrine_scroll_layout = _make_scroll_section()
         player_shrine_scroll_layout.setContentsMargins(0, 0, 0, 0)
         shrine_tab_layout.addWidget(player_shrine_scroll)
-        character_passive_tab = QWidget()
+        character_passive_tab = QWidget(self._detail_tabs)
+        l10n.tab(self._detail_tabs, character_passive_tab, l10n.tr('Passives'))
         character_passive_tab_layout = QVBoxLayout(character_passive_tab)
         character_passive_status_label = l10n.localized(QLabel, l10n.tr('Waiting for character passive data...'))
         character_passive_status_label.setWordWrap(True)
@@ -1465,7 +1509,8 @@ class LiveStatsTab:
         ) = _make_scroll_section()
         player_character_passive_scroll_layout.setContentsMargins(0, 0, 0, 0)
         character_passive_tab_layout.addWidget(player_character_passive_scroll)
-        damage_sources_tab = QWidget()
+        damage_sources_tab = QWidget(self._detail_tabs)
+        l10n.tab(self._detail_tabs, damage_sources_tab, l10n.tr('Damage Sources'))
         damage_sources_tab_layout = QVBoxLayout(damage_sources_tab)
         damage_sources_status_label = l10n.localized(QLabel, l10n.tr('Waiting for damage source data...'))
         damage_sources_status_label.setWordWrap(True)
@@ -1473,7 +1518,9 @@ class LiveStatsTab:
         player_damage_sources_scroll, _player_damage_sources_scroll_content, player_damage_sources_scroll_layout = _make_scroll_section()
         player_damage_sources_scroll_layout.setContentsMargins(0, 0, 0, 0)
         damage_sources_tab_layout.addWidget(player_damage_sources_scroll)
-        build_progression_tab = QWidget()
+        yield
+        build_progression_tab = QWidget(self._detail_tabs)
+        l10n.tab(self._detail_tabs, build_progression_tab, l10n.tr('Build Progression'))
         build_progression_layout = QVBoxLayout(build_progression_tab)
         build_progression_layout.setContentsMargins(8, 8, 8, 8)
         build_progression_layout.setSpacing(10)
@@ -1554,6 +1601,7 @@ class LiveStatsTab:
         build_card_layout.addWidget(self._build_progression_footer)
 
         build_progression_layout.addWidget(build_card, 1)
+        yield
         # These eight widgets are the component's, not the shared namespace's.
         # As `self.player_stats_weapons_layout` and friends they were reached
         # by composed name from `cards.py` behind guards that returned silently
@@ -1584,15 +1632,6 @@ class LiveStatsTab:
         self._stats_expanded_toggle.toggled.connect(
             self._stat_cards.set_expanded_stat_labels
         )
-        l10n.tab(self._detail_tabs, player_stats_tab, l10n.tr('Stats'))
-        l10n.tab(self._detail_tabs, loot_tab, l10n.tr('Loot'))
-        l10n.tab(self._detail_tabs, weapons_tab, l10n.tr('Weapons'))
-        l10n.tab(self._detail_tabs, tomes_tab, l10n.tr('Tomes'))
-        l10n.tab(self._detail_tabs, chaos_tab, l10n.tr('Chaos'))
-        l10n.tab(self._detail_tabs, shrine_tab, l10n.tr('Shrines'))
-        l10n.tab(self._detail_tabs, character_passive_tab, l10n.tr('Passives'))
-        l10n.tab(self._detail_tabs, damage_sources_tab, l10n.tr('Damage Sources'))
-        l10n.tab(self._detail_tabs, build_progression_tab, l10n.tr('Build Progression'))
         self.refresh_build_progression()
         # QTabWidget otherwise derives the outer page's preferred height from
         # whichever child is current. Stats/Loot are taller than the card tabs,
@@ -1600,7 +1639,6 @@ class LiveStatsTab:
         # shift the whole page. Reserve the tallest initial page once; every
         # detail page keeps its own scroll area for content beyond this height.
         self._detail_tabs.setMinimumHeight(self._detail_tabs.sizeHint().height())
-        live_main_layout.addWidget(self._detail_tabs)
         player_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
         weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
         tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -1609,15 +1647,6 @@ class LiveStatsTab:
         character_passive_tab_layout.setContentsMargins(0, 0, 0, 0)
         damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
         loot_tab_layout.setContentsMargins(0, 0, 0, 0)
-
-        live_page_layout.addWidget(live_main, 0, 0)
-        live_page_layout.addWidget(items_group, 0, 1)
-        live_page_layout.setColumnStretch(0, 3)
-        live_page_layout.setColumnStretch(1, 1)
-        live_page_layout.setRowStretch(0, 1)
-        player_content_layout.addWidget(live_page)
-        l10n.tab(self._tabview, self._root, l10n.tr('Live'))
-        return self
 
     def format_live_powerups(self, stats) -> str:
         tracker = self._live_run_tracker()
