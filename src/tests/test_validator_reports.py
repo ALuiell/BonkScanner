@@ -167,6 +167,54 @@ def test_provisional_sessions_never_write_history_and_recording_links_wait_for_e
     assert all(report.status == 'interrupted' and not report.hidden_by_default for report in reloaded)
 
 
+def test_v3_status_is_live_before_ack_and_fast_restart_recordings_remain_independent(settings):
+    history = ValidatorReports()
+    enrolling = run(None, status='enrolling', protocol_version='3', report_available=False)
+    history.refresh({**snapshot('first', first=enrolling), 'state': 'observing'}, BASE, force=True)
+    assert history.live().status == 'active' and history.live().url == ''
+    assert history.recent() == () and HISTORY_KEY not in settings
+    first = run('first', ((10, 500, 0, 2), (11, 500, 0, 3)),
+                protocol_version='3', report_available=False)
+    second = run('second', ((12, 500, 0, .2), (13, 500, 0, 1.2)),
+                 protocol_version='3', report_available=False)
+    history.refresh(snapshot('first', first=first), BASE, force=True)
+    assert history.live().status == 'active' and history.live().url == ''
+    assert history.recent() == () and HISTORY_KEY not in settings
+    history.observe_recording(recording('first-recording', 10.5, 2.5), client(), client())
+    history.refresh(snapshot('second', first=first, second=second), force=True)
+    history.observe_recording(recording('second-recording', 12.5, .7), client(), client())
+    history.refresh(snapshot('second', first=first, second=second), force=True)
+    assert history.for_recording('first-recording') is None
+    assert history.for_recording('second-recording') is None
+    # A legacy local availability flag cannot substitute for the v3 server ACK.
+    first['local_report_available'] = True
+    history.refresh(snapshot('second', first=first, second=second), force=True)
+    assert history.recent() == () and HISTORY_KEY not in settings
+    second['report_available'] = True
+    history.refresh(snapshot('second', first=first, second=second), force=True)
+    assert history.for_recording('second-recording').url == f'{BASE}/reports/second'
+    assert history.for_recording('first-recording') is None
+    first['report_available'] = True
+    history.refresh(snapshot('second', first=first, second=second), force=True)
+    restored = ValidatorReports()
+    assert restored.for_recording('first-recording').url == f'{BASE}/reports/first'
+    assert restored.for_recording('second-recording').url == f'{BASE}/reports/second'
+
+
+def test_v3_completion_requires_acknowledged_run_end_including_zero(settings):
+    history = ValidatorReports()
+    no_confirmation = run('interrupted', protocol_version='3', report_available=True,
+                          status='finished', finish_reason='run_ended', confirmed_run_end_ms=None)
+    zero_confirmation = run('zero', protocol_version='3', report_available=True,
+                            status='finished', finish_reason='run_ended', confirmed_run_end_ms=0)
+    v2 = run('legacy', status='finished', finish_reason='run_ended')
+    history.refresh(snapshot(None, interrupted=no_confirmation, zero=zero_confirmation, legacy=v2), BASE, force=True)
+    reports = {report.url.rsplit('/', 1)[-1]: report for report in ValidatorReports().recent()}
+    assert reports['interrupted'].status == 'interrupted'
+    assert reports['zero'].status == 'finished'
+    assert reports['legacy'].status == 'finished'
+
+
 def test_reenrollment_requires_new_samples_and_preserves_each_report(settings):
     history = ValidatorReports()
     first_samples = ((10, 500, 0, 2), (11, 500, 0, 3))

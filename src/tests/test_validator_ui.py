@@ -42,6 +42,7 @@ class ValidatorUITests(unittest.TestCase):
         self.enterContext(patch.object(config, 'update_config', self.save))
         self.enterContext(patch.object(config, 'profile_read_only_reason', return_value=''))
         self.enterContext(patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_URL': ''}))
+        self.enterContext(patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_PROTOCOL': ''}))
 
     def save(self, mutate):
         if self.save_success:
@@ -125,6 +126,31 @@ class ValidatorUITests(unittest.TestCase):
         tab.refresh()
         self.assertIn('requested write access', tab.coverage.toolTip())
 
+    def test_external_access_queue_drop_details_support_old_and_partial_snapshots(self):
+        tab = self.tab()
+        self.controller.value['process_access'] = {'mode': 'healthy'}
+        tab.refresh()
+        self.assertNotIn('External Access drops', tab.coverage.toolTip())
+        access = self.controller.value['process_access']
+        access['queueDrops'] = {'etwCallback': 1, 'runBinding': 2,
+                                'payloadPending': 3, 'observationCapacity': 4}
+        self.controller.value['process_access_ipc_skipped'] = 5
+        tab.refresh()
+        for detail in ('ETW callback queue: 1', 'before run binding: 2',
+                       'before payload: 3', 'observation capacity: 4',
+                       'diagnostic updates skipped: 5'):
+            self.assertIn(detail, tab.coverage.toolTip())
+        access['queueDrops'] = {'etwCallback': 0, 'runBinding': -1,
+                                'payloadPending': True, 'observationCapacity': '4'}
+        tab.refresh()
+        self.assertIn('ETW callback queue: 0', tab.coverage.toolTip())
+        self.assertNotIn('before run binding:', tab.coverage.toolTip())
+        self.assertNotIn('before payload:', tab.coverage.toolTip())
+        self.assertNotIn('observation capacity:', tab.coverage.toolTip())
+        access['queueDrops'] = None
+        tab.refresh()
+        self.assertNotIn('External Access drops', tab.coverage.toolTip())
+
     def test_local_image_history_shows_counts_gaps_and_attachment_relative_rows(self):
         tab = self.tab()
         self.assertTrue(tab.image_events.isHidden())
@@ -199,6 +225,35 @@ class ValidatorUITests(unittest.TestCase):
         self.assertNotIn(SETTINGS_KEY, self.settings)
         self.assertIn('Invalid service address', tab.settings_feedback.text())
 
+    def test_explicit_v3_environment_selects_loopback_without_persisting_settings(self):
+        self.settings[SETTINGS_KEY] = {'service_url': 'https://existing.example', 'autostart': False}
+        with patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_PROTOCOL': '3',
+                                    'BONKSCANNER_VALIDATOR_URL': 'http://127.0.0.1:8043'}):
+            tab = self.tab()
+            tab._enable()
+        self.assertEqual(self.controller.starts, [('http://127.0.0.1:8043',
+                         {'allow_loopback': True, 'protocol_version': '3'})])
+        self.assertEqual(self.settings[SETTINGS_KEY], {'service_url': 'https://existing.example',
+                                                      'autostart': False})
+        current = {'session_id': 'current-id', 'status': 'active', 'protocol_version': '3',
+                   'report_available': False, 'local_report_available': True}
+        self.controller.value.update(state='observing', enabled=True, active_run_id='current',
+                                     delivery={'configured': True, 'runs': {'current': current}})
+        tab.refresh()
+        self.assertFalse(tab.copy_link.isEnabled())
+        self.assertEqual(self.button.accessibleName(), 'Validator · Observing')
+        current['report_available'] = True
+        tab.refresh()
+        with patch('ui.validator.QApplication.clipboard') as clipboard:
+            tab.copy_link.click()
+            clipboard.return_value.setText.assert_called_once_with('http://127.0.0.1:8043/reports/current-id')
+
+    def test_v3_without_explicit_url_does_not_select_saved_server(self):
+        self.settings[SETTINGS_KEY] = {'service_url': 'https://existing.example'}
+        with patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_PROTOCOL': '3', 'BONKSCANNER_VALIDATOR_URL': ''}):
+            tab = self.tab()
+            self.assertEqual(tab.url.text(), '')
+
     def test_copy_uses_only_current_registered_session_and_rechecks_on_click(self):
         tab = self.tab()
         tab.url.setText('https://validator.example/base/')
@@ -244,6 +299,17 @@ class ValidatorUITests(unittest.TestCase):
         self.assertIn('Last report', tab.delivery.text())
         self.assertIn('unconfirmed', tab.delivery.text())
         self.assertFalse(tab.copy_link.isEnabled())
+
+    def test_v3_finish_ack_without_run_end_does_not_claim_completion(self):
+        tab = self.tab()
+        run = {'session_id': 'ended', 'status': 'finished', 'finish_requested': True,
+               'protocol_version': '3', 'report_available': True, 'confirmed_run_end_ms': None}
+        self.controller.value['delivery'] = {'configured': True, 'runs': {'ended': run}}
+        tab.refresh()
+        self.assertIn('Observation interrupted', tab.delivery.text())
+        run['confirmed_run_end_ms'] = 0
+        tab.refresh()
+        self.assertIn('Completion confirmed', tab.delivery.text())
 
     def test_report_process_access_separates_negotiation_from_local_etw(self):
         tab = self.tab()

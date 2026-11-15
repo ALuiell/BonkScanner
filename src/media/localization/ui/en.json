@@ -1,4 +1,8 @@
 {
+  "app.5cccbac8356199c4": "External Access drops before run binding: {p0}",
+  "app.7225e1fe48504942": "External Access drops at observation capacity: {p0}",
+  "app.b51ab48c92563e3a": "External Access drops at ETW callback queue: {p0}",
+  "app.b72fe0284ab98663": "External Access drops before payload: {p0}",
   "app.14a69131a9fc2b81": "Partial ETW coverage since {p0} after attachment",
   "app.4a97f4a8e737696b": "An unknown process successfully opened MegaBonk and requested write access.",
   "app.5676e28fc9b62288": "Local ETW: {p0}",

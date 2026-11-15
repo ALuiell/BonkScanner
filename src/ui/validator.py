@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import ntpath
 import os
+from urllib.parse import urlsplit
 
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -38,6 +39,7 @@ class ValidatorTab(QScrollArea):
         self._live_strip = None
         self._refresh_recording_report = None
         self._startup_checked = False
+        self._protocol_version = '3' if os.environ.get('BONKSCANNER_VALIDATOR_PROTOCOL') == '3' else '2'
         self._active_base = ''
         self._current_link = ''
         self._copied_link = ''
@@ -155,13 +157,21 @@ class ValidatorTab(QScrollArea):
         url_label = l10n.localized(QLabel, l10n.tr('Validator service:'))
         layout.addWidget(url_label)
         stored_url = settings.get('service_url')
-        saved_url = stored_url if isinstance(stored_url, str) else os.environ.get('BONKSCANNER_VALIDATOR_URL', '')
+        env_url = os.environ.get('BONKSCANNER_VALIDATOR_URL', '')
+        saved_url = (env_url if self._protocol_version == '3' else
+                     stored_url if isinstance(stored_url, str) else env_url)
         self.url = QLineEdit(saved_url)
         self.url.setPlaceholderText('https://…')
         url_label.setBuddy(self.url)
         layout.addWidget(self.url)
         self.local_test = l10n.localized(QCheckBox, l10n.tr('Allow a local test receiver'))
-        self.local_test.setChecked(isinstance(stored_url, str) and settings.get('allow_loopback') is True)
+        try:
+            env_loopback = (self._protocol_version == '3' and
+                            urlsplit(env_url).hostname in ('127.0.0.1', 'localhost', '::1'))
+        except ValueError:
+            env_loopback = False
+        self.local_test.setChecked(env_loopback or (self._protocol_version != '3' and
+                                   isinstance(stored_url, str) and settings.get('allow_loopback') is True))
         layout.addWidget(self.local_test)
         self.save_service = l10n.localized(QPushButton, l10n.tr('Save service settings'))
         self.save_service.clicked.connect(self._save_service)
@@ -214,7 +224,10 @@ class ValidatorTab(QScrollArea):
     def _enable(self):
         self.refresh()
         base, allow_loopback = self._endpoint()
-        if self.controller.enable(base, allow_loopback=allow_loopback):
+        options = {'allow_loopback': allow_loopback}
+        if self._protocol_version == '3':
+            options['protocol_version'] = '3'
+        if self.controller.enable(base, **options):
             self._active_base = base
         self.refresh()
 
@@ -312,6 +325,17 @@ class ValidatorTab(QScrollArea):
         skipped = snapshot.get('process_access_ipc_skipped', 0)
         if skipped:
             details.append(l10n.tr('Local ETW diagnostic updates skipped: {p0}', p0=skipped))
+        drops = access.get('queueDrops')
+        if isinstance(drops, dict):
+            for key, message in (
+                ('etwCallback', lambda n: l10n.tr('External Access drops at ETW callback queue: {p0}', p0=n)),
+                ('runBinding', lambda n: l10n.tr('External Access drops before run binding: {p0}', p0=n)),
+                ('payloadPending', lambda n: l10n.tr('External Access drops before payload: {p0}', p0=n)),
+                ('observationCapacity', lambda n: l10n.tr('External Access drops at observation capacity: {p0}', p0=n)),
+            ):
+                count = drops.get(key)
+                if type(count) is int and count >= 0:
+                    details.append(message(count))
         self.coverage.setToolTip('\n'.join(details))
         self._refresh_image_events(access)
         self._refresh_security_audit(snapshot)
@@ -442,7 +466,7 @@ class ValidatorTab(QScrollArea):
         self.run_id.setText(session_id or '')
         self.copy_link.setVisible(bool(session_id))
         self.copy_link.setEnabled(bool(session_id))
-        self._current_link = report_url(self._active_base, session_id)
+        self._current_link = report_url(self._active_base, session_id, current.get('protocol_version', '2'))
         if self._current_link != self._copied_link:
             self._copied_link = ''
             self.copy_feedback.hide()
@@ -460,6 +484,9 @@ class ValidatorTab(QScrollArea):
             message = l10n.tr('Service not configured; local observation only')
         elif last_report:
             status = last_report.get('status')
+            if (status == 'finished' and last_report.get('protocol_version') == '3'
+                    and last_report.get('confirmed_run_end_ms') is None):
+                status = 'expired'
             if status in ('active', 'enrolling'):
                 status = 'finish_pending'
             message = l10n.tr('Last report: {p0}', p0=delivery_states.get(status, l10n.tr('Waiting')))

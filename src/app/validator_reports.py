@@ -45,13 +45,16 @@ class _RecordingSample(NamedTuple):
     game_time_seconds: float | None
 
 
-def report_url(base: str, session_id: str | None) -> str:
+def report_url(base: str, session_id: str | None, protocol_version='2') -> str:
     if not base or not session_id:
         return ''
-    return f"{base}/v2/sessions/{quote(session_id, safe='')}"
+    path = 'reports' if protocol_version == '3' else 'v2/sessions'
+    return f"{base}/{path}/{quote(session_id, safe='')}"
 
 
 def report_available(run) -> bool:
+    if run.get('protocol_version') == '3':
+        return bool(run.get('session_id')) and run.get('report_available') is True
     # Packages predating local retention have no explicit availability state.
     return bool(run.get('session_id')) and run.get('local_report_available') is not False
 
@@ -175,14 +178,15 @@ class ValidatorReports:
         self._match_recordings(runs)
         self._run_reports = {}
         for run_id, run in runs.items():
-            previous_url = report_url(base, run.get('previous_session_id'))
+            version = run.get('protocol_version', '2')
+            previous_url = report_url(base, run.get('previous_session_id'), version)
             if previous_url in self._reports:
                 self._reports[previous_url] = replace(
                     self._reports[previous_url], status='interrupted', partial=True,
                 )
             if not report_available(run):
                 continue
-            url = report_url(base, run.get('session_id'))
+            url = report_url(base, run.get('session_id'), version)
             if not url:
                 continue
             report = self._reports.get(url)
@@ -191,7 +195,10 @@ class ValidatorReports:
                 self._reports = {url: report, **self._reports}
             status = run['status']
             reason = run.get('finish_reason')
-            if status == 'finished' and reason not in (None, 'run_ended'):
+            if status == 'finished' and (
+                (version == '3' and run.get('confirmed_run_end_ms') is None)
+                or (version != '3' and reason not in (None, 'run_ended'))
+            ):
                 status = 'interrupted'
             elif run.get('finish_requested') and status in ('active', 'enrolling', 'retrying'):
                 status = 'finish_pending'
@@ -207,6 +214,19 @@ class ValidatorReports:
 
         self._apply_recording_details(runs)
         self._active_report = self._reports.get(self._run_reports.get(self._active_id))
+        active = runs.get(self._active_id, {})
+        if self._active_id and self._active_report is None and active.get('protocol_version') == '3':
+            # Display observation immediately, but never save or expose a link
+            # until the server has acknowledged durable report availability.
+            status = active.get('status', 'enrolling')
+            if status == 'enrolling' and snapshot.get('state') == 'observing':
+                status = 'active'
+            if active.get('finish_requested') and status in ('active', 'enrolling', 'retrying'):
+                status = 'finish_pending'
+            self._active_report = ValidatorReport(
+                '', active.get('started_at') or datetime.now(timezone.utc).isoformat(),
+                status, partial=bool(active.get('partial')),
+            )
         # Sessions from the same run can share a start time. Prefer the newer
         # report on ties, including after a history reload.
         ordered = sorted(self._reports.values(), key=lambda item: item.started, reverse=True)
