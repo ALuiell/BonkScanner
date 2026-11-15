@@ -1328,5 +1328,9 @@
   "app.a731a58c4cf35c01": "Twitch",
   "app.ef4791e898c5c4d7": "Superposición en el juego",
   "app.c082ce5610882b01": "Los contadores de objetos de !session se configuran en la ventana Objetos seguidos, desde la pestaña Sesión.",
-  "app.90386afd09156873": "<b>1. Crea un build y actívalo</b><br><br>Abre <b>Progreso de la build</b> desde la pestaña En directo. La biblioteca puede guardar varios builds. Puedes crearlos, configurarlos, duplicarlos, eliminarlos e importarlos o exportarlos como archivos JSON.<br><br>Solo se sigue un build a la vez. Selecciona <b>Activar</b> en su tarjeta. Editar otro build no lo activa."
+  "app.90386afd09156873": "<b>1. Crea un build y actívalo</b><br><br>Abre <b>Progreso de la build</b> desde la pestaña En directo. La biblioteca puede guardar varios builds. Puedes crearlos, configurarlos, duplicarlos, eliminarlos e importarlos o exportarlos como archivos JSON.<br><br>Solo se sigue un build a la vez. Selecciona <b>Activar</b> en su tarjeta. Editar otro build no lo activa.",
+  "app.ed9518fc9b0811b9": "Cronología ampliada",
+  "app.84908ed21fe2f305": "Cronología normal (predeterminada)",
+  "app.bed5cd3d82946c6b": "Cronología compacta",
+  "app.b6ad1fc80d350349": "Altura de la cronología"
 }

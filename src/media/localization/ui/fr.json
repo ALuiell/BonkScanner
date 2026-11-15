@@ -1328,5 +1328,9 @@
   "app.a731a58c4cf35c01": "Twitch",
   "app.ef4791e898c5c4d7": "Surimpression en jeu",
   "app.c082ce5610882b01": "Les compteurs d’objets de !session se configurent dans la fenêtre Objets suivis, depuis l’onglet Session.",
-  "app.90386afd09156873": "<b>1. Créer un build et l’activer</b><br><br>Ouvrez <b>Progression du build</b> dans l’onglet En direct. La bibliothèque peut contenir plusieurs builds. Vous pouvez les créer, les configurer, les dupliquer, les supprimer et les importer ou exporter au format JSON.<br><br>Un seul build est suivi à la fois. Choisissez <b>Activer</b> sur sa fiche. Modifier un autre build ne l’active pas."
+  "app.90386afd09156873": "<b>1. Créer un build et l’activer</b><br><br>Ouvrez <b>Progression du build</b> dans l’onglet En direct. La bibliothèque peut contenir plusieurs builds. Vous pouvez les créer, les configurer, les dupliquer, les supprimer et les importer ou exporter au format JSON.<br><br>Un seul build est suivi à la fois. Choisissez <b>Activer</b> sur sa fiche. Modifier un autre build ne l’active pas.",
+  "app.ed9518fc9b0811b9": "Chronologie agrandie",
+  "app.84908ed21fe2f305": "Chronologie normale (par défaut)",
+  "app.bed5cd3d82946c6b": "Chronologie compacte",
+  "app.b6ad1fc80d350349": "Hauteur de la chronologie"
 }

@@ -13,6 +13,78 @@ import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 
 class RecordingsLayoutTests(unittest.TestCase):
+    def test_timeline_size_restores_and_changes_with_library_open(self) -> None:
+        script = textwrap.dedent(
+            """
+            import os
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            import src
+            from PySide6.QtWidgets import QApplication, QTabWidget
+            from app import config
+            from ui.tabs.player_stats.recordings import RecordingsTab
+
+            class Library:
+                index = ()
+                def ensure_refresh(self):
+                    pass
+
+            config.user_config["RECORDING_TIMELINE_SIZE"] = "compact"
+            config.user_config["RECORDINGS_LIBRARY_OPEN"] = True
+            saved = []
+            def save(payload):
+                saved.append(dict(payload))
+                return config.ConfigSaveResult(success=True, reason="")
+            config.save_config = save
+            app = QApplication([])
+            tabview = QTabWidget()
+            view = RecordingsTab(
+                tabview=tabview, vod_library=Library(), window=lambda: None,
+                vod_recorder=lambda: None, is_active=lambda: True,
+                log=lambda *_args, **_kwargs: None,
+            )
+            view.build()
+            view.build_now()
+            tabview.resize(1200, 850)
+            tabview.show()
+            for _ in range(4):
+                app.processEvents()
+            tabview.resize(1199, 849)
+            for _ in range(4):
+                app.processEvents()
+
+            toggle = view._timeline_size_toggle
+            assert view._chooser_expanded
+            assert toggle.segment("compact").isChecked()
+            assert view._scrubber.height() == 96, view._scrubber.height()
+            assert view._compare_hint_label.x() < toggle.x() < view._timeline_help_button.x()
+            assert toggle.x() + toggle.width() <= view._timeline_help_button.x()
+            assert view._timeline_help_button.x() + view._timeline_help_button.width() <= view._position_label.x()
+            assert view._position_label.x() + view._position_label.width() <= view._position_label.parentWidget().width()
+            assert view._legend_label.isVisibleTo(view._tab)
+            for mode, height in (("expanded", 204), ("standard", 150), ("compact", 96)):
+                toggle.segment(mode).click()
+                for _ in range(4):
+                    app.processEvents()
+                assert toggle.segment(mode).isChecked()
+                assert view._scrubber.height() == height, (mode, view._scrubber.height())
+                assert config.user_config["RECORDING_TIMELINE_SIZE"] == mode
+                assert view._legend_label.isVisibleTo(view._tab)
+            count = len(saved)
+            toggle.segment("compact").click()
+            assert len(saved) == count
+            assert saved[-1]["RECORDING_TIMELINE_SIZE"] == "compact"
+            print("RECORDING_TIMELINE_SIZE_OK")
+            """
+        )
+        env = os.environ.copy()
+        env.setdefault("QT_QPA_PLATFORM", "offscreen")
+        result = subprocess.run(
+            [sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[2],
+            env=env, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("RECORDING_TIMELINE_SIZE_OK", result.stdout)
+
     def test_recordings_reuses_the_live_stats_card_composition(self) -> None:
         script = textwrap.dedent(
             """

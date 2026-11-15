@@ -26,6 +26,12 @@ from core.stats.formats import PlayerStatFormat
 from core.stats.formatters import format_player_stat_value
 from projections import scrubber as model_module
 from projections.timeline_axis import AXIS_PROGRESS, TimelineAxisProjection
+from app.vod_library import (
+    TIMELINE_COMPACT,
+    TIMELINE_EXPANDED,
+    TIMELINE_STANDARD,
+    normalize_timeline_size,
+)
 from ui.timeline_visuals import (
     stage_caption,
     MARKER_STRIP_HEIGHT,
@@ -103,12 +109,17 @@ class RecordingScrubber(QWidget):
         self._static_layer: QPixmap | None = None
         self._static_cache_key = None
         self._static_rebuilds = 0
-        self.setMinimumHeight(150)
+        self.set_timeline_size(TIMELINE_STANDARD)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(False)
         self.setCursor(Qt.PointingHandCursor)
         l10n.RefreshBinding(self, self._on_language_changed)
+
+    def set_timeline_size(self, mode: str) -> None:
+        """Resize the chart without changing its selection or plotted content."""
+        heights = {TIMELINE_EXPANDED: 204, TIMELINE_STANDARD: 150, TIMELINE_COMPACT: 96}
+        self.setMinimumHeight(heights[normalize_timeline_size(mode)])
 
     def _on_language_changed(self):
         self._invalidate_static_layer()

@@ -78,14 +78,17 @@ from app.vod_library import (
     delete_vods_below_snapshot_count,
     load_vod,
     minimum_snapshot_count,
+    normalize_timeline_size,
     recording_library_open,
     recording_library_width,
     recording_sort_mode,
+    recording_timeline_size,
     rename_vod,
     set_minimum_snapshot_count,
     set_recording_library_open,
     set_recording_library_width,
     set_recording_sort_mode,
+    set_recording_timeline_size,
 )
 from app.latest_wins_loader import LatestWinsLoader
 from core.run_summary import item_counts
@@ -141,6 +144,7 @@ from ui.tabs.player_stats.summary_cards import (
 )
 from ui import formatting
 from projections import scrubber as scrubber_model
+from ui.timeline_size import TimelineSizeToggle
 from ui.timeline_controls import (
     TIMELINE_SERIES_GROUPS,
     TimelineSeriesSlots,
@@ -564,6 +568,8 @@ class RecordingsTab:
         self._scrubber = None
         self._position_label = None
         self._compare_hint_label = None
+        self._timeline_size_toggle = None
+        self._timeline_size_mode = recording_timeline_size()
         self._legend_label = None
         self._legend_meta_label = None
         self._slot_buttons = []
@@ -762,6 +768,19 @@ class RecordingsTab:
             lambda: set_recording_sort_mode(self._recordings_sort_mode()),
         )
         self.refresh_vods_list(refresh_index=False)
+
+    def _on_timeline_size_changed(self, mode: str) -> None:
+        mode = normalize_timeline_size(mode)
+        if mode == self._timeline_size_mode:
+            return
+        self._timeline_size_mode = mode
+        if self._scrubber is not None:
+            self._scrubber.set_timeline_size(mode)
+        if self._timeline_size_toggle is not None:
+            self._timeline_size_toggle.set_active(mode)
+        self._save_recording_preference(
+            "recording timeline size", lambda: set_recording_timeline_size(mode)
+        )
 
     def _save_recording_preference(self, label: str, writer) -> bool:
         """Keep config I/O failures inside their Qt signal/timer boundary."""
@@ -2271,6 +2290,10 @@ class RecordingsTab:
         self._compare_hint_label.setObjectName("RecordingScrubberCompareHint")
         self._compare_hint_label.setTextFormat(Qt.RichText)
         row.addWidget(self._compare_hint_label)
+        self._timeline_size_toggle = TimelineSizeToggle(self._timeline_size_mode)
+        self._timeline_size_toggle.setObjectName("RecordingTimelineSizeToggle")
+        self._timeline_size_toggle.activated.connect(self._on_timeline_size_changed)
+        row.addWidget(self._timeline_size_toggle, 0, Qt.AlignVCenter)
         self._timeline_help_button = build_recording_timeline_help_button()
         row.addWidget(self._timeline_help_button)
         self._position_label = l10n.localized(QLabel, '--')
@@ -2513,6 +2536,7 @@ class RecordingsTab:
         vods_detail_layout.addWidget(self._build_record_plaque())
         vods_detail_layout.addLayout(self._build_scrubber_header())
         self._scrubber = RecordingScrubber()
+        self._scrubber.set_timeline_size(self._timeline_size_mode)
         if self._uses_default_snapshot_throttle:
             # A queued scrub frame writes dozens of child widgets. Bind its
             # timer to their owning scrubber so Qt cancels delivery with the

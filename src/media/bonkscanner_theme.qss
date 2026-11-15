@@ -637,6 +637,29 @@ QPushButton#segment[active="true"][role="halt"][variant="armed"]:pressed {
     background-color: rgba(250, 204, 21, 0.18);
 }
 
+QFrame[timelineSizeToggle="true"] {
+    background: #0B0F14;
+    border: 1px solid #26313E;
+    border-radius: 7px;
+}
+QFrame[timelineSizeToggle="true"] QPushButton#segment {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 0;
+}
+QFrame[timelineSizeToggle="true"] QPushButton#segment:hover {
+    background: #141A22;
+    border-color: #38495E;
+}
+QFrame[timelineSizeToggle="true"] QPushButton#segment:checked {
+    background: #24415F;
+    border-color: #3E82C6;
+}
+QFrame[timelineSizeToggle="true"] QPushButton#segment:focus {
+    border-color: #4DA3FF;
+}
+
 /* --------------------------------------------------------- tab hero -------- */
 /* Шапка вкладок OBS / Twitch / In-game. Левая полоса цветом --info — это
    единственное, что отличает её от обычной карточки, и она же связывает три

@@ -105,11 +105,13 @@ __all__ = [
     "recording_library_open",
     "recording_library_width",
     "recording_sort_mode",
+    "recording_timeline_size",
     "rename_vod",
     "set_minimum_snapshot_count",
     "set_recording_library_open",
     "set_recording_library_width",
     "set_recording_sort_mode",
+    "set_recording_timeline_size",
 ]
 
 
@@ -127,6 +129,29 @@ def recording_sort_mode() -> str:
 def set_recording_sort_mode(mode: str):
     config.user_config[RECORDING_SORT_CONFIG_KEY] = normalize_recording_sort_mode(mode)
     return config.save_config(config.user_config)
+
+
+TIMELINE_EXPANDED = "expanded"
+TIMELINE_STANDARD = "standard"
+TIMELINE_COMPACT = "compact"
+RECORDING_TIMELINE_SIZE_CONFIG_KEY = "RECORDING_TIMELINE_SIZE"
+
+
+def normalize_timeline_size(value: object, *, default: str = TIMELINE_STANDARD) -> str:
+    if isinstance(value, str) and value in (TIMELINE_EXPANDED, TIMELINE_STANDARD, TIMELINE_COMPACT):
+        return value
+    return default
+
+
+def recording_timeline_size() -> str:
+    return normalize_timeline_size(config.user_config.get(RECORDING_TIMELINE_SIZE_CONFIG_KEY))
+
+
+def set_recording_timeline_size(mode: str):
+    mode = normalize_timeline_size(mode)
+    return config.update_config(
+        lambda candidate: candidate.update({RECORDING_TIMELINE_SIZE_CONFIG_KEY: mode})
+    )
 
 
 #: Where the Recordings tab remembers its library drawer -- whether it is open,

@@ -1328,5 +1328,9 @@
   "app.a731a58c4cf35c01": "Twitch",
   "app.ef4791e898c5c4d7": "Game Overlay",
   "app.c082ce5610882b01": "Tracked item counters for !session are configured in the Tracked Items window, on the Session tab.",
-  "app.90386afd09156873": "<b>1. Create a build and make it active</b><br><br>Open <b>Build Progression</b> from the Live tab. Your library can hold multiple builds: create, configure, duplicate, delete, import, or export them as JSON files.<br><br>Only one build is tracked at a time. Select <b>Set Active</b> on its library card; editing another build does not activate it."
+  "app.90386afd09156873": "<b>1. Create a build and make it active</b><br><br>Open <b>Build Progression</b> from the Live tab. Your library can hold multiple builds: create, configure, duplicate, delete, import, or export them as JSON files.<br><br>Only one build is tracked at a time. Select <b>Set Active</b> on its library card; editing another build does not activate it.",
+  "app.ed9518fc9b0811b9": "Expanded timeline",
+  "app.84908ed21fe2f305": "Standard timeline (default)",
+  "app.bed5cd3d82946c6b": "Compact timeline",
+  "app.b6ad1fc80d350349": "Timeline height"
 }

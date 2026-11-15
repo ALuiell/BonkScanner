@@ -1328,5 +1328,9 @@
   "app.a731a58c4cf35c01": "Twitch",
   "app.ef4791e898c5c4d7": "Spiel-Overlay",
   "app.c082ce5610882b01": "Die Gegenstandszähler für !session werden im Fenster Verfolgte Gegenstände im Tab „Sitzung“ eingerichtet.",
-  "app.90386afd09156873": "<b>1. Einen Build erstellen und aktivieren</b><br><br>Öffnen Sie <b>Build-Fortschritt</b> im Tab „Live“. Die Bibliothek kann mehrere Builds enthalten. Sie können Builds erstellen, konfigurieren, duplizieren, löschen sowie als JSON-Dateien importieren und exportieren.<br><br>Es wird immer nur ein Build verfolgt. Wählen Sie auf seiner Karte <b>Aktivieren</b>. Das Bearbeiten eines anderen Builds aktiviert ihn nicht."
+  "app.90386afd09156873": "<b>1. Einen Build erstellen und aktivieren</b><br><br>Öffnen Sie <b>Build-Fortschritt</b> im Tab „Live“. Die Bibliothek kann mehrere Builds enthalten. Sie können Builds erstellen, konfigurieren, duplizieren, löschen sowie als JSON-Dateien importieren und exportieren.<br><br>Es wird immer nur ein Build verfolgt. Wählen Sie auf seiner Karte <b>Aktivieren</b>. Das Bearbeiten eines anderen Builds aktiviert ihn nicht.",
+  "app.ed9518fc9b0811b9": "Erweiterte Zeitleiste",
+  "app.84908ed21fe2f305": "Normale Zeitleiste (Standard)",
+  "app.bed5cd3d82946c6b": "Kompakte Zeitleiste",
+  "app.b6ad1fc80d350349": "Höhe der Zeitleiste"
 }
