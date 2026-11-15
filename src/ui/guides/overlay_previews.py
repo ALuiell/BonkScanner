@@ -181,60 +181,44 @@ class WidgetThumbnail(QWidget):
         painter.end()
 
 
-def _tile(name, note, capture):
+def _tile(name, note, capture, *, height: int = 99):
     tile = QFrame()
     tile.setObjectName("GuideWidgetTile")
     layout = QVBoxLayout(tile)
     layout.setContentsMargins(9, 8, 9, 8)
     layout.setSpacing(5)
     layout.addWidget(_caption(name, "GuideWidgetName"))
-    layout.addWidget(WidgetThumbnail(name, capture))
+    layout.addWidget(WidgetThumbnail(name, capture, height=height))
     layout.addWidget(_caption(lambda: message(note), "GuideWidgetNote"), 1, Qt.AlignTop)
     return tile
-
-
-def _editor_example() -> QFrame:
-    panel = QFrame()
-    panel.setObjectName("GuideWidgetTile")
-    row = QHBoxLayout(panel)
-    row.setContentsMargins(9, 8, 9, 8)
-    row.setSpacing(12)
-    title = lambda: ui("Overlay Layout Editor")
-    editor = WidgetThumbnail(title, lambda _: QPixmap(str(_ASSETS / "obs-editor-strip.png")), height=117)
-    row.addWidget(editor, 3)
-    details = QVBoxLayout()
-    details.setSpacing(5)
-    details.addStretch(1)
-    details.addWidget(_caption(title, "GuideWidgetName"))
-    details.addWidget(_caption(lambda: message("overlay.obs.workflow"), "GuideWidgetNote"))
-    details.addStretch(1)
-    row.addLayout(details, 2)
-    return panel
 
 
 def build_overlay_previews(topic: str, widgets: OverlayPreviewWidgets) -> QWidget:
     panel = QFrame()
     panel.setObjectName("overlayGuidePreview")
+    panel.setProperty("overlay", topic)
     panel.setStyleSheet("""
         QFrame#overlayGuidePreview {background:#111b29; border:1px solid #2b3c50; border-radius:10px;}
         QFrame#GuideWidgetTile {background:#152131; border:1px solid #2b3c50; border-radius:8px;}
         QLabel#GuideWidgetName {color:#e6eff9; font-size:13px; font-weight:700; background:transparent;}
+        QFrame#overlayGuidePreview[overlay="obs"] QLabel#GuideWidgetName {font-size:14px;}
         QLabel#GuideWidgetNote {color:#adc0d1; font-size:12px; background:transparent;}
         QWidget#GuideWidgetShot {background:#101925; border:1px solid #304358; border-radius:5px;}
     """)
     layout = QVBoxLayout(panel)
+    obs = topic == "obs"
     layout.setContentsMargins(11, 9, 11, 10)
-    layout.setSpacing(8)
+    layout.setSpacing(12 if obs else 8)
     layout.addWidget(_caption(lambda: message("overlay.example_data"), "GuideWidgetNote"))
-    if topic == "obs":
+    if obs:
         samples = (
             (lambda: ui("KPS"), "overlay.kps.note", "obs-kps.png"),
             (lambda: ui("Luck"), "overlay.luck_expected.note", "obs-luck.png"),
             (lambda: ui("Stage Summary"), "overlay.stage.note", "obs-stage-summary.png"),
+            (lambda: ui("Overlay Layout Editor"), "overlay.obs.workflow", "obs-editor-strip.png"),
         )
         entries = [(name, note, lambda _owner, file=filename: QPixmap(str(_ASSETS / file)))
                    for name, note, filename in samples]
-        columns = 3
     elif topic == "game_overlay":
         entries = (
             (lambda: localization().text("igo.powerups"), "overlay.powerups.note", lambda owner: _native_shot(owner, lambda parent: _powerups(parent, widgets))),
@@ -243,19 +227,17 @@ def build_overlay_previews(topic: str, widgets: OverlayPreviewWidgets) -> QWidge
              lambda owner: _native_shot(owner, lambda parent: _luck(parent, widgets))),
             (lambda: localization().text("igo.map_activity_markers"), "overlay.map.note", lambda owner: _map_shot(owner, widgets)),
         )
-        columns = 2
     else:
         raise ValueError(f"Unknown overlay topic: {topic}")
 
     grid = QGridLayout()
-    grid.setSpacing(8)
+    grid.setSpacing(12 if obs else 8)
     for index, entry in enumerate(entries):
-        grid.addWidget(_tile(*entry), index // columns, index % columns)
-        grid.setColumnStretch(index % columns, 1)
+        grid.addWidget(_tile(*entry, height=120 if obs else 99), index // 2, index % 2)
+    for column in range(2):
+        grid.setColumnStretch(column, 1)
     layout.addLayout(grid)
-    if topic == "obs":
-        layout.addWidget(_editor_example())
-    else:
+    if not obs:
         layout.addWidget(_caption(
             lambda: message("overlay.game.layout", scale=localization().text("igo.scale")),
             "GuideWidgetNote",

@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
+    QStyle,
+    QStyleOptionButton,
     QVBoxLayout,
     QWidget,
 )
@@ -24,9 +26,10 @@ from ui import i18n as l10n
 from ui.dialogs.shell import DIALOG_REGULAR, dialog_body
 from ui.shared import resource_path
 from .guide_locale import bind, message, ui
+from .live_preview import LiveStatsGuidePreview
 from .merchant_previews import build_merchant_preview
 from .overlay_previews import build_overlay_previews
-from .recording_preview import RunGuidePreview
+from .recording_preview import RecordingsGuidePreview
 from .roll_analytics_preview import build_roll_analytics_preview
 from .widget_previews import build_preview
 
@@ -53,7 +56,7 @@ class Topic:
         return self.text("summary", **{key: ui(label) for key, label in labels.get(self.key, {}).items()})
 
     def menu(self) -> str:
-        return ui(self.path[0]) if self.key == "game_overlay" else self.text("menu")
+        return ui(self.path[0]) if self.key in ("live", "recordings", "game_overlay") else self.text("menu")
 
     def action_caption(self, *, secondary: bool = False) -> str:
         route = self.secondary if secondary else self.action
@@ -69,7 +72,8 @@ class Topic:
 TOUR = (
     Topic("welcome", ("BonkScanner",), "restart"),
     Topic("restart", ("Settings", "Restart"), "settings:restart"),
-    Topic("live", ("Live", "Recordings"), "tab:Live", "tab:Recordings"),
+    Topic("live", ("Live Stats",), "tab:Live"),
+    Topic("recordings", ("Recordings",), "tab:Recordings"),
     Topic("obs", ("OBS",), "obs:editor"),
     Topic("game_overlay", ("Game Overlay",), "tab:Game Overlay"),
 )
@@ -90,7 +94,8 @@ PREMIUM = (
 
 _STYLE = """
 QDialog#QuickGuidePreview { background: #10151c; }
-QFrame#GuideRail { background:#0d131b; border:1px solid #263242; border-radius:10px; }
+QFrame#GuideSection { background:#0d131b; border:1px solid #2c4055; border-radius:10px; }
+QFrame#GuideSection[section="premium"] { background:#171522; border-color:#3d334f; }
 QFrame#GuideCard { background:#141d29; border:1px solid #34445a; border-radius:12px; }
 QWidget#GuideChoiceArea { background:#141d29; }
 QLabel#GuideChoiceTitle, QLabel#GuideChoiceDetail, QLabel#GuideChoiceArrow, QLabel#GuideChoiceIcon {
@@ -98,6 +103,8 @@ QLabel#GuideChoiceTitle, QLabel#GuideChoiceDetail, QLabel#GuideChoiceArrow, QLab
 }
 QLabel#GuideChoiceTitle { color:#eaf4ff; font-size:15px; font-weight:700; }
 QLabel#GuideChoiceDetail { color:#a8bed2; font-size:12px; }
+QWidget#GuideChoiceArea[context="welcome"] QLabel#GuideChoiceTitle { font-size:17px; }
+QWidget#GuideChoiceArea[context="welcome"] QLabel#GuideChoiceDetail { font-size:13px; }
 QLabel#GuideChoiceArrow { color:#85b9e5; font-size:21px; }
 QPushButton#GuideChoiceButton {
     background:#172638; border:1px solid #304963; border-radius:10px; padding:0;
@@ -106,9 +113,10 @@ QPushButton#GuideChoiceButton:hover, QPushButton#GuideChoiceButton:focus:!hover 
     background:#213b55; border-color:#5587b3;
 }
 QPushButton#GuideChoiceButton:pressed { background:#284764; border-color:#78a9d4; }
-QScrollArea#GuideScroll { background:transparent; border:0; }
+QScrollArea#GuideScroll, QScrollArea#GuideRail { background:transparent; border:0; }
 QWidget#GuideScrollContent { background:transparent; }
-QLabel#GuideGroup { color:#8599b0; font-size:11px; font-weight:700; }
+QLabel#GuideGroup { background:transparent; color:#9cbfe0; font-size:12px; font-weight:700; }
+QFrame#GuideSection[section="premium"] QLabel#GuideGroup { color:#c4aee7; }
 QLabel#GuidePath { color:#8ccaff; font-size:12px; font-weight:600; }
 QLabel#GuideTitle { color:#f0f5fa; font-size:27px; font-weight:700; }
 QLabel#GuideSummary { color:#becbda; font-size:14px; }
@@ -123,6 +131,11 @@ QPushButton#GuideTopic:checked {
     background:#1b324a; border-color:#385c7e; color:#e0f1ff;
 }
 QPushButton#GuideTopic:focus { border-color:#63abeb; }
+QFrame#GuideSection[section="premium"] QPushButton#GuideTopic:hover { background:#241d35; }
+QFrame#GuideSection[section="premium"] QPushButton#GuideTopic:checked {
+    background:#302442; border-color:#624984; color:#f2e9ff;
+}
+QFrame#GuideSection[section="premium"] QPushButton#GuideTopic:focus { border-color:#a188ce; }
 QPushButton#GuidePage {
     background:#172230; border:1px solid #304256; border-radius:6px;
     font-size:15px; color:#d5e7f8; padding:5px 10px;
@@ -154,6 +167,30 @@ def _scroll(content: QWidget) -> QScrollArea:
     return scroll
 
 
+class _TopicButton(QPushButton):
+    def __init__(self):
+        super().__init__()
+        self._caption = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+
+    def set_caption(self, caption: str) -> None:
+        self._caption = caption
+        self.setAccessibleName(caption)
+        self._fit_caption()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit_caption()
+
+    def _fit_caption(self) -> None:
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        contents = self.style().subElementRect(QStyle.SE_PushButtonContents, option, self)
+        text = self.fontMetrics().elidedText(self._caption, Qt.ElideRight, max(0, contents.width()))
+        self.setText(text)
+        self.setToolTip(self._caption if text != self._caption else "")
+
+
 class QuickGuide(QDialog):
     action_requested = Signal(str)
 
@@ -173,8 +210,6 @@ class QuickGuide(QDialog):
         self._welcome_grid = None
         self._welcome_tiles = []
         self._welcome_columns = 0
-        self._run_preview = None
-
         body = dialog_body(self, title=message("guide.title"), width=DIALOG_REGULAR, height=718)
         bind(self.findChild(QLabel, "dialogTitle"), lambda: message("guide.title"))
         self.setMinimumHeight(460)
@@ -205,23 +240,29 @@ class QuickGuide(QDialog):
             self._rail.setFixedWidth(162 if event.size().width() < 820 else 220)
         self._reflow_welcome()
 
-    def _build_rail(self) -> QFrame:
-        rail = QFrame()
-        rail.setObjectName("GuideRail")
-        rail.setFixedWidth(220)
-        rail_layout = QVBoxLayout(rail)
-        rail_layout.setContentsMargins(9, 10, 9, 9)
+    def _build_rail(self) -> QScrollArea:
         navigation = QWidget()
         items = QVBoxLayout(navigation)
-        items.setSpacing(2)
+        items.setSpacing(10)
         items.setContentsMargins(0, 0, 0, 0)
-        for heading, topics in ((lambda: message("guide.tour"), TOUR), ("Premium", PREMIUM)):
+        sections = (
+            ("tour", lambda: message("guide.tour"), TOUR),
+            ("premium", "Premium", PREMIUM),
+        )
+        for section, heading, topics in sections:
+            card = QFrame()
+            card.setObjectName("GuideSection")
+            card.setProperty("section", section)
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(9, 9, 9, 9)
+            card_layout.setSpacing(2)
             label = _label(heading, "GuideGroup")
-            label.setContentsMargins(10, 8, 0, 4)
-            items.addWidget(label)
+            label.setContentsMargins(10, 2, 0, 5)
+            card_layout.addWidget(label)
             for topic in topics:
-                button = bind(QPushButton(), topic.menu)
+                button = _TopicButton()
                 button.setObjectName("GuideTopic")
+                bind(button, topic.menu, method="set_caption")
                 button.setProperty("guideTopic", topic.key)
                 button.setCheckable(True)
                 button.setAutoDefault(False)
@@ -229,10 +270,13 @@ class QuickGuide(QDialog):
                 self._nav.addButton(button)
                 self._buttons[topic.key] = button
                 button.clicked.connect(lambda _checked=False, key=topic.key: self.select(key, animate=True))
-                items.addWidget(button)
-            items.addSpacing(8)
+                card_layout.addWidget(button)
+            items.addWidget(card)
         items.addStretch(1)
-        rail_layout.addWidget(_scroll(navigation))
+        rail = _scroll(navigation)
+        rail.setObjectName("GuideRail")
+        rail.viewport().setAutoFillBackground(False)
+        rail.setFixedWidth(220)
         return rail
 
     def _build_footer(self) -> None:
@@ -257,7 +301,7 @@ class QuickGuide(QDialog):
         self.primary = QPushButton()
         self.primary.setObjectName("primary")
         self.primary.setAutoDefault(False)
-        self.primary.clicked.connect(lambda: self._activate(self._footer_action()))
+        self.primary.clicked.connect(lambda: self._activate(self._topic.action))
         footer.addWidget(self.primary)
         self._shell_outer.addLayout(footer)
 
@@ -288,8 +332,9 @@ class QuickGuide(QDialog):
         elif topic.key == "premium":
             preview = self._premium_overview()
         elif topic.key == "live":
-            preview = self._run_preview = RunGuidePreview(self._app)
-            preview.mode_changed.connect(self._update_footer)
+            preview = LiveStatsGuidePreview()
+        elif topic.key == "recordings":
+            preview = RecordingsGuidePreview(self._app)
         elif topic.key in ("obs", "game_overlay"):
             preview = build_overlay_previews(topic.key, self._overlay_widgets)
         elif topic.key in ("stock", "shady"):
@@ -299,7 +344,10 @@ class QuickGuide(QDialog):
         else:
             preview = build_preview(topic.key)
         preview.setObjectName(preview.objectName() or "GuideExample")
-        if topic.key in ("welcome", "premium"):
+        if topic.key == "welcome":
+            preview.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+            layout.addWidget(preview, 1)
+        elif topic.key == "premium":
             layout.addWidget(preview)
         else:
             preview.setMinimumHeight(max(214, preview.minimumHeight()))
@@ -307,15 +355,16 @@ class QuickGuide(QDialog):
             layout.addWidget(preview, 1)
         if topic.key not in ("obs", "game_overlay") and topic.text("footnote"):
             layout.addWidget(_label(lambda: topic.text("footnote"), "GuideFootnote"))
-        inner_layout.addWidget(card, alignment=Qt.AlignTop if topic.key in ("welcome", "premium") else Qt.Alignment())
+        inner_layout.addWidget(card, alignment=Qt.AlignTop if topic.key == "premium" else Qt.Alignment())
         return _scroll(inner)
 
     def _welcome_choices(self) -> QWidget:
         area = QWidget()
         area.setObjectName("GuideChoiceArea")
+        area.setProperty("context", "welcome")
         self._welcome_grid = QGridLayout(area)
         self._welcome_grid.setContentsMargins(0, 0, 0, 4)
-        self._welcome_grid.setSpacing(10)
+        self._welcome_grid.setSpacing(12)
         choices = (
             ("restart", "help_icon.svg"), ("live", "roll_dice.svg"),
             ("game_overlay", "in_game_icon.svg"), ("premium", "premium_access_icon.svg"),
@@ -352,7 +401,7 @@ class QuickGuide(QDialog):
         button.setAutoDefault(False)
         button.setCursor(Qt.PointingHandCursor)
         button.setMinimumHeight(100 if icon else 72)
-        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding if icon else QSizePolicy.Preferred)
         bind(button, title, method="setAccessibleName")
         bind(button, copy, method="setAccessibleDescription")
         button.clicked.connect(lambda: self.select(destination, animate=True))
@@ -361,7 +410,7 @@ class QuickGuide(QDialog):
         row.setSpacing(11)
         if icon:
             badge = _label("", "GuideChoiceIcon")
-            badge.setPixmap(QIcon(resource_path(f"media/{icon}")).pixmap(21, 21))
+            badge.setPixmap(QIcon(resource_path(f"media/{icon}")).pixmap(30, 30))
             row.addWidget(badge, alignment=Qt.AlignVCenter)
         text = QVBoxLayout()
         text.setSpacing(4)
@@ -385,6 +434,7 @@ class QuickGuide(QDialog):
         self._welcome_grid.setColumnStretch(1, int(columns == 2))
         for index, tile in enumerate(self._welcome_tiles):
             self._welcome_grid.removeWidget(tile)
+            tile.setMinimumHeight(94 if columns == 1 else 136)
             self._welcome_grid.addWidget(tile, index // columns, index % columns)
         self._welcome_columns = columns
 
@@ -429,22 +479,15 @@ class QuickGuide(QDialog):
             self.select(topics[next_index].key, animate=True)
 
     def _activate_secondary(self) -> None:
-        action = self._footer_action(secondary=True)
-        if action:
-            self._activate(action)
-
-    def _footer_action(self, secondary: bool = False) -> str | None:
-        if self._topic.key == "live":
-            secondary = secondary != self._run_preview.recordings_selected
-        return self._topic.secondary if secondary else self._topic.action
+        if self._topic.secondary:
+            self._activate(self._topic.secondary)
 
     def _update_footer(self) -> None:
         topic = self._topic
-        swap = self._footer_action() != topic.action
-        self.primary.setText(topic.action_caption(secondary=swap))
+        self.primary.setText(topic.action_caption())
         self.secondary.setVisible(topic.secondary is not None)
         if topic.secondary is not None:
-            self.secondary.setText(topic.action_caption(secondary=not swap))
+            self.secondary.setText(topic.action_caption(secondary=True))
 
     def _activate(self, action: str) -> None:
         if any(topic.key == action for topic in TOUR + PREMIUM):

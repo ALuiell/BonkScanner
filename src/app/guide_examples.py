@@ -4,7 +4,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from infra.vod_storage import LoadedVod, VodMetadata, VodSnapshot, _record_to_snapshot
+from core.powerup_history import PowerupHistory, PowerupObservation
+from core.stats.types import ChargeShrineSnapshot
+from infra.vod_storage import LoadedVod, VodMetadata, VodSnapshot, _record_to_charge_shrines, _record_to_snapshot
 
 
 @dataclass(frozen=True)
@@ -14,6 +16,7 @@ class RunExample:
     snapshots: tuple[VodSnapshot, ...]
     live_snapshot: VodSnapshot
     vod: LoadedVod
+    live_shrines: ChargeShrineSnapshot | None = None
 
 
 def read_run_example(asset_path: str | Path) -> RunExample:
@@ -34,4 +37,13 @@ def read_run_example(asset_path: str | Path) -> RunExample:
         Path("guide-example.jsonl"), f"{character} · {kill_count:,}", "", 10,
         snapshots[-1].elapsed_seconds, len(snapshots), character_name=character,
     )
-    return RunExample(character, kill_count, snapshots, live_snapshot, LoadedVod(metadata, snapshots))
+    observations = tuple(
+        PowerupObservation.from_record(record)
+        for record in sample.get("powerup_samples", ())
+    )
+    history = PowerupHistory(observations, finalized=True) if observations else None
+    return RunExample(
+        character, kill_count, snapshots, live_snapshot,
+        LoadedVod(metadata, snapshots, powerup_history=history),
+        live_shrines=_record_to_charge_shrines(sample.get("live_shrines")),
+    )

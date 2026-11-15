@@ -7,7 +7,8 @@ _TOPICS = {
     "en": {
         "welcome": ("Quick start", "What would you like to do?", "Find a map, review a run, or show stats over the game.", "Open this guide again from the top bar.", "Find a map"),
         "restart": ("Map Search", "Find the map you want", "Choose Templates or Scores, then press Start to search.", "Recommended hold time: 0.01 s threshold + 0.05 s margin = 0.06 s.", "Open Restart"),
-        "live": ("Live and Recordings", "Follow and review your run", "See real-time data in Live and scrub saved snapshots in Recordings.", "", "Open Live"),
+        "live": ("Live Stats", "Follow your current run", "See how lucky your drops were and where your stat bonuses came from.", "", "Open Live"),
+        "recordings": ("Recordings", "Review a saved run", "Jump to a saved moment, compare two points or check where your damage came from.", "", "Open Recordings"),
         "obs": ("OBS", "Edit your OBS layout", "Open the browser layout editor. Drag to move, resize, and rearrange widgets.", "Copy the browser-source URL into OBS.", "Open layout editor"),
         "game_overlay": ("Game Overlay", "See data over your game", "Show Full Map markers, active powerups, and Luck over the game.", "Arrange the widgets in Game Overlay.", "Open Game Overlay"),
         "premium": ("Overview", "What Premium includes", "Choose a feature to see an example.", "One supporter key activates all Premium features.", "How to get Premium"),
@@ -20,7 +21,8 @@ _TOPICS = {
     "ru": {
         "welcome": ("Быстрый старт", "Что вы хотите сделать?", "Найдите карту, изучите забег или выведите статистику поверх игры.", "Откройте гид снова на верхней панели.", "Найти карту"),
         "restart": ("Поиск карты", "Найдите нужную карту", "Выберите Templates или Scores и нажмите Start для поиска.", "Рекомендуемое удержание: 0,01 с порог + 0,05 с запас = 0,06 с.", "Открыть Restart"),
-        "live": ("Live и записи", "Следите за забегом и изучайте его", "Смотрите данные в реальном времени в Live и перемещайтесь по сохранённым снимкам в Recordings.", "", "Открыть Live"),
+        "live": ("Статистика Live", "Следите за текущим забегом", "Смотрите, насколько повезло с добычей и откуда взялись бонусы к характеристикам.", "", "Открыть Live"),
+        "recordings": ("Записи", "Разберите сохранённый забег", "Перейдите к нужному моменту, сравните две точки или посмотрите, что нанесло больше всего урона.", "", "Открыть записи"),
         "obs": ("OBS", "Измените раскладку OBS", "Откройте редактор в браузере. Перетаскивайте виджеты, меняйте их размеры и расположение.", "Скопируйте URL браузерного источника в OBS.", "Открыть редактор"),
         "game_overlay": ("Game Overlay", "Данные поверх игры", "Показывайте метки Full Map, активные усиления и Luck поверх игры.", "Разместите виджеты в Game Overlay.", "Открыть Game Overlay"),
         "premium": ("Обзор", "Возможности Premium", "Выберите функцию, чтобы посмотреть пример.", "Один ключ поддержки открывает все функции Premium.", "Как получить Premium"),
@@ -33,7 +35,8 @@ _TOPICS = {
     "uk": {
         "welcome": ("Швидкий старт", "Що ви хочете зробити?", "Знайдіть мапу, перегляньте забіг або виведіть статистику поверх гри.", "Відкрийте гід знову на верхній панелі.", "Знайти мапу"),
         "restart": ("Пошук мапи", "Знайдіть потрібну мапу", "Оберіть Templates або Scores і натисніть Start для пошуку.", "Рекомендоване утримання: 0,01 с поріг + 0,05 с запас = 0,06 с.", "Відкрити Restart"),
-        "live": ("Live і записи", "Стежте за забігом і переглядайте його", "Дивіться дані наживо в Live та гортайте збережені знімки в Recordings.", "", "Відкрити Live"),
+        "live": ("Статистика наживо", "Стежте за поточним забігом", "Дивіться, наскільки пощастило зі здобиччю і звідки взялися бонуси до характеристик.", "", "Відкрити Live"),
+        "recordings": ("Записи", "Перегляньте збережений забіг", "Перейдіть до потрібного моменту, порівняйте дві точки або перегляньте джерела шкоди.", "", "Відкрити записи"),
         "obs": ("OBS", "Змініть розкладку OBS", "Відкрийте редактор у браузері. Перетягуйте віджети, змінюйте їхні розміри та розташування.", "Скопіюйте URL джерела браузера в OBS.", "Відкрити редактор"),
         "game_overlay": ("Game Overlay", "Дані поверх гри", "Показуйте мітки Full Map, активні підсилення та Luck поверх гри.", "Розташуйте віджети в Game Overlay.", "Відкрити Game Overlay"),
         "premium": ("Огляд", "Можливості Premium", "Оберіть функцію, щоб переглянути приклад.", "Один ключ підтримки відкриває всі функції Premium.", "Як отримати Premium"),
@@ -46,7 +49,8 @@ _TOPICS = {
     "de": {
         "welcome": ("Schnellstart", "Was möchtest du tun?", "Finde eine Karte, sieh einen Lauf an oder zeige Werte im Spiel.", "Öffne diesen Guide erneut über die obere Leiste.", "Karte finden"),
         "restart": ("Kartensuche", "Finde deine Karte", "Wähle Templates oder Scores und drücke Start für die Suche.", "Empfohlene Haltedauer: 0,01 s Schwelle + 0,05 s Reserve = 0,06 s.", "Restart öffnen"),
-        "live": ("Live und Aufnahmen", "Lauf verfolgen und ansehen", "Sieh Echtzeitdaten in Live und navigiere durch gespeicherte Schnappschüsse in Recordings.", "", "Live öffnen"),
+        "live": ("Live-Statistik", "Verfolge deinen aktuellen Lauf", "Sieh, wie viel Glück du bei der Beute hattest und woher deine Werteboni kommen.", "", "Live öffnen"),
+        "recordings": ("Aufnahmen", "Sieh dir einen gespeicherten Lauf an", "Springe zu einem Zeitpunkt, vergleiche zwei Punkte oder prüfe die Schadensquellen.", "", "Aufnahmen öffnen"),
         "obs": ("OBS", "OBS-Layout bearbeiten", "Öffne den Browser-Layouteditor. Verschiebe und ordne Widgets per Ziehen an und ändere ihre Größe.", "Kopiere die Browserquellen-URL in OBS.", "Layouteditor öffnen"),
         "game_overlay": ("Game Overlay", "Daten im Spiel sehen", "Zeige Full-Map-Markierungen, aktive Powerups und Luck über dem Spiel.", "Ordne Widgets im Game Overlay an.", "Game Overlay öffnen"),
         "premium": ("Übersicht", "Das bietet Premium", "Wähle eine Funktion, um ein Beispiel zu sehen.", "Ein Supporter-Schlüssel schaltet alle Premium-Funktionen frei.", "So erhältst du Premium"),
@@ -59,7 +63,8 @@ _TOPICS = {
     "fr": {
         "welcome": ("Démarrage rapide", "Que voulez-vous faire ?", "Trouvez une carte, consultez une partie ou affichez les stats sur le jeu.", "Rouvrez ce guide depuis la barre supérieure.", "Trouver une carte"),
         "restart": ("Recherche de carte", "Trouvez votre carte", "Choisissez Templates ou Scores, puis appuyez sur Start pour lancer la recherche.", "Maintien recommandé : 0,01 s de seuil + 0,05 s de marge = 0,06 s.", "Ouvrir Restart"),
-        "live": ("Live et enregistrements", "Suivez et revoyez votre partie", "Consultez les données en direct dans Live et parcourez les instantanés sauvegardés dans Recordings.", "", "Ouvrir Live"),
+        "live": ("Stats en direct", "Suivez votre partie en cours", "Voyez si la chance vous a souri côté butin et d’où viennent vos bonus de stats.", "", "Ouvrir Live"),
+        "recordings": ("Enregistrements", "Revoyez une partie enregistrée", "Accédez à un moment sauvegardé, comparez deux points ou consultez les sources de dégâts.", "", "Ouvrir les enregistrements"),
         "obs": ("OBS", "Modifier la disposition OBS", "Ouvrez l'éditeur de disposition dans le navigateur. Déplacez, redimensionnez et réorganisez les widgets par glisser-déposer.", "Copiez l'URL de la source navigateur dans OBS.", "Ouvrir l'éditeur"),
         "game_overlay": ("Game Overlay", "Voir les données sur le jeu", "Affichez les marqueurs Full Map, les bonus actifs et Luck sur le jeu.", "Disposez les widgets dans Game Overlay.", "Ouvrir Game Overlay"),
         "premium": ("Aperçu", "Les fonctions Premium", "Choisissez une fonction pour voir un exemple.", "Une clé de soutien active toutes les fonctions Premium.", "Comment obtenir Premium"),
@@ -72,7 +77,8 @@ _TOPICS = {
     "es": {
         "welcome": ("Inicio rápido", "¿Qué quieres hacer?", "Encuentra un mapa, revisa una partida o muestra estadísticas sobre el juego.", "Vuelve a abrir esta guía desde la barra superior.", "Buscar un mapa"),
         "restart": ("Búsqueda de mapa", "Encuentra tu mapa", "Elige Templates o Scores y pulsa Start para buscar.", "Pulsación recomendada: 0,01 s de umbral + 0,05 s de margen = 0,06 s.", "Abrir Restart"),
-        "live": ("Live y grabaciones", "Sigue y revisa tu partida", "Consulta datos en directo en Live y recorre las capturas guardadas en Recordings.", "", "Abrir Live"),
+        "live": ("Estadísticas en directo", "Sigue tu partida actual", "Mira cuánta suerte tuviste con el botín y de dónde vienen tus bonificaciones de estadísticas.", "", "Abrir Live"),
+        "recordings": ("Grabaciones", "Revisa una partida guardada", "Salta a un momento guardado, compara dos puntos o consulta las fuentes de daño.", "", "Abrir grabaciones"),
         "obs": ("OBS", "Edita el diseño de OBS", "Abre el editor de diseño en el navegador. Arrastra para mover, redimensionar y reorganizar widgets.", "Copia la URL de la fuente de navegador en OBS.", "Abrir editor de diseño"),
         "game_overlay": ("Game Overlay", "Datos sobre el juego", "Muestra los marcadores de Full Map, mejoras activas y Luck sobre el juego.", "Organiza los widgets en Game Overlay.", "Abrir Game Overlay"),
         "premium": ("Resumen", "Qué incluye Premium", "Elige una función para ver un ejemplo.", "Una clave de apoyo activa todas las funciones Premium.", "Cómo obtener Premium"),
@@ -85,7 +91,8 @@ _TOPICS = {
     "pt": {
         "welcome": ("Início rápido", "O que você quer fazer?", "Encontre um mapa, reveja uma partida ou mostre estatísticas sobre o jogo.", "Abra este guia novamente pela barra superior.", "Encontrar mapa"),
         "restart": ("Busca de mapa", "Encontre seu mapa", "Escolha Templates ou Scores e pressione Start para buscar.", "Tempo recomendado: 0,01 s de limite + 0,05 s de margem = 0,06 s.", "Abrir Restart"),
-        "live": ("Live e gravações", "Acompanhe e reveja sua partida", "Veja dados em tempo real em Live e percorra os registros salvos em Recordings.", "", "Abrir Live"),
+        "live": ("Estatísticas ao vivo", "Acompanhe sua partida atual", "Veja quanta sorte teve com o saque e de onde vieram os bônus de atributos.", "", "Abrir Live"),
+        "recordings": ("Gravações", "Reveja uma partida salva", "Vá até um momento salvo, compare dois pontos ou confira as fontes de dano.", "", "Abrir gravações"),
         "obs": ("OBS", "Edite o layout do OBS", "Abra o editor de layout no navegador. Arraste para mover, redimensionar e reorganizar os widgets.", "Copie a URL da fonte de navegador para o OBS.", "Abrir editor de layout"),
         "game_overlay": ("Game Overlay", "Dados sobre o jogo", "Mostre marcadores do Full Map, melhorias ativas e Luck sobre o jogo.", "Organize os widgets no Game Overlay.", "Abrir Game Overlay"),
         "premium": ("Visão geral", "O que o Premium inclui", "Escolha um recurso para ver um exemplo.", "Uma chave de apoiador ativa todos os recursos Premium.", "Como obter Premium"),
@@ -105,7 +112,7 @@ _EXTRA_KEYS = (
     "welcome.game_overlay.title", "welcome.game_overlay.note", "welcome.premium.title", "welcome.premium.note",
     "restart.enabled", "restart.fast_title", "restart.use", "restart.close_game",
     "live.demo", "live.snapshot", "live.bullet.stats", "live.bullet.recordings", "live.bullet.details",
-    "overlay.demo", "topic.live.secondary", "topic.shady.secondary", "topic.roll.secondary",
+    "overlay.demo", "topic.shady.secondary", "topic.roll.secondary",
 )
 _EXTRA = {
     "en": (
@@ -115,7 +122,7 @@ _EXTRA = {
         "Game Overlay", "Widgets over your game", "Premium", "Explore features and activation",
         "On", "Quick restart in BonkScanner", "In {path}, select {button}.", "Close MegaBonk first if you need to change its settings file.",
         "Example recording", "Snapshot at {time}", "Live Loot: chest and key triggers, legendary actual vs expected.", "Scrub saved snapshots by time.", "Mob kills, damage sources, and Dice / Chaos counters when available in recordings.",
-        "Overlay example", "Open Recordings", "Open history", "Open history",
+        "Overlay example", "Open history", "Open history",
     ),
     "ru": (
         "Короткие гиды", "Короткие гиды · BonkScanner", "Тур", "Выберите тему для начала.", "Закрыть",
@@ -124,7 +131,7 @@ _EXTRA = {
         "Game Overlay", "Виджеты поверх игры", "Premium", "Все возможности и активация",
         "Вкл.", "Быстрый рестарт в BonkScanner", "В {path} нажмите {button}.", "Если нужно изменить файл настроек игры, сначала закройте MegaBonk.",
         "Пример записи", "Снимок на {time}", "Live Loot: срабатывания сундуков и ключей, фактические и ожидаемые легендарные предметы.", "Перемещайтесь по сохранённым снимкам во времени.", "Убийства монстров, источники урона и счётчики Dice / Chaos, если они доступны в записи.",
-        "Пример оверлея", "Открыть Recordings", "Открыть историю", "Открыть историю",
+        "Пример оверлея", "Открыть историю", "Открыть историю",
     ),
     "uk": (
         "Короткі гіди", "Короткі гіди · BonkScanner", "Тур", "Оберіть тему, щоб почати.", "Закрити",
@@ -133,7 +140,7 @@ _EXTRA = {
         "Game Overlay", "Віджети поверх гри", "Premium", "Усі можливості й активація",
         "Увімк.", "Швидкий рестарт у BonkScanner", "У {path} натисніть {button}.", "Якщо потрібно змінити файл налаштувань гри, спочатку закрийте MegaBonk.",
         "Приклад запису", "Знімок на {time}", "Live Loot: спрацювання скринь і ключів, фактичні та очікувані легендарні предмети.", "Гортайте збережені знімки за часом.", "Убивства монстрів, джерела шкоди й лічильники Dice / Chaos, якщо вони доступні в записі.",
-        "Приклад оверлею", "Відкрити Recordings", "Відкрити історію", "Відкрити історію",
+        "Приклад оверлею", "Відкрити історію", "Відкрити історію",
     ),
     "de": (
         "Kurzanleitungen", "Kurzanleitungen · BonkScanner", "Tour", "Wähle ein Thema für den Einstieg.", "Schließen",
@@ -142,7 +149,7 @@ _EXTRA = {
         "Game Overlay", "Widgets über dem Spiel", "Premium", "Funktionen und Aktivierung ansehen",
         "An", "Schnellneustart in BonkScanner", "Wähle in {path} die Option {button}.", "Schließe MegaBonk zuerst, wenn du die Einstellungsdatei des Spiels ändern musst.",
         "Beispielaufnahme", "Schnappschuss bei {time}", "Live Loot: Auslösungen von Truhen und Schlüsseln sowie tatsächliche und erwartete legendäre Gegenstände.", "Navigiere zeitlich durch gespeicherte Schnappschüsse.", "Monster-Kills, Schadensquellen und Dice- / Chaos-Zähler, sofern in Aufnahmen verfügbar.",
-        "Overlay-Beispiel", "Recordings öffnen", "Historie öffnen", "Historie öffnen",
+        "Overlay-Beispiel", "Historie öffnen", "Historie öffnen",
     ),
     "fr": (
         "Guides rapides", "Guides rapides · BonkScanner", "Visite", "Choisissez un sujet pour commencer.", "Fermer",
@@ -151,7 +158,7 @@ _EXTRA = {
         "Game Overlay", "Widgets sur le jeu", "Premium", "Fonctions et activation",
         "Activé", "Redémarrage rapide dans BonkScanner", "Dans {path}, sélectionnez {button}.", "Fermez d'abord MegaBonk si vous devez modifier son fichier de paramètres.",
         "Exemple d'enregistrement", "Instantané à {time}", "Live Loot : déclenchements des coffres et clés, objets légendaires obtenus et attendus.", "Parcourez les instantanés sauvegardés dans le temps.", "Monstres éliminés, sources de dégâts et compteurs Dice / Chaos lorsqu'ils sont disponibles dans les enregistrements.",
-        "Exemple d'overlay", "Ouvrir Recordings", "Ouvrir l'historique", "Ouvrir l'historique",
+        "Exemple d'overlay", "Ouvrir l'historique", "Ouvrir l'historique",
     ),
     "es": (
         "Guías rápidas", "Guías rápidas · BonkScanner", "Recorrido", "Elige un tema para empezar.", "Cerrar",
@@ -160,7 +167,7 @@ _EXTRA = {
         "Game Overlay", "Widgets sobre el juego", "Premium", "Funciones y activación",
         "Activado", "Reinicio rápido en BonkScanner", "En {path}, selecciona {button}.", "Cierra MegaBonk primero si necesitas modificar su archivo de ajustes.",
         "Grabación de ejemplo", "Captura en {time}", "Live Loot: activaciones de cofres y llaves, objetos legendarios reales frente a esperados.", "Recorre las capturas guardadas por tiempo.", "Enemigos eliminados, fuentes de daño y contadores Dice / Chaos cuando estén disponibles en grabaciones.",
-        "Ejemplo de superposición", "Abrir Recordings", "Abrir historial", "Abrir historial",
+        "Ejemplo de superposición", "Abrir historial", "Abrir historial",
     ),
     "pt": (
         "Guias rápidos", "Guias rápidos · BonkScanner", "Tour", "Escolha um tema para começar.", "Fechar",
@@ -169,7 +176,7 @@ _EXTRA = {
         "Game Overlay", "Widgets sobre o jogo", "Premium", "Recursos e ativação",
         "Ativado", "Reinício rápido no BonkScanner", "Em {path}, selecione {button}.", "Feche o MegaBonk primeiro se precisar alterar o arquivo de configurações do jogo.",
         "Exemplo de gravação", "Registro em {time}", "Live Loot: ativações de baús e chaves, itens lendários reais e esperados.", "Percorra os registros salvos por tempo.", "Monstros eliminados, fontes de dano e contadores Dice / Chaos quando disponíveis nas gravações.",
-        "Exemplo de overlay", "Abrir Recordings", "Abrir histórico", "Abrir histórico",
+        "Exemplo de overlay", "Abrir histórico", "Abrir histórico",
     ),
 }
 
@@ -187,7 +194,6 @@ MESSAGES: dict[str, dict[str, str]] = {
 _REFINEMENTS = {
     "en": (
         "Choose {templates} or {scores}, then press {start} to search.",
-        "See real-time data in {live} and scrub saved snapshots in {recordings}.",
         "Loot: chest activity, key triggers, and actual vs expected legendary items.",
         "In recordings: scrub saved snapshots by time.",
         "Analysis: mob kills, damage sources, and Dice / Chaos counters when available in recordings.",
@@ -197,7 +203,6 @@ _REFINEMENTS = {
     ),
     "ru": (
         "Выберите {templates} или {scores} и нажмите {start} для поиска.",
-        "Смотрите данные в реальном времени в {live} и перемещайтесь по сохранённым снимкам в {recordings}.",
         "Loot: сундуки и срабатывания ключей, сколько легендарок выпало и сколько ожидалось.",
         "В записи: перемещайтесь по сохранённым снимкам во времени.",
         "Разбор: убийства монстров, источники урона и счётчики Dice / Chaos, если они доступны в записи.",
@@ -207,7 +212,6 @@ _REFINEMENTS = {
     ),
     "uk": (
         "Оберіть {templates} або {scores} і натисніть {start} для пошуку.",
-        "Дивіться дані наживо в {live} та гортайте збережені знімки в {recordings}.",
         "Loot: скрині й спрацювання ключів, фактичні та очікувані легендарні предмети.",
         "У записі: гортайте збережені знімки за часом.",
         "Аналіз: убивства монстрів, джерела шкоди й лічильники Dice / Chaos, якщо вони доступні в записі.",
@@ -217,7 +221,6 @@ _REFINEMENTS = {
     ),
     "de": (
         "Wähle {templates} oder {scores} und drücke {start} für die Suche.",
-        "Sieh Echtzeitdaten in {live} und navigiere durch gespeicherte Schnappschüsse in {recordings}.",
         "Loot: Truhen, Schlüsselauslösungen und tatsächliche gegenüber erwarteten legendären Gegenständen.",
         "In Aufnahmen: navigiere zeitlich durch gespeicherte Schnappschüsse.",
         "Analyse: Monster-Kills, Schadensquellen und Dice- / Chaos-Zähler, sofern in Aufnahmen verfügbar.",
@@ -227,7 +230,6 @@ _REFINEMENTS = {
     ),
     "fr": (
         "Choisissez {templates} ou {scores}, puis appuyez sur {start} pour lancer la recherche.",
-        "Consultez les données en direct dans {live} et parcourez les instantanés sauvegardés dans {recordings}.",
         "Loot : coffres, déclenchements des clés et objets légendaires obtenus par rapport aux prévisions.",
         "Dans les enregistrements : parcourez les instantanés sauvegardés dans le temps.",
         "Analyse : monstres éliminés, sources de dégâts et compteurs Dice / Chaos lorsqu'ils sont disponibles dans les enregistrements.",
@@ -237,7 +239,6 @@ _REFINEMENTS = {
     ),
     "es": (
         "Elige {templates} o {scores} y pulsa {start} para buscar.",
-        "Consulta datos en directo en {live} y recorre las capturas guardadas en {recordings}.",
         "Loot: cofres, activaciones de llaves y objetos legendarios reales frente a esperados.",
         "En grabaciones: recorre las capturas guardadas por tiempo.",
         "Análisis: enemigos eliminados, fuentes de daño y contadores Dice / Chaos cuando estén disponibles en grabaciones.",
@@ -247,7 +248,6 @@ _REFINEMENTS = {
     ),
     "pt": (
         "Escolha {templates} ou {scores} e pressione {start} para buscar.",
-        "Veja dados em tempo real em {live} e percorra os registros salvos em {recordings}.",
         "Loot: baús, ativações de chaves e itens lendários reais em relação aos esperados.",
         "Na gravação: percorra os registros salvos por tempo.",
         "Análise: monstros eliminados, fontes de dano e contadores Dice / Chaos quando disponíveis nas gravações.",
@@ -257,14 +257,13 @@ _REFINEMENTS = {
     ),
 }
 _REFINEMENT_KEYS = (
-    "topic.restart.summary", "topic.live.summary", "live.bullet.stats", "live.bullet.recordings", "live.bullet.details",
+    "topic.restart.summary", "live.bullet.stats", "live.bullet.recordings", "live.bullet.details",
     "guide.restart_hint", "guide.support_hint", "guide.premium_for", "guide.key_placeholder",
     "demo.game", "demo.markers_on", "demo.markers_off", "demo.show_markers", "demo.roll_total",
     "demo.shady_caption", "demo.offers", "demo.access_key", "demo.obs_error",
 )
 for _language, _values in _REFINEMENTS.items():
     MESSAGES[_language].update(zip(_REFINEMENT_KEYS, _values, strict=True))
-MESSAGES["ru"]["topic.live.menu"] = "Забеги и записи"
 
 _FINAL_COPY = {
     "en": ("Open {target}", "On the OBS tab, click {editor} to open the editor in your browser, then move and resize widgets.", "Show full-map markers, active powerups, and {luck} over the game.", "In recordings: scrub to see items and stats at a saved moment."),
@@ -281,8 +280,6 @@ MESSAGES["ru"].update({
     "topic.restart.summary": "Выберите «{templates}» или «{scores}» и нажмите «{start}».",
     "restart.use": "Откройте {path} и нажмите «{button}».",
     "topic.restart.footnote": "Scanner держит клавишу дольше порога игры. Рекомендуемое удержание — 0,01 с порог + 0,05 с запас = 0,06 с.",
-    "topic.live.title": "Статистика забега",
-    "topic.live.summary": "Смотрите статистику во вкладке «{live}» и возвращайтесь к сохранённым моментам во вкладке «{recordings}».",
     "topic.game_overlay.footnote": "Настройте расположение виджетов во вкладке «Игровой оверлей».",
 })
 
@@ -409,46 +406,38 @@ for _language, _values in _PREMIUM_DESCRIPTIONS.items():
         (f"premium.feature.{key}", description) for key, description in zip(_keys, _values, strict=True)
     )
 
-_RUN_GUIDE_COPY = {
+_RUN_SHORTCUTS = {
     "en": (
-        "Follow your character during a run, then review the moments you saved.",
-        "In {loot}, check chests and key procs, and compare legendary drops with the expected count.",
+        "Drag A with LMB or click a stage card to jump there.",
         "Drag A with LMB or Shift + LMB. Drag B with Shift + RMB. Esc clears B.",
     ),
     "ru": (
-        "Следите за персонажем во время забега и разбирайте сохранённые моменты после него.",
-        "Во вкладке «{loot}» видны сундуки, срабатывания ключей и сколько легендарок выпало по сравнению с ожидаемым числом.",
+        "Перетащите A левой кнопкой мыши или нажмите на карточку этапа, чтобы перейти к нему.",
         "Двигайте A через ЛКМ или Shift + ЛКМ, B через Shift + ПКМ. Esc убирает B.",
     ),
     "uk": (
-        "Стежте за персонажем під час забігу й переглядайте збережені моменти після нього.",
-        "У вкладці «{loot}» видно скрині, спрацювання ключів і кількість легендарних предметів порівняно з очікуваною.",
+        "Перетягніть A лівою кнопкою миші або натисніть картку етапу, щоб перейти до нього.",
         "Рухайте A лівою кнопкою (можна з Shift), а B — Shift + ПКМ. Esc прибирає B.",
     ),
     "de": (
-        "Verfolge deinen Charakter im Lauf und sieh dir danach gespeicherte Momente an.",
-        "Unter „{loot}“ siehst du Truhen, Schlüsselauslösungen und erwartete sowie tatsächliche legendäre Funde.",
+        "Ziehe A mit der linken Maustaste oder klicke auf eine Abschnittskarte, um dorthin zu springen.",
         "Ziehe A mit der linken Maustaste, auch mit Shift. B ziehst du mit Shift und rechter Maustaste. Esc entfernt B.",
     ),
     "fr": (
-        "Suivez votre personnage pendant la partie, puis revoyez les moments enregistrés.",
-        "Dans « {loot} », suivez les coffres et les activations de clés et comparez les objets légendaires obtenus au nombre attendu.",
+        "Déplacez A par clic gauche ou cliquez sur une carte d’étape pour y accéder.",
         "Déplacez A par clic gauche, avec ou sans Maj, et B avec Maj + clic droit. Échap retire B.",
     ),
     "es": (
-        "Sigue a tu personaje durante la partida y revisa después los momentos guardados.",
-        "En «{loot}» puedes ver los cofres, las activaciones de llaves y los objetos legendarios obtenidos frente a los esperados.",
+        "Arrastra A con el botón izquierdo o pulsa una tarjeta de etapa para ir a ella.",
         "Mueve A con clic izquierdo, con o sin Mayús, y B con Mayús + clic derecho. Esc quita B.",
     ),
     "pt": (
-        "Acompanhe seu personagem durante a partida e reveja os momentos salvos depois.",
-        "Em «{loot}», veja baús e ativações de chaves e compare os itens lendários recebidos com o valor esperado.",
+        "Arraste A com o botão esquerdo ou clique no cartão de uma fase para ir até ela.",
         "Mova A com clique esquerdo, com ou sem Shift, e B com Shift + clique direito. Esc remove B.",
     ),
 }
-_RUN_GUIDE_KEYS = ("topic.live.summary", "run.live_note", "run.timeline_hint")
-for _language, _values in _RUN_GUIDE_COPY.items():
-    MESSAGES[_language].update(zip(_RUN_GUIDE_KEYS, _values, strict=True))
+for _language, _values in _RUN_SHORTCUTS.items():
+    MESSAGES[_language].update(zip(("run.keys.timeline", "run.keys.compare"), _values, strict=True))
 
 _RUN_SOURCE_COPY = {
     "en": ("{character} · {kills} kills", "{character} · recorded at {time}"),
@@ -477,51 +466,44 @@ for _language, _values in {
 
 _RUN_SCREEN_COPY = {
     "en": (
-        "Watch your character’s stats, kill rate, and inventory as the run progresses.",
-        "Pick which series to plot, show difficulty and XP caps, and jump between saved moments. Stage bands and item markers help you find them.",
+        "Point A shows the run during Time Stop at 51:11 in game. {powerups} and {diff_cap} are enabled.",
         "Compare two moments to see levels gained, kills, and items gained or lost between them.",
-        "Switch between damage and kills credited to each source. Other tabs show the saved Chaos Tome and passive rolls.",
+        "Switch between damage dealt and kills credited to each source.",
     ),
     "ru": (
-        "Следите за характеристиками персонажа, темпом убийств и предметами прямо во время забега.",
-        "Выбирайте показатели для графика и включайте лимиты сложности и опыта. Этапы и метки предметов помогают найти нужный момент.",
+        "Точка A показывает забег во время Time Stop на 51:11 по игровому таймеру. Включены «{powerups}» и «{diff_cap}».",
         "Сравните два момента, чтобы увидеть, сколько уровней и убийств прибавилось и какие предметы получили или потеряли.",
-        "Переключайтесь между уроном и убийствами по источникам. В соседних вкладках видны сохранённые броски Тома Хаоса и пассивки Dice.",
+        "Переключайтесь между уроном и убийствами по каждому источнику.",
     ),
     "uk": (
-        "Стежте за характеристиками персонажа, темпом убивств і предметами прямо під час забігу.",
-        "Оберіть показники графіка й увімкніть ліміти складності та досвіду. Етапи й позначки предметів допомагають знайти потрібний момент.",
+        "Точка A показує забіг під час зупинки часу на 51:11 за ігровим таймером. Увімкнено «{powerups}» і «{diff_cap}».",
         "Порівняйте два моменти, щоб побачити приріст рівнів та вбивств, а також отримані й втрачені предмети.",
-        "Перемикайте шкоду й убивства за джерелами. На сусідніх вкладках видно збережені кидки Тома Хаосу та пасивки Dice.",
+        "Перемикайтеся між шкодою та вбивствами за кожним джерелом.",
     ),
     "de": (
-        "Behalte Werte, Killrate und Inventar während des Laufs im Blick.",
-        "Wähle Werte für das Diagramm und blende Schwierigkeits- und XP-Limits ein. Stages und Itemmarker helfen bei der Suche.",
+        "Punkt A zeigt den Lauf während des Zeitstopps bei 51:11 Spielzeit. „{powerups}“ und „{diff_cap}“ sind aktiviert.",
         "Vergleiche zwei Momente und sieh hinzugewonnene Stufen, Kills sowie erhaltene und verlorene Items.",
-        "Wechsle zwischen Schaden und Kills pro Quelle. Die anderen Tabs zeigen gespeicherte Chaos- und Passivwürfe.",
+        "Wechsle zwischen verursachtem Schaden und Kills pro Quelle.",
     ),
     "fr": (
-        "Suivez les stats du personnage, le rythme des éliminations et l’inventaire en cours de partie.",
-        "Choisissez les courbes et affichez les plafonds de difficulté et d’XP. Les étapes et marqueurs d’objets aident à retrouver un moment.",
+        "Le point A montre la partie pendant l’arrêt du temps, à 51:11 en jeu. « {powerups} » et « {diff_cap} » sont activés.",
         "Comparez deux moments pour voir les niveaux gagnés, les éliminations et les objets obtenus ou perdus.",
-        "Passez des dégâts aux éliminations par source. Les autres onglets montrent les tirages enregistrés du Tome du chaos et du passif de Dice.",
+        "Basculez entre les dégâts infligés et les éliminations par source.",
     ),
     "es": (
-        "Sigue las estadísticas del personaje, el ritmo de bajas y el inventario en plena partida.",
-        "Elige las series del gráfico y activa los límites de dificultad y XP. Las etapas y las marcas de objetos ayudan a encontrar un momento.",
+        "El punto A muestra la partida durante la parada del tiempo, en 51:11 del juego. «{powerups}» y «{diff_cap}» están activados.",
         "Compara dos momentos para ver los niveles ganados, las bajas y los objetos obtenidos o perdidos.",
-        "Alterna entre daño y bajas por fuente. En otras pestañas verás las tiradas guardadas del Tomo del Caos y la pasiva de Dice.",
+        "Alterna entre el daño infligido y las bajas atribuidas a cada fuente.",
     ),
     "pt": (
-        "Acompanhe os atributos, a taxa de eliminações e o inventário durante a partida.",
-        "Escolha as séries do gráfico e exiba os limites de dificuldade e XP. Estágios e marcadores de itens ajudam a encontrar o momento.",
+        "O ponto A mostra a partida durante a parada do tempo, em 51:11 no jogo. ‘{powerups}’ e ‘{diff_cap}’ estão ativados.",
         "Compare dois momentos para ver níveis ganhos, eliminações e itens ganhos ou perdidos.",
-        "Alterne entre dano e eliminações por fonte. As outras abas mostram os sorteios salvos do Tomo do Caos e da passiva do Dice.",
+        "Alterne entre o dano causado e as eliminações atribuídas a cada fonte.",
     ),
 }
 for _language, _values in _RUN_SCREEN_COPY.items():
     MESSAGES[_language].update(zip(
-        ("run.screen.live_stats", "run.screen.timeline", "run.screen.compare", "run.screen.damage"),
+        ("run.screen.timeline", "run.screen.compare", "run.screen.damage"),
         _values, strict=True,
     ))
 
@@ -538,4 +520,68 @@ for _language, _values in _GUIDE_SHORTCUT_COPY.items():
     MESSAGES[_language].update(zip(
         ("guide.shortcut", "guide.premium_badge.inactive", "guide.premium_badge.online", "guide.premium_badge.cached"),
         _values, strict=True,
+    ))
+
+
+_LIVE_CARD_COPY = {
+    "en": (
+        "Track chests and key procs. Compare legendary drops with the expected count.",
+        "See your Chaos Tome rolls and which stats they changed.",
+        "See how much each stat gained from Charge Shrines.",
+        "Inspect the character’s passive bonuses, including Dice rolls when available.",
+    ),
+    "ru": (
+        "Следите за сундуками и срабатываниями ключей. Сравнивайте выпавшие легендарки с ожидаемым числом.",
+        "Смотрите, какие статы изменились после бросков Тома Хаоса.",
+        "Узнайте, сколько прибавили святилища к каждой характеристике.",
+        "Проверяйте бонусы пассивки персонажа, например броски Dice.",
+    ),
+    "uk": (
+        "Стежте за скринями й спрацюваннями ключів. Порівнюйте здобуті легендарні предмети з очікуваною кількістю.",
+        "Дивіться, які характеристики змінилися після кидків Тома Хаосу.",
+        "Дізнайтеся, скільки святилища додали до кожної характеристики.",
+        "Перевіряйте бонуси пасивної здібності персонажа, наприклад кидки Dice.",
+    ),
+    "de": (
+        "Verfolge Truhen und Schlüsselauslösungen. Vergleiche legendäre Funde mit der erwarteten Anzahl.",
+        "Sieh, welche Werte sich durch Würfe der Chaos-Schriftrolle geändert haben.",
+        "Sieh, wie viel die Charge Shrines zu jedem Wert beigetragen haben.",
+        "Prüfe Boni der passiven Fähigkeit, etwa die Würfe von Dice.",
+    ),
+    "fr": (
+        "Suivez les coffres et les activations de clés. Comparez les légendaires obtenus au nombre attendu.",
+        "Voyez quelles stats les tirages du Tome du chaos ont modifiées.",
+        "Voyez combien chaque stat a gagné grâce aux sanctuaires de charge.",
+        "Consultez les bonus du passif du personnage, comme les tirages de Dice.",
+    ),
+    "es": (
+        "Sigue los cofres y las activaciones de llaves. Compara los legendarios obtenidos con los esperados.",
+        "Mira qué estadísticas cambiaron con las tiradas del Tomo del Caos.",
+        "Consulta cuánto aportaron los santuarios de carga a cada estadística.",
+        "Consulta los bonos de la pasiva del personaje, como las tiradas de Dice.",
+    ),
+    "pt": (
+        "Acompanhe baús e ativações de chaves. Compare os lendários obtidos com o total esperado.",
+        "Veja quais atributos mudaram com as rolagens do Tomo do Caos.",
+        "Veja quanto os santuários de carga acrescentaram a cada atributo.",
+        "Confira os bônus da passiva do personagem, como as rolagens de Dice.",
+    ),
+}
+for _language, _values in _LIVE_CARD_COPY.items():
+    MESSAGES[_language].update(zip(
+        ("run.card.loot", "run.card.chaos", "run.card.shrines", "run.card.passives"), _values, strict=True,
+    ))
+
+_LIVE_METRIC_COPY = {
+    "en": ("Expected {count}", "Chests opened", "Key procs: {count}"),
+    "ru": ("Ожидалось {count}", "Открыто сундуков", "Срабатывания ключей: {count}"),
+    "uk": ("Очікувалося {count}", "Відкрито скринь", "Спрацювання ключів: {count}"),
+    "de": ("Erwartet: {count}", "Geöffnete Truhen", "Schlüsselauslösungen: {count}"),
+    "fr": ("Attendu : {count}", "Coffres ouverts", "Activations de clés : {count}"),
+    "es": ("Esperados: {count}", "Cofres abiertos", "Activaciones de llaves: {count}"),
+    "pt": ("Esperados: {count}", "Baús abertos", "Ativações de chaves: {count}"),
+}
+for _language, _values in _LIVE_METRIC_COPY.items():
+    MESSAGES[_language].update(zip(
+        ("run.metric.expected", "run.metric.chests", "run.metric.keys"), _values, strict=True,
     ))
