@@ -133,6 +133,51 @@ class RunControlTests(unittest.TestCase):
             with patch_everywhere("win32process", fake_process):
                 self.assertTrue(run_control.is_game_window_active(PROCESS_NAME))
 
+    def test_focus_and_overlay_share_valid_window_and_rediscover_replaced_handle(self) -> None:
+        client = SimpleNamespace(memory=SimpleNamespace(_pm=SimpleNamespace(process_id=1234)))
+        run_control = build_run_control(client=lambda: client)
+        run_control._process_id_matches_name = lambda _pid, _name: False
+        owner_pid = {111: 1234, 999: 5678}
+        rects = {111: (0, 0, 1280, 720), 999: (0, 0, 800, 600)}
+        foreground = 111
+
+        def enumerate_windows(callback, extra):
+            for window in owner_pid:
+                callback(window, extra)
+
+        fake_gui = SimpleNamespace(
+            GetForegroundWindow=lambda: foreground,
+            EnumWindows=MagicMock(side_effect=enumerate_windows),
+            IsWindowVisible=lambda window: window in rects,
+            GetWindowRect=rects.__getitem__,
+        )
+        fake_process = SimpleNamespace(
+            GetWindowThreadProcessId=lambda window: (10, owner_pid[window])
+        )
+
+        with patch_everywhere("win32gui", fake_gui):
+            with patch_everywhere("win32process", fake_process):
+                for _ in range(5):
+                    self.assertTrue(run_control.is_game_window_active(PROCESS_NAME))
+                    self.assertEqual(run_control.find_game_window(PROCESS_NAME), 111)
+
+                foreground = 999
+                self.assertFalse(run_control.is_game_window_active(PROCESS_NAME))
+                fake_gui.EnumWindows.assert_called_once()
+
+                # Windows reused the old handle and the game has only a splash window.
+                owner_pid[111] = 5678
+                owner_pid[222] = 1234
+                rects[222] = (0, 0, 200, 120)
+                self.assertEqual(run_control.find_game_window(PROCESS_NAME), 222)
+
+                owner_pid[333] = 1234
+                rects[333] = (0, 0, 1280, 720)
+                foreground = 333
+                self.assertTrue(run_control.is_game_window_active(PROCESS_NAME))
+                self.assertEqual(run_control.find_game_window(PROCESS_NAME), 333)
+                self.assertEqual(fake_gui.EnumWindows.call_count, 3)
+
     def test_bring_game_window_to_front_uses_alt_attach_fallback_after_direct_failure(self) -> None:
         fake_gui = FakeForegroundGui()
         fake_process = FakeForegroundProcess()

@@ -94,6 +94,7 @@ class RunControl:
         self.run_control_provider = None
         self._hotkey_manager = None
         self._restart_permission: tuple[int | None, str] = (None, "unknown")
+        self._game_window_cache: tuple[int, str, int] | None = None
         self.player_movement_guard_available = not bool(
             getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True)
         )
@@ -303,15 +304,10 @@ class RunControl:
         if foreground_process_id <= 0:
             return None
 
-        attached_process_id = self.attached_game_process_id()
-        if attached_process_id is not None:
-            if (
-                foreground_process_id == attached_process_id
-                and self.find_game_window_by_pid(attached_process_id, process_name=process_name) is not None
-            ):
-                return foreground_process_id
-
-        if not self._process_id_matches_name(foreground_process_id, process_name):
+        if (
+            foreground_process_id != self.attached_game_process_id()
+            and not self._process_id_matches_name(foreground_process_id, process_name)
+        ):
             return None
         if self.find_game_window_by_pid(foreground_process_id, process_name=process_name) is None:
             return None
@@ -506,6 +502,17 @@ class RunControl:
     def find_game_window_by_pid(self, process_id: int, *, process_name: str | None = None) -> int | None:
         if win32gui is None or win32process is None:
             return None
+        normalized_name = process.normalize_process_name(process_name or "")
+        cached = self._game_window_cache
+        if cached is not None and cached[:2] == (process_id, normalized_name):
+            window = cached[2]
+            if (
+                process.window_process_id(window) == process_id
+                and process.is_visible_window(window)
+                and process.is_strict_window_candidate(window)
+            ):
+                return window
+
         strict_candidates: list[tuple[tuple[int, int, int], int]] = []
         relaxed_candidates: list[tuple[tuple[int, int, int], int]] = []
 
@@ -515,7 +522,7 @@ class RunControl:
             window_process_id = process.window_process_id(window)
             if window_process_id != process_id:
                 return
-            score = process.window_selection_score(window, process_name=process_name)
+            score = process.window_selection_score(window, process_name=normalized_name)
             if score is None:
                 return
             relaxed_candidates.append((score, window))
@@ -526,10 +533,14 @@ class RunControl:
             win32gui.EnumWindows(enum_callback, None)
         except Exception as exc:
             self._log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
-        candidates = strict_candidates or relaxed_candidates
-        if not candidates:
-            return None
-        return max(candidates, key=lambda entry: entry[0])[1]
+        if strict_candidates:
+            window = max(strict_candidates, key=lambda entry: entry[0])[1]
+            self._game_window_cache = (process_id, normalized_name, window)
+            return window
+        # A temporary or owned window can precede the main game window.
+        if relaxed_candidates:
+            return max(relaxed_candidates, key=lambda entry: entry[0])[1]
+        return None
 
     def handle_confirmed_target_window(self, process_name: str) -> bool:
         if keyboard:
