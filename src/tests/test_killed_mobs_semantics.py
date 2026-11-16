@@ -10,7 +10,8 @@ read fail for the opening stretch of a run, and the shared ``try`` in
 been read successfully.
 
 The two paths must stay distinguishable: a *structural* failure -- uninitialised
-type info, static fields, dictionary or entries array, or an invalid entry count
+type info, static fields, dictionary, a missing array with a positive count,
+or an invalid entry count
 -- still raises ``MemoryReadError``. Each is tested separately below, because a
 single "does it raise" test would pass just as well if the semantic change had
 never been made.
@@ -112,6 +113,26 @@ class AbsentKillsEntryIsZeroTests(unittest.TestCase):
 
         self.assertEqual(client.get_killed_mobs(), 0)
 
+    def test_fast_restarts_with_unallocated_entries_clear_and_rebuild_counters(self) -> None:
+        memory = ScriptedReader(names=("kills", "chestsBought"), kills_value=42)
+        client = PlayerStatsClient(memory=memory)
+        self.assertEqual(client.get_killed_mobs(), 42)
+        self.assertEqual(client._get_cached_chests_bought(), 42)
+
+        # Unity can reuse the same dictionary object at the start of each map.
+        memory.entries = 0
+        memory.count = 0
+        for _ in range(5):
+            self.assertEqual(client.get_killed_mobs(), 0)
+            self.assertEqual(client._get_cached_chests_bought(), 0)
+            self.assertEqual(client.get_run_stat_values(("kills", "chestsBought")), {})
+
+        memory.entries = ENTRIES
+        memory.count = 2
+        memory.kills_value = 1.0
+        self.assertEqual(client.get_killed_mobs(), 1)
+        self.assertEqual(client._get_cached_chests_bought(), 1)
+
     def test_it_matches_its_structural_twin(self) -> None:
         """`_get_cached_chests_bought` and `_get_cached_killed_mobs` are
         structural twins; the point of this slice is that they now agree at the
@@ -147,12 +168,13 @@ class StructuralFailuresStillRaiseTests(unittest.TestCase):
             client.get_killed_mobs()
         self.assertIn("dictionary is not initialized", str(caught.exception))
 
-    def test_uninitialised_entries_array_raises(self) -> None:
-        client = _client(entries=0)
+    def test_uninitialised_entries_array_with_positive_count_raises(self) -> None:
+        client = _client(entries=0, count=1)
 
-        with self.assertRaises(MemoryReadError) as caught:
-            client.get_killed_mobs()
-        self.assertIn("entries are not initialized", str(caught.exception))
+        for read in (client.get_killed_mobs, client._get_cached_chests_bought, client.get_chests_bought):
+            with self.subTest(read=read.__name__):
+                with self.assertRaisesRegex(MemoryReadError, "entries are not initialized"):
+                    read()
 
     def test_invalid_entry_count_raises(self) -> None:
         client = _client(count=PlayerStatsClient.MAX_RUN_STATS_ENTRIES + 1)

@@ -2411,16 +2411,9 @@ class PlayerStatsClient:
         if not stats_dict:
             raise MemoryReadError("RunStats.stats dictionary is not initialized.")
 
-        entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
-        if not entries:
-            raise MemoryReadError("RunStats.stats entries are not initialized.")
-
-        count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
-
-        if count <= 0:
+        entries, count = self._read_run_stats_entries(stats_dict)
+        if count == 0:
             return {}
-        if count > self.MAX_RUN_STATS_ENTRIES:
-            raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
 
         values: dict[str, float] = {}
         for index in range(count):
@@ -2543,12 +2536,7 @@ class PlayerStatsClient:
         stats_dict = self.memory.read_ptr(static_fields + self.RUN_STATS_DICT_OFFSET)
         if not stats_dict:
             raise MemoryReadError("RunStats.stats dictionary is not initialized.")
-        entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
-        if not entries:
-            raise MemoryReadError("RunStats.stats entries are not initialized.")
-        count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
-        if count < 0 or count > self.MAX_RUN_STATS_ENTRIES:
-            raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
+        entries, count = self._read_run_stats_entries(stats_dict)
         version = self.memory.read_i32(stats_dict + self.DICT_VERSION_OFFSET)
 
         if (
@@ -2557,14 +2545,12 @@ class PlayerStatsClient:
             or count != self._cached_chests_bought_count
             or version != self._cached_chests_bought_version
         ):
+            address = self._find_run_stat_value_address(stats_dict, "chestsBought") if count else 0
             self._cached_chests_bought_dict = stats_dict
             self._cached_chests_bought_entries = entries
             self._cached_chests_bought_count = count
             self._cached_chests_bought_version = version
-            self._cached_chests_bought_address = self._find_run_stat_value_address(
-                stats_dict,
-                "chestsBought",
-            )
+            self._cached_chests_bought_address = address
 
         if not self._cached_chests_bought_address:
             return 0
@@ -2584,12 +2570,7 @@ class PlayerStatsClient:
         stats_dict = self.memory.read_ptr(static_fields + self.RUN_STATS_DICT_OFFSET)
         if not stats_dict:
             raise MemoryReadError("RunStats.stats dictionary is not initialized.")
-        entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
-        if not entries:
-            raise MemoryReadError("RunStats.stats entries are not initialized.")
-        count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
-        if count < 0 or count > self.MAX_RUN_STATS_ENTRIES:
-            raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
+        entries, count = self._read_run_stats_entries(stats_dict)
         version = self.memory.read_i32(stats_dict + self.DICT_VERSION_OFFSET)
 
         if (
@@ -2598,38 +2579,30 @@ class PlayerStatsClient:
             or count != self._cached_kills_count
             or version != self._cached_kills_version
         ):
+            address = self._find_run_stat_value_address(stats_dict, "kills") if count else 0
             self._cached_kills_dict = stats_dict
             self._cached_kills_entries = entries
             self._cached_kills_count = count
             self._cached_kills_version = version
-            self._cached_kills_address = self._find_run_stat_value_address(
-                stats_dict,
-                "kills",
-            )
+            self._cached_kills_address = address
 
         if not self._cached_kills_address:
-            # Zero kills, not unavailable memory. Every structural failure --
-            # uninitialised type info, static fields, dictionary or entries
-            # array, invalid count -- has already raised above, so reaching
-            # here means a *valid* dictionary was walked and did not contain
-            # "kills". The game creates that entry lazily, on its first
-            # increment, so its absence is exactly the state "nothing has died
-            # yet". `_get_cached_chests_bought` above is this method's
-            # structural twin and already returns 0 at the identical decision
-            # point. Raising here instead made every read fail for the opening
-            # stretch of a run and took the successfully-read run timer down
-            # with it -- see step_28_plan.md section 12.1.
+            # The game creates the kills entry on its first increment.
             return 0
         return max(0, int(self.memory.read_float(self._cached_kills_address)))
 
-    def _find_run_stat_value_address(self, stats_dict: int, target_key: str) -> int:
+    def _read_run_stats_entries(self, stats_dict: int) -> tuple[int, int]:
         entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
         count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
-        if count <= 0:
-            return 0
-        if count > self.MAX_RUN_STATS_ENTRIES:
+        if count < 0 or count > self.MAX_RUN_STATS_ENTRIES:
             raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
+        # The game can defer allocating the entries array until the first stat.
+        if count and not entries:
+            raise MemoryReadError("RunStats.stats entries are not initialized.")
+        return entries, count
 
+    def _find_run_stat_value_address(self, stats_dict: int, target_key: str) -> int:
+        entries, count = self._read_run_stats_entries(stats_dict)
         for index in range(count):
             entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
             if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
