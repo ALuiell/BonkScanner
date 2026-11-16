@@ -43,7 +43,6 @@ class ValidatorUITests(unittest.TestCase):
         self.enterContext(patch.object(config, 'update_config', self.save))
         self.enterContext(patch.object(config, 'profile_read_only_reason', return_value=''))
         self.enterContext(patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_URL': ''}))
-        self.enterContext(patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_PROTOCOL': ''}))
 
     def save(self, mutate):
         if self.save_success:
@@ -224,13 +223,14 @@ class ValidatorUITests(unittest.TestCase):
         tab.autostart.setChecked(True)
         self.assertEqual(self.controller.starts, [])
         self.assertEqual(self.settings[SETTINGS_KEY], {
-            'autostart': True, 'service_url': 'http://127.0.0.1:8765', 'allow_loopback': True,
+            'autostart': True, 'service_url_v3': 'http://127.0.0.1:8765', 'allow_loopback_v3': True,
         })
         next_tab = self.tab()
         next_tab.start_if_configured()
         self.controller.value['error'] = 'observer_not_started'
         next_tab.start_if_configured()
-        self.assertEqual(self.controller.starts, [('http://127.0.0.1:8765', {'allow_loopback': True})])
+        self.assertEqual(self.controller.starts, [('http://127.0.0.1:8765',
+                         {'allow_loopback': True, 'protocol_version': '3'})])
         next_tab.refresh()
         self.assertIn('permission was not granted', next_tab.state.text())
         self.assertTrue(next_tab.enable.isEnabled())
@@ -260,15 +260,14 @@ class ValidatorUITests(unittest.TestCase):
         self.assertNotIn(SETTINGS_KEY, self.settings)
         self.assertIn('Invalid service address', tab.settings_feedback.text())
 
-    def test_explicit_v3_environment_selects_loopback_without_persisting_settings(self):
-        self.settings[SETTINGS_KEY] = {'service_url': 'https://existing.example', 'autostart': False}
-        with patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_PROTOCOL': '3',
-                                    'BONKSCANNER_VALIDATOR_URL': 'http://127.0.0.1:8043'}):
+    def test_launch_endpoint_overrides_saved_v3_service_without_persisting_settings(self):
+        self.settings[SETTINGS_KEY] = {'service_url_v3': 'https://existing.example', 'autostart': False}
+        with patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_URL': 'http://127.0.0.1:8043'}):
             tab = self.tab()
             tab._enable()
         self.assertEqual(self.controller.starts, [('http://127.0.0.1:8043',
                          {'allow_loopback': True, 'protocol_version': '3'})])
-        self.assertEqual(self.settings[SETTINGS_KEY], {'service_url': 'https://existing.example',
+        self.assertEqual(self.settings[SETTINGS_KEY], {'service_url_v3': 'https://existing.example',
                                                       'autostart': False})
         current = {'session_id': 'current-id', 'status': 'active', 'protocol_version': '3',
                    'report_available': False, 'local_report_available': True}
@@ -283,28 +282,31 @@ class ValidatorUITests(unittest.TestCase):
             tab.copy_link.click()
             clipboard.return_value.setText.assert_called_once_with('http://127.0.0.1:8043/reports/current-id')
 
-    def test_v3_without_explicit_url_does_not_select_saved_server(self):
-        self.settings[SETTINGS_KEY] = {'service_url': 'https://existing.example'}
-        with patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_PROTOCOL': '3', 'BONKSCANNER_VALIDATOR_URL': ''}):
+    def test_v3_ignores_legacy_service_and_protocol_override(self):
+        self.settings[SETTINGS_KEY] = {'service_url': 'http://127.0.0.1:8765', 'allow_loopback': True}
+        with patch.dict(os.environ, {'BONKSCANNER_VALIDATOR_PROTOCOL': '2'}):
             tab = self.tab()
             self.assertEqual(tab.url.text(), '')
+            self.assertFalse(tab.local_test.isChecked())
+            tab._enable()
+        self.assertEqual(self.controller.starts, [('', {'allow_loopback': False, 'protocol_version': '3'})])
 
     def test_copy_uses_only_current_registered_session_and_rechecks_on_click(self):
         tab = self.tab()
         tab.url.setText('https://validator.example/base/')
         tab._enable()
         runs = {
-            'current': {'session_id': 'current-id', 'status': 'active', 'finish_requested': False},
+            'current': {'session_id': 'current-id', 'status': 'active', 'finish_requested': False,
+                        'protocol_version': '3', 'report_available': False},
             'old': {'session_id': 'old-id', 'status': 'retrying', 'finish_requested': True},
         }
         self.controller.value.update(state='observing', enabled=True, busy=True, active_run_id='current',
                                      delivery={'configured': True, 'runs': runs})
-        runs['current']['local_report_available'] = False
         tab.refresh()
         self.assertEqual(tab.run_id.text(), '')
         self.assertFalse(tab.copy_link.isEnabled())
         self.assertEqual(self.button.accessibleName(), 'Validator · Observing')
-        runs['current']['local_report_available'] = True
+        runs['current']['report_available'] = True
         tab.refresh()
         self.assertEqual(tab.run_id.text(), 'current-id')
         self.assertTrue(tab.copy_link.isEnabled())
@@ -314,7 +316,7 @@ class ValidatorUITests(unittest.TestCase):
         with patch('ui.validator.QApplication.clipboard') as clipboard:
             tab.copy_link.click()
             clipboard.return_value.setText.assert_called_once_with(
-                'https://validator.example/base/v2/sessions/current-id'
+                'https://validator.example/base/reports/current-id'
             )
             clipboard.reset_mock()
             runs['next'] = {'status': 'enrolling'}

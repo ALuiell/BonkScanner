@@ -39,7 +39,6 @@ class ValidatorTab(QScrollArea):
         self._live_strip = None
         self._refresh_recording_report = None
         self._startup_checked = False
-        self._protocol_version = '3' if os.environ.get('BONKSCANNER_VALIDATOR_PROTOCOL') == '3' else '2'
         self._active_base = ''
         self._current_link = ''
         self._copied_link = ''
@@ -158,22 +157,22 @@ class ValidatorTab(QScrollArea):
         layout.addWidget(self.security_audit)
         url_label = l10n.localized(QLabel, l10n.tr('Validator service:'))
         layout.addWidget(url_label)
-        stored_url = settings.get('service_url')
+        stored_url = settings.get('service_url_v3')
         env_url = os.environ.get('BONKSCANNER_VALIDATOR_URL', '')
-        saved_url = (env_url if self._protocol_version == '3' else
-                     stored_url if isinstance(stored_url, str) else env_url)
+        saved_url = env_url or (stored_url if isinstance(stored_url, str) else '')
         self.url = QLineEdit(saved_url)
         self.url.setPlaceholderText('https://…')
         url_label.setBuddy(self.url)
         layout.addWidget(self.url)
         self.local_test = l10n.localized(QCheckBox, l10n.tr('Allow a local test receiver'))
-        try:
-            env_loopback = (self._protocol_version == '3' and
-                            urlsplit(env_url).hostname in ('127.0.0.1', 'localhost', '::1'))
-        except ValueError:
-            env_loopback = False
-        self.local_test.setChecked(env_loopback or (self._protocol_version != '3' and
-                                   isinstance(stored_url, str) and settings.get('allow_loopback') is True))
+        if env_url:
+            try:
+                allow_loopback = urlsplit(env_url).hostname in ('127.0.0.1', 'localhost', '::1')
+            except ValueError:
+                allow_loopback = False
+        else:
+            allow_loopback = isinstance(stored_url, str) and settings.get('allow_loopback_v3') is True
+        self.local_test.setChecked(allow_loopback)
         layout.addWidget(self.local_test)
         self.save_service = l10n.localized(QPushButton, l10n.tr('Save service settings'))
         self.save_service.clicked.connect(self._save_service)
@@ -220,16 +219,13 @@ class ValidatorTab(QScrollArea):
         except ValueError:
             self._show_settings_feedback(l10n.tr('Invalid service address'))
             return
-        if self._save_preferences(service_url=base, allow_loopback=allow_loopback):
+        if self._save_preferences(service_url_v3=base, allow_loopback_v3=allow_loopback):
             self._show_settings_feedback(l10n.tr('Validator service settings saved.'))
 
     def _enable(self):
         self.refresh()
         base, allow_loopback = self._endpoint()
-        options = {'allow_loopback': allow_loopback}
-        if self._protocol_version == '3':
-            options['protocol_version'] = '3'
-        if self.controller.enable(base, **options):
+        if self.controller.enable(base, allow_loopback=allow_loopback, protocol_version='3'):
             self._active_base = base
         self.refresh()
 
@@ -494,7 +490,8 @@ class ValidatorTab(QScrollArea):
         active_id = snapshot.get('active_run_id')
         current = runs.get(active_id, {}) if snapshot['enabled'] else {}
         session_id = current.get('session_id')
-        if (not self._active_base or not report_available(current) or current.get('finish_requested')
+        if (not self._active_base or current.get('protocol_version') != '3'
+                or not report_available(current) or current.get('finish_requested')
                 or current.get('status') not in ('active', 'retrying')):
             session_id = None
         self.run_id.setVisible(bool(session_id))
@@ -502,7 +499,7 @@ class ValidatorTab(QScrollArea):
             self.run_id.setText(session_id or '')
         self.copy_link.setVisible(bool(session_id))
         self.copy_link.setEnabled(bool(session_id))
-        self._current_link = report_url(self._active_base, session_id, current.get('protocol_version', '2'))
+        self._current_link = report_url(self._active_base, session_id, '3')
         if self._current_link != self._copied_link:
             self._copied_link = ''
             self.copy_feedback.hide()
