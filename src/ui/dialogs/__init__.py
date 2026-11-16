@@ -2556,7 +2556,9 @@ class TwitchCommandSettingsDialog(QDialog):
         stats_layout.addSpacing(10)
 
         stats_form = QFormLayout()
-        stats_tpl_val = config.TWITCH_BOT.get("templates", {}).get("stats", "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
+        stats_tpl_val = config.TWITCH_BOT.get("templates", {}).get(
+            "stats", config.DEFAULT_TWITCH_BOT["templates"]["stats"]
+        )
         self.stats_tpl_entry = QLineEdit(stats_tpl_val)
         self.templates_entries["stats"] = self.stats_tpl_entry
         l10n.form_row(stats_form, l10n.tr('Response template:'), self.stats_tpl_entry)
@@ -2805,6 +2807,8 @@ class TwitchCommandSettingsDialog(QDialog):
 
     def on_stat_toggled(self):
         if getattr(self, "_init_guard", False):
+            return
+        if self.stats_tpl_entry.text().strip() == config.DEFAULT_TWITCH_BOT["templates"]["stats"]:
             return
         selected = [label for label, cb in self.stat_checkboxes.items() if cb.isChecked()]
         parts = [f"{abbreviate_stat_label(name)}: {{{name}}}" for name in selected]

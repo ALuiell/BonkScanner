@@ -765,16 +765,14 @@ class TwitchBotWorker(QThread):
         for name, abbrev in STAT_LABEL_ABBREVIATIONS.items():
             stats_data[abbrev] = stats_data.get(name, "--")
 
-        selected = config.TWITCH_BOT.get("selected_stats", [])
-        if not selected:
-            selected = ["Damage", "XP Gain", "Luck", "Difficulty", "Powerup Drop Chance", "Elite Spawn Increase", "Powerup Multiplier", "Size"]
+        selected = config.TWITCH_BOT.get("selected_stats") or config.DEFAULT_TWITCH_BOT["selected_stats"]
 
         parts = [f"{abbreviate_stat_label(name)}: {stats_data.get(name, '--')}" for name in selected]
         stats_data["stats"] = " | ".join(parts)
 
         msg = self._format_template(
             "stats",
-            "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
+            config.DEFAULT_TWITCH_BOT["templates"]["stats"],
             **stats_data
         )
         if len(msg) > 450:
