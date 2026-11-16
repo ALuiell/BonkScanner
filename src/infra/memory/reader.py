@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import ctypes
 import struct
+from ctypes import wintypes
+from threading import Lock
 from typing import Any
 
 import pymem
@@ -18,6 +21,56 @@ class ModuleNotFoundError(Exception):
 
 class MemoryReadError(Exception):
     """Raised when memory cannot be read or interpreted."""
+
+
+_process_lookup_lock = Lock()
+_known_processes: dict[str, tuple[int, int]] = {}
+
+
+def _process_times(backend: Any) -> tuple[int, int] | None:
+    """Return the creation and exit ticks for this opened process handle."""
+    creation = wintypes.FILETIME()
+    exit_time = wintypes.FILETIME()
+    kernel = wintypes.FILETIME()
+    user = wintypes.FILETIME()
+    try:
+        handle = wintypes.HANDLE(int(backend.process_handle))
+        if ctypes.windll.kernel32.GetProcessTimes(
+            handle, ctypes.byref(creation), ctypes.byref(exit_time),
+            ctypes.byref(kernel), ctypes.byref(user),
+        ):
+            return (
+                (creation.dwHighDateTime << 32) | creation.dwLowDateTime,
+                (exit_time.dwHighDateTime << 32) | exit_time.dwLowDateTime,
+            )
+    except (AttributeError, OSError, TypeError, ValueError):
+        pass
+    return None
+
+
+def _open_process(process_name: str) -> pymem.Pymem:
+    # Each client still owns its own handle. Share only the identity resolved
+    # by the first client, and validate it against the newly opened handle.
+    key = process_name.casefold()
+    with _process_lookup_lock:
+        known = _known_processes.get(key)
+        if known is not None:
+            process_id, creation_ticks = known
+            try:
+                backend = pymem.Pymem(process_id)
+            except (pymem.exception.ProcessNotFound, pymem.exception.CouldNotOpenProcess):
+                pass
+            else:
+                if _process_times(backend) == (creation_ticks, 0):
+                    return backend
+                backend.close_process()
+            del _known_processes[key]
+
+        backend = pymem.Pymem(process_name)
+        times = _process_times(backend)
+        if times is not None and times[0] and not times[1]:
+            _known_processes[key] = (backend.process_id, times[0])
+        return backend
 
 
 class ProcessMemory:
@@ -62,7 +115,7 @@ class ProcessMemory:
             return
 
         try:
-            self._pm = pymem.Pymem(process_name)
+            self._pm = _open_process(process_name)
         except (
             pymem.exception.ProcessNotFound,
             pymem.exception.CouldNotOpenProcess,
@@ -100,32 +153,10 @@ class ProcessMemory:
         if self._pm is None:
             raise MemoryReadError("Process memory is not initialized.")
         process_id = int(getattr(self._pm, "process_id", 0) or 0)
-        creation_ticks = 0
-        try:
-            import ctypes
-            from ctypes import wintypes
-
-            creation = wintypes.FILETIME()
-            exit_time = wintypes.FILETIME()
-            kernel = wintypes.FILETIME()
-            user = wintypes.FILETIME()
-            handle = wintypes.HANDLE(int(self._pm.process_handle))
-            if ctypes.windll.kernel32.GetProcessTimes(
-                handle,
-                ctypes.byref(creation),
-                ctypes.byref(exit_time),
-                ctypes.byref(kernel),
-                ctypes.byref(user),
-            ):
-                creation_ticks = (
-                    int(creation.dwHighDateTime) << 32
-                ) | int(creation.dwLowDateTime)
-        except (AttributeError, OSError, TypeError, ValueError):
-            # PID is still a useful fallback. Production Windows handles should
-            # take the GetProcessTimes path; lightweight test doubles do not.
-            creation_ticks = 0
         if process_id <= 0:
             raise MemoryReadError("Process identity is unavailable.")
+        times = _process_times(self._pm)
+        creation_ticks = times[0] if times is not None else 0
         return f"{process_id}:{creation_ticks}"
 
     def __enter__(self) -> "ProcessMemory":

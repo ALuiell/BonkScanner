@@ -5,8 +5,10 @@ import src
 import struct
 import types
 import unittest
+from unittest.mock import Mock, call, patch
 
-from infra.memory.reader import MemoryReadError, ProcessMemory
+from infra.memory import reader as memory_reader
+from infra.memory.reader import MemoryReadError, ProcessMemory, ProcessNotFoundError
 
 
 class FakePymem:
@@ -58,6 +60,52 @@ class ProcessMemoryTests(unittest.TestCase):
         reader = self.create_reader({})
 
         self.assertEqual(reader.process_identity(), "4321:0")
+
+    def test_clients_reuse_a_live_target_with_independent_handles(self) -> None:
+        first = Mock(process_id=4321)
+        second = Mock(process_id=4321)
+        with (
+            patch.dict(memory_reader._known_processes, clear=True),
+            patch.object(memory_reader, "_process_times", return_value=(100, 0)),
+            patch.object(memory_reader.pymem, "Pymem", side_effect=[first, second]) as open_process,
+        ):
+            with ProcessMemory("MegaBonk.exe") as scan_reader:
+                with ProcessMemory("megabonk.exe") as stats_reader:
+                    self.assertEqual(scan_reader.process_identity(), stats_reader.process_identity())
+                second.close_process.assert_called_once()
+                first.close_process.assert_not_called()
+            first.close_process.assert_called_once()
+
+        self.assertEqual(open_process.call_args_list, [call("MegaBonk.exe"), call(4321)])
+
+    def test_pid_reuse_or_exit_triggers_rediscovery(self) -> None:
+        for stale_times in ((200, 0), (100, 150)):
+            with self.subTest(stale_times=stale_times):
+                stale = Mock(process_id=4321)
+                replacement = Mock(process_id=5678)
+                next_reader = Mock(process_id=5678)
+                with (
+                    patch.dict(memory_reader._known_processes, {"megabonk.exe": (4321, 100)}, clear=True),
+                    patch.object(memory_reader, "_process_times", side_effect=[stale_times, (300, 0), (300, 0)]),
+                    patch.object(memory_reader.pymem, "Pymem", side_effect=[stale, replacement, next_reader]) as open_process,
+                ):
+                    with ProcessMemory("MegaBonk.exe"), ProcessMemory("MegaBonk.exe"):
+                        stale.close_process.assert_called_once()
+                self.assertEqual(open_process.call_args_list, [call(4321), call("MegaBonk.exe"), call(5678)])
+
+    def test_failed_cached_open_falls_back_and_preserves_process_not_found(self) -> None:
+        failures = [
+            memory_reader.pymem.exception.CouldNotOpenProcess(4321),
+            memory_reader.pymem.exception.ProcessNotFound("MegaBonk.exe"),
+        ]
+        with (
+            patch.dict(memory_reader._known_processes, {"megabonk.exe": (4321, 100)}, clear=True),
+            patch.object(memory_reader.pymem, "Pymem", side_effect=failures) as open_process,
+        ):
+            with self.assertRaises(ProcessNotFoundError):
+                ProcessMemory("MegaBonk.exe")
+            self.assertNotIn("megabonk.exe", memory_reader._known_processes)
+        self.assertEqual(open_process.call_args_list, [call(4321), call("MegaBonk.exe")])
 
     def test_module_base_is_resolved_once_per_module(self) -> None:
         # `module_from_name` enumerates the whole module list -- ~3.4 ms live,
