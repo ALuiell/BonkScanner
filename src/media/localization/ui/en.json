@@ -1440,5 +1440,9 @@
   "app.faf7fda75ce71ef3": "History omitted",
   "app.702d089cb88c77c9": "Local ETW image events for this process attachment. Dropped events, decode errors or unknown identity indicate incomplete history; omitted history means older retained rows were removed.",
   "app.07e3a63ea0ed5b58": "{p0}: {p1}",
-  "app.d039f02e397fca04": "{p0} s after attachment: {p1} {p2}"
+  "app.d039f02e397fca04": "{p0} s after attachment: {p1} {p2}",
+  "app.ed9518fc9b0811b9": "Expanded timeline",
+  "app.84908ed21fe2f305": "Standard timeline (default)",
+  "app.bed5cd3d82946c6b": "Compact timeline",
+  "app.b6ad1fc80d350349": "Timeline height"
 }

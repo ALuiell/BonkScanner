@@ -95,6 +95,7 @@ class RecordingTimelineView:
         self._uses_default_throttle = throttle is None
         self._throttle = throttle or UiUpdateThrottle()
         self._requested_index: int | None = None
+        self._syncing_slider = False
 
         self._record_btn = None
         self._timeline_label = None
@@ -207,17 +208,21 @@ class RecordingTimelineView:
         else:
             self._record_btn.set_active("record")
 
-        if recorder.is_recording and snapshot_count:
-            self._slider.setEnabled(True)
-            self._slider.setMaximum(max(snapshot_count - 1, 1))
-            if update_slider:
-                self._slider.setValue(
-                    selected if selected is not None else snapshot_count - 1
-                )
-        else:
-            self._slider.setEnabled(False)
-            self._slider.setMaximum(1)
-            self._slider.setValue(0)
+        self._syncing_slider = True
+        try:
+            if recorder.is_recording and snapshot_count:
+                self._slider.setEnabled(True)
+                self._slider.setMaximum(max(snapshot_count - 1, 1))
+                if update_slider:
+                    self._slider.setValue(
+                        selected if selected is not None else snapshot_count - 1
+                    )
+            else:
+                self._slider.setEnabled(False)
+                self._slider.setMaximum(1)
+                self._slider.setValue(0)
+        finally:
+            self._syncing_slider = False
 
         if recorder.is_recording:
             prefix = f"Recording {recorder.elapsed_label()} | "
@@ -248,15 +253,15 @@ class RecordingTimelineView:
     # -- commands -------------------------------------------------------------
 
     def handle_slider_value(self, value) -> None:
+        if self._syncing_slider:
+            return
         snapshots = self._snapshots()
         snapshot_count = len(snapshots)
         if snapshot_count == 0:
             return
         index = min(max(int(round(float(value))), 0), snapshot_count - 1)
-        # With nothing queued the app's selected index is the truth, and
-        # comparing against it is what keeps `refresh`'s own `setValue` from
-        # looping back in here. With a frame queued the two differ, and the
-        # queued index is what the slider is actually showing.
+        # With a frame queued, the slider shows the requested index before
+        # the application applies that selection.
         current = self._requested_index if self._throttle.has_pending else self._selected_index()
         if current == index:
             return

@@ -181,6 +181,25 @@ QPushButton#validatorHistoryAction:hover, QPushButton#validatorHistoryAction:foc
     background: #273B52;
     border-color: #4D7195;
 }
+
+QPushButton#premiumAccessBadge[connection="online"],
+QPushButton#premiumAccessBadge[connection="cached"] {
+    border-color: rgba(85, 166, 226, 0.64);
+}
+QPushButton#GuideShortcut {
+    background-color: #152435;
+    border: 1px solid #355373;
+    border-radius: 6px;
+    color: #BADDFF;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton#GuideShortcut:hover {
+    background-color: #1E3952;
+    border-color: #689DCB;
+}
+QPushButton#GuideShortcut:focus { border-color: #76B9F3; }
 QFrame#headerDivider {           /* вертикальный разделитель 1x18 */
     background-color: #232B36;
     max-width: 1px; min-width: 1px;
@@ -721,6 +740,29 @@ QPushButton#segment[active="true"][role="halt"][variant="armed"]:hover {
 }
 QPushButton#segment[active="true"][role="halt"][variant="armed"]:pressed {
     background-color: rgba(250, 204, 21, 0.18);
+}
+
+QFrame[timelineSizeToggle="true"] {
+    background: #0B0F14;
+    border: 1px solid #26313E;
+    border-radius: 7px;
+}
+QFrame[timelineSizeToggle="true"] QPushButton#segment {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 0;
+}
+QFrame[timelineSizeToggle="true"] QPushButton#segment:hover {
+    background: #141A22;
+    border-color: #38495E;
+}
+QFrame[timelineSizeToggle="true"] QPushButton#segment:checked {
+    background: #24415F;
+    border-color: #3E82C6;
+}
+QFrame[timelineSizeToggle="true"] QPushButton#segment:focus {
+    border-color: #4DA3FF;
 }
 
 /* --------------------------------------------------------- tab hero -------- */

@@ -809,7 +809,6 @@ def _child_main(args: argparse.Namespace) -> int:
         if not args.enable_network_startup:
             app.deferred_update_check = lambda: None
         app.protocol("WM_DELETE_WINDOW", app.on_closing)
-        app.start()
         if args.exercise_runtime:
             _schedule_runtime_exercise(app, Path(args.config_dir))
         log_runtime_event("winapi_stress.application.mainloop_enter")

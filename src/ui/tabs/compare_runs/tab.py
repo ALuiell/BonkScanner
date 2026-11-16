@@ -68,7 +68,10 @@ from app.prepared_recording import (load_and_prepare_recording, prepare_loaded_r
                                    live_preparation_matches, merge_live_powerup_revision)
 from app.vod_library import (
     RECORDING_SORT_CONFIG_KEY,
+    TIMELINE_COMPACT,
+    TIMELINE_STANDARD,
     load_vod,
+    normalize_timeline_size,
     recording_sort_mode,
 )
 from core.run_summary import item_counts
@@ -82,7 +85,6 @@ from ui.metric_table import CompactMetricCardGridView, MetricTableView
 from ui.recording_library import RecordingRowsJob, recording_search_text, sync_recording_rows
 from ui.shared import (
     FullWidthTabWidget,
-    LabeledSwitch,
     StagedLoadingPage,
     StagedLoadingSpinner,
     _apply_summary_label_padding,
@@ -118,11 +120,13 @@ from ui.timeline_controls import (
     checked_timeline_caps,
     refresh_timeline_slot_button,
 )
+from ui.timeline_size import TimelineSizeToggle
 
 
 COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"
 
 COMPARE_RUN_SECTIONS_CONFIG_KEY = "COMPARE_RUN_SECTIONS"
+COMPARE_RUN_TIMELINE_SIZE_CONFIG_KEY = "COMPARE_RUN_TIMELINE_SIZE"
 COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY = "COMPARE_RUN_COMPACT_TIMELINE"
 _RECORDING_SEARCH_ROLE = Qt.UserRole + 1
 
@@ -417,8 +421,10 @@ class CompareRunsTab:
             )
             for side in ("a", "b")
         }
-        self._timeline_compact = bool(
-            config.user_config.get(COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY, False)
+        legacy_compact = config.user_config.get(COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY) is True
+        self._timeline_size_mode = normalize_timeline_size(
+            config.user_config.get(COMPARE_RUN_TIMELINE_SIZE_CONFIG_KEY),
+            default=TIMELINE_COMPACT if legacy_compact else TIMELINE_STANDARD,
         )
         self._series_slots = self._timeline_series_slots.slots
         self._powerups_enabled = self._timeline_series_slots.powerups_enabled
@@ -503,7 +509,7 @@ class CompareRunsTab:
         self._timeline = None
         self._timeline_position_label = None
         self._timeline_legend = None
-        self._compact_timeline_btn = None
+        self._timeline_size_toggle = None
         self._series_slot_buttons = []
         self._detail_tabs = None
         self._sort_combo = None
@@ -954,7 +960,6 @@ class CompareRunsTab:
             cap_keys=self._enabled_cap_keys(),
         )
         self._timeline.set_axis_mode(AXIS_TIME)
-        self._timeline.set_compact(self._timeline_compact)
         if self._compare_time_seconds is not None and not self._live_follow:
             self._timeline.set_position(
                 self._compare_time_seconds / max(self._timeline.common_duration, 1.0)
@@ -1323,9 +1328,10 @@ class CompareRunsTab:
         from core.powerup_history import POWERUPS_SERIES
         from projections.powerup_history import PowerupProjection
         enabled = self._powerups_enabled
+        compact = self._timeline_size_mode == TIMELINE_COMPACT
         for side, row in getattr(self, "_powerup_rows", {}).items():
             vod = self._compare_run_vod(side)
-            row.setVisible(enabled and not self._timeline_compact and vod is not None)
+            row.setVisible(enabled and not compact and vod is not None)
             if vod is None:
                 if self._timeline is not None:
                     self._timeline.set_powerups(side, None)
@@ -1336,7 +1342,7 @@ class CompareRunsTab:
                 projection = PowerupProjection(getattr(vod, "powerup_history", None))
             if self._timeline is not None:
                 self._timeline.set_powerups(side, projection)
-            if not enabled or self._timeline_compact:
+            if not enabled or compact:
                 continue
             snapshot = self._compare_run_snapshot(side)
             if snapshot is None:
@@ -1406,7 +1412,6 @@ class CompareRunsTab:
                 cap_keys=self._enabled_cap_keys(),
             )
         self._timeline.set_axis_mode(AXIS_TIME)
-        self._timeline.set_compact(self._timeline_compact)
         self._refresh_series_slot_buttons()
         self._refresh_compare_timeline_readout()
 
@@ -1424,20 +1429,22 @@ class CompareRunsTab:
         for side in ("a", "b"):
             self._reprepare_compare_side(side)
 
-    def _set_timeline_compact(self, compact: bool) -> None:
-        compact = bool(compact)
-        if compact == self._timeline_compact:
+    def _on_timeline_size_changed(self, mode: str) -> None:
+        mode = normalize_timeline_size(mode)
+        if mode == self._timeline_size_mode:
             return
-        self._timeline_compact = compact
+        self._timeline_size_mode = mode
         self._save_compare_run_config_value(
-            "compact timeline state",
-            COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY,
-            compact,
+            "compare timeline size",
+            COMPARE_RUN_TIMELINE_SIZE_CONFIG_KEY,
+            mode,
         )
+        if self._timeline_size_toggle is not None:
+            self._timeline_size_toggle.set_active(mode)
         if self._timeline is not None:
-            self._timeline.set_compact(compact)
+            self._timeline.set_timeline_size(mode)
         if self._timeline_legend is not None:
-            self._timeline_legend.setVisible(not compact)
+            self._timeline_legend.setVisible(mode != TIMELINE_COMPACT)
         self._refresh_powerup_timeline_rows()
 
     def _set_series_slot(self, slot_index: int, keys) -> None:
@@ -2724,17 +2731,9 @@ class CompareRunsTab:
         timeline_series_row.addWidget(self._powerups_checkbox)
         timeline_series_row.addStretch(1)
 
-        # A switch, not a push button, and on the title row rather than at the
-        # end of the series slots. It is the same "change how much of this you
-        # see" control as `Expanded` on Live Stats and Recordings, so it uses
-        # the same widget; and it belongs beside the readout it resizes, not in
-        # a row of series pickers it has nothing to do with.
-        self._compact_timeline_btn = l10n.localized(LabeledSwitch, l10n.tr('Compact'))
-        self._compact_timeline_btn.setObjectName("CompareRunsCompactTimeline")
-        self._compact_timeline_btn.setProperty("timelineCompact", True)
-        self._compact_timeline_btn.setChecked(self._timeline_compact)
-        l10n.display(self._compact_timeline_btn, 'setToolTip', l10n.tr('Collapse the timeline into a compact overview strip'))
-        self._compact_timeline_btn.toggled.connect(self._set_timeline_compact)
+        self._timeline_size_toggle = TimelineSizeToggle(self._timeline_size_mode)
+        self._timeline_size_toggle.setObjectName("CompareRunsTimelineSizeToggle")
+        self._timeline_size_toggle.activated.connect(self._on_timeline_size_changed)
         # The name rides the frame, not a row of its own: it is the card's
         # title, and every other titled card on this tab -- Item differences,
         # Stage comparison, both inventories -- already puts it there. That
@@ -2743,7 +2742,7 @@ class CompareRunsTab:
         self._timeline_position_label.setObjectName("CompareRunsTimelinePosition")
         self._timeline_position_label.setProperty("timelinePosition", True)
         self._timeline_position_label.setTextFormat(Qt.RichText)
-        timeline_series_row.addWidget(self._compact_timeline_btn, 0, Qt.AlignVCenter)
+        timeline_series_row.addWidget(self._timeline_size_toggle, 0, Qt.AlignVCenter)
         timeline_series_row.addWidget(self._timeline_position_label, 0, Qt.AlignVCenter)
         timeline_layout.addLayout(timeline_series_row)
 
@@ -2753,7 +2752,7 @@ class CompareRunsTab:
             # the timeline so Qt cancels it with the page during teardown.
             self._diff_throttle.cancel()
             self._diff_throttle = UiUpdateThrottle(qt_context=self._timeline)
-        self._timeline.set_compact(self._timeline_compact)
+        self._timeline.set_timeline_size(self._timeline_size_mode)
         self._timeline.positionChanged.connect(self.on_compare_timeline_position_changed)
         timeline_layout.addWidget(self._timeline)
         from ui.powerup_timeline import PowerupTimelineRow
@@ -2767,7 +2766,7 @@ class CompareRunsTab:
         # reproduced with the compact timeline switched off, because that is
         # the branch that passes `True`.
         timeline_layout.addWidget(self._timeline_legend)
-        self._timeline_legend.setVisible(not self._timeline_compact)
+        self._timeline_legend.setVisible(self._timeline_size_mode != TIMELINE_COMPACT)
         workspace_layout.addWidget(timeline_card)
         yield None
 

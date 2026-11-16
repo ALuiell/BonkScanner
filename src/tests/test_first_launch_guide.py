@@ -8,13 +8,10 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
-import gui_app
 from app import config
 from gui_app import MegabonkApp
-from ui.dialogs import AutoRerollSetupGuideDialog
-from ui.dialogs.shell import DIALOG_WIDE
 
 
 class FirstLaunchGuideConfigTests(unittest.TestCase):
@@ -60,6 +57,9 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
         cls._app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
+        read_only = patch.object(config, "profile_read_only_reason", return_value=None)
+        read_only.start()
+        self.addCleanup(read_only.stop)
         original_user_config = dict(config.user_config)
         self.addCleanup(config.user_config.update, original_user_config)
         self.addCleanup(config.user_config.clear)
@@ -102,124 +102,66 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
         )
         return owner
 
-    def test_the_guide_contains_the_required_setup_and_acknowledges_only_got_it(self) -> None:
-        dialog = AutoRerollSetupGuideDialog(None)
-        self.addCleanup(dialog.close)
-        text = " ".join(label.text() for label in dialog.findChildren(QLabel))
+    def test_accepting_the_quick_guide_persists_acknowledgement(self) -> None:
+        owner = self._guide_owner()
+        guide = SimpleNamespace(finished=MagicMock())
+        owner.open_quick_guide = MagicMock(return_value=guide)
+        with patch.object(config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", False), patch.object(
+            config, "save_config"
+        ) as save:
+            MegabonkApp._show_auto_reroll_setup_guide(owner)
+            MegabonkApp._show_auto_reroll_setup_guide(owner)
+            owner.open_quick_guide.assert_called_once_with("welcome")
+            self.assertIs(owner._auto_reroll_setup_guide, guide)
+            guide.finished.connect.call_args.args[0](QDialog.Accepted)
+            self.assertIsNone(owner._auto_reroll_setup_guide)
+            self.assertTrue(config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED)
+            self.assertTrue(config.user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"])
+            self.assertEqual(config.user_config["AUTO_REROLL_SETUP_GUIDE_VERSION"],
+                             config.AUTO_REROLL_SETUP_GUIDE_VERSION)
+            save.assert_called_once_with(config.user_config)
 
-        self.assertIn("Quick Reset", text)
-        self.assertIn("Skip Portal Animation", text)
-        self.assertIn("Super Quick Resets", text)
-        margin = config.RESET_HOLD_SAFETY_MARGIN
-        minimum_hold = config.minimum_reset_hold_duration(margin)
-        minimum_game_value = config.reset_hold_duration_to_game_value(
-            minimum_hold,
-            safety_margin=margin,
-        )
-        self.assertIn(f"{minimum_hold:.2f} s", text)
-        self.assertIn(f"{margin:.2f}-second safety margin", text)
-        self.assertIn(f"{minimum_game_value:.2f} s", text)
-        self.assertNotIn("0.10 s minimum has been removed", text)
-        self.assertIn("Close Megabonk only if its config needs changing", text)
-        self.assertIn("Safety Margin", text)
-        self.assertIn("If a reset is missed", text)
-        self.assertIn("preserving the current or planned game threshold", text)
-        self.assertIn("next game launch", text)
-        self.assertIn("automatically raises a hold that is too short", text)
-        self.assertIn("Megabonk's game config", text)
-        self.assertIn("%USERPROFILE%", text)
-        self.assertEqual(dialog.minimumWidth(), DIALOG_WIDE)
-        self.assertEqual(
-            sum(
-                frame.objectName() == "WarningCard"
-                for frame in dialog.findChildren(QWidget)
-            ),
-            2,
-        )
-        self.assertFalse(dialog.acknowledged)
+    def test_rejecting_the_quick_guide_does_not_acknowledge_it(self) -> None:
+        owner = self._guide_owner(visible=True)
+        guide = SimpleNamespace(finished=MagicMock())
+        owner.open_quick_guide = MagicMock(return_value=guide)
+        with patch.object(config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", False), patch.object(
+            config, "save_config"
+        ) as save:
+            MegabonkApp._show_auto_reroll_setup_guide(owner)
+            guide.finished.connect.call_args.args[0](QDialog.Rejected)
+            self.assertIsNone(owner._auto_reroll_setup_guide)
+            self.assertTrue(owner.window.isVisible())
+            self.assertFalse(config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED)
+            save.assert_not_called()
 
-        dialog.reject()
-        self.assertFalse(dialog.acknowledged)
-        dialog.confirm()
-        self.assertTrue(dialog.acknowledged)
+    def test_failed_open_does_not_acknowledge_and_can_retry(self) -> None:
+        owner = self._guide_owner()
+        owner.open_quick_guide = MagicMock(return_value=None)
+        with patch.object(config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", False), patch.object(
+            config, "save_config"
+        ) as save:
+            MegabonkApp._show_auto_reroll_setup_guide(owner)
+            MegabonkApp._show_auto_reroll_setup_guide(owner)
+            self.assertEqual(owner.open_quick_guide.call_count, 2)
+            self.assertIsNone(owner._auto_reroll_setup_guide)
+            self.assertFalse(config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED)
+            save.assert_not_called()
 
-    def test_got_it_persists_the_acknowledgement(self) -> None:
-        app = self._guide_owner()
-        fake_dialog = SimpleNamespace(
-            acknowledged=True,
-            finished=MagicMock(),
-            open=MagicMock(),
-            deleteLater=MagicMock(),
-        )
-
-        with patch.object(config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", False):
-            with patch.object(config, "save_config") as save_config:
-                with patch.object(
-                    gui_app,
-                    "AutoRerollSetupGuideDialog",
-                    return_value=fake_dialog,
-                ) as dialog_class:
-                    MegabonkApp._show_auto_reroll_setup_guide(app)
-                    MegabonkApp._show_auto_reroll_setup_guide(app)
-                    fake_dialog.finished.connect.call_args.args[0](1)
-
-                dialog_class.assert_called_once_with(app.window)
-                fake_dialog.open.assert_called_once_with()
-                fake_dialog.deleteLater.assert_called_once_with()
-                self.assertIsNone(app._auto_reroll_setup_guide)
-                self.assertTrue(config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED)
-                self.assertTrue(
-                    config.user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"]
-                )
-                self.assertEqual(
-                    config.user_config["AUTO_REROLL_SETUP_GUIDE_VERSION"],
-                    config.AUTO_REROLL_SETUP_GUIDE_VERSION,
-                )
-                save_config.assert_called_once_with(config.user_config)
-
-    def test_dismissing_the_guide_does_not_acknowledge_it(self) -> None:
-        app = self._guide_owner(visible=True)
-        fake_dialog = SimpleNamespace(
-            acknowledged=False,
-            finished=MagicMock(),
-            open=MagicMock(),
-            deleteLater=MagicMock(),
-        )
-
-        with patch.object(config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", False):
-            with patch.object(config, "save_config") as save_config:
-                with patch.object(
-                    gui_app,
-                    "AutoRerollSetupGuideDialog",
-                    return_value=fake_dialog,
-                ):
-                    MegabonkApp._show_auto_reroll_setup_guide(app)
-                    fake_dialog.finished.connect.call_args.args[0](0)
-
-                fake_dialog.open.assert_called_once_with()
-                fake_dialog.deleteLater.assert_called_once_with()
-                self.assertIsNone(app._auto_reroll_setup_guide)
-                self.assertTrue(app.window.isVisible())
-                self.assertFalse(config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED)
-                save_config.assert_not_called()
-
-    def test_closing_the_real_guide_leaves_the_main_window_running(self) -> None:
-        app = self._guide_owner(visible=True)
-
-        with patch.object(config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", False):
-            with patch.object(config, "save_config") as save_config:
-                MegabonkApp._show_auto_reroll_setup_guide(app)
-                dialog = app._auto_reroll_setup_guide
-                self.assertIsNotNone(dialog)
-                self.assertTrue(dialog.isVisible())
-
-                dialog.close()
-                QApplication.processEvents()
-
-                self.assertTrue(app.window.isVisible())
-                self.assertIsNone(app._auto_reroll_setup_guide)
-                self.assertFalse(config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED)
-                save_config.assert_not_called()
+    def test_read_only_profile_does_not_apply_timing_or_open_guide(self) -> None:
+        owner = self._guide_owner()
+        owner.open_quick_guide = MagicMock()
+        config.user_config["RESET_TIMING_SETUP_PENDING"] = True
+        with patch.object(config, "profile_read_only_reason", return_value="profile in use"), patch.object(
+            config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", False
+        ), patch.object(config, "apply_recommended_reset_timing") as apply, patch.object(
+            config, "save_config"
+        ) as save:
+            MegabonkApp._show_auto_reroll_setup_guide(owner)
+            apply.assert_not_called()
+            owner.open_quick_guide.assert_not_called()
+            save.assert_not_called()
+            self.assertTrue(config.user_config["RESET_TIMING_SETUP_PENDING"])
 
 
 if __name__ == "__main__":

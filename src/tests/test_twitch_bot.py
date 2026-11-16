@@ -1132,6 +1132,26 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._handle_dice.assert_called_once_with("channel")
         self.assertEqual(self.bot.last_command_times["!dice"], 100.0)
 
+    def test_stats_default_and_saved_previous_default_show_all_selected_stats(self):
+        from app import config
+
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.latest_snapshot.return_value = SimpleNamespace(
+            stats={"Powerup Drop Chance": SimpleNamespace(display_value="20%")}
+        )
+        previous_default = "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}"
+        for saved_templates in ({}, {"stats": previous_default}):
+            with self.subTest(saved_templates=saved_templates):
+                bot_config = config.normalize_twitch_bot_config({"templates": saved_templates})
+                with patch.dict(config.TWITCH_BOT, bot_config):
+                    self.bot._handle_stats("channel")
+                self.bot._send_chat.assert_called_once_with(
+                    "channel",
+                    "Live Stats: DMG: -- | XP: -- | Luck: -- | Diff: -- | "
+                    "PDC: 20% | ESI: -- | PM: -- | Size: --",
+                )
+                self.bot._send_chat.reset_mock()
+
     def test_handle_stats_uses_shared_stat_abbreviations(self):
         from app.config import TWITCH_BOT
 

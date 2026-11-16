@@ -76,7 +76,7 @@ class _PremiumMapGroup(QGroupBox):
             )
 
 
-def _premium_map_option(checkbox, description, control, parent, *, locked=False):
+def _premium_map_option(checkbox, description, control, parent, *, locked=False, open_guide=None):
     option = QFrame(parent)
     option.setObjectName("PremiumFeatureLocked" if locked else "mapMarkerBehaviorOption")
     column = QVBoxLayout(option)
@@ -110,6 +110,12 @@ def _premium_map_option(checkbox, description, control, parent, *, locked=False)
         title.addWidget(label)
     if control is not None and not locked:
         title.addWidget(control)
+    if open_guide is not None:
+        from ui.guides.shortcuts import guide_button
+        from ui.guides.guide_locale import message
+        shortcut = guide_button(lambda: message("guide.shortcut"), lambda: message("guide.open_premium"))
+        shortcut.clicked.connect(open_guide)
+        title.addWidget(shortcut)
     column.addLayout(title)
     note = ow(QLabel(description, option), description)
     note.setObjectName("PremiumFeatureNote")
@@ -353,6 +359,7 @@ class MapMarkerSettingsDialog(QDialog):
         merchant_stock_display: str = "smart",
         has_premium_access: bool = False,
         open_support_settings=lambda: None,
+        open_quick_guide=None,
         binding_dialog_factory=MapMarkerBindingDialog,
     ) -> None:
         super().__init__(parent)
@@ -463,6 +470,7 @@ class MapMarkerSettingsDialog(QDialog):
             self.minimap_scale_spin,
             premium_card,
             locked=not self._has_premium_access,
+            open_guide=(lambda: open_quick_guide("minimap", owner=self)) if open_quick_guide else None,
         )
         premium_options.addWidget(self.minimap_row, 1)
 
@@ -493,6 +501,7 @@ class MapMarkerSettingsDialog(QDialog):
             self.merchant_stock_display_combo,
             premium_card,
             locked=not self._has_premium_access,
+            open_guide=(lambda: open_quick_guide("stock", owner=self)) if open_quick_guide else None,
         )
         premium_options.addWidget(self.merchant_row, 1)
         self.premium_group_badge = PremiumFeatureBadge(

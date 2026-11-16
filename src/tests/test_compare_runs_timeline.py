@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app import config
+from app.vod_library import TIMELINE_COMPACT, TIMELINE_EXPANDED, TIMELINE_STANDARD
 from core.item_metadata import ITEM_RARITY_COLOR_MAP
 from projections import scrubber
 from projections.compare_overview import LootRung, LuckLoot
@@ -26,8 +28,13 @@ from projections.metric_table import MetricRow, MetricSection, MetricTable
 from projections.timeline_axis import build_axis_projection
 from ui.compare_overview import CompareRunsAxisView, CompareRunsLuckLootView
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
-from ui.shared import LabeledSwitch, StagedLoadingSpinner
-from ui.tabs.compare_runs.tab import CompareRunsTab
+from ui.shared import StagedLoadingSpinner
+from ui.tabs.compare_runs.tab import (
+    COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY,
+    COMPARE_RUN_TIMELINE_SIZE_CONFIG_KEY,
+    CompareRunsTab,
+)
+from ui.timeline_size import TimelineSizeToggle
 # `AXIS_PROGRESS` and `axis_positions` come from their owner rather than through
 # the timeline widget. The widget imported both and used neither: they were a
 # re-export this file was the only reader of, so the import survived in `ui/`
@@ -401,24 +408,55 @@ def test_playhead_updates_do_not_rebuild_static_timeline() -> None:
     timeline.close()
 
 
-def test_compact_timeline_reduces_height_and_can_be_restored() -> None:
+def test_timeline_sizes_preserve_the_playhead() -> None:
     app = QApplication.instance() or QApplication([])
     timeline = CompareRunsTimeline()
-    normal_height = timeline.height()
-
-    timeline.set_compact(True)
-    app.processEvents()
-
-    assert timeline.compact is True
-    assert timeline.height() < normal_height
-    assert timeline.minimumHeight() == timeline.maximumHeight() == timeline.height()
-
-    timeline.set_compact(False)
-    app.processEvents()
-
-    assert timeline.compact is False
-    assert timeline.height() == normal_height
+    timeline.set_position(0.35)
+    assert timeline.height() == 214
+    for mode, height in ((TIMELINE_EXPANDED, 270), (TIMELINE_COMPACT, 112), (TIMELINE_STANDARD, 214)):
+        timeline.set_timeline_size(mode)
+        app.processEvents()
+        assert timeline.compact is (mode == TIMELINE_COMPACT)
+        assert timeline.height() == timeline.minimumHeight() == timeline.maximumHeight() == height
+        assert timeline.position == 0.35
     timeline.close()
+
+
+def test_timeline_size_restores_legacy_compact_and_persists_new_selection(monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    settings = {COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY: True}
+    save = MagicMock(return_value=config.ConfigSaveResult(True, ""))
+    monkeypatch.setattr(config, "user_config", settings)
+    monkeypatch.setattr(config, "save_config", save)
+
+    tabs = QTabWidget()
+    library = SimpleNamespace(index=(), ensure_refresh=lambda: None)
+    compare = CompareRunsTab(tabview=tabs, vod_library=library, is_active=lambda: True)
+    compare.build()
+    compare.build_now()
+    toggle = compare._timeline_size_toggle
+    assert toggle.segment(TIMELINE_COMPACT).isChecked()
+    assert compare._timeline.height() == 112
+    assert compare._timeline_legend.isHidden()
+    save.assert_not_called()
+
+    toggle.segment(TIMELINE_EXPANDED).click()
+    assert toggle.segment(TIMELINE_EXPANDED).isChecked()
+    assert not toggle.segment(TIMELINE_COMPACT).isChecked()
+    assert compare._timeline.height() == 270
+    assert not compare._timeline_legend.isHidden()
+    assert settings[COMPARE_RUN_TIMELINE_SIZE_CONFIG_KEY] == TIMELINE_EXPANDED
+    toggle.segment(TIMELINE_EXPANDED).click()
+    assert toggle.segment(TIMELINE_EXPANDED).isChecked()
+    save.assert_called_once()
+
+    tabs.close()
+    restored = CompareRunsTab(tabview=tabs, vod_library=library, is_active=lambda: True)
+    restored.build()
+    restored.build_now()
+    assert restored._timeline_size_toggle.segment(TIMELINE_EXPANDED).isChecked()
+    assert restored._timeline.height() == 270
+    app.processEvents()
 
 
 def test_luck_loot_rarity_rungs_use_the_canonical_item_palette() -> None:
@@ -503,7 +541,7 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
         for action in compare._series_slot_buttons[0].menu().actions()
         if action.menu() is not None
     ] == ["Dmg", "Effects", "Run", "Rewards & spawns"]
-    assert compare._compact_timeline_btn.property("timelineCompact") is True
+    assert isinstance(compare._timeline_size_toggle, TimelineSizeToggle)
     assert not hasattr(compare, "_axis_time_btn")
     assert not hasattr(compare, "_axis_progress_btn")
     assert compare._timeline.axis_mode == AXIS_TIME
@@ -519,16 +557,12 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
     position_center_y = compare._timeline_position_label.mapTo(
         timeline_card, QPoint(0, compare._timeline_position_label.height() // 2)
     ).y()
-    compact_center_y = compare._compact_timeline_btn.mapTo(
-        timeline_card, QPoint(0, compare._compact_timeline_btn.height() // 2)
+    size_center_y = compare._timeline_size_toggle.mapTo(
+        timeline_card, QPoint(0, compare._timeline_size_toggle.height() // 2)
     ).y()
     timeline_top = compare._timeline.mapTo(timeline_card, QPoint()).y()
     assert slot_center_y < timeline_top
-    # One control row above the track: title, series pickers, the compact
-    # switch and the readout. A second row holding only the word TIMELINE was
-    # height spent on nothing.
-    assert isinstance(compare._compact_timeline_btn, LabeledSwitch)
-    assert abs(slot_center_y - compact_center_y) <= 2
+    assert abs(slot_center_y - size_center_y) <= 2
     assert abs(slot_center_y - position_center_y) <= 2
     slot_bottom = compare._series_slot_buttons[0].mapTo(
         timeline_card, QPoint(0, compare._series_slot_buttons[0].height())

@@ -257,7 +257,7 @@ DEFAULT_TWITCH_BOT = {
     "tracked_items_source": "custom",
     "tracked_items": [],
     "templates": {
-        "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
+        "stats": "Live Stats: {stats}",
         "session": "{resets} resets, {seeds} seeds found ({seed_rate}%) | Tracked Items: {items}",
         "bans": "Bans ({count}): {items}",
         "items": "Items ({count}): {items}",
@@ -1448,6 +1448,8 @@ def normalize_twitch_bot_config(value):
         bot_cfg["templates"] = _merge_dict_defaults(bot_cfg["templates"], DEFAULT_TWITCH_BOT["templates"])
         for k in DEFAULT_TWITCH_BOT["templates"]:
             bot_cfg["templates"][k] = str(bot_cfg["templates"].get(k, DEFAULT_TWITCH_BOT["templates"][k]))
+    if bot_cfg["templates"]["stats"] == "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}":
+        bot_cfg["templates"]["stats"] = DEFAULT_TWITCH_BOT["templates"]["stats"]
     if bot_cfg["templates"].get("scanner") in LEGACY_TWITCH_SCANNER_TEMPLATES:
         bot_cfg["templates"]["scanner"] = DEFAULT_TWITCH_BOT["templates"]["scanner"]
     if bot_cfg["templates"].get("chests") in LEGACY_TWITCH_CHESTS_TEMPLATES:

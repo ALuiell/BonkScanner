@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from PySide6.QtCore import QByteArray, QRect, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QIcon
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog
 
 from app import config
 from app.deferred_config import (
@@ -22,7 +22,7 @@ from app.runtime import AppRuntime, AppRuntimePorts
 from app.supporter_access import SupporterAccessController
 from app.version import CURRENT_VERSION
 from core.supporter_service import supporter_service_base_url
-from ui.dialogs import AutoRerollSetupGuideDialog, HelpDialog, SettingsDialog
+from ui.dialogs import HelpDialog, SettingsDialog
 from ui.layout import build_layout, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
@@ -34,7 +34,7 @@ from ui.shared import UiInvoker, _AppWindow, resource_path
 from ui.dialogs.update_prompt import start_supporters_load, start_update_check
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
-from ui.themes import apply_theme
+from ui.themes import apply_theme, prepare_startup_style
 from app.shutdown import (
     FORCED_SHUTDOWN_EXIT_CODE,
     ShutdownDeadline,
@@ -403,6 +403,7 @@ class MegabonkApp:
         # owners; the assignment in ``main`` has not completed yet, so no caller
         # has an application reference it could use for cleanup.
         try:
+            prepare_startup_style(self)
             build_layout(self)
             self._twitch_session = build_twitch_session(
                 self,
@@ -885,6 +886,22 @@ class MegabonkApp:
                 except RuntimeError:
                     pass
 
+    def open_quick_guide(self, topic: str = "welcome", *, owner=None):
+        try:
+            from gui_in_game_overlay_window import DraggableOverlayWidget, LuckRarityOverlayWidget, MapMarkerLayer
+            from ui.guides.controller import open_quick_guide
+            from ui.guides.overlay_previews import OverlayPreviewWidgets
+
+            widgets = OverlayPreviewWidgets(
+                draggable=DraggableOverlayWidget,
+                luck_rarity=LuckRarityOverlayWidget,
+                map_markers=MapMarkerLayer,
+            )
+            return open_quick_guide(self, topic, owner=owner, overlay_widgets=widgets)
+        except Exception as exc:
+            self._log_dialog_failure("Quick Guide", exc)
+            return None
+
     def _log_dialog_failure(self, name: str, exc: Exception) -> None:
         try:
             self.log(
@@ -910,18 +927,15 @@ class MegabonkApp:
             None,
         ) is not None:
             return
-        dialog = AutoRerollSetupGuideDialog(self.window)
-        self._auto_reroll_setup_guide = dialog
-        dialog.finished.connect(self._finish_auto_reroll_setup_guide)
-        dialog.open()
-
-    def _finish_auto_reroll_setup_guide(self, _result: int) -> None:
-        dialog = getattr(self, "_auto_reroll_setup_guide", None)
+        dialog = self.open_quick_guide("welcome")
         if dialog is None:
             return
+        self._auto_reroll_setup_guide = dialog
+        dialog.finished.connect(self._finish_auto_reroll_setup_guide)
+
+    def _finish_auto_reroll_setup_guide(self, result: int) -> None:
         self._auto_reroll_setup_guide = None
-        if not dialog.acknowledged:
-            dialog.deleteLater()
+        if result != QDialog.Accepted:
             return
         config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
         config.user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"] = True
@@ -929,7 +943,6 @@ class MegabonkApp:
             config.AUTO_REROLL_SETUP_GUIDE_VERSION
         )
         config.save_config(config.user_config)
-        dialog.deleteLater()
 
     # -- tab-bar predicates (step 26) --------------------------------------
     #
@@ -944,15 +957,14 @@ class MegabonkApp:
     # the roadmap's rollback condition is about the *shell* needing forwarding
     # to stay compatible, and these have named callers in the layer below.
     #
-    # The body is `gui_layout._is_tab_active`, the free function the router
-    # uses too, so the app and the router cannot answer the same question
-    # differently -- and `self.tabview` is declared by `__init__`, so neither
-    # is a hidden read.
+    # A selected Live page can still be building behind its loading ring.
     def _is_live_stats_tab_active(self) -> bool:
+        view = getattr(self, "_player_stats_view", None)
         return (
             self.window.isVisible()
             and not self.window.isMinimized()
             and _is_tab_active(self.tabview, "Live")
+            and getattr(view, "is_ready", True)
         )
 
     def _is_overlay_tab_active(self) -> bool:
@@ -1218,8 +1230,25 @@ class MegabonkApp:
         # layout pass under `Qt.WA_DontShowOnScreen` before mapping anything.
         # It is not worth a hack that only looks like it does that: kept, these
         # lines would read as load-bearing to whoever finds them next.
+        startup_error = None
+
+        def start_services() -> None:
+            nonlocal startup_error
+            try:
+                self.start()
+            except BaseException as exc:
+                # Exceptions escaping a Qt callback don't reach main's crash
+                # journal. End the loop and rethrow through its normal path.
+                startup_error = exc
+                self.qt_app.quit()
+
+        if not self._started:
+            self.window.run_after_first_paint(start_services)
         self._restore_window_state()
-        return self.qt_app.exec()
+        result = self.qt_app.exec()
+        if startup_error is not None:
+            raise startup_error
+        return result
 
     # -- remembered window state -------------------------------------------
     #
@@ -1448,11 +1477,11 @@ class MegabonkApp:
         return True
 
     def run_after_window_shown(self, callback) -> None:
-        """Run native auxiliary-window setup only after the main window maps."""
+        """Run native auxiliary-window setup after the main window paints."""
         if self.__dict__.get("_is_shutting_down", False):
             return
         if self._window_shown:
-            self.after(0, callback)
+            self.window.run_after_first_paint(callback)
             return
         self._after_window_shown_callbacks.append(callback)
 
@@ -1463,4 +1492,4 @@ class MegabonkApp:
         callbacks = tuple(self._after_window_shown_callbacks)
         self._after_window_shown_callbacks.clear()
         for callback in callbacks:
-            self.after(0, callback)
+            self.window.run_after_first_paint(callback)

@@ -22,7 +22,7 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QImage, Q
 from app import config
 from app.active_recording_feed import ActiveRecordingFeed
 from app.prepared_recording import prepare_loaded_recording
-from app.vod_library import VodLibrary
+from app.vod_library import TIMELINE_COMPACT, TIMELINE_STANDARD, VodLibrary
 from core.powerup_history import PowerupHistory, PowerupObservation, RecordedEffect
 from infra.vod_storage import LoadedVod, VodMetadata, VodSnapshot, VodStatValue
 from ui.powerup_timeline import PowerupTimelineRow
@@ -117,7 +117,6 @@ compare._index_a = 5
 compare._index_b = 5
 compare._prepared_sides['a'] = prepared
 compare._prepared_sides['b'] = prepare_loaded_recording(compare._vod_b, series_keys=('Difficulty', '@powerups'))
-compare._timeline_compact = False
 compare._refresh_compare_runs_timeline_model()
 tabs.setCurrentWidget(compare._tab)
 app.processEvents()
@@ -127,7 +126,7 @@ assert compare._powerup_rows['a'].entries[0][3]
 assert compare._powerup_rows['a'].entries[0][2] == '×1 · 0:08'
 assert compare._powerup_rows['b'].note == 'No data'
 assert all(entry[2] == '—' for entry in compare._powerup_rows['b'].entries)
-compare._set_timeline_compact(True)
+compare._timeline_size_toggle.segment(TIMELINE_COMPACT).click()
 assert compare._powerup_rows['a'].isHidden()
 with patch.object(compare._powerup_rows['a'], 'set_state', side_effect=AssertionError('compact readout rendered')):
     compare._refresh_powerup_timeline_rows()
@@ -140,7 +139,7 @@ with patch.object(timeline_module, 'build_series_path', wraps=timeline_module.bu
 assert draw_paths.call_count >= 2
 assert all(call.args[2].height() > 0 for call in draw_paths.call_args_list)
 assert len([text for rect, text in compare._timeline._marker_hits if text.startswith(('Rage', 'Shield', 'Stonks', 'Clock'))]) == 4
-compare._set_timeline_compact(False)
+compare._timeline_size_toggle.segment(TIMELINE_STANDARD).click()
 assert not compare._powerup_rows['a'].isHidden()
 compare._powerups_checkbox.setChecked(False)
 assert not recordings._powerups_checkbox.isChecked()

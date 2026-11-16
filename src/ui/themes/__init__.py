@@ -169,6 +169,8 @@ class _ThemeController(QObject):
             return
         current = widget.styleSheet()
         previous = widget.property("_desktopThemeLastSheet")
+        if not current and previous is None:
+            return
         if current != previous:
             widget.setProperty("_desktopThemeOriginalSheet", current)
         original = widget.property("_desktopThemeOriginalSheet")
@@ -193,11 +195,27 @@ class _ThemeController(QObject):
         return False
 
 
-def apply_theme(owner) -> str:
-    """Resolve policy, then switch the complete local appearance package."""
+def _apply_global_style(application, controller, preset):
     from ui.styles import build_qt_app_stylesheet
-    from ui.themes.runtime import AppearanceRuntime, load_package
 
+    checkmark = resource_path("media/checkmark.svg").replace("\\", "/")
+    sheet = build_qt_app_stylesheet(checkmark, theme="original")
+    if preset["color_map"]:
+        sheet = remap_colors(sheet, preset["color_map"])
+    if preset["id"] != "original":
+        override = Path(resource_path(f"media/themes/{preset['id']}/overrides.qss"))
+        if override.is_file():
+            sheet += "\n" + override.read_text(encoding="utf-8")
+    palette = QPalette(controller.original_palette)
+    for role, color in preset.get("qt_palette", {}).items():
+        palette.setColor(_PALETTE_ROLES[role], QColor(color))
+    if application.styleSheet() != sheet:
+        application.setStyleSheet(sheet)
+    if application.palette() != palette:
+        application.setPalette(palette)
+
+
+def _theme_controller():
     application = QApplication.instance()
     if application is None:
         raise RuntimeError("A QApplication is required to apply a theme")
@@ -205,26 +223,43 @@ def apply_theme(owner) -> str:
     if controller is None:
         controller = _ThemeController(application)
         application._desktop_theme_controller = controller
+    return application, controller
+
+
+def prepare_startup_style(owner) -> None:
+    """Install the selected global style before Qt builds the main widget tree."""
+    from ui.themes.runtime import load_package
+
+    application, controller = _theme_controller()
+    preset = load_package(resolved_theme(owner)).preset
+    controller._updating = True
+    try:
+        try:
+            _apply_global_style(application, controller, preset)
+        except (OSError, UnicodeError):
+            # AppearanceRuntime will report the package failure and fall back.
+            _apply_global_style(application, controller, load_package("original").preset)
+    finally:
+        controller._updating = False
+
+
+def apply_theme(owner) -> str:
+    """Resolve policy, then switch the complete local appearance package."""
+    from ui.themes.runtime import AppearanceRuntime, load_package
+
+    application, controller = _theme_controller()
 
     def apply_style(preset):
+        adapt_local = controller.preset.get("neutral_color_map") or preset.get("neutral_color_map")
         controller.preset = preset
-        checkmark = resource_path("media/checkmark.svg").replace("\\", "/")
-        # Apply the already validated descriptor, including fallback packages.
-        sheet = remap_colors(build_qt_app_stylesheet(checkmark, theme="original"), preset["color_map"])
-        override = Path(resource_path(f"media/themes/{preset['id']}/overrides.qss"))
-        if preset["id"] != "original" and override.is_file():
-            sheet += "\n" + override.read_text(encoding="utf-8")
-        palette = QPalette(controller.original_palette)
-        for role, color in preset.get("qt_palette", {}).items():
-            palette.setColor(_PALETTE_ROLES[role], QColor(color))
         controller._updating = True
         try:
             # Global repolish must finish before adapting local widget sheets.
             # Mutating them inside StyleChange can re-enter Qt's style traversal.
-            application.setStyleSheet(sheet)
-            application.setPalette(palette)
-            for widget in application.allWidgets():
-                controller._adapt_widget(widget)
+            _apply_global_style(application, controller, preset)
+            if adapt_local:
+                for widget in application.allWidgets():
+                    controller._adapt_widget(widget)
         finally:
             controller._updating = False
 

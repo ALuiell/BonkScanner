@@ -20,6 +20,8 @@ import os
 from functools import partial
 
 from ui.footer import build_footer
+from ui.guides.guide_locale import message as guide_message
+from ui.guides.shortcuts import guide_button
 from ui.log_view import LogView
 from ui.scanner_toggle import ScannerToggle
 from ui.status_indicators import (
@@ -349,13 +351,6 @@ def _build_header(app, parent_layout):
     title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     header.addWidget(title, 0, Qt.AlignVCenter)
 
-    status_cluster = QWidget()
-    status_cluster.setObjectName("headerStatusCluster")
-    status_cluster_layout = QHBoxLayout(status_cluster)
-    status_cluster_layout.setContentsMargins(0, 0, 0, 0)
-    status_cluster_layout.setSpacing(6)
-    header.addWidget(status_cluster, 0, Qt.AlignVCenter)
-
     app.premium_access_badge = PremiumAccessBadge()
     _apply_button_icon(
         app.premium_access_badge,
@@ -363,15 +358,18 @@ def _build_header(app, parent_layout):
         14,
     )
     app.premium_access_badge.clicked.connect(
-        lambda: app.open_settings_dialog(page="support")
+        lambda: app.open_quick_guide("premium")
     )
     app.supporter_access.add_listener(app.premium_access_badge.set_access_state)
-    app._validator_tab = None
-    status_cluster_layout.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
-    # The access state may make the badge visible immediately. Reparent it via
-    # the layout first so an active Premium account cannot flash a transient
-    # top-level native window during startup.
+    header.addWidget(app.premium_access_badge, 0, Qt.AlignVCenter)
     app.premium_access_badge.set_access_state(app.supporter_access.state)
+
+    status_cluster = QWidget()
+    status_cluster.setObjectName("headerStatusCluster")
+    status_cluster_layout = QHBoxLayout(status_cluster)
+    status_cluster_layout.setContentsMargins(0, 0, 0, 0)
+    status_cluster_layout.setSpacing(6)
+    header.addWidget(status_cluster, 0, Qt.AlignVCenter)
 
     divider = QFrame()
     divider.setObjectName("headerDivider")
@@ -420,6 +418,7 @@ def _build_header(app, parent_layout):
     # does: it is a thing the app is doing that nothing else on screen shows.
     app.rec_flag = RecordingFlag()
     header.addWidget(app.rec_flag, 0, Qt.AlignVCenter)
+    app._validator_tab = None
     if (controller := getattr(app.coordinator, 'validator', None)) is not None:
         from ui.validator import ValidatorTab
 
@@ -1298,6 +1297,9 @@ def _build_header_controls(app, controls):
     app.help_btn.clicked.connect(app.open_help_dialog)
 
     controls.addWidget(app.help_btn)
+    tour = guide_button(lambda: guide_message("guide.tour"), lambda: guide_message("guide.open_tour"))
+    tour.clicked.connect(lambda: app.open_quick_guide("welcome"))
+    controls.addWidget(tour)
     controls.addWidget(app.settings_btn)
 
 
@@ -1333,7 +1335,9 @@ def _build_tab_router(app):
         overlay=app._overlay,
         template_filters=app._template_filters,
         update_status=app.update_status_ui,
-        refresh_live_player_stats=app.refresh_live_player_stats_now,
+        refresh_live_player_stats=lambda: (
+            app.refresh_live_player_stats_now() if app._is_live_stats_tab_active() else None
+        ),
         schedule_idle=app.after_idle,
         window_exposed=lambda: app.window.isVisible() and not app.window.isMinimized(),
     )
@@ -1530,9 +1534,11 @@ def _build_live_stats_view(app):
         on_snapshot_selected=_select_snapshot,
         build_progression_snapshot=lambda: app.coordinator.build_progression_service.snapshot(),
         open_build_progression_settings=lambda: _open_build_progression_settings(app),
-        validator_strip=app._validator_tab.create_live_strip() if app._validator_tab else None,
+        create_validator_strip=(
+            app._validator_tab.create_live_strip if app._validator_tab is not None else None
+        ),
     )
-    return view.build()
+    return view.build_deferred(on_ready=app._tab_router.on_right_tab_changed)
 
 
 def _open_build_progression_settings(app) -> None:

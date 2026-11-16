@@ -130,7 +130,6 @@ def main():
         event_loop_failed = False
         try:
             app.protocol("WM_DELETE_WINDOW", app.on_closing)
-            app.start()
             log_runtime_event("application.mainloop_enter")
             app.mainloop()
         except BaseException:

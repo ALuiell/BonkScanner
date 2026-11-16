@@ -21,6 +21,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
+from app.vod_library import TIMELINE_COMPACT, TIMELINE_EXPANDED, TIMELINE_STANDARD, normalize_timeline_size
 from projections import scrubber as scrubber_model
 from core.stats.formats import PlayerStatFormat
 from core.stats.formatters import format_player_stat_value
@@ -62,8 +63,7 @@ _BOTTOM_GUTTER = 13.0
 _LANE_GAP = 8.0
 _STAGE_LABEL_HEIGHT = 17.0
 _MARKER_HEIGHT = 11.0
-_NORMAL_HEIGHT = 214
-_COMPACT_HEIGHT = 112
+_TIMELINE_HEIGHTS = {TIMELINE_EXPANDED: 270, TIMELINE_STANDARD: 214, TIMELINE_COMPACT: 112}
 
 
 def shared_series_scales(
@@ -131,7 +131,7 @@ class CompareRunsTimeline(QWidget):
         super().__init__(parent)
         self.setObjectName("CompareRunsTimeline")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setFixedHeight(_NORMAL_HEIGHT)
+        self.setFixedHeight(_TIMELINE_HEIGHTS[TIMELINE_STANDARD])
         self.setMouseTracking(False)
         l10n.display(self, 'setToolTip', l10n.tr('Drag to compare both recordings at the same position'))
 
@@ -139,7 +139,7 @@ class CompareRunsTimeline(QWidget):
         self._lane_a = _Lane((), empty, (), ())
         self._lane_b = _Lane((), empty, (), ())
         self._axis_mode = AXIS_TIME
-        self._compact = False
+        self._timeline_size_mode = TIMELINE_STANDARD
         self._series_keys: tuple[str, ...] = ()
         self._cap_keys: tuple[str, ...] = ()
         self._shared_scales: dict[str, float] = {}
@@ -175,7 +175,7 @@ class CompareRunsTimeline(QWidget):
 
     @property
     def compact(self) -> bool:
-        return self._compact
+        return self._timeline_size_mode == TIMELINE_COMPACT
 
     @property
     def static_rebuilds(self) -> int:
@@ -189,12 +189,12 @@ class CompareRunsTimeline(QWidget):
         self._axis_mode = mode
         self._reproject()
 
-    def set_compact(self, compact: bool) -> None:
-        compact = bool(compact)
-        if compact == self._compact:
+    def set_timeline_size(self, mode: str) -> None:
+        mode = normalize_timeline_size(mode)
+        if mode == self._timeline_size_mode:
             return
-        self._compact = compact
-        self.setFixedHeight(_COMPACT_HEIGHT if compact else _NORMAL_HEIGHT)
+        self._timeline_size_mode = mode
+        self.setFixedHeight(_TIMELINE_HEIGHTS[mode])
         self._cache_key = None
         self.updateGeometry()
         self.update()
@@ -385,8 +385,8 @@ class CompareRunsTimeline(QWidget):
         self.update()
 
     def _track_rect(self) -> QRectF:
-        top_gutter = 3.0 if self._compact else _TOP_GUTTER
-        bottom_gutter = 6.0 if self._compact else _BOTTOM_GUTTER
+        top_gutter = 3.0 if self.compact else _TOP_GUTTER
+        bottom_gutter = 6.0 if self.compact else _BOTTOM_GUTTER
         return QRectF(self.rect()).adjusted(
             _LABEL_WIDTH,
             top_gutter,
@@ -396,7 +396,7 @@ class CompareRunsTimeline(QWidget):
 
     def _lane_rects(self) -> tuple[QRectF, QRectF]:
         track = self._track_rect()
-        lane_gap = 4.0 if self._compact else _LANE_GAP
+        lane_gap = 4.0 if self.compact else _LANE_GAP
         height = max(1.0, (track.height() - lane_gap) / 2.0)
         return (
             QRectF(track.left(), track.top(), track.width(), height),
@@ -404,10 +404,10 @@ class CompareRunsTimeline(QWidget):
         )
 
     def _stage_label_height(self) -> float:
-        return 12.0 if self._compact else _STAGE_LABEL_HEIGHT
+        return 12.0 if self.compact else _STAGE_LABEL_HEIGHT
 
     def _marker_height(self) -> float:
-        return 8.0 if self._compact else _MARKER_HEIGHT
+        return 8.0 if self.compact else _MARKER_HEIGHT
 
     def _x(self, rect: QRectF, position: float) -> float:
         return rect.left() + position * rect.width()
@@ -465,7 +465,7 @@ class CompareRunsTimeline(QWidget):
         painter.end()
 
     def _powerup_lane_height(self):
-        return (8.0 if self._compact else 23.0) if scrubber_model.POWERUPS_SERIES in self._series_keys else 0.0
+        return (8.0 if self.compact else 23.0) if scrubber_model.POWERUPS_SERIES in self._series_keys else 0.0
 
     def _place_powerup_readouts(self):
         from ui.powerup_timeline import place_powerup_readout
@@ -473,7 +473,7 @@ class CompareRunsTimeline(QWidget):
         for side, lane, rect in zip(("a", "b"), (self._lane_a, self._lane_b), rects):
             bands = lane.model.stages
             caption = stage_caption(bands[0]) if bands else l10n.tr('STAGES NOT RECORDED')
-            if side == "b" and bands and not self._compact:
+            if side == "b" and bands and not self.compact:
                 delta = self._stage_deltas.get(bands[0].stage_index)
                 if delta is not None:
                     caption += f" · Δ{'+' if delta >= 0 else '−'}{abs(delta):.0f}s"
@@ -574,7 +574,7 @@ class CompareRunsTimeline(QWidget):
             right = self._x(rect, lane.positions[end])
             area = QRectF(left, rect.top(), max(right - left, 1.0), rect.height())
             text = stage_caption(band)
-            if not self._compact and side == "B" and band.stage_index is not None:
+            if not self.compact and side == "B" and band.stage_index is not None:
                 delta = self._stage_deltas.get(band.stage_index)
                 if delta is not None:
                     sign = "+" if delta >= 0 else "−"
@@ -669,7 +669,7 @@ class CompareRunsTimeline(QWidget):
                     QPointF(cap.x0, cap.y),
                     QPointF(cap.x1, cap.y),
                 )
-                if key == "Difficulty" and not self._compact:
+                if key == "Difficulty" and not self.compact:
                     self._paint_cap_label(
                         painter,
                         plot,

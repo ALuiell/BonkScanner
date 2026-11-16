@@ -376,6 +376,7 @@ class StagedLoadingPage(QWidget):
 
     FIRST_STAGE_DELAY_MS = 16
     failed = Signal(object)
+    ready = Signal()
 
     def __init__(
         self,
@@ -471,6 +472,7 @@ class StagedLoadingPage(QWidget):
             # lifecycle deterministic for staged tabs such as Compare Runs.
             self._loading_spinner.stop()
             self._loading_page.hide()
+            self.ready.emit()
             return False
         return True
 
@@ -996,6 +998,23 @@ class _AppWindow(QMainWindow):
     def __init__(self, owner) -> None:
         super().__init__()
         self.owner = owner
+        self._painted = False
+        self._after_first_paint = []
+
+    def run_after_first_paint(self, callback) -> None:
+        if self._painted:
+            self.owner.after_idle(callback)
+        else:
+            self._after_first_paint.append(callback)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self._painted or not self.isVisible():
+            return
+        self._painted = True
+        callbacks, self._after_first_paint = self._after_first_paint, []
+        for callback in callbacks:
+            self.owner.after_idle(callback)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.owner._handle_window_close(event)

@@ -1440,5 +1440,9 @@
   "app.faf7fda75ce71ef3": "Ältere Einträge ausgeblendet",
   "app.702d089cb88c77c9": "Lokale ETW-Ereignisse für diese Spielinstanz. Verluste, Dekodierungsfehler und eine unbekannte Zuordnung bedeuten unvollständige Erfassung. Der Verlauf zeigt die zuletzt gespeicherten Einträge.",
   "app.07e3a63ea0ed5b58": "{p0}: {p1}",
-  "app.d039f02e397fca04": "{p0} s nach Verbindungsaufbau: {p1} {p2}"
+  "app.d039f02e397fca04": "{p0} s nach Verbindungsaufbau: {p1} {p2}",
+  "app.ed9518fc9b0811b9": "Erweiterte Zeitleiste",
+  "app.84908ed21fe2f305": "Normale Zeitleiste (Standard)",
+  "app.bed5cd3d82946c6b": "Kompakte Zeitleiste",
+  "app.b6ad1fc80d350349": "Höhe der Zeitleiste"
 }

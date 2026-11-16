@@ -307,3 +307,30 @@ def test_an_unchecked_ceiling_is_not_drawn_even_when_its_curve_is() -> None:
 
     assert widget.drawable_cap_keys() == ()
     assert widget._cached_caps == []
+
+
+def test_timeline_sizes_preserve_chart_content_and_selection() -> None:
+    QApplication.instance() or QApplication([])
+    widget = RecordingScrubber()
+    widget.set_slots((("Difficulty",), (recording_scrubber_module.model_module.POWERUPS_SERIES,)))
+    widget.set_cap_keys(("Difficulty",))
+    widget.set_model(
+        ScrubberModel(
+            count=4,
+            _series={"Difficulty": _series("Difficulty", (1.0, 4.0, 6.0, 7.0), scale=7.0)},
+            _caps={"Difficulty": (CapStep(0, 3, 5.71),)},
+        )
+    )
+    widget.set_index(2)
+    widget.set_pin(1)
+    for mode, height in (("expanded", 204), ("compact", 96), ("standard", 150), ("invalid", 150)):
+        widget.set_timeline_size(mode)
+        widget.resize(500, height)
+        widget._ensure_render_cache()
+        assert widget.height() == height
+        assert widget._plot_rect().height() > 0
+        assert widget.index() == 2 and widget.pin() == 1
+        assert widget.series_keys == ("Difficulty", recording_scrubber_module.model_module.POWERUPS_SERIES)
+        assert widget.cap_keys == ("Difficulty",)
+        assert len(widget._cached_caps) == 1
+        assert len(widget._cached_paths) == 1

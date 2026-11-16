@@ -491,6 +491,10 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
     )
     parent_mixin.igo_map_markers_settings_btn = marker_settings_btn
     marker_options_row.addWidget(marker_settings_btn)
+    from ui.guides.shortcuts import guide_button
+    from ui.guides.guide_locale import message
+    marker_guide = guide_button("Premium", lambda: message("guide.open_premium"), premium=True)
+    marker_guide.clicked.connect(lambda: parent_mixin._open_quick_guide("minimap"))
     parent_mixin.igo_map_markers_premium_icon = QLabel(marker_options)
     parent_mixin.igo_map_markers_premium_icon.setPixmap(
         QIcon(resource_path("media/premium_access_icon.svg")).pixmap(16, 16)
@@ -502,6 +506,7 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
     parent_mixin.igo_map_markers_summary.setObjectName("tableRowEmpty")
     marker_options_row.addWidget(parent_mixin.igo_map_markers_summary)
     marker_options_row.addStretch(1)
+    marker_options_row.addWidget(marker_guide)
     table.addWidget(marker_options, marker_row, 3)
     refresh_map_marker_settings_summary(parent_mixin)
 
@@ -542,6 +547,8 @@ def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
     marker_cfg = config.IN_GAME_OVERLAY["map_markers"]
     parent = getattr(parent_mixin, "tab_in_game_overlay", None)
     has_premium = getattr(parent_mixin, "_has_premium_access", lambda: False)
+    guide_callback = getattr(parent_mixin, "_open_quick_guide", None)
+    guide_options = {"open_quick_guide": guide_callback} if guide_callback else {}
     dialog = MapMarkerSettingsDialog(
         marker_cfg.get("hotkeys", []),
         parent,
@@ -559,6 +566,7 @@ def _open_map_marker_settings_dialog(parent_mixin: Any) -> None:
         open_support_settings=getattr(
             parent_mixin, "_open_support_settings", lambda: None
         ),
+        **guide_options,
     )
     try:
         if dialog.exec() != QDialog.Accepted:

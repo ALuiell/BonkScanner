@@ -181,11 +181,13 @@ def test_collapsed_rail_translates_captions_and_keeps_action_names(language_ui):
 
 
 def test_timeline_names_and_powerup_details_follow_language_without_changing_history(language_ui):
-    from PySide6.QtCore import QRectF
+    from PySide6.QtCore import QPointF, QRectF
+    from app.vod_library import TIMELINE_EXPANDED
     from core.powerup_history import PowerupHistory, PowerupObservation, RecordedEffect
     from projections.powerup_history import PowerupProjection
     from projections.scrubber import Marker
     from ui.powerup_timeline import PowerupTimelineRow
+    from ui.timeline_size import TimelineSizeToggle
     from ui.timeline_visuals import build_marker_glyphs, stage_caption
     from ui.tabs.compare_runs.timeline_legend import _SeriesLegendItem
     qt, service = language_ui
@@ -197,16 +199,22 @@ def test_timeline_names_and_powerup_details_follow_language_without_changing_his
     row.set_state(projection, 3, axis_a=3)
     legend = _SeriesLegendItem()
     legend.set_key("Damage")
+    sizes = TimelineSizeToggle(TIMELINE_EXPANDED)
+    expanded = sizes.segment(TIMELINE_EXPANDED)
     marker = Marker(0, "banish", "#ffffff", "Banish: Anvil", item_name="Anvil")
     glyph = build_marker_glyphs((marker,), (0.0,), QRectF(0, 0, 100, 30))[0]
     for code in SUPPORTED_LANGUAGES:
         switch(code, service)
         assert service.translator.game_name("items", "Anvil") in str(glyph.tooltip)
-        assert row.entries[0][4].startswith(service.translator.game_name("powerups", "Rage"))
+        row.grab()
+        assert row.tooltip_at(QPointF(4, 8)).startswith(service.translator.game_name("powerups", "Rage"))
         assert legend._name.text() == ("DMG" if code == "en" else service.translator.game_name("stats", "Damage"))
+        assert expanded.toolTip() == expanded.accessibleName() == str(i18n.tr("Expanded timeline"))
+        assert expanded.isChecked() and not expanded.text()
         assert "2" in stage_caption(NS(stage_index=1, label="Stage 2"))
         assert history == before
         assert marker.text == "Banish: Anvil"
     row.deleteLater()
     legend.deleteLater()
+    sizes.deleteLater()
     qt.processEvents()
