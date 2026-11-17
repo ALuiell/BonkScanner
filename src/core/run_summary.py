@@ -207,7 +207,8 @@ def stage_number_sequence(snapshots) -> tuple[int, ...]:
     return tuple(numbers)
 
 
-def build_stage_summary(snapshots) -> list[dict[str, str]]:
+def build_stage_summary(snapshots, *, stage_numbers: tuple[int, ...] | None = None) -> list[dict[str, str]]:
+    """Summarize snapshots, using observed stage numbers when supplied by the live tracker."""
     rows = default_stage_summary_rows()
     if not snapshots:
         return rows
@@ -218,7 +219,9 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
     }
     stage_kill_baselines: dict[int, int] = {1: 0}
     last_known_mob_kills: int | None = None
-    initial_stage_index = resolve_initial_stage_index(snapshots[0])
+    if stage_numbers is None:
+        stage_numbers = stage_number_sequence(snapshots)
+    initial_stage_index = stage_numbers[0]
     current_stage_index = initial_stage_index
     # A late attach on the first map has no earlier inventory baseline.  Since
     # every item visible there belongs to Stage 1, seed the delta tracker from
@@ -228,11 +231,6 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
     )
     item_gain_tracker = None
     previous_snapshot = None
-    # One walk, shared with the scrubber's stage bands. The loop below still
-    # needs `previous_stage_index` and the closing-snapshot predicate, which
-    # are about *this* function's bucketing rather than about which stage a
-    # snapshot is in, so only the stage number itself is lifted out.
-    stage_numbers = stage_number_sequence(snapshots)
     for position, snapshot in enumerate(snapshots):
         snapshot_mob_kills = getattr(snapshot, "mob_kills", None)
         items_available = bool(getattr(snapshot, "items_available", True))

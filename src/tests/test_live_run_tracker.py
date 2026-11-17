@@ -483,6 +483,82 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(rows[1]["time"], "00:00")
         self.assertEqual(rows[1]["kills"], "0")
 
+    def test_stage_summary_keeps_completed_stages_after_snapshots_are_evicted(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1274.0, max_snapshots=3)
+        tracker.update(snapshot(time_seconds=1273, stage_index=0, mob_kills=106_258))
+        tracker.update_fast_run_timer(1274)
+        tracker.track_kills(1274, 106_259)
+        for stage_time in (0.0, 1.0):
+            tracker.update_fast_stage_timer(
+                stage_timer_seconds=stage_time,
+                stage_index=1,
+                stage_duration_seconds=540.0,
+            )
+
+        # The slow snapshot sees Stage 3 before the fast path confirms it.
+        tracker.update(snapshot(time_seconds=3113, stage_index=2, stage_time_seconds=0, mob_kills=346_135))
+        for seconds in range(3123, 4424, 10):
+            tracker.update(snapshot(
+                time_seconds=seconds, stage_index=2, stage_time_seconds=seconds - 3113,
+                mob_kills=346_135 + 140 * (seconds - 3113),
+            ))
+        for _ in range(4):
+            tracker.update(snapshot(time_seconds=4424, stage_index=2, stage_time_seconds=1311, mob_kills=533_249))
+        for seconds in range(4434, 5413, 10):
+            tracker.update(snapshot(
+                time_seconds=seconds, stage_index=2, stage_time_seconds=seconds - 3113,
+                mob_kills=533_249 + 130 * (seconds - 4424),
+            ))
+        tracker.update(replace(
+            snapshot(time_seconds=5413, stage_index=2, stage_time_seconds=0, mob_kills=665_603),
+            is_final_boss_stage=True,
+        ))
+        expected = [("106,259", "21:14"), ("239,876", "30:39"), ("319,468", "38:20")]
+        for seconds, kills in ((5674, 718_141), (5741, 732_438), (5915, 764_341)):
+            tracker.update(snapshot(time_seconds=seconds, stage_index=2,
+                                    stage_time_seconds=seconds - 5413, mob_kills=kills))
+            rows = tracker.runtime_snapshot().stage_summary
+            self.assertEqual([(row["kills"], row["time"]) for row in rows[:3]], expected)
+            self.assertEqual(rows[3]["kills"], f"{kills - 665_603:,}")
+        self.assertEqual(rows[3]["time"], "08:22")
+
+        tracker.update(snapshot(time_seconds=4, stage_index=0, mob_kills=12))
+        rows = tracker.runtime_snapshot().stage_summary
+        self.assertEqual([(row["kills"], row["time"]) for row in rows], [
+            ("12", "00:04"), ("--", "--"), ("--", "--"), ("--", "--"),
+        ])
+
+    def test_stage_summary_keeps_timer_inferred_boss_boundary_after_eviction(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0, max_snapshots=2)
+        tracker.update(snapshot(time_seconds=120, stage_index=2, stage_time_seconds=60, mob_kills=1000))
+        tracker.update(snapshot(time_seconds=170, stage_index=2, stage_time_seconds=110, mob_kills=1700))
+        # The game can rewind the run clock slightly as it enters the boss room.
+        tracker.update(replace(
+            snapshot(time_seconds=169.9, stage_index=2, stage_time_seconds=1, mob_kills=1740),
+            captured_at=172,
+        ))
+        tracker.update(snapshot(time_seconds=200, stage_index=2, stage_time_seconds=29, mob_kills=1900))
+        tracker.update(snapshot(time_seconds=210, stage_index=2, stage_time_seconds=39, mob_kills=2000))
+
+        rows = tracker.stage_summary_rows()
+        self.assertEqual([(row["kills"], row["time"]) for row in rows], [
+            ("--", "--"), ("--", "--"), ("740", "01:49"), ("260", "00:40"),
+        ])
+
+    def test_stage_summary_keeps_kill_boundary_when_transition_clock_is_unavailable(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0, max_snapshots=2)
+        tracker.update(snapshot(time_seconds=120, stage_index=0, mob_kills=1000))
+        tracker.update(replace(
+            snapshot(time_seconds=130, stage_index=1, mob_kills=1050),
+            game_time_seconds=None,
+        ))
+        tracker.update(snapshot(time_seconds=140, stage_index=1, mob_kills=1100))
+        tracker.update(snapshot(time_seconds=150, stage_index=1, mob_kills=1200))
+
+        rows = tracker.stage_summary_rows()
+        self.assertEqual((rows[0]["kills"], rows[1]["kills"]), ("1,050", "150"))
+        self.assertEqual(rows[1]["time"], "--")
+
     def test_fast_stage_transition_commits_first_candidate_kill_boundary(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(

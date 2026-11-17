@@ -138,6 +138,8 @@ class _RunState:
     last_no_game_at: float | None = None
     cached_stage_summary: list[dict[str, Any]] | None = None
     disabled_items_cache: tuple[str, ...] | None = None
+    stage_summary_starts: dict[int, LiveRunSnapshot] = field(default_factory=dict)
+    stage_summary_ends: dict[int, LiveRunSnapshot] = field(default_factory=dict)
     fast_stage_boundaries: list[LiveRunSnapshot] = field(default_factory=list)
     pending_fast_stage_index: int | None = None
     pending_fast_stage_samples: int = 0
@@ -292,6 +294,7 @@ class LiveRunTracker:
             "run_id", "_lifecycle", "snapshots", "current_stage_index",
             "_last_update_at", "_last_failed_at", "_last_no_game_at",
             "_cached_stage_summary", "_disabled_items_cache", "_fast_stage_boundaries",
+            "_stage_summary_starts", "_stage_summary_ends",
             "_pending_fast_stage_index", "_pending_fast_stage_samples",
             "_pending_fast_stage_boundary", "_pending_fast_stage_awaiting_timer_reset",
             "_slow_stage_timer_reset_pending_from", "_fast_run_timer",
@@ -446,9 +449,12 @@ class LiveRunTracker:
                 4,
             )
             next_stage_index = self._suppress_desync_stage_four_unlocked(next_stage_index)
+            if next_stage_index > self.current_stage_index:
+                self._stage_summary_ends[self.current_stage_index] = previous_snapshot
             self.current_stage_index = next_stage_index
             self._update_slow_stage_desync_unlocked(previous_snapshot, snapshot)
 
+        self._stage_summary_starts.setdefault(self.current_stage_index, snapshot)
         self.snapshots.append(snapshot)
         if snapshot.disabled_items_available:
             self._disabled_items_cache = snapshot.disabled_items
@@ -748,20 +754,45 @@ class LiveRunTracker:
             fast_snapshot = self._fast_stage_summary_snapshot_unlocked()
             if fast_snapshot is not None:
                 snapshots += (fast_snapshot,)
-            self._cached_stage_summary = run_summary.build_stage_summary(snapshots)
+            self._cached_stage_summary = run_summary.build_stage_summary(
+                snapshots, stage_numbers=self._stage_summary_stage_numbers_unlocked(snapshots),
+            )
         return copy.deepcopy(self._cached_stage_summary)
 
+    def _stage_summary_stage_numbers_unlocked(
+        self, snapshots: tuple[LiveRunSnapshot, ...],
+    ) -> tuple[int, ...]:
+        if not snapshots:
+            return ()
+        starts = {id(snapshot): stage for stage, snapshot in self._stage_summary_starts.items()}
+        current_stage = run_summary.resolve_initial_stage_index(snapshots[0])
+        numbers = []
+        for snapshot in snapshots:
+            # A gap caused by eviction can look like a boss-room timer jump.
+            # Keep the stages already resolved by the live transition tracker.
+            current_stage = max(current_stage, starts.get(id(snapshot), current_stage))
+            numbers.append(current_stage)
+        return tuple(numbers)
+
     @staticmethod
-    def _stage_summary_snapshot_sort_key(snapshot: LiveRunSnapshot) -> tuple[bool, float, float]:
+    def _stage_summary_snapshot_sort_key(snapshot: LiveRunSnapshot) -> tuple[float, bool, float]:
         game_time = snapshot.game_time_seconds
+        # The run clock can briefly rewind at the boss-room boundary.
         return (
+            float(snapshot.captured_at),
             game_time is None,
             float("inf") if game_time is None else float(game_time),
-            float(snapshot.captured_at),
         )
 
     def _stage_summary_timeline_unlocked(self) -> tuple[LiveRunSnapshot, ...]:
-        timeline = [*self.snapshots, *self._fast_stage_boundaries]
+        recent = [*self.snapshots, *self._fast_stage_boundaries]
+        recent_ids = {id(snapshot) for snapshot in recent}
+        anchors = {
+            id(snapshot): snapshot
+            for snapshot in (*self._stage_summary_starts.values(), *self._stage_summary_ends.values())
+            if id(snapshot) not in recent_ids
+        }
+        timeline = [*anchors.values(), *recent]
         timeline.sort(key=self._stage_summary_snapshot_sort_key)
         return tuple(timeline)
 
@@ -1322,6 +1353,8 @@ class LiveRunTracker:
                     and not self._pending_fast_stage_awaiting_timer_reset
                 ):
                     boundary = self._pending_fast_stage_boundary or fast_snapshot
+                    self._stage_summary_ends[self.current_stage_index] = latest_snapshot
+                    self._stage_summary_starts[next_stage_index] = boundary
                     self._fast_stage_boundaries.append(boundary)
                     self.current_stage_index = next_stage_index
                     self._pending_fast_stage_index = None
@@ -1602,6 +1635,8 @@ class LiveRunTracker:
         self.run_id = uuid4().hex
         self._lifecycle = RunLifecycle.ACTIVE
         self.snapshots.clear()
+        self._stage_summary_starts.clear()
+        self._stage_summary_ends.clear()
         self._fast_stage_boundaries.clear()
         self._fast_stage_timer_context = FastStageTimerContext()
         self._fast_run_timer = FastRunTimer()
