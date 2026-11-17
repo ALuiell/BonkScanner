@@ -58,6 +58,7 @@ import time
 from typing import Any, Callable
 
 from core.game_state import RuntimeGameMode, RuntimeGameState
+from infra.scenario_trace import trace
 
 # The cadence at which the core run-lifecycle probe re-reads runtime state.
 # Lives here now: this is the only module that applies it, and
@@ -181,8 +182,26 @@ class RunLifecycle:
             return cached_state
 
         state = self._read_activity_state(context)
+        observed = state
         if state is None:
             state = RuntimeGameState(mode=RuntimeGameMode.UNKNOWN)
+        fields = {
+            "source": "run_lifecycle.activity_probe",
+            "mode": state.mode.value,
+            "is_playing": getattr(observed, "is_playing", None),
+            "is_loading": getattr(observed, "is_loading", None),
+            "is_paused": getattr(observed, "is_paused", None),
+            "run_timer": None, "stage_index": None, "stage_ptr": None,
+            "run_config": None, "map_seed": None,
+        }
+        trace("scanner_activity_sample", **fields)
+        if state.is_active_run and not (cached_state is not None and cached_state.is_active_run):
+            trace("scanner_run_detected", **fields)
+        if state.mode is RuntimeGameMode.GAME_OVER and not self.completed_run:
+            trace("scanner_run_game_over", **fields)
+        if (cached_state is not None and cached_state.is_active_run
+                and state.mode in {RuntimeGameMode.GAME_OVER, RuntimeGameMode.MAIN_MENU}):
+            trace("scanner_run_left_active", **fields)
         self._cached_state = state
         self._checked_at = now
 

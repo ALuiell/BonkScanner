@@ -37,6 +37,7 @@ from typing import Any, Callable
 from app import config
 from app.reroll_rate import RerollCyclePeak
 from infra.crash_journal import log_runtime_event
+from infra.scenario_trace import trace
 from app.map_scoring import (
     calculate_map_score,
     evaluate_candidate,
@@ -965,19 +966,24 @@ class Scanner:
         self.refresh_stats_ui()
 
     def reroll_map(self, *, can_restart: Callable[[], bool] | None = None) -> bool:
+        trace("restart_requested")
         if self._run_control.run_control_provider is None:
+            trace("restart_cancelled", reason="provider_unavailable")
             self._break_reroll_sequence()
             self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
             return False
 
         with self._restart_lock:
             if self._scan_abort_requested() or (can_restart is not None and not can_restart()):
+                trace("restart_cancelled", reason="guard")
                 self._break_reroll_sequence()
                 return False
 
             try:
                 self._run_control.run_control_provider.restart_run()
+                trace("restart_command_completed")
             except RunControlError as exc:
+                trace("restart_cancelled", reason="command_error")
                 self._break_reroll_sequence()
                 self.log(f"[-] {exc}", tag="error")
                 return False
@@ -1116,6 +1122,7 @@ class Scanner:
                     if not self._run_control.check_restart_permissions():
                         return
                     self.client = GameDataClient(process_name=process_name)
+                    trace("game_attached")
                     # Name lookup and attachment can race a game restart.
                     if not self._run_control.check_restart_permissions(
                         self._run_control.attached_game_process_id()
@@ -1319,6 +1326,7 @@ class Scanner:
                 last_state = None
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
+                trace("game_connection_lost", reason=type(exc).__name__)
                 self._break_reroll_sequence()
                 awaiting_forced_map = False
                 self.is_running = False

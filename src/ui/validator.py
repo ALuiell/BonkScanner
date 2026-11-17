@@ -6,7 +6,8 @@ import ntpath
 import os
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
@@ -83,18 +84,25 @@ class ValidatorTab(QScrollArea):
         self.delivery = self._plain_label()
         self.delivery.setObjectName('dialogHint')
         run_layout.addWidget(self.delivery)
-        link_row = QHBoxLayout()
-        self.run_id = QLineEdit()
-        self.run_id.setReadOnly(True)
-        l10n.display(self.run_id, 'setAccessibleName', l10n.tr('Public session ID:'))
+        self.report_actions = QWidget()
+        link_row = QHBoxLayout(self.report_actions)
+        link_row.setContentsMargins(0, 0, 0, 0)
+        self.open_report = l10n.localized(QPushButton, l10n.tr('Open'))
+        self.open_report.setObjectName('primary')
+        self.open_report.setIcon(validator_icon('open', '#A2CCED'))
+        l10n.display(self.open_report, 'setAccessibleName', l10n.tr('Open Validator report'))
+        self.open_report.clicked.connect(self._open_report)
         self.copy_link = l10n.localized(QPushButton, l10n.tr('Copy link'))
-        self.copy_link.setObjectName('primary')
+        self.copy_link.setIcon(validator_icon('copy', '#A2CCED'))
         self.copy_link.clicked.connect(self._copy_link)
-        link_row.addWidget(self.run_id, 1)
+        link_row.addWidget(self.open_report)
         link_row.addWidget(self.copy_link)
+        link_row.addStretch()
+        run_layout.addWidget(self.report_actions)
         self.copy_feedback = self._plain_label()
         self.copy_feedback.setObjectName('dialogHint')
         self.copy_feedback.hide()
+        run_layout.addWidget(self.copy_feedback)
         layout.addWidget(run_card)
 
         actions = QHBoxLayout()
@@ -112,8 +120,10 @@ class ValidatorTab(QScrollArea):
         layout.addLayout(actions)
 
         self.diagnostics = self._build_diagnostics(settings)
-        self.diagnostics.layout().addLayout(link_row)
-        self.diagnostics.layout().addWidget(self.copy_feedback)
+        self.run_id = QLineEdit()
+        self.run_id.setReadOnly(True)
+        l10n.display(self.run_id, 'setAccessibleName', l10n.tr('Public session ID:'))
+        self.diagnostics.layout().addWidget(self.run_id)
         self.diagnostics.hide()
         self.diagnostics_toggle.toggled.connect(self.diagnostics.setVisible)
         self.diagnostics_toggle.toggled.connect(self._diagnostics_toggled)
@@ -223,9 +233,12 @@ class ValidatorTab(QScrollArea):
             self._show_settings_feedback(l10n.tr('Validator service settings saved.'))
 
     def _enable(self):
+        from infra.scenario_trace import trace
+        trace("validator_enable_requested")
         self.refresh()
         base, allow_loopback = self._endpoint()
         if self.controller.enable(base, allow_loopback=allow_loopback, protocol_version='3'):
+            trace("validator_enable_accepted")
             self._active_base = base
         self.refresh()
 
@@ -233,12 +246,23 @@ class ValidatorTab(QScrollArea):
         self.controller.disable(timeout=0)
         self.refresh()
 
-    def _copy_link(self):
+    def _report_link_for_action(self):
         displayed_link = self._current_link
         # A run can end between painting the button and handling the click.
-        if self.refresh() and displayed_link and self._current_link == displayed_link:
-            QApplication.clipboard().setText(displayed_link)
-            self._copied_link = displayed_link
+        if displayed_link and self.refresh() and self._current_link == displayed_link:
+            return displayed_link
+        return ''
+
+    def _open_report(self):
+        link = self._report_link_for_action()
+        if link:
+            QDesktopServices.openUrl(QUrl(link))
+
+    def _copy_link(self):
+        link = self._report_link_for_action()
+        if link:
+            QApplication.clipboard().setText(link)
+            self._copied_link = link
             l10n.display(self.copy_feedback, 'setText', l10n.tr('Link copied'))
             self.copy_feedback.show()
 
@@ -497,8 +521,8 @@ class ValidatorTab(QScrollArea):
         self.run_id.setVisible(bool(session_id))
         if self.run_id.text() != (session_id or ''):
             self.run_id.setText(session_id or '')
-        self.copy_link.setVisible(bool(session_id))
-        self.copy_link.setEnabled(bool(session_id))
+        self.report_actions.setVisible(bool(session_id))
+        self.report_actions.setEnabled(bool(session_id))
         self._current_link = report_url(self._active_base, session_id, '3')
         if self._current_link != self._copied_link:
             self._copied_link = ''

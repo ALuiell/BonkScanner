@@ -64,6 +64,8 @@ the label.
 """
 from __future__ import annotations
 
+from infra.scenario_trace import trace
+
 import time
 from typing import Any, Callable
 
@@ -340,6 +342,10 @@ class VodCapture:
                 character_id=character_id,
                 character_name=character_name,
             )
+        trace("recording_started", source="vod_capture.start_recording_arguments",
+              map_seed=seed, stage_ptr=stage_ptr, stage_index=stage_index,
+              run_timer=run_time_seconds, is_playing=None, is_loading=None,
+              is_paused=None, run_config=None)
         self._reset_snapshot_buffer()
         feed = self._active_recording_feed()
         if feed is not None:
@@ -382,6 +388,7 @@ class VodCapture:
                 # Stopping must remain reliable even if the process disappears
                 # before the last best-effort memory snapshot can be built.
                 pass
+        was_recording = recorder.is_recording or completed_stop is not None
         stop_error = None
         stop_status = None
         try:
@@ -413,6 +420,15 @@ class VodCapture:
                         f"Could not publish finalized recording state: {exc}",
                         tag="warning",
                     )
+            if was_recording:
+                trace("recording_ended", source="vod_capture.stop_recording",
+                      status=stop_status, error=type(stop_error).__name__ if stop_error else None,
+                      map_seed=self.player_stats_recording_seed,
+                      stage_ptr=self.player_stats_recording_stage_ptr,
+                      stage_index=self.player_stats_recording_stage_index,
+                      run_timer=self.player_stats_recording_run_time_seconds,
+                      values_source="recording_cached_last_known", is_playing=None,
+                      is_loading=None, is_paused=None, run_config=None)
             self._reset_snapshot_buffer()
             self.player_stats_recording_seed = None
             self.player_stats_recording_stage_ptr = 0
@@ -581,6 +597,7 @@ class VodCapture:
             self.player_stats_recording_run_time_seconds = current_run_time_seconds
             return None
 
+        trace("recording_split", previous_seed=previous_seed, new_seed=current_seed)
         # The state already belongs to the new run. Capturing it before the
         # split would append the new run's first sample to the old JSONL.
         self.stop_recording(
@@ -655,6 +672,13 @@ class VodCapture:
         self.player_stats_auto_start_detection_streak = int(
             self.player_stats_auto_start_detection_streak
         ) + 1
+        trace("scanner_auto_record_candidate" if self.player_stats_auto_start_detection_streak == 1
+              else "scanner_auto_record_confirmed",
+              source="vod_capture.maybe_auto_start_arguments",
+              streak=self.player_stats_auto_start_detection_streak,
+              map_seed=map_seed, stage_ptr=stage_ptr, stage_index=stage_index,
+              run_timer=run_timer_seconds, is_playing=None, is_loading=None,
+              is_paused=None, run_config=None)
         if self.player_stats_auto_start_detection_streak < 2:
             return False
 

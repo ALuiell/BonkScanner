@@ -291,7 +291,7 @@ class ValidatorUITests(unittest.TestCase):
             tab._enable()
         self.assertEqual(self.controller.starts, [('', {'allow_loopback': False, 'protocol_version': '3'})])
 
-    def test_copy_uses_only_current_registered_session_and_rechecks_on_click(self):
+    def test_report_actions_are_visible_without_diagnostics_after_server_ack(self):
         tab = self.tab()
         tab.url.setText('https://validator.example/base/')
         tab._enable()
@@ -299,31 +299,48 @@ class ValidatorUITests(unittest.TestCase):
             'current': {'session_id': 'current-id', 'status': 'active', 'finish_requested': False,
                         'protocol_version': '3', 'report_available': False},
             'old': {'session_id': 'old-id', 'status': 'retrying', 'finish_requested': True},
+            'next': {'status': 'enrolling'},
         }
         self.controller.value.update(state='observing', enabled=True, busy=True, active_run_id='current',
                                      delivery={'configured': True, 'runs': runs})
         tab.refresh()
         self.assertEqual(tab.run_id.text(), '')
+        self.assertFalse(tab.report_actions.isVisibleTo(tab))
+        self.assertFalse(tab.open_report.isEnabled())
         self.assertFalse(tab.copy_link.isEnabled())
         self.assertEqual(self.button.accessibleName(), 'Validator · Observing')
         runs['current']['report_available'] = True
         tab.refresh()
         self.assertEqual(tab.run_id.text(), 'current-id')
+        self.assertFalse(tab.diagnostics.isVisibleTo(tab))
+        self.assertTrue(tab.report_actions.isVisibleTo(tab))
+        self.assertTrue(tab.open_report.isEnabled())
         self.assertTrue(tab.copy_link.isEnabled())
         self.assertFalse(tab.url.isEnabled())
         self.assertTrue(tab.disable.isEnabled())
         self.assertEqual(self.button.accessibleName(), 'Validator · Observing')
+        with patch('ui.validator.QDesktopServices.openUrl') as open_url:
+            tab.open_report.click()
+            self.assertEqual(open_url.call_args.args[0].toString(),
+                             'https://validator.example/base/reports/current-id')
+            open_url.reset_mock()
+            self.controller.value['active_run_id'] = 'next'
+            tab.open_report.click()
+            open_url.assert_not_called()
+            self.assertFalse(tab.report_actions.isVisibleTo(tab))
+        self.controller.value['active_run_id'] = 'current'
+        tab.refresh()
         with patch('ui.validator.QApplication.clipboard') as clipboard:
             tab.copy_link.click()
             clipboard.return_value.setText.assert_called_once_with(
                 'https://validator.example/base/reports/current-id'
             )
             clipboard.reset_mock()
-            runs['next'] = {'status': 'enrolling'}
             self.controller.value['active_run_id'] = 'next'
             tab.copy_link.click()
             clipboard.assert_not_called()
         self.assertEqual(tab.run_id.text(), '')
+        self.assertFalse(tab.open_report.isEnabled())
         self.assertFalse(tab.copy_link.isEnabled())
         self.assertIn('Registering session', tab.delivery.text())
 
