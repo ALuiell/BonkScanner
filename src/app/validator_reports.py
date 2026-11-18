@@ -104,6 +104,8 @@ def _recording_name(metadata, kills) -> str:
     generated = {f'{character} {metadata.created_label}'}
     if kills is not None:
         generated.add(f'{character} {format_recording_kill_count(kills)} {metadata.created_label}')
+        legacy_count = format_recording_kill_count(kills, whole_millions=True)
+        generated.add(f'{character} {legacy_count} {metadata.created_label}')
     return character if metadata.name in generated else metadata.name
 
 
