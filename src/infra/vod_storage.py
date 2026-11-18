@@ -80,14 +80,19 @@ def _normalize_vod_record(record: dict[str, Any], version: int) -> dict[str, Any
     return VOD_NORMALIZERS[version](record)
 
 
-def format_recording_kill_count(value: int) -> str:
-    """Return the compact whole-number count used in automatic VOD names."""
+def format_recording_kill_count(value: int, *, whole_millions: bool = False) -> str:
+    """Format the count for automatic VOD names, truncating to the displayed precision."""
     count = max(0, int(value))
     if count < 1_000:
         return str(count)
     if count < 1_000_000:
         return f"{count // 1_000}K"
-    return f"{count // 1_000_000}M"
+    millions, remainder = divmod(count, 1_000_000)
+    hundredths = remainder // 10_000
+    if whole_millions or not hundredths:
+        return f"{millions}M"
+    fraction = f"{hundredths:02d}".rstrip("0")
+    return f"{millions}.{fraction}M"
 
 
 def _automatic_vod_name(

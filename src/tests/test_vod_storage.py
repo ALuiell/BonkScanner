@@ -157,7 +157,14 @@ class VodStorageTests(unittest.TestCase):
             1_000: "1K",
             10_000: "10K",
             970_000: "970K",
+            999_999: "999K",
+            1_000_000: "1M",
+            1_010_000: "1.01M",
+            1_100_000: "1.1M",
+            1_159_999: "1.15M",
+            1_999_999: "1.99M",
             16_000_000: "16M",
+            123_450_000: "123.45M",
         }
         for value, display in expected.items():
             with self.subTest(value=value):
@@ -200,7 +207,7 @@ class VodStorageTests(unittest.TestCase):
             capture(recorder,
                 {},
                 character_passive=passive,
-                mob_kills=970_000,
+                mob_kills=1_150_000,
             )
             # A disappearing process can expose a reset counter during the
             # best-effort final capture. The completed name keeps the run max.
@@ -210,8 +217,9 @@ class VodStorageTests(unittest.TestCase):
             loaded = load_vod(path)
             self.assertRegex(
                 loaded.metadata.name,
-                r"^Dice 970K \d{4}-\d{2}-\d{2} ",
+                r"^Dice 1\.15M \d{4}-\d{2}-\d{2} ",
             )
+            self.assertEqual(loaded.metadata.mob_kills, 1_150_000)
             self.assertEqual(load_vod_metadata(path).name, loaded.metadata.name)
             self.assertEqual(loaded.metadata.character_id, 18)
             self.assertEqual(loaded.metadata.character_name, "Dice")

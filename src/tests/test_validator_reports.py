@@ -75,6 +75,11 @@ def test_recording_link_survives_restart_and_same_seed_does_not_link_old_attempt
     assert reloaded.for_recording('new-recording').status == 'finish_unconfirmed'
     renamed = replace(state.metadata, name='My tournament run')
     assert any(report.name == 'My tournament run' and report.kills == 19 for report in reloaded.recent([renamed]))
+    for count_label in ('1M', '1.15M'):
+        finalized = replace(state.metadata, name=f'Dice {count_label} {state.metadata.created_label}',
+                            mob_kills=1_150_000)
+        assert any(report.name == 'Dice' and report.kills == 1_150_000
+                   for report in reloaded.recent([finalized]))
 
 
 def test_background_save_does_not_block_refresh_and_final_save_keeps_latest_status(settings, monkeypatch):
