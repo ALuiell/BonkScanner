@@ -8,7 +8,7 @@ from infra.memory.reader import MemoryReadError
 
 
 class PlayerSampleWorker:
-    def __init__(self):
+    def __init__(self, *, map_transition_recovery_grace=lambda: False):
         self._stats = self._game_data = self._disabled_items = None
         self._refresh_disabled = True
         self._include_optional = False
@@ -27,6 +27,7 @@ class PlayerSampleWorker:
             write_disabled_items_cache=lambda value: setattr(self, "_disabled_items", value),
             read_disabled_items_refresh_pending=lambda: self._refresh_disabled,
             write_disabled_items_refresh_pending=lambda value: setattr(self, "_refresh_disabled", value),
+            map_transition_recovery_grace=map_transition_recovery_grace,
         )
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="player-sample")
         self._closing = None

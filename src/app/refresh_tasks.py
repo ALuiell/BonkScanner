@@ -464,8 +464,10 @@ class RefreshTasks:
         permanent_source_recovery_job_factory: Callable[..., Any] | None = None,
         roll_analytics_service: Callable[[], Any] = lambda: None,
         roll_analytics_collection_active: Callable[[], bool] = lambda: False,
+        map_transition_active: Callable[[], bool] = lambda: False,
     ) -> None:
         self._memory = memory
+        self._map_transition_active = map_transition_active
         self._roll_analytics_service = roll_analytics_service
         self._roll_analytics_collection_active = roll_analytics_collection_active
         self._roll_analytics_identity = None
@@ -1414,7 +1416,7 @@ class RefreshTasks:
             return False
 
     def _should_refresh_powerup_tracker(self) -> bool:
-        if self._lifecycle().completed_run:
+        if self._map_transition_active() or self._lifecycle().completed_run:
             return False
         if self._is_vod_recording():
             return True
@@ -1487,6 +1489,8 @@ class RefreshTasks:
             return False
 
     def _should_refresh_expected_chest_inputs(self) -> bool:
+        if self._map_transition_active():
+            return False
         lifecycle = self._lifecycle()
         if lifecycle.is_active_run():
             return True
@@ -1518,8 +1522,8 @@ class RefreshTasks:
         The snapshot's own predicate was this task's predicate too, deliberately:
         it feeds the same tracked-item state recordings consume, so a demand
         window where one runs and the other does not would leave a gap in the
-        data rather than merely a stale label. That still holds -- this is
-        strictly wider, never narrower, so no such window can open.
+        data rather than merely a stale label. During scanner restarts the full
+        snapshot still feeds live state, while recording and this lane wait.
 
         The extra arm is the other half of dropping `luck_rarity` from
         `in_game_overlay_requires_player_stats_refresh`. Luck rides this task
@@ -1529,6 +1533,8 @@ class RefreshTasks:
         during a missed activity probe, without forcing the full stat walk.
         A confirmed completed run still closes that additional demand.
         """
+        if self._map_transition_active():
+            return False
         return (
             self._should_refresh_full_player_snapshot()
             or in_game_overlay_widget_enabled("luck_rarity")
@@ -1547,7 +1553,7 @@ class RefreshTasks:
             return False
 
     def _should_refresh_chaos_tome(self) -> bool:
-        if self._lifecycle().completed_run:
+        if self._map_transition_active() or self._lifecycle().completed_run:
             return False
         if self._roll_analytics_collection_active():
             return True
@@ -1559,7 +1565,7 @@ class RefreshTasks:
         )
 
     def _should_refresh_charge_shrines(self) -> bool:
-        if self._lifecycle().completed_run:
+        if self._map_transition_active() or self._lifecycle().completed_run:
             return False
         # Attribution still reserves ShrineLog pointers. Shrines are never
         # persisted or shown in Roll Analytics.

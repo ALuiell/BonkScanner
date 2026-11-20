@@ -4,6 +4,7 @@ import ctypes
 import struct
 from ctypes import wintypes
 from threading import Lock
+from time import monotonic
 from typing import Any
 
 import pymem
@@ -25,6 +26,8 @@ class MemoryReadError(Exception):
 
 _process_lookup_lock = Lock()
 _known_processes: dict[str, tuple[int, int]] = {}
+_missing_processes: dict[str, float] = {}
+MISSING_PROCESS_RETRY_SECONDS = 0.5
 
 
 def _process_times(backend: Any) -> tuple[int, int] | None:
@@ -53,6 +56,12 @@ def _open_process(process_name: str) -> pymem.Pymem:
     # by the first client, and validate it against the newly opened handle.
     key = process_name.casefold()
     with _process_lookup_lock:
+        retry_at = _missing_processes.get(key)
+        if retry_at is not None:
+            if monotonic() < retry_at:
+                raise pymem.exception.ProcessNotFound(process_name)
+            del _missing_processes[key]
+
         known = _known_processes.get(key)
         if known is not None:
             process_id, creation_ticks = known
@@ -66,7 +75,11 @@ def _open_process(process_name: str) -> pymem.Pymem:
                 backend.close_process()
             del _known_processes[key]
 
-        backend = pymem.Pymem(process_name)
+        try:
+            backend = pymem.Pymem(process_name)
+        except pymem.exception.ProcessNotFound:
+            _missing_processes[key] = monotonic() + MISSING_PROCESS_RETRY_SECONDS
+            raise
         times = _process_times(backend)
         if times is not None and times[0] and not times[1]:
             _known_processes[key] = (backend.process_id, times[0])

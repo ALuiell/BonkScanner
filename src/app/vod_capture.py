@@ -180,6 +180,8 @@ class VodCapture:
         read_character_identity: Callable[[], tuple[int, str] | None] | None = None,
         active_recording_feed: Callable[[], Any] | None = None,
         clock: Callable[[], float] | None = None,
+        recording_generation: Callable[[], int | None] = lambda: 0,
+        abandoned_restart_count: Callable[[], int] = lambda: 0,
     ) -> None:
         self._recorder = recorder
         self._read_recording_state = read_recording_state
@@ -194,6 +196,10 @@ class VodCapture:
         self._reset_snapshot_buffer = reset_snapshot_buffer
         self._read_character_identity = read_character_identity or (lambda: None)
         self._active_recording_feed = active_recording_feed or (lambda: None)
+        self._recording_generation = recording_generation
+        self._recorded_generation = recording_generation()
+        self._abandoned_restart_count = abandoned_restart_count
+        self._recorded_abandoned_restarts = abandoned_restart_count()
         # Not `clock=time.monotonic` in the signature: a default argument binds
         # the function at import, where the code this replaces looked `time` up
         # on the module every call. Step 20 shipped that bug once already.
@@ -276,13 +282,17 @@ class VodCapture:
         else:
             self.player_stats_recording_armed = True
             self.player_stats_auto_recording_suppressed = False
-            state = self._read_recording_state()
-            seed = state.map_seed if state is not None else None
-            stage_ptr = state.current_stage_ptr if state is not None else 0
-            stage_index = state.stage_index if state is not None else None
-            run_time_seconds = self._read_run_timer()
             runtime_state = self._run_lifecycle().state_or_unknown()
-            if runtime_state.mode is RuntimeGameMode.IN_GAME:
+            generation = self._recording_generation()
+            if runtime_state.mode is RuntimeGameMode.IN_GAME and generation is not None:
+                state = self._read_recording_state()
+                seed = state.map_seed if state is not None else None
+                stage_ptr = state.current_stage_ptr if state is not None else 0
+                stage_index = state.stage_index if state is not None else None
+                run_time_seconds = self._read_run_timer()
+                if self._recording_generation() != generation:
+                    self._player_stats_view().refresh_player_stats_timeline_ui()
+                    return
                 try:
                     vod_path = self.start_recording(
                         seed=seed,
@@ -328,6 +338,8 @@ class VodCapture:
         stage_index: int | None = None,
         run_time_seconds: float | None = None,
     ):
+        generation = self._recording_generation()
+        abandoned_restarts = self._abandoned_restart_count()
         identity = None
         try:
             identity = self._read_character_identity()
@@ -351,6 +363,8 @@ class VodCapture:
         if feed is not None:
             feed.start(self._recorder().current_metadata())
         self.player_stats_recording_seed = seed
+        self._recorded_generation = generation
+        self._recorded_abandoned_restarts = abandoned_restarts
         self.player_stats_recording_stage_ptr = stage_ptr
         self.player_stats_recording_stage_index = stage_index
         self.player_stats_recording_seed_missing_since = None
@@ -359,6 +373,14 @@ class VodCapture:
         self.player_stats_auto_recording_suppressed = False
         self.player_stats_auto_start_detection_streak = 0
         return vod_path
+
+    def recording_is_on_current_map(self) -> bool:
+        generation = self._recording_generation()
+        return (
+            generation is not None
+            and generation == self._recorded_generation
+            and self._abandoned_restart_count() == self._recorded_abandoned_restarts
+        )
 
     def begin_stop_for_shutdown(self):
         recorder = self._recorder()
@@ -474,12 +496,24 @@ class VodCapture:
         lifecycle = self._run_lifecycle()
         runtime_state = lifecycle.state_for_refresh(context)
         recorder = self._recorder()
+        generation = self._recording_generation()
         if runtime_state.mode is RuntimeGameMode.GAME_OVER:
             lifecycle.set_completed(True)
             # Unguarded, unlike `RunLifecycle.refresh()`, which marks only on
             # the transition. Inherited verbatim: making the two symmetric is a
             # behaviour change and this commit is not one.
             lifecycle.mark_completed_on_tracker()
+        if recorder.is_recording and self._abandoned_restart_count() != self._recorded_abandoned_restarts:
+            # A reset was sent, but the scanner stopped waiting for its result.
+            # End the existing file without appending a snapshot of an unknown map.
+            self.stop_recording(
+                log_message="[*] Player stats recording stopped: restart outcome was not confirmed.",
+                log_tag="warning",
+                refresh_live_stats=False,
+                finalize_snapshot=False,
+            )
+            self._player_stats_view().refresh_player_stats_timeline_ui()
+            return "stopped"
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
             lifecycle.set_completed(False)
             was_paused = self.player_stats_recording_waiting_mode == RuntimeGameMode.PAUSED_IN_GAME.value
@@ -488,7 +522,7 @@ class VodCapture:
                 self._player_stats_view().refresh_player_stats_timeline_ui()
                 if self._is_live_stats_tab_active():
                     self._player_stats_view().set_recording_status_text("Live player stats (recording)")
-            if self.is_recording_armed() and not recorder.is_recording:
+            if generation is not None and self.is_recording_armed() and not recorder.is_recording:
                 current_state = self._read_recording_state(context)
                 current_seed = current_state.map_seed if current_state is not None else None
                 current_stage_ptr = (
@@ -498,6 +532,8 @@ class VodCapture:
                     getattr(current_state, "stage_index", None) if current_state is not None else None
                 )
                 current_run_time_seconds = self._read_run_timer(context)
+                if self._recording_generation() != generation:
+                    return None
                 vod_path = self.start_recording(
                     seed=current_seed,
                     stage_ptr=current_stage_ptr,
@@ -539,6 +575,9 @@ class VodCapture:
         if runtime_state.mode is RuntimeGameMode.UNKNOWN:
             self.player_stats_recording_waiting_mode = runtime_state.mode.value
             return None
+        if generation is None:
+            self.player_stats_recording_seed_missing_since = None
+            return None
 
         now = self._clock()
         current_state = self._read_recording_state(context)
@@ -550,6 +589,8 @@ class VodCapture:
             getattr(current_state, "stage_index", None) if current_state is not None else None
         )
         current_run_time_seconds = self._read_run_timer(context)
+        if self._recording_generation() != generation:
+            return None
         if current_seed is None:
             if self.player_stats_recording_seed_missing_since is None:
                 self.player_stats_recording_seed_missing_since = now
@@ -570,8 +611,10 @@ class VodCapture:
             self.player_stats_recording_seed = current_seed
             self.player_stats_recording_stage_ptr = current_stage_ptr
             self.player_stats_recording_stage_index = current_stage_index
+        same_generation = generation == self._recorded_generation
         if (
-            current_seed == self.player_stats_recording_seed
+            same_generation
+            and current_seed == self.player_stats_recording_seed
             and current_stage_ptr == self.player_stats_recording_stage_ptr
         ):
             self.player_stats_recording_run_time_seconds = current_run_time_seconds
@@ -579,7 +622,7 @@ class VodCapture:
 
         previous_seed = self.player_stats_recording_seed
         previous_run_time_seconds = self.player_stats_recording_run_time_seconds
-        decision = _stage_index_signals_new_run(
+        decision = not same_generation or _stage_index_signals_new_run(
             self.player_stats_recording_stage_index,
             current_stage_index,
             previous_run_time_seconds,
@@ -650,7 +693,7 @@ class VodCapture:
         stage_ptr: int,
         stage_index: int | None = None,
     ) -> bool:
-        if self._recorder().is_recording:
+        if self._recording_generation() is None or self._recorder().is_recording:
             self.player_stats_auto_start_detection_streak = 0
             return False
         if bool(self.player_stats_auto_recording_suppressed):

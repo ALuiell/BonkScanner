@@ -25,6 +25,9 @@ class FakePymem:
 
 
 class ProcessMemoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.enterContext(patch.dict(memory_reader._missing_processes, clear=True))
+
     def create_reader(self, payload: dict[int, bytes]) -> ProcessMemory:
         return ProcessMemory(
             "fake.exe",
@@ -106,6 +109,26 @@ class ProcessMemoryTests(unittest.TestCase):
                 ProcessMemory("MegaBonk.exe")
             self.assertNotIn("megabonk.exe", memory_reader._known_processes)
         self.assertEqual(open_process.call_args_list, [call(4321), call("MegaBonk.exe")])
+
+    def test_missing_process_search_is_shared_until_retry(self) -> None:
+        replacement = Mock(process_id=4321)
+        missing = memory_reader.pymem.exception.ProcessNotFound("MegaBonk.exe")
+        now = 10.0
+        with (
+            patch.dict(memory_reader._known_processes, clear=True),
+            patch.object(memory_reader, "monotonic", side_effect=lambda: now),
+            patch.object(memory_reader, "_process_times", return_value=(100, 0)),
+            patch.object(memory_reader.pymem, "Pymem", side_effect=[missing, replacement, replacement]) as open_process,
+        ):
+            with self.assertRaises(ProcessNotFoundError):
+                ProcessMemory("MegaBonk.exe")
+            now += 0.25
+            with self.assertRaises(ProcessNotFoundError):
+                ProcessMemory("megabonk.exe")
+            now += 0.25
+            with ProcessMemory("MegaBonk.exe"), ProcessMemory("megabonk.exe"):
+                pass
+        self.assertEqual(open_process.call_args_list, [call("MegaBonk.exe"), call("MegaBonk.exe"), call(4321)])
 
     def test_module_base_is_resolved_once_per_module(self) -> None:
         # `module_from_name` enumerates the whole module list -- ~3.4 ms live,

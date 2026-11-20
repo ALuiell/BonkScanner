@@ -36,6 +36,7 @@ from typing import Any, Callable
 
 from app import config
 from app.reroll_rate import RerollCyclePeak
+from app.map_transition import MapTransition
 from infra.crash_journal import log_runtime_event
 from infra.scenario_trace import trace
 from app.map_scoring import (
@@ -102,6 +103,9 @@ class Scanner:
         open_quick_guide: Callable[..., None] = lambda *_args, **_kwargs: None,
     ) -> None:
         self._coordinator = coordinator
+        # Lightweight standalone component fixtures use a minimal coordinator.
+        if not hasattr(coordinator, "map_transition"):
+            coordinator.map_transition = MapTransition()
         self._run_control = run_control
         self._filters = filters
         self._schedule = schedule
@@ -979,14 +983,21 @@ class Scanner:
                 self._break_reroll_sequence()
                 return False
 
+            transition = self._coordinator.map_transition
+            transition.begin()
             try:
                 self._run_control.run_control_provider.restart_run()
+                transition.restart_sent()
                 trace("restart_command_completed")
             except RunControlError as exc:
+                transition.cancel()
                 trace("restart_cancelled", reason="command_error")
                 self._break_reroll_sequence()
                 self.log(f"[-] {exc}", tag="error")
                 return False
+            except BaseException:
+                transition.cancel()
+                raise
 
             with self._filters.state_lock:
                 self._reroll_peak.restarted()
@@ -1082,6 +1093,7 @@ class Scanner:
             # WAITING with a dead thread object.
             self.log(f"[-] Scanner worker stopped unexpectedly: {exc}", tag="error")
         finally:
+            self._coordinator.map_transition.abandon()
             self.close_client()
             self._flush_total_rerolls(force=True)
             self.is_running = False
@@ -1149,6 +1161,7 @@ class Scanner:
             was_waiting = not self.scan_event.is_set()
             if was_waiting:
                 self._break_reroll_sequence()
+                self._coordinator.map_transition.abandon()
             if not self.scan_event.wait(timeout=0.25):
                 continue
             if self.stop_event.is_set():
@@ -1180,8 +1193,11 @@ class Scanner:
                     self._break_reroll_sequence()
                 if not self._run_control.wait_for_game_window_focus(process_name):
                     self._break_reroll_sequence()
+                    if self._scan_abort_requested():
+                        self._coordinator.map_transition.abandon()
                     continue
                 if self._disconnect_stale_scanner_client(process_name):
+                    self._coordinator.map_transition.abandon()
                     if awaiting_forced_map:
                         awaiting_forced_map = False
                         self._pause_after_force_reset_failure(reset_sent=True)
@@ -1195,113 +1211,129 @@ class Scanner:
                     last_state = None
                     last_stats = None
 
+                confirmed_change_required = not is_first_scan
                 try:
                     raw_stats = self.client.wait_for_map_ready(
                         previous_state=last_state,
                         previous_stats=last_stats,
-                        require_change=not is_first_scan,
+                        require_change=confirmed_change_required,
                         abort_condition=lambda: self._scan_abort_requested() or not self._run_control.is_game_window_active(process_name),
                         timeout=10.0,
                     )
                 except InterruptedError:
                     self._break_reroll_sequence()
+                    if self._scan_abort_requested():
+                        self._coordinator.map_transition.abandon()
                     continue
 
-                if self._scan_abort_requested():
-                    self._break_reroll_sequence()
-                    continue
-                awaiting_forced_map = False
-                with self._filters.state_lock:
-                    self._reroll_peak.map_ready(time.monotonic())
-                is_first_scan = False
-                # `wait_for_map_ready` captured this state in the same strict
-                # sample that confirmed the stats. Re-reading through the
-                # optional UI projection can turn a transient memory error into
-                # an empty baseline, after which teardown stats look like a new
-                # map on the next cycle.
-                last_state = getattr(self.client, "last_ready_state", None)
-                if last_state is None:
-                    last_state = self.client.get_map_generation_state()
-                last_stats = raw_stats
-                stats = adapt_map_stats(raw_stats)
-                eval_context = {
-                    "supports_bald_heads": stats.get("Chests", 0) >= 69,
-                }
-
-                self.check_best_map(stats)
-                self.check_worst_map(stats)
-                candidate = evaluate_candidate(stats, self.active_templates, context=eval_context)
-
-                if self._scan_abort_requested():
-                    continue
-
-                if candidate is not None:
-                    self._break_reroll_sequence()
-                    if not self._run_control.wait_for_game_window_focus(process_name):
+                restarted = False
+                sent_before_evaluation = self._coordinator.map_transition.dispatch_count()
+                try:
+                    if self._scan_abort_requested():
+                        self._break_reroll_sequence()
                         continue
+                    awaiting_forced_map = False
+                    with self._filters.state_lock:
+                        self._reroll_peak.map_ready(time.monotonic())
+                    is_first_scan = False
+                    # `wait_for_map_ready` captured this state in the same strict
+                    # sample that confirmed the stats. Re-reading through the
+                    # optional UI projection can turn a transient memory error into
+                    # an empty baseline, after which teardown stats look like a new
+                    # map on the next cycle.
+                    last_state = getattr(self.client, "last_ready_state", None)
+                    if last_state is None:
+                        last_state = self.client.get_map_generation_state()
+                    last_stats = raw_stats
+                    stats = adapt_map_stats(raw_stats)
+                    eval_context = {
+                        "supports_bald_heads": stats.get("Chests", 0) >= 69,
+                    }
+
+                    self.check_best_map(stats)
+                    self.check_worst_map(stats)
+                    candidate = evaluate_candidate(stats, self.active_templates, context=eval_context)
+
                     if self._scan_abort_requested():
                         continue
 
-                    t_name = candidate.get("name")
-                    t_color = template_color_tag(candidate)
-                    score_text = (
-                        f" (Score: {candidate.get('score', 0):.1f})"
-                        if config.EVALUATION_MODE == "scores"
-                        else ""
-                    )
-                    condition_text = (
-                        f" ({format_template_conditions(candidate)})"
-                        if config.EVALUATION_MODE == "templates"
-                        else ""
-                    )
-                    self.log(
-                        [
-                            "\n[$$$] TARGET MAP FOUND! Profile: ",
-                            f"{t_name}{condition_text}{score_text}",
-                        ],
-                        tag=["success", t_color],
-                    )
-                    self.log(f"Map Stats: {format_stats(stats, self.active_templates)}", tag="success")
-                    self.log_target_found(t_name)
-
-                    if not self._run_control.handle_confirmed_target_window(process_name):
-                        continue
-
-                    with self._restart_lock:
+                    if candidate is not None:
+                        self._coordinator.map_transition.settle(confirmed=confirmed_change_required)
+                        self._break_reroll_sequence()
+                        if not self._run_control.wait_for_game_window_focus(process_name):
+                            continue
                         if self._scan_abort_requested():
                             continue
-                        self.is_running = False
-                        self.pause_reason = "target_found"
-                        self._target_tap_deadline = None
-                        self.scan_event.clear()
-                    # A normal resume rechecks this map. A force reset uses it
-                    # as the baseline when waiting for the next generation.
-                    is_first_scan = True
-                    self._schedule(0, self.update_status_ui)
-                    continue
-                else:
-                    self.log(f"Stats: {format_stats(stats, self.active_templates)}")
-                    if getattr(config, "SHOW_TARGET_GAPS", True):
-                        gap_text = format_candidate_gaps(
-                            stats,
-                            self.active_templates,
-                            context=eval_context,
+
+                        t_name = candidate.get("name")
+                        t_color = template_color_tag(candidate)
+                        score_text = (
+                            f" (Score: {candidate.get('score', 0):.1f})"
+                            if config.EVALUATION_MODE == "scores"
+                            else ""
                         )
-                        if gap_text:
-                            self.log(gap_text)
+                        condition_text = (
+                            f" ({format_template_conditions(candidate)})"
+                            if config.EVALUATION_MODE == "templates"
+                            else ""
+                        )
+                        self.log(
+                            [
+                                "\n[$$$] TARGET MAP FOUND! Profile: ",
+                                f"{t_name}{condition_text}{score_text}",
+                            ],
+                            tag=["success", t_color],
+                        )
+                        self.log(f"Map Stats: {format_stats(stats, self.active_templates)}", tag="success")
+                        self.log_target_found(t_name)
 
-                if not self._run_control.is_game_window_active(process_name):
-                    self._break_reroll_sequence()
-                if not self._run_control.wait_for_game_window_focus(process_name):
-                    self._break_reroll_sequence()
-                    continue
+                        if not self._run_control.handle_confirmed_target_window(process_name):
+                            continue
 
-                self.reroll_map()
+                        with self._restart_lock:
+                            if self._scan_abort_requested():
+                                continue
+                            self.is_running = False
+                            self.pause_reason = "target_found"
+                            self._target_tap_deadline = None
+                            self.scan_event.clear()
+                        # A normal resume rechecks this map. A force reset uses it
+                        # as the baseline when waiting for the next generation.
+                        is_first_scan = True
+                        self._schedule(0, self.update_status_ui)
+                        continue
+                    else:
+                        self.log(f"Stats: {format_stats(stats, self.active_templates)}")
+                        if getattr(config, "SHOW_TARGET_GAPS", True):
+                            gap_text = format_candidate_gaps(
+                                stats,
+                                self.active_templates,
+                                context=eval_context,
+                            )
+                            if gap_text:
+                                self.log(gap_text)
+
+                    if not self._run_control.is_game_window_active(process_name):
+                        self._break_reroll_sequence()
+                    if not self._run_control.wait_for_game_window_focus(process_name):
+                        self._break_reroll_sequence()
+                        continue
+
+                    restarted = self.reroll_map()
+                finally:
+                    if not restarted and (
+                        self._coordinator.map_transition.dispatch_count()
+                        == sent_before_evaluation
+                    ):
+                        self._coordinator.map_transition.settle(
+                            confirmed=confirmed_change_required
+                        )
 
             except TimeoutError as exc:
                 self._break_reroll_sequence()
                 if awaiting_forced_map:
                     awaiting_forced_map = False
+                    self._coordinator.map_transition.abandon()
                     self._pause_after_force_reset_failure(reset_sent=True)
                     self.log(f"    {exc}", tag="warning")
                     continue
@@ -1327,6 +1359,7 @@ class Scanner:
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
                 trace("game_connection_lost", reason=type(exc).__name__)
+                self._coordinator.map_transition.abandon()
                 self._break_reroll_sequence()
                 awaiting_forced_map = False
                 self.is_running = False
@@ -1345,6 +1378,7 @@ class Scanner:
                 self.log(f"[-] Error during execution: {exc}", tag="error")
                 if awaiting_forced_map:
                     awaiting_forced_map = False
+                    self._coordinator.map_transition.abandon()
                     self._pause_after_force_reset_failure(reset_sent=True)
                     continue
                 self.stop_event.wait(1.0)

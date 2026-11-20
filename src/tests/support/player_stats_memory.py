@@ -38,6 +38,7 @@ def build_player_stats_memory(
     overlay_refresh_wanted: bool | Callable[[], bool] = False,
     disabled_items_cache: Any = None,
     disabled_items_refresh_pending: bool = False,
+    map_transition_recovery_grace: bool | Callable[[], bool] = False,
     world: Any = None,
 ) -> tuple[PlayerStatsMemory, Any]:
     """A real `PlayerStatsMemory` with its thirteen collaborators faked."""
@@ -73,5 +74,6 @@ def build_player_stats_memory(
         write_disabled_items_refresh_pending=lambda value: setattr(
             world, "disabled_items_refresh_pending", value
         ),
+        map_transition_recovery_grace=_predicate(map_transition_recovery_grace),
     )
     return service, world

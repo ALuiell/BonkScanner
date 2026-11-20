@@ -18,6 +18,7 @@ from unittest.mock import patch
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app.snapshot_store import LiveSnapshotStore
+from app.map_transition import MapTransition
 from app.player_stats_source import FullPlayerSample
 from app import config
 from app.in_game_overlay_demand import (
@@ -92,6 +93,69 @@ def _overlay_config(*, master=True, widget=True, selected=None):
 
 
 class PlayerStatsMemoryTests(unittest.TestCase):
+    def test_transition_recovers_unreadable_handle_while_ignoring_teardown(self) -> None:
+        transition = MapTransition()
+        transition.begin()
+        error = MemoryReadError("read failed")
+        client = _CountingClient()
+        client.module_name = "GameAssembly.dll"
+        handle_failed = False
+
+        def read_module_header(_address):
+            if handle_failed:
+                raise error
+            return ord("M")
+
+        client.memory = SimpleNamespace(
+            module_offset=lambda _module, offset: 0x100000 + offset,
+            read_u8=read_module_header,
+        )
+        service, world = build_player_stats_memory(
+            stats_client=client, map_transition_recovery_grace=transition.recovery_grace_active,
+        )
+        for _ in range(5):
+            service.record_memory_failure(error)
+        self.assertIs(world.stats_client, client)
+        self.assertEqual(client.closed, 0)
+
+        handle_failed = True
+        for _ in range(3):
+            service.record_memory_failure(error)
+        self.assertTrue(transition.active())
+        self.assertIsNone(world.stats_client)
+        self.assertEqual(client.closed, 1)
+        with patch("app.player_stats_memory.PlayerStatsClient") as reopen:
+            self.assertIs(service._get_player_stats_client(), reopen.return_value)
+            reopen.assert_called_once_with(config.PROCESS_NAME)
+
+    def test_persistent_source_failure_recovers_after_grace_within_reroll_series(self) -> None:
+        now = 0.0
+        transition = MapTransition(clock=lambda: now)
+        client = _CountingClient()
+        client.module_name = "GameAssembly.dll"
+        client.memory = SimpleNamespace(
+            module_offset=lambda _module, offset: 0x100000 + offset,
+            read_u8=lambda _address: ord("M"),
+        )
+        service, world = build_player_stats_memory(
+            game_data_client=client, map_transition_recovery_grace=transition.recovery_grace_active,
+        )
+        error = MemoryReadError("map activity unavailable")
+        for _ in range(3):
+            transition.begin()
+            transition.restart_sent()
+            service.record_game_data_source_failure("map_activity", error)
+            now += 0.4
+        self.assertIs(world.game_data_client, client)
+        for _ in range(3):
+            transition.begin()
+            transition.restart_sent()
+            service.record_game_data_source_failure("map_activity", error)
+            now += 0.4
+        self.assertTrue(transition.active())
+        self.assertEqual(client.closed, 1)
+        self.assertIsNone(world.game_data_client)
+
     def test_weapon_tracker_demand_requires_master_widget_and_nonempty_selection(self) -> None:
         cases = (
             (False, True, ["damage"], False),

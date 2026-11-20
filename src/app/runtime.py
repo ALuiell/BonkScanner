@@ -66,6 +66,7 @@ class AppRuntime:
 
     def __init__(self, coordinator: Any, ports: AppRuntimePorts) -> None:
         self.coordinator = coordinator
+        self._map_transition = coordinator.map_transition
         self.ports = ports
         self.snapshot_store = coordinator.snapshot_store
         self.live_run_tracker = coordinator.live_run_tracker
@@ -106,6 +107,7 @@ class AppRuntime:
             write_disabled_items_cache=ports.write_disabled_items_cache,
             read_disabled_items_refresh_pending=ports.read_disabled_items_refresh_pending,
             write_disabled_items_refresh_pending=ports.write_disabled_items_refresh_pending,
+            map_transition_recovery_grace=self._map_transition.recovery_grace_active,
         )
         self.run_lifecycle = RunLifecycle(
             read_activity_state=lambda context=None: self.player_stats_memory._read_player_stats_runtime_activity_state_safe(context),
@@ -126,6 +128,8 @@ class AppRuntime:
             reset_snapshot_buffer=ports.reset_snapshot_buffer,
             read_character_identity=self._read_character_identity,
             active_recording_feed=lambda: self.active_recording_feed,
+            recording_generation=self._map_transition.recording_generation,
+            abandoned_restart_count=self._map_transition.abandoned_restart_count,
         )
         self.refresh_tasks = RefreshTasks(
             memory=lambda: self.player_stats_memory,
@@ -145,6 +149,7 @@ class AppRuntime:
             build_progression_service=lambda: coordinator.build_progression_service,
             roll_analytics_service=lambda: coordinator.roll_analytics,
             roll_analytics_collection_active=ports.roll_analytics_collection_active,
+            map_transition_active=self._map_transition.active,
         )
         self.refresh_coordinator = build_refresh_coordinator(
             self.refresh_tasks,
@@ -172,6 +177,7 @@ class AppRuntime:
                 coordinator, "player_stats_game_data_client", value
             ),
             active_recording_feed=lambda: self.active_recording_feed,
+            map_generation=self._map_transition.generation,
         )
         coordinator.player_stats_memory = self.player_stats_memory
         coordinator.run_lifecycle = self.run_lifecycle
@@ -213,7 +219,8 @@ class AppRuntime:
         self._started = True
         if self.ports.post_to_ui is not None:
             self.player_stats_refresh.use_background_sampler(
-                PlayerSampleWorker(), self.ports.post_to_ui,
+                PlayerSampleWorker(map_transition_recovery_grace=self._map_transition.recovery_grace_active),
+                self.ports.post_to_ui,
             )
         self.coordinator.start_refresh_loop(
             tick=self.player_stats_refresh.tick,

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from app.map_transition import MapTransition
 from app.runtime import AppRuntime, AppRuntimePorts
 from app.shutdown import ShutdownDeadline
 from core.game_state import RuntimeGameMode, RuntimeGameState
@@ -33,6 +34,7 @@ class _Coordinator:
         self.player_stats_client = None
         self.player_stats_game_data_client = None
         self.refresh_coordinator = None
+        self.map_transition = MapTransition()
         self._calls = calls
         self.start_calls = 0
 
@@ -97,6 +99,37 @@ def _ports(
 
 
 class AppRuntimeTests(unittest.TestCase):
+    def test_transition_defers_optional_tasks_but_keeps_lifecycle_and_samples(self):
+        coordinator = _Coordinator([])
+        runtime = AppRuntime(coordinator, _ports([], [], roll_analytics_active=True))
+        runtime.run_lifecycle = SimpleNamespace(is_active_run=lambda: True, completed_run=False)
+        deferred = {"passive_items", "powerups", "expected_chest_inputs", "chest_counters",
+                    "charge_shrines", "chaos_tome"}
+
+        coordinator.vod_recorder.is_recording = True
+        self.assertTrue(deferred <= {task.task_id for task in runtime.refresh_coordinator.diagnostics() if task.active})
+        coordinator.map_transition.begin()
+        active = {task.task_id for task in runtime.refresh_coordinator.diagnostics() if task.active}
+        self.assertFalse(deferred & active)
+        self.assertTrue({"run_lifecycle_probe", "recording_lifecycle", "full_player_snapshot"} <= active)
+
+    def test_map_restart_invalidates_pending_sample(self):
+        coordinator = _Coordinator([])
+        runtime = AppRuntime(coordinator, _ports([], []))
+        runtime.run_lifecycle = SimpleNamespace(state_for_refresh=lambda _context=None: RuntimeGameState(
+            mode=RuntimeGameMode.IN_GAME, current_stage_ptr=42,
+        ))
+        work, queued = Future(), []
+        service = runtime.player_stats_refresh
+        service.use_background_sampler(SimpleNamespace(submit=lambda *_args: work), queued.append)
+        with patch.object(service, "_apply_sample") as apply:
+            result = service.refresh_now()
+            coordinator.map_transition.begin()
+            work.set_result((object(), {}))
+            queued.pop()()
+            self.assertFalse(result.result())
+            apply.assert_not_called()
+
     def test_sample_from_previous_recording_does_not_reach_the_view(self):
         runtime = AppRuntime(_Coordinator([]), _ports([], []))
         recorder = runtime.vod_recorder

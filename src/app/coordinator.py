@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any, Callable, Sequence
 
 from app.refresh_coordinator import RefreshCoordinator
+from app.map_transition import MapTransition
 from app.settings import ConfigBuildProgressionSettings, ConfigOverlaySettings, ConfigRecordingSettings
 from app.build_progression import BuildProgressionService, active_definition_from_config
 from app.merchant_analytics import MerchantAnalyticsService
@@ -113,6 +114,7 @@ class AppCoordinator:
             settings=self.overlay_settings,
         )
         self.snapshot_store = LiveSnapshotStore()
+        self.map_transition = MapTransition()
         self.vod_recorder = VodRecorder(
             interval_seconds=vod_interval_seconds,
             settings=self.recording_settings,

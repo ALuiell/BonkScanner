@@ -138,6 +138,7 @@ class PlayerStatsRefresh:
         game_data_client: Callable[[], Any],
         set_game_data_client: Callable[[Any], None],
         active_recording_feed: Callable[[], Any] | None = None,
+        map_generation: Callable[[], int] = lambda: 0,
     ) -> None:
         self._shutdown_requested = shutdown_requested
         self._lifecycle_service = lifecycle_service
@@ -157,6 +158,7 @@ class PlayerStatsRefresh:
         self._game_data_client = game_data_client
         self._set_game_data_client = set_game_data_client
         self._active_recording_feed = active_recording_feed or (lambda: None)
+        self._map_generation = map_generation
         self._sampler = None
         self._post_sample = None
         self._pending_sample = None
@@ -175,7 +177,12 @@ class PlayerStatsRefresh:
     def _sample_identity(self, context=None):
         state = self._lifecycle_service().state_for_refresh(context)
         recorder = self._recorder_handle()
-        return state.mode, state.current_stage_ptr, recorder.path if recorder.is_recording else None
+        return (
+            state.mode,
+            state.current_stage_ptr,
+            recorder.path if recorder.is_recording else None,
+            self._map_generation(),
+        )
 
     def _request_sample(self, status_text, context):
         if self._pending_sample is not None:
@@ -255,7 +262,7 @@ class PlayerStatsRefresh:
             # folded their latest values (including shrines) into this immutable
             # runtime boundary, so append it directly while the file is open.
             recorder = self._recorder_handle()
-            if not recorder.is_recording:
+            if not recorder.is_recording or not self._capture_service().recording_is_on_current_map():
                 return False
             runtime_snapshot = self._live_tracker().runtime_snapshot()
             chaos_snapshot_reader = getattr(
@@ -278,6 +285,7 @@ class PlayerStatsRefresh:
             if self._sampling_stopped or self._shutdown_requested():
                 return False
             return self._request_sample(status_text, context)
+        generation = self._map_generation()
         try:
             sample = self._memory_service().read_full_sample(context)
         except Exception as exc:
@@ -285,6 +293,8 @@ class PlayerStatsRefresh:
             self._mark_unavailable()
             return False
         self._memory_service().record_memory_success()
+        if self._map_generation() != generation:
+            return False
         return self._apply_sample(sample, status_text, context)
 
     def _mark_unavailable(self):
@@ -294,6 +304,7 @@ class PlayerStatsRefresh:
             pass
 
     def _apply_sample(self, sample, status_text, context=None, *, activity=None):
+        generation = self._map_generation()
         # The source DTO exposes an immutable mapping. Runtime snapshots are
         # deep-copied by the tracker, so cross that boundary as a plain dict.
         stats = dict(sample.stats)
@@ -313,33 +324,6 @@ class PlayerStatsRefresh:
         is_final_boss_stage = sample.is_final_boss_stage
         items_text = None if items_available else "Items unavailable"
         snapshot_store = self._store()
-
-        merged_items = snapshot_store.merge_items(items, items_available)
-        effective_items = merged_items.effective
-        items_available = merged_items.available
-
-        merged_weapons = snapshot_store.merge_weapons(weapons, weapons_available)
-        effective_weapons = merged_weapons.effective
-        weapons_available = merged_weapons.available
-        effective_weapons_available = merged_weapons.effective_available
-
-        merged_tomes = snapshot_store.merge_tomes(tomes, tomes_available)
-        effective_tomes = merged_tomes.effective
-        tomes_available = merged_tomes.available
-        effective_tomes_available = merged_tomes.effective_available
-
-        merged_damage_sources = snapshot_store.merge_damage_sources(damage_sources, damage_sources_available)
-        effective_damage_sources = merged_damage_sources.effective
-        damage_sources_available = merged_damage_sources.available
-        effective_damage_sources_available = merged_damage_sources.effective_available
-
-        merged_banishes = snapshot_store.merge_banishes(
-            banishes,
-            banishes_available,
-            merge_fn=formatting.merge_banish_appearance_order,
-        )
-        banishes = merged_banishes.banishes
-        banishes_available = merged_banishes.available
 
         is_live_tab_active = self._tab_is_active()
         map_stats = {}
@@ -398,6 +382,36 @@ class PlayerStatsRefresh:
             )
             map_stats = {}
             map_activity_max = {}
+        if self._map_generation() != generation:
+            return False
+
+        merged_items = snapshot_store.merge_items(items, items_available)
+        effective_items = merged_items.effective
+        items_available = merged_items.available
+
+        merged_weapons = snapshot_store.merge_weapons(weapons, weapons_available)
+        effective_weapons = merged_weapons.effective
+        weapons_available = merged_weapons.available
+        effective_weapons_available = merged_weapons.effective_available
+
+        merged_tomes = snapshot_store.merge_tomes(tomes, tomes_available)
+        effective_tomes = merged_tomes.effective
+        tomes_available = merged_tomes.available
+        effective_tomes_available = merged_tomes.effective_available
+
+        merged_damage_sources = snapshot_store.merge_damage_sources(damage_sources, damage_sources_available)
+        effective_damage_sources = merged_damage_sources.effective
+        damage_sources_available = merged_damage_sources.available
+        effective_damage_sources_available = merged_damage_sources.effective_available
+
+        merged_banishes = snapshot_store.merge_banishes(
+            banishes,
+            banishes_available,
+            merge_fn=formatting.merge_banish_appearance_order,
+        )
+        banishes = merged_banishes.banishes
+        banishes_available = merged_banishes.available
+
         live_snapshot = LiveRunSnapshot(
             captured_at=time.monotonic(),
             stats=stats,
@@ -530,6 +544,7 @@ class PlayerStatsRefresh:
         can_capture_recording = (
             self._recorder_handle().is_recording
             and runtime_state.mode is RuntimeGameMode.IN_GAME
+            and self._capture_service().recording_is_on_current_map()
         )
         if can_capture_recording and self._recorder_handle().should_capture():
             capture_payload = build_vod_capture_payload(

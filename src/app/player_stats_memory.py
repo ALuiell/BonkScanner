@@ -107,6 +107,7 @@ class PlayerStatsMemory:
         write_disabled_items_cache: Callable[[Any], None],
         read_disabled_items_refresh_pending: Callable[[], bool],
         write_disabled_items_refresh_pending: Callable[[bool], None],
+        map_transition_recovery_grace: Callable[[], bool] = lambda: False,
     ) -> None:
         self._read_stats_client = read_stats_client
         self._write_stats_client = write_stats_client
@@ -127,6 +128,7 @@ class PlayerStatsMemory:
         self._write_disabled_items_cache = write_disabled_items_cache
         self._read_disabled_items_refresh_pending = read_disabled_items_refresh_pending
         self._write_disabled_items_refresh_pending = write_disabled_items_refresh_pending
+        self._map_transition_recovery_grace = map_transition_recovery_grace
 
         self._player_stats_memory_error_streak = 0
         self._player_stats_game_data_memory_error_streak = 0
@@ -149,11 +151,29 @@ class PlayerStatsMemory:
     # only at the threshold. These were the module-level ``record_*`` bodies;
     # the streak they mutated moved in with them.
 
+    def _connection_readable_during_transition(self, read_client: Callable[[], Any]) -> bool:
+        if not self._map_transition_recovery_grace():
+            return False
+        # The assembly stays loaded across map resets. Probe through the same
+        # handle to distinguish teardown from a lost handle during the grace
+        # period. A persistent source failure still counts after grace ends.
+        try:
+            client = read_client()
+            if client is None:
+                return False
+            memory = client.memory
+            memory.read_u8(memory.module_offset(client.module_name, 0))
+        except (AttributeError, ProcessNotFoundError, ModuleNotFoundError, MemoryReadError):
+            return False
+        return True
+
     def record_memory_success(self) -> None:
         self._player_stats_memory_error_streak = 0
 
     def record_memory_failure(self, error: Exception) -> None:
         if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
+            return
+        if self._connection_readable_during_transition(self._read_stats_client):
             return
         self._player_stats_memory_error_streak = int(self._player_stats_memory_error_streak) + 1
         if self._player_stats_memory_error_streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
@@ -183,6 +203,8 @@ class PlayerStatsMemory:
         # read that is *expected* to happen occasionally and is not a reason to
         # drop the client. This one has no such transient.
         _ = error
+        if self._connection_readable_during_transition(self._read_game_data_client):
+            return
         self._player_stats_game_data_memory_error_streak = int(self._player_stats_game_data_memory_error_streak) + 1
         if self._player_stats_game_data_memory_error_streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
             return
@@ -202,6 +224,8 @@ class PlayerStatsMemory:
         cannot cancel it.
         """
         _ = error
+        if self._connection_readable_during_transition(self._read_game_data_client):
+            return
         source = str(source)
         streak = int(self._game_data_source_error_streaks.get(source, 0)) + 1
         self._game_data_source_error_streaks[source] = streak

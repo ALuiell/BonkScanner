@@ -2554,6 +2554,64 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(world.recorder.stop_calls, 1)
         self.assertFalse(world.recorder.is_recording)
 
+    def test_recording_waits_and_splits_only_for_a_confirmed_restart(self) -> None:
+        from app.map_transition import MapTransition
+
+        transition = MapTransition()
+        state = RuntimeGameState(mode=RuntimeGameMode.IN_GAME, is_playing=True)
+        service, world = build_vod_capture(
+            recording_generation=transition.recording_generation,
+            run_lifecycle=SimpleNamespace(
+                state_for_refresh=lambda _context: state, set_completed=lambda _value: None,
+            ),
+            recording_states=lambda _context: SimpleNamespace(
+                map_seed=777, current_stage_ptr=0x1234, stage_index=0,
+            ),
+            run_timers=lambda _context: 1.0,
+        )
+        service.start_recording(seed=777, stage_ptr=0x1234, stage_index=0)
+
+        transition.begin()
+        self.assertIsNone(service.sync_run_state())
+        self.assertFalse(service.recording_is_on_current_map())
+        transition.cancel()
+        self.assertIsNone(service.sync_run_state())
+        self.assertTrue(service.recording_is_on_current_map())
+        self.assertEqual(world.recorder.stop_calls, 0)
+
+        transition.begin()
+        transition.restart_sent()
+        self.assertIsNone(service.sync_run_state())
+        transition.settle(confirmed=True)
+        self.assertFalse(service.recording_is_on_current_map())
+        self.assertEqual(service.sync_run_state(), "split")
+        self.assertIsNone(service.sync_run_state())
+        self.assertTrue(service.recording_is_on_current_map())
+        self.assertEqual(world.recorder.stop_calls, 1)
+
+    def test_abandoned_sent_restart_stops_old_recording_without_a_final_sample(self) -> None:
+        from app.map_transition import MapTransition
+
+        transition = MapTransition()
+        service, world = build_vod_capture(
+            recording_generation=transition.recording_generation,
+            abandoned_restart_count=transition.abandoned_restart_count,
+            run_lifecycle=SimpleNamespace(state_for_refresh=lambda _context: RuntimeGameState(
+                mode=RuntimeGameMode.IN_GAME, is_playing=True,
+            ), set_completed=lambda _value: None),
+        )
+        service.start_recording(seed=777)
+        service.player_stats_recording_armed = True
+        transition.begin()
+        transition.restart_sent()
+        transition.abandon()
+
+        self.assertFalse(service.recording_is_on_current_map())
+        self.assertEqual(service.sync_run_state(), "stopped")
+        self.assertTrue(service.is_recording_armed())
+        self.assertEqual(world.recorder.stop_calls, 1)
+        self.assertEqual(world.refresh_calls, [])
+
     def test_stop_recording_can_skip_final_snapshot_for_run_split(self) -> None:
         service, world = build_vod_capture()
         world.recorder.is_recording = True
