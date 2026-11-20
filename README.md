@@ -296,6 +296,9 @@ python src/main.py
 
 ## Development
 
+For work on the `live-validator` branch, start with the
+[Live Validator status and repository map](https://github.com/ALuiell/bonkscanner-docs/tree/main/validator).
+
 ### Build the Windows Executable
 
 ```bat
