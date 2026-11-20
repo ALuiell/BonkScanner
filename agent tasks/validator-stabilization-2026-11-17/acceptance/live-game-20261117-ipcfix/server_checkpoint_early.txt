@@ -1,0 +1,3 @@
+﻿3 objects imported automatically (use -v 2 for details).
+
+{"found": true, "sessionId": "2b1ebbbc-3b99-466e-a615-d67448fb7639", "lastSeq": 97, "lastOperation": "finish", "closed": true, "reportAvailable": true, "protocolVersion": "3", "lastProgressAt": "2026-11-17T11:55:06.139240+00:00"}

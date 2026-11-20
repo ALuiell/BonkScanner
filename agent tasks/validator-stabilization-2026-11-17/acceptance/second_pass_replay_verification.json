@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-17",
+  "revisionProvenance": "uncommitted Validator source on 21c9432 baseline",
+  "type": "saved source-only predicate replay; non-atomic observations, no native-game ground truth",
+  "status": "PASS",
+  "runs": [
+    {
+      "scenario": "controlled",
+      "samples": 41333,
+      "cases": 35,
+      "confirmations": 42,
+      "mismatches": {}
+    },
+    {
+      "scenario": "followup",
+      "samples": 3096,
+      "cases": 5,
+      "confirmations": 5,
+      "mismatches": {}
+    },
+    {
+      "scenario": "chaos",
+      "samples": 15090,
+      "cases": 10,
+      "confirmations": 22,
+      "mismatches": {}
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "timeUtc": "2026-11-17T11:55:02.975144+00:00",
+  "buildSha256": "b546431cbad04f7983654a48e7a7d8d87b96c2d5e0554ce28ac06961bd914e66",
+  "buildBytes": 58232001,
+  "executable": "F:\\Python\\BonkScanner\\scratch\\validator-ipcfix-dist\\BonkScanner_Validator_LiveFix.exe",
+  "sourceFiles": {
+    "src/bonkscanner_validator/ipc.py": "92f9a23600c29167fddaf0f1ec1943fa11aae3cb94ade187eba3b9fea50da06f",
+    "src/bonkscanner_validator/worker.py": "db1abc29e78d00b16da0ff522757563046ee58dca6ca0429929d485052c4b13f",
+    "src/bonkscanner_validator/controller.py": "92f441778e886cf26c1b46143b267313761ca240d74800e4db558300a70bd9ca",
+    "tests/test_validator_worker.py": "c8fe970aa7bde48a8b008a17fe60ab9583414f604b0f88dd0e01dc7be3825a1f",
+    "tests/test_integrator_stabilization.py": "40ec67cebf634e6a619b101d54bcfc6d46b187f052ffd2cc098454d3535908bd"
+  },
+  "tests": {
+    "validator": {
+      "passed": 313,
+      "subtests": 36
+    },
+    "scannerIntegration": {
+      "passed": 63
+    },
+    "targetedIpc": {
+      "passed": 63,
+      "subtests": 36,
+      "overlapsFullSuite": true
+    }
+  },
+  "liveCapture": "F:\\Python\\BonkScanner\\agent tasks\\validator-stabilization-2026-11-17\\acceptance\\live-game-20261117-ipcfix",
+  "liveStatus": "RUNNING_NOT_ACCEPTED",
+  "guardedMonitorJob": "abbe0582f4c848abb9e13aa8c9cdbb89",
+  "gameIdentity": "29100:134393842317582082",
+  "workerPid": 31336,
+  "guiPid": 4900,
+  "testControls": "No game restart, no time/stat edits, no pause/resume command by this continuation; game was already unpaused at final preflight."
+}

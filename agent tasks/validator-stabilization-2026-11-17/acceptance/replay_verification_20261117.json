@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "comparison": "Current source-predicate replay per-scenario confirmations against pinned after-fix replay JSON cases. Non-atomic saved snapshots, not game ground truth.",
+  "runs": {
+    "controlled": {
+      "samples": 41333,
+      "scenarios": 35,
+      "confirmations": 42,
+      "mismatches": {},
+      "baseline_source": "F:\\Python\\BonkScanner\\.local\\validator-start-trace\\retest-kit\\shadow-replay\\production-predicates-controlled-after-fix.json"
+    },
+    "followup": {
+      "samples": 3096,
+      "scenarios": 5,
+      "confirmations": 5,
+      "mismatches": {},
+      "baseline_source": "F:\\Python\\BonkScanner\\.local\\validator-start-trace\\retest-kit\\shadow-replay\\production-predicates-followup-after-fix.json"
+    },
+    "chaos": {
+      "samples": 15090,
+      "scenarios": 10,
+      "confirmations": 22,
+      "mismatches": {},
+      "baseline_source": "F:\\Python\\BonkScanner\\.local\\validator-start-trace\\retest-kit\\shadow-replay\\production-predicates-chaos-after-fix.json"
+    }
+  }
+}

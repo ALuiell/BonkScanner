@@ -1,0 +1,14 @@
+{
+  "elapsedToReplyOrExitSec": 2.641,
+  "helperPid": 32848,
+  "exitedBeforeResponse": null,
+  "readyLine": "",
+  "diagnostic": [
+    {
+      "error": "error"
+    }
+  ],
+  "status": "FAIL_NO_ARMED",
+  "finalExit": 4,
+  "baselineRestored": true
+}

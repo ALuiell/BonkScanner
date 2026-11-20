@@ -1,0 +1,24 @@
+{
+  "startedUtc": "2026-11-17T11:58:54.889804+00:00",
+  "workerPid": 31336,
+  "workerCreated": 134393899851830462,
+  "gameIdentity": "29100:134393842317582082",
+  "requestedSeconds": 1500.0,
+  "scope": "Read-only counters; GameLab phase read once per minute; no game control",
+  "status": "FAIL",
+  "reason": "RuntimeError",
+  "samples": 180,
+  "elapsedSeconds": 915.484,
+  "pausedGameChecks": 0,
+  "lastGameState": {
+    "process": "29100:134393842317582082",
+    "phase": "overtime",
+    "stageIndex": 0,
+    "gameOver": false,
+    "playing": true,
+    "paused": false,
+    "runSeconds": 865.3307495117188
+  },
+  "finishedUtc": "2026-11-17T12:14:10.923829+00:00",
+  "limitations": "PASS applies only to this window, not final ACK/restoration or full release acceptance"
+}

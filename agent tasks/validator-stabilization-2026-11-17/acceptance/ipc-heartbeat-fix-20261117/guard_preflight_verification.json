@@ -1,0 +1,7 @@
+{
+  "expectedResult": "reject_not_running_measurement",
+  "actualReason": "game_paused_at_preflight",
+  "samples": 0,
+  "result": "PASS",
+  "note": "The earlier directory name ended_game_guard_check is historical; actual state had changed to active-paused before the check."
+}

@@ -1,0 +1,122 @@
+{
+  "exercised": {
+    "status": "partial",
+    "issues": [
+      "handle_lifetime_unverified"
+    ],
+    "restoration": "verified",
+    "confirmed": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "ambiguous": {
+      "readRecords": 2,
+      "writeRecords": 1,
+      "rows": [
+        {
+          "recordId": 3862191,
+          "sourcePid": 26236,
+          "handle": 388,
+          "rightsMask": 16,
+          "offsetMs": 1058,
+          "utcNs": 1794907231464543000,
+          "attribution": "handle_lifetime_unverified"
+        },
+        {
+          "recordId": 3862192,
+          "sourcePid": 26236,
+          "handle": 388,
+          "rightsMask": 32,
+          "offsetMs": 1058,
+          "utcNs": 1794907231464608100,
+          "attribution": "handle_lifetime_unverified"
+        },
+        {
+          "recordId": 3862193,
+          "sourcePid": 26236,
+          "handle": 388,
+          "rightsMask": 16,
+          "offsetMs": 1058,
+          "utcNs": 1794907231464644000,
+          "attribution": "handle_lifetime_unverified"
+        }
+      ],
+      "rowsOmitted": 0
+    },
+    "readDiagnostics": {
+      "readStopReason": "exhausted",
+      "retrieved": 3,
+      "rendered": 3,
+      "acceptedUnique": 3,
+      "filtered": 0,
+      "duplicates": 0,
+      "parseRejects": 0
+    }
+  },
+  "stop": {
+    "status": "cancelled",
+    "issues": [],
+    "restoration": "verified",
+    "confirmed": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "ambiguous": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "readDiagnostics": {
+      "readStopReason": "not_started",
+      "retrieved": 0,
+      "rendered": 0,
+      "acceptedUnique": 0,
+      "filtered": 0,
+      "duplicates": 0,
+      "parseRejects": 0
+    }
+  },
+  "exit": {
+    "status": "partial",
+    "issues": [
+      "game_exited"
+    ],
+    "restoration": "verified",
+    "confirmed": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "ambiguous": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "readDiagnostics": {
+      "readStopReason": "exhausted",
+      "retrieved": 0,
+      "rendered": 0,
+      "acceptedUnique": 0,
+      "filtered": 0,
+      "duplicates": 0,
+      "parseRejects": 0
+    }
+  },
+  "crash": "policy_and_sacl_verified",
+  "independentRecoveryReadback": {
+    "policyFlagsBefore": 1,
+    "policyFlagsActive": 1,
+    "policyFlagsAfter": 1,
+    "saclSha256Before": "475c95d1bad7987e89cc0c8310478c7acf6836ee3092924b988edca43fa13745",
+    "saclSha256Active": "8e59f5406d92802271ff317a36169979f361c5b3f903694c66de813e77130795",
+    "saclSha256After": "475c95d1bad7987e89cc0c8310478c7acf6836ee3092924b988edca43fa13745",
+    "saclAceActiveAsExpected": true
+  }
+}

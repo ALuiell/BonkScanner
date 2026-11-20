@@ -1,0 +1,3 @@
+﻿3 objects imported automatically (use -v 2 for details).
+
+{"localRunId": "01e285cb-9fcf-42d4-b1c9-4223cb4529dd", "sessionId": "4ab63c10-d2e0-4a01-9a95-c25d19ee7027", "lastSeq": 124, "lastOperation": "batch", "closed": false, "reportAvailable": true, "lastProgressAt": "2026-11-17T12:01:15.917065+00:00"}

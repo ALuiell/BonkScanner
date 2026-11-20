@@ -1,0 +1,17 @@
+{
+  "observedUtc": "2026-11-17T12:02:10.016042+00:00",
+  "samples": 39,
+  "elapsedSeconds": 194.047,
+  "workerPresent": true,
+  "lastGame": {
+    "process": "29100:134393842317582082",
+    "phase": "normal",
+    "stageIndex": 0,
+    "gameOver": false,
+    "playing": true,
+    "paused": false,
+    "runSeconds": 195.40797424316406
+  },
+  "exceptions": [],
+  "monitorCompleted": false
+}

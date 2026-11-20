@@ -1,0 +1,11 @@
+{
+  "pid": 31336,
+  "ppid": 1636,
+  "name": "BonkScanner_Validator_LiveFix.exe",
+  "threads": 14,
+  "createdFiletime": 134393899851830462,
+  "cpuSeconds": 16.640625,
+  "handles": 418,
+  "privateBytes": 37605376,
+  "workingSetBytes": 58617856
+}

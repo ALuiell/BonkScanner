@@ -1,0 +1,6 @@
+﻿System audit policy
+
+Category/Subcategory                      Setting
+Object Access
+  Kernel Object                           Success
+

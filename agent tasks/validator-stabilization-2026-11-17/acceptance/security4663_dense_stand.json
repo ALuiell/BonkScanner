@@ -1,0 +1,30 @@
+{
+  "status": "PASS",
+  "countRequested": 40,
+  "actorHandlesExercised": 40,
+  "eligibleReadRecords": 40,
+  "retainedDetails": 24,
+  "omittedDetails": 16,
+  "issues": [
+    "handle_lifetime_unverified",
+    "result_limit"
+  ],
+  "query": {
+    "readStopReason": "exhausted",
+    "retrieved": 40,
+    "rendered": 40,
+    "acceptedUnique": 40,
+    "filtered": 0,
+    "duplicates": 0,
+    "parseRejects": 0
+  },
+  "firstRetainedRecordId": 3862251,
+  "lastRetainedRecordId": 3862290,
+  "restoration": "verified",
+  "independentPolicyBefore": 1,
+  "independentPolicyActive": 1,
+  "independentPolicyAfter": 1,
+  "saclBeforeSha256": "475c95d1bad7987e89cc0c8310478c7acf6836ee3092924b988edca43fa13745",
+  "saclActiveSha256": "8e59f5406d92802271ff317a36169979f361c5b3f903694c66de813e77130795",
+  "saclAfterSha256": "475c95d1bad7987e89cc0c8310478c7acf6836ee3092924b988edca43fa13745"
+}

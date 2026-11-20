@@ -1,0 +1,28 @@
+{
+  "source": "source-level controller; synthetic worker events; real local Django/PostgreSQL HTTP",
+  "successful": true,
+  "rows": [
+    {
+      "run": "old",
+      "localRunId": "2105aa4e-dbd8-477e-a9fa-f2bc5c1cd6b0",
+      "sessionId": "63e4ce6d-7256-473e-bb94-dd960eefb701",
+      "finishAcknowledged": true,
+      "status": "finished",
+      "diagnosticSummariesDropped": false,
+      "apiStatus": 200,
+      "apiSessionState": "completed",
+      "apiAssessment": "inconclusive"
+    },
+    {
+      "run": "new",
+      "localRunId": "51dac86e-68f8-45cd-bbe5-c40f33c21de6",
+      "sessionId": "82a662df-ad31-4cd0-97ca-630e8462eeba",
+      "finishAcknowledged": true,
+      "status": "finished",
+      "diagnosticSummariesDropped": false,
+      "apiStatus": 200,
+      "apiSessionState": "completed",
+      "apiAssessment": "inconclusive"
+    }
+  ]
+}

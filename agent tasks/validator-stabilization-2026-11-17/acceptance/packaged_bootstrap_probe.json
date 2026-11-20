@@ -1,0 +1,9 @@
+﻿{
+    "result":  "PASS",
+    "testedAt":  "2026-11-17T12:09:04.9831054+02:00",
+    "exe":  "F:\\Python\\BonkScanner\\scratch\\validator-second-pass-dist\\BonkScanner_Validator_SecondPass.exe",
+    "sha256":  "0A2AC96EA544DB182D5D2392572F3BD658D9C5A9F5A62599644F0DA4DC6AAE3C",
+    "workerNoElevationExit":  3,
+    "recoveryInvalidParentExit":  4,
+    "testScope":  "packed early CLI bootstrap only; no game, GUI, or policy changes"
+}

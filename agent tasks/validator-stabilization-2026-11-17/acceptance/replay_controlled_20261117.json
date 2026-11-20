@@ -1,0 +1,513 @@
+{
+  "capture": "F:\\Python\\BonkScanner\\.local\\validator-start-trace\\retest-kit\\captures\\session-20261117-032234-bc00dc",
+  "warning": "Non-atomic diagnostic snapshots; source-only replay, not release proof",
+  "rows": 41333,
+  "cases": [
+    {
+      "scenario": "P01_normal_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P01_normal_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P01_normal_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P02_quick_manual_r1",
+      "oldValidator": 2,
+      "offlineShadow": 0,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "P02_quick_manual_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P02_quick_manual_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P04_pause_near_zero_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P04_pause_near_zero_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P04_pause_near_zero_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P05_paused_restart_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P05_paused_restart_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P05_paused_restart_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P06_scanner_burst_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P06_scanner_burst_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P06_scanner_burst_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P07_restart_during_finish_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "P07_restart_during_finish_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "P07_restart_during_finish_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "P08_search_cancel_R_r1",
+      "oldValidator": 2,
+      "offlineShadow": 0,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "P08_search_cancel_R_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "P08_search_cancel_R_r3",
+      "oldValidator": 2,
+      "offlineShadow": 0,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "P09_menu_exit_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P09_menu_exit_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P09_menu_exit_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P10_death_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P10_death_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P10_death_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P11_attach_early_paused_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P11_attach_early_paused_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P11_attach_early_paused_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P11_attach_early_paused_r4",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P12_attach_late_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P12_attach_late_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P12_attach_late_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "gamelab_native_run_control",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    }
+  ],
+  "confirmed": [
+    {
+      "scenario_id": "P11_attach_early_paused_r2",
+      "worker_file": "validator-14796-b847f151dae44938a3643048a90b4e72.jsonl",
+      "generation": 1,
+      "sample_number": 2355,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "gamelab_native_run_control",
+      "worker_file": "validator-14796-b847f151dae44938a3643048a90b4e72.jsonl",
+      "generation": 1,
+      "sample_number": 2689,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P12_attach_late_r1",
+      "worker_file": "validator-16096-676fda5416134c5abd1317dc9444b95e.jsonl",
+      "generation": 1,
+      "sample_number": 301,
+      "attachment": "attached_mid_run"
+    },
+    {
+      "scenario_id": "P11_attach_early_paused_r1",
+      "worker_file": "validator-16324-8198711a73a04c7fb529b218c74a06af.jsonl",
+      "generation": 1,
+      "sample_number": 464,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P12_attach_late_r3",
+      "worker_file": "validator-17412-faad509009934c049c743a3a80ac5968.jsonl",
+      "generation": 1,
+      "sample_number": 149,
+      "attachment": "attached_mid_run"
+    },
+    {
+      "scenario_id": "P01_normal_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 325,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P01_normal_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 1715,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P01_normal_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 2586,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P02_quick_manual_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 3096,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P02_quick_manual_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 3187,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P02_quick_manual_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 3908,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P02_quick_manual_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 4632,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P04_pause_near_zero_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 6289,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P04_pause_near_zero_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 8153,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P04_pause_near_zero_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 9452,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P05_paused_restart_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 10470,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P05_paused_restart_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 11609,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P05_paused_restart_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 12395,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P06_scanner_burst_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 13543,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P06_scanner_burst_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 14846,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P06_scanner_burst_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 15771,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P07_restart_during_finish_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 16351,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P07_restart_during_finish_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 16359,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P07_restart_during_finish_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 16977,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P07_restart_during_finish_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 16987,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P07_restart_during_finish_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 17612,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P07_restart_during_finish_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 17622,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P08_search_cancel_R_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 18489,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P08_search_cancel_R_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 18530,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P08_search_cancel_R_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 19335,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P08_search_cancel_R_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 19346,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P08_search_cancel_R_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 20036,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P08_search_cancel_R_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 20054,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P09_menu_exit_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 21329,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P09_menu_exit_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 22510,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P09_menu_exit_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 23173,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P10_death_r1",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 24069,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P10_death_r2",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 26447,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P10_death_r3",
+      "worker_file": "validator-22056-17df499a77f346358d2b74ba6789f130.jsonl",
+      "generation": 2,
+      "sample_number": 27551,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P12_attach_late_r2",
+      "worker_file": "validator-22100-7f1b395b3b1c4a22b096d4c30b4bbff4.jsonl",
+      "generation": 1,
+      "sample_number": 121,
+      "attachment": "attached_mid_run"
+    },
+    {
+      "scenario_id": "P11_attach_early_paused_r3",
+      "worker_file": "validator-22224-76566a1a49b34b88a2a76064d79ae2fa.jsonl",
+      "generation": 1,
+      "sample_number": 311,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P11_attach_early_paused_r4",
+      "worker_file": "validator-24560-e94d042ea0164530a0a6396473289708.jsonl",
+      "generation": 1,
+      "sample_number": 172,
+      "attachment": "run_start_unknown"
+    }
+  ]
+}

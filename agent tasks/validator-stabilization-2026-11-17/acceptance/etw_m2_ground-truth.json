@@ -1,0 +1,109 @@
+{
+  "actor_pid": 3812,
+  "qpc_frequency": 10000000,
+  "lifecycle": [
+    {
+      "kind": "local_thread",
+      "attempt": 1,
+      "target_pid": 3812,
+      "tid": 16820,
+      "begin_qpc": 427235364942,
+      "end_qpc": 427235372048
+    },
+    {
+      "kind": "remote_thread",
+      "attempt": 1,
+      "target_pid": 8532,
+      "tid": 29072,
+      "begin_qpc": 427235372135,
+      "end_qpc": 427235374577
+    },
+    {
+      "kind": "short_opener",
+      "attempt": 1,
+      "target_pid": 8532,
+      "pid": 16932,
+      "begin_qpc": 427235951708,
+      "end_qpc": 427235951914,
+      "exit_qpc": 427236000479
+    },
+    {
+      "kind": "local_thread",
+      "attempt": 2,
+      "target_pid": 3812,
+      "tid": 22860,
+      "begin_qpc": 427236000756,
+      "end_qpc": 427236002733
+    },
+    {
+      "kind": "remote_thread",
+      "attempt": 2,
+      "target_pid": 8532,
+      "tid": 26992,
+      "begin_qpc": 427236002834,
+      "end_qpc": 427236004713
+    },
+    {
+      "kind": "short_opener",
+      "attempt": 2,
+      "target_pid": 8532,
+      "pid": 9444,
+      "begin_qpc": 427236488121,
+      "end_qpc": 427236488319,
+      "exit_qpc": 427236540074
+    },
+    {
+      "kind": "local_thread",
+      "attempt": 3,
+      "target_pid": 3812,
+      "tid": 4764,
+      "begin_qpc": 427236540295,
+      "end_qpc": 427236541949
+    },
+    {
+      "kind": "remote_thread",
+      "attempt": 3,
+      "target_pid": 8532,
+      "tid": 21796,
+      "begin_qpc": 427236541998,
+      "end_qpc": 427236543696
+    },
+    {
+      "kind": "short_opener",
+      "attempt": 3,
+      "target_pid": 8532,
+      "pid": 19540,
+      "begin_qpc": 427237039730,
+      "end_qpc": 427237039919,
+      "exit_qpc": 427237104592
+    },
+    {
+      "kind": "image",
+      "attempt": 1,
+      "target_pid": 3812,
+      "name": "m2-version-fixture.dll",
+      "begin_qpc": 427237207267,
+      "loaded_qpc": 427237216865,
+      "end_qpc": 427237217441
+    },
+    {
+      "kind": "image",
+      "attempt": 2,
+      "target_pid": 3812,
+      "name": "m2-version-fixture.dll",
+      "begin_qpc": 427237217483,
+      "loaded_qpc": 427237220217,
+      "end_qpc": 427237220873
+    },
+    {
+      "kind": "image",
+      "attempt": 3,
+      "target_pid": 3812,
+      "name": "m2-version-fixture.dll",
+      "begin_qpc": 427237220909,
+      "loaded_qpc": 427237223157,
+      "end_qpc": 427237223606
+    }
+  ],
+  "target_pid": 8532
+}

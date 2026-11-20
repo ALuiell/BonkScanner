@@ -1,0 +1,37 @@
+{
+  "timeUtc": "2026-11-17T12:00:49.277142+00:00",
+  "captureSamples": 23,
+  "captureElapsedSeconds": 111.734,
+  "workerPresent": true,
+  "currentRunId": "01e285cb-9fcf-42d4-b1c9-4223cb4529dd",
+  "currentAttachment": "run_start_unknown",
+  "runtimeExceptions": [],
+  "maxIpcIdleMs": 6016.0,
+  "maxControllerEventMs": 6005.32,
+  "latestGame": {
+    "process": "29100:134393842317582082",
+    "phase": "normal",
+    "stageIndex": 0,
+    "gameOver": false,
+    "playing": true,
+    "paused": false,
+    "runSeconds": 72.9260025024414
+  },
+  "processes": [
+    {
+      "pid": 4900,
+      "privateMB": 186.9,
+      "handles": 950,
+      "threads": 18,
+      "cpuPercentOneCore": 43.62
+    },
+    {
+      "pid": 31336,
+      "privateMB": 36.3,
+      "handles": 425,
+      "threads": 14,
+      "cpuPercentOneCore": 6.23
+    }
+  ],
+  "finalMonitorSummary": null
+}

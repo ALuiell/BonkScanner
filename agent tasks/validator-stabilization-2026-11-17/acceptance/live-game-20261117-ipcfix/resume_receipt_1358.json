@@ -1,0 +1,64 @@
+{
+  "ok": true,
+  "result": {
+    "status": "verified",
+    "kind": "native_run_control",
+    "action": "resume",
+    "method": "PauseUi.Resume",
+    "process": "29100:134393842317582082",
+    "before": {
+      "context": [
+        1956590555456,
+        1954773845888,
+        1952590961664
+      ],
+      "manager": 1956826556096,
+      "pause_ui": 1954774023568,
+      "pause_ui_active": true,
+      "paused": true,
+      "game_over": false,
+      "seed": 483856191,
+      "timer": 1.0
+    },
+    "before_perf_counter_ns": 51577678626000,
+    "native_calls_completed": 1,
+    "receipt": "F:\\Python\\BonkScanner_experiments\\game_lab\\logs\\20261117T115844-run-resume-4339b04e.json",
+    "steps": [
+      {
+        "method": "PauseUi.Resume",
+        "object": "0x1c7219c7d90",
+        "arguments": [],
+        "status": "completed",
+        "result": {
+          "method": "PauseUi.Resume",
+          "thread_id": 25632,
+          "return_u64": 0,
+          "return_f32": 30.0,
+          "main_thread": true,
+          "temporary_debugger": true,
+          "cleanup": {
+            "detached": true,
+            "detach_error": 0,
+            "temporary_pages_freed": true
+          }
+        }
+      }
+    ],
+    "call_count_semantics": "One native game call, followed by read-only verification.",
+    "after": {
+      "context": [
+        1956590555456,
+        1954773845888,
+        1952590961664
+      ],
+      "manager": 1956826556096,
+      "pause_ui": 1954774023568,
+      "pause_ui_active": false,
+      "paused": false,
+      "game_over": false,
+      "seed": 483856191,
+      "timer": 1.029158115386963
+    },
+    "after_perf_counter_ns": 51577735148600
+  }
+}

@@ -1,0 +1,6 @@
+﻿System audit policy
+
+Category/Subcategory                      Setting
+Logon/Logoff
+  IPsec Main Mode                         No Auditing
+

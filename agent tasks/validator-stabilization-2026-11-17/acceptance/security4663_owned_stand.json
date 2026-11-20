@@ -1,0 +1,113 @@
+{
+  "exercised": {
+    "status": "partial",
+    "issues": [
+      "handle_lifetime_unverified"
+    ],
+    "restoration": "verified",
+    "confirmed": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "ambiguous": {
+      "readRecords": 2,
+      "writeRecords": 1,
+      "rows": [
+        {
+          "recordId": 3862174,
+          "sourcePid": 26348,
+          "handle": 544,
+          "rightsMask": 16,
+          "offsetMs": 630,
+          "utcNs": 1794907139351995400,
+          "attribution": "handle_lifetime_unverified"
+        },
+        {
+          "recordId": 3862175,
+          "sourcePid": 26348,
+          "handle": 544,
+          "rightsMask": 32,
+          "offsetMs": 630,
+          "utcNs": 1794907139352039000,
+          "attribution": "handle_lifetime_unverified"
+        },
+        {
+          "recordId": 3862176,
+          "sourcePid": 26348,
+          "handle": 544,
+          "rightsMask": 16,
+          "offsetMs": 630,
+          "utcNs": 1794907139352068300,
+          "attribution": "handle_lifetime_unverified"
+        }
+      ],
+      "rowsOmitted": 0
+    },
+    "readDiagnostics": {
+      "readStopReason": "exhausted",
+      "retrieved": 3,
+      "rendered": 3,
+      "acceptedUnique": 3,
+      "filtered": 0,
+      "duplicates": 0,
+      "parseRejects": 0
+    }
+  },
+  "stop": {
+    "status": "cancelled",
+    "issues": [],
+    "restoration": "verified",
+    "confirmed": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "ambiguous": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "readDiagnostics": {
+      "readStopReason": "not_started",
+      "retrieved": 0,
+      "rendered": 0,
+      "acceptedUnique": 0,
+      "filtered": 0,
+      "duplicates": 0,
+      "parseRejects": 0
+    }
+  },
+  "exit": {
+    "status": "partial",
+    "issues": [
+      "game_exited"
+    ],
+    "restoration": "verified",
+    "confirmed": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "ambiguous": {
+      "readRecords": 0,
+      "writeRecords": 0,
+      "rows": [],
+      "rowsOmitted": 0
+    },
+    "readDiagnostics": {
+      "readStopReason": "exhausted",
+      "retrieved": 0,
+      "rendered": 0,
+      "acceptedUnique": 0,
+      "filtered": 0,
+      "duplicates": 0,
+      "parseRejects": 0
+    }
+  },
+  "crash": "policy_and_sacl_verified"
+}

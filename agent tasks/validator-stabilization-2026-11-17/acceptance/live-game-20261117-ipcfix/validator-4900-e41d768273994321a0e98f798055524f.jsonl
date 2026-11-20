@@ -1,0 +1,2 @@
+{"event": "trace_start", "perf_counter_ns": 53050876762100, "scenario_id": "L06_ipc_idle_frame_deadline_afk", "scenario_reason": null, "pid": 4900, "sequence": 1}
+{"event": "controller_event_delay", "perf_counter_ns": 53050878005700, "scenario_id": "L06_ipc_idle_frame_deadline_afk", "scenario_reason": null, "pid": 4900, "sequence": 2, "event_kind": "state", "elapsed_ms": 4126.73}

@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "qpc_frequency": 10000000,
+  "fixture_pid": 17580,
+  "target": {
+    "pid": 27864,
+    "tid": 27228
+  },
+  "actor": {
+    "pid": 20892,
+    "tid": 8588
+  },
+  "attempts": [
+    {
+      "path": "open_process",
+      "attempt": 1,
+      "source_pid": 17580,
+      "target_pid": 27864,
+      "requested_access": 4096,
+      "qpc_begin": 427240217976,
+      "qpc_end": 427240218056,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0
+      }
+    },
+    {
+      "path": "open_thread",
+      "attempt": 1,
+      "source_pid": 17580,
+      "target_pid": 27864,
+      "target_tid": 27228,
+      "requested_access": 2048,
+      "qpc_begin": 427240218190,
+      "qpc_end": 427240218294,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_tid": 27228,
+        "actual_pid": 27864,
+        "target_matches": true
+      }
+    },
+    {
+      "path": "duplicate_to_actor",
+      "attempt": 1,
+      "source_pid": 17580,
+      "donor_pid": 17580,
+      "recipient_pid": 20892,
+      "target_pid": 27864,
+      "requested_access": 0,
+      "options": 2,
+      "donor_access": 4096,
+      "qpc_begin": 427240218390,
+      "qpc_end": 427240218506,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0,
+        "close_succeeded": true
+      }
+    },
+    {
+      "path": "open_owner_only",
+      "attempt": 1,
+      "source_pid": 20892,
+      "target_pid": 17580,
+      "requested_access": 64,
+      "qpc_begin": 427240221007,
+      "qpc_end": 427240221181,
+      "success": true,
+      "win32_error": 0
+    },
+    {
+      "path": "open_owner_for_duplication",
+      "attempt": 1,
+      "source_pid": 20892,
+      "target_pid": 17580,
+      "requested_access": 64,
+      "qpc_begin": 427240222707,
+      "qpc_end": 427240222847,
+      "success": true,
+      "win32_error": 0
+    },
+    {
+      "path": "duplicate_from_owner",
+      "attempt": 1,
+      "source_pid": 20892,
+      "donor_pid": 17580,
+      "recipient_pid": 20892,
+      "target_pid": 27864,
+      "requested_access": 0,
+      "options": 2,
+      "qpc_begin": 427240222886,
+      "qpc_end": 427240222980,
+      "success": true,
+      "win32_error": 0,
+      "recipient_handle": 392,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0,
+        "close_succeeded": true
+      },
+      "close_begin": 427240223042,
+      "close_end": 427240223066
+    },
+    {
+      "path": "inherited_handle",
+      "attempt": 1,
+      "source_pid": 17580,
+      "recipient_pid": 27996,
+      "target_pid": 27864,
+      "inherited_access": 4096,
+      "requested_access": null,
+      "qpc_begin": 427240223685,
+      "qpc_end": 427240254593,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0,
+        "close_succeeded": true
+      }
+    },
+    {
+      "path": "open_process",
+      "attempt": 2,
+      "source_pid": 17580,
+      "target_pid": 27864,
+      "requested_access": 4096,
+      "qpc_begin": 427240954850,
+      "qpc_end": 427240955053,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0
+      }
+    },
+    {
+      "path": "open_thread",
+      "attempt": 2,
+      "source_pid": 17580,
+      "target_pid": 27864,
+      "target_tid": 27228,
+      "requested_access": 2048,
+      "qpc_begin": 427240955211,
+      "qpc_end": 427240955292,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_tid": 27228,
+        "actual_pid": 27864,
+        "target_matches": true
+      }
+    },
+    {
+      "path": "duplicate_to_actor",
+      "attempt": 2,
+      "source_pid": 17580,
+      "donor_pid": 17580,
+      "recipient_pid": 20892,
+      "target_pid": 27864,
+      "requested_access": 0,
+      "options": 2,
+      "donor_access": 4096,
+      "qpc_begin": 427240955439,
+      "qpc_end": 427240955556,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0,
+        "close_succeeded": true
+      }
+    },
+    {
+      "path": "open_owner_only",
+      "attempt": 2,
+      "source_pid": 20892,
+      "target_pid": 17580,
+      "requested_access": 64,
+      "qpc_begin": 427240957852,
+      "qpc_end": 427240958020,
+      "success": true,
+      "win32_error": 0
+    },
+    {
+      "path": "open_owner_for_duplication",
+      "attempt": 2,
+      "source_pid": 20892,
+      "target_pid": 17580,
+      "requested_access": 64,
+      "qpc_begin": 427240959254,
+      "qpc_end": 427240959382,
+      "success": true,
+      "win32_error": 0
+    },
+    {
+      "path": "duplicate_from_owner",
+      "attempt": 2,
+      "source_pid": 20892,
+      "donor_pid": 17580,
+      "recipient_pid": 20892,
+      "target_pid": 27864,
+      "requested_access": 0,
+      "options": 2,
+      "qpc_begin": 427240959419,
+      "qpc_end": 427240959501,
+      "success": true,
+      "win32_error": 0,
+      "recipient_handle": 528,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0,
+        "close_succeeded": true
+      },
+      "close_begin": 427240959577,
+      "close_end": 427240959603
+    },
+    {
+      "path": "inherited_handle",
+      "attempt": 2,
+      "source_pid": 17580,
+      "recipient_pid": 17976,
+      "target_pid": 27864,
+      "inherited_access": 4096,
+      "requested_access": null,
+      "qpc_begin": 427240960236,
+      "qpc_end": 427240994137,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0,
+        "close_succeeded": true
+      }
+    },
+    {
+      "path": "open_process",
+      "attempt": 3,
+      "source_pid": 17580,
+      "target_pid": 27864,
+      "requested_access": 4096,
+      "qpc_begin": 427241635391,
+      "qpc_end": 427241635571,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0
+      }
+    },
+    {
+      "path": "open_thread",
+      "attempt": 3,
+      "source_pid": 17580,
+      "target_pid": 27864,
+      "target_tid": 27228,
+      "requested_access": 2048,
+      "qpc_begin": 427241635706,
+      "qpc_end": 427241635782,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_tid": 27228,
+        "actual_pid": 27864,
+        "target_matches": true
+      }
+    },
+    {
+      "path": "duplicate_to_actor",
+      "attempt": 3,
+      "source_pid": 17580,
+      "donor_pid": 17580,
+      "recipient_pid": 20892,
+      "target_pid": 27864,
+      "requested_access": 0,
+      "options": 2,
+      "donor_access": 4096,
+      "qpc_begin": 427241635868,
+      "qpc_end": 427241635973,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0,
+        "close_succeeded": true
+      }
+    },
+    {
+      "path": "open_owner_only",
+      "attempt": 3,
+      "source_pid": 20892,
+      "target_pid": 17580,
+      "requested_access": 64,
+      "qpc_begin": 427241638908,
+      "qpc_end": 427241639102,
+      "success": true,
+      "win32_error": 0
+    },
+    {
+      "path": "open_owner_for_duplication",
+      "attempt": 3,
+      "source_pid": 20892,
+      "target_pid": 17580,
+      "requested_access": 64,
+      "qpc_begin": 427241640575,
+      "qpc_end": 427241640758,
+      "success": true,
+      "win32_error": 0
+    },
+    {
+      "path": "duplicate_from_owner",
+      "attempt": 3,
+      "source_pid": 20892,
+      "donor_pid": 17580,
+      "recipient_pid": 20892,
+      "target_pid": 27864,
+      "requested_access": 0,
+      "options": 2,
+      "qpc_begin": 427241640799,
+      "qpc_end": 427241640886,
+      "success": true,
+      "win32_error": 0,
+      "recipient_handle": 552,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0,
+        "close_succeeded": true
+      },
+      "close_begin": 427241640963,
+      "close_end": 427241640991
+    },
+    {
+      "path": "inherited_handle",
+      "attempt": 3,
+      "source_pid": 17580,
+      "recipient_pid": 26252,
+      "target_pid": 27864,
+      "inherited_access": 4096,
+      "requested_access": null,
+      "qpc_begin": 427241641776,
+      "qpc_end": 427241678743,
+      "success": true,
+      "win32_error": 0,
+      "verification": {
+        "actual_pid": 27864,
+        "target_matches": true,
+        "query_succeeded": true,
+        "win32_error": 0,
+        "close_succeeded": true
+      }
+    }
+  ],
+  "setup": {
+    "donor_open_access": 4096,
+    "actor_open_access": 64,
+    "note": "setup opens occur before every trial window"
+  },
+  "skipped": [
+    {
+      "path": "nt_get_next_process",
+      "reason": "enumeration could acquire handles to non-owned processes; no safe owned-only selector"
+    }
+  ]
+}

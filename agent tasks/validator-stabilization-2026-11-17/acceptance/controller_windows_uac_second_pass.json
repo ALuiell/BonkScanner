@@ -1,0 +1,54 @@
+{
+  "status": "PASS",
+  "environment": "ordinary Python Controller, real Windows RunAs worker; no MegaBonk, no packaged EXE",
+  "cycles": [
+    {
+      "attempt": 1,
+      "ready": true,
+      "initialState": "waiting_game",
+      "initialError": null,
+      "workerPid": 21820,
+      "disableReturnedImmediately": false,
+      "states": [
+        {
+          "state": "stopping",
+          "busy": true,
+          "enabled": false
+        },
+        {
+          "state": "disabled",
+          "busy": false,
+          "enabled": false
+        }
+      ],
+      "terminalState": "disabled",
+      "terminalError": null,
+      "terminalBusy": false,
+      "stopSeconds": 0.25
+    },
+    {
+      "attempt": 2,
+      "ready": true,
+      "initialState": "waiting_game",
+      "initialError": null,
+      "workerPid": 9812,
+      "disableReturnedImmediately": false,
+      "states": [
+        {
+          "state": "stopping",
+          "busy": true,
+          "enabled": false
+        },
+        {
+          "state": "disabled",
+          "busy": false,
+          "enabled": false
+        }
+      ],
+      "terminalState": "disabled",
+      "terminalError": null,
+      "terminalBusy": false,
+      "stopSeconds": 0.203
+    }
+  ]
+}

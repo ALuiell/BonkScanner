@@ -1,0 +1,74 @@
+{
+  "capture": "F:\\Python\\BonkScanner\\.local\\validator-start-trace\\retest-kit\\captures\\session-20261117-050029-7df06b",
+  "warning": "Non-atomic diagnostic snapshots; source-only replay, not release proof",
+  "rows": 3096,
+  "cases": [
+    {
+      "scenario": "P16_ultrashort_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P16_ultrashort_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P16_ultrashort_r3",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P17_reconnect_new_play_r1",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "P17_reconnect_new_play_r2",
+      "oldValidator": 1,
+      "offlineShadow": 0,
+      "newPredicates": 1
+    }
+  ],
+  "confirmed": [
+    {
+      "scenario_id": "P17_reconnect_new_play_r1",
+      "worker_file": "validator-3852-ca8434e19761498fb3606cd895a0726b.jsonl",
+      "generation": 2,
+      "sample_number": 509,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "P16_ultrashort_r1",
+      "worker_file": "validator-3852-ca8434e19761498fb3606cd895a0726b.jsonl",
+      "generation": 2,
+      "sample_number": 1265,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P16_ultrashort_r2",
+      "worker_file": "validator-3852-ca8434e19761498fb3606cd895a0726b.jsonl",
+      "generation": 2,
+      "sample_number": 1592,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P16_ultrashort_r3",
+      "worker_file": "validator-3852-ca8434e19761498fb3606cd895a0726b.jsonl",
+      "generation": 2,
+      "sample_number": 1874,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "P17_reconnect_new_play_r2",
+      "worker_file": "validator-3852-ca8434e19761498fb3606cd895a0726b.jsonl",
+      "generation": 3,
+      "sample_number": 2683,
+      "attachment": "run_start_known"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+{"event": "trace_start", "perf_counter_ns": 52481863545500, "scenario_id": "L06_ipc_idle_frame_deadline_afk", "scenario_reason": null, "pid": 31336, "sequence": 1}
+{"event": "worker_ipc_idle_gap", "perf_counter_ns": 52481904558800, "scenario_id": "L06_ipc_idle_frame_deadline_afk", "scenario_reason": null, "pid": 31336, "sequence": 2, "waited_ms": 6110.0}

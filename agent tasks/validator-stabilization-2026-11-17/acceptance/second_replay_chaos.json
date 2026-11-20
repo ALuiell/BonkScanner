@@ -1,0 +1,223 @@
+{
+  "capture": "F:\\Python\\BonkScanner\\.local\\validator-start-trace\\retest-kit\\captures\\session-20261117-052926-ad3d92",
+  "warning": "Non-atomic diagnostic snapshots; source-only replay, not release proof",
+  "rows": 15090,
+  "cases": [
+    {
+      "scenario": "H01",
+      "oldValidator": 4,
+      "offlineShadow": 4,
+      "newPredicates": 4
+    },
+    {
+      "scenario": "H02",
+      "oldValidator": 1,
+      "offlineShadow": 1,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "H03",
+      "oldValidator": 1,
+      "offlineShadow": 1,
+      "newPredicates": 1
+    },
+    {
+      "scenario": "H04",
+      "oldValidator": 2,
+      "offlineShadow": 2,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "H05",
+      "oldValidator": 4,
+      "offlineShadow": 4,
+      "newPredicates": 4
+    },
+    {
+      "scenario": "H06",
+      "oldValidator": 2,
+      "offlineShadow": 2,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "H07",
+      "oldValidator": 2,
+      "offlineShadow": 3,
+      "newPredicates": 3
+    },
+    {
+      "scenario": "H08",
+      "oldValidator": 2,
+      "offlineShadow": 2,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "H09",
+      "oldValidator": 2,
+      "offlineShadow": 2,
+      "newPredicates": 2
+    },
+    {
+      "scenario": "H10",
+      "oldValidator": 1,
+      "offlineShadow": 1,
+      "newPredicates": 1
+    }
+  ],
+  "confirmed": [
+    {
+      "scenario_id": "H01",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 754,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H01",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 1512,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H01",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 1762,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "H01",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 1838,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H02",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 3472,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "H03",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 4030,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "H04",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 4478,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H04",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 4843,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H05",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 5313,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "H06",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 6727,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "H06",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 8031,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H05",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 8311,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "H05",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 10177,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H05",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 10192,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H07",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 10449,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H07",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 10572,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H07",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 10583,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "H08",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 10901,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "H08",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 10943,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H09",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 11661,
+      "attachment": "run_start_unknown"
+    },
+    {
+      "scenario_id": "H09",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 1,
+      "sample_number": 11971,
+      "attachment": "run_start_known"
+    },
+    {
+      "scenario_id": "H10",
+      "worker_file": "validator-22684-ee04436c99e3467eb23ada1d76b6ddec.jsonl",
+      "generation": 2,
+      "sample_number": 14562,
+      "attachment": "run_start_known"
+    }
+  ]
+}

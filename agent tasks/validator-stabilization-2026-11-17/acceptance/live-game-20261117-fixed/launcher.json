@@ -1,0 +1,8 @@
+﻿{
+    "launcherPid":  33420,
+    "executable":  "F:\\Python\\BonkScanner\\scratch\\validator-livefix-dist\\BonkScanner_Validator_LiveFix.exe",
+    "sha256":  "D521431468B2F944C2D8C0206E717E896D3BE97D75C2A977764F6005190FE991",
+    "sizeBytes":  58226696,
+    "startedAt":  "2026-11-17T12:37:01.2003093+02:00",
+    "scenario":  "L02_afk_livefix_and_restarts"
+}

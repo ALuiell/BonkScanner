@@ -1,0 +1,12 @@
+{"t": 0.0, "event": "new", "pid": 34708, "parentPid": 30072, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393884208126480}
+{"t": 0.0, "event": "new", "pid": 31876, "parentPid": 34708, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393884225733163}
+{"t": 0.0, "event": "new", "pid": 29132, "parentPid": 31876, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393884844669368}
+{"t": 0.0, "event": "new", "pid": 26332, "parentPid": 29132, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393884867751182}
+{"t": 0.0, "event": "new", "pid": 34752, "parentPid": 26332, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393884884923443}
+{"t": 0.0, "event": "new", "pid": 19532, "parentPid": 34752, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393885008743430}
+{"t": 1.656, "event": "exited", "pid": 26332, "parentPid": 29132, "createdFiletime": 134393884867751182, "exitCode": 0, "lifeSeconds": 1.656}
+{"t": 1.656, "event": "exited", "pid": 19532, "parentPid": 34752, "createdFiletime": 134393885008743430, "exitCode": 0, "lifeSeconds": 1.656}
+{"t": 2.015, "event": "exited", "pid": 29132, "parentPid": 31876, "createdFiletime": 134393884844669368, "exitCode": 0, "lifeSeconds": 2.015}
+{"t": 2.093, "event": "exited", "pid": 34752, "parentPid": 26332, "createdFiletime": 134393884884923443, "exitCode": 0, "lifeSeconds": 2.093}
+{"t": 600.0, "event": "final", "pid": 34708, "parentPid": 30072, "exitCode": 259}
+{"t": 600.0, "event": "final", "pid": 31876, "parentPid": 34708, "exitCode": 259}

@@ -1,0 +1,20 @@
+{
+  "scope": "native packaged recovery bootstrap on existing paused MegaBonk, read-only game + owned audit SACL",
+  "helperPid": 33032,
+  "gamePid": 29100,
+  "startupSeconds": 2.64,
+  "firstReply": "",
+  "startupReadError": {
+    "name": "error",
+    "winerror": 109,
+    "message": "(109, 'PeekNamedPipe', 'The pipe has been ended.')"
+  },
+  "childExitAtFirstReply": 4,
+  "status": "FAILED_NO_ARMED_REPLY",
+  "exitCode": 4,
+  "policyBefore": 1,
+  "policyAfter": 1,
+  "saclBeforeSha256": "475c95d1bad7987e89cc0c8310478c7acf6836ee3092924b988edca43fa13745",
+  "saclAfterSha256": "475c95d1bad7987e89cc0c8310478c7acf6836ee3092924b988edca43fa13745",
+  "restored": true
+}

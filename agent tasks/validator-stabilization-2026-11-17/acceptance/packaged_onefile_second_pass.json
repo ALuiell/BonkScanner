@@ -1,0 +1,29 @@
+{
+  "result": "PASS",
+  "scope": "isolated PyInstaller Windows x64 onefile archive, no game, no GUI, no elevation of packaged process",
+  "executable": "F:\\Python\\BonkScanner\\scratch\\validator-second-pass-dist\\BonkScanner_Validator_SecondPass.exe",
+  "sizeBytes": 58228938,
+  "sha256": "0a2ac96ea544db182d5d2392572f3bd658d9c5a9f5a62599644f0da4dc6aae3c",
+  "importedValidatorSource": "F:\\Python\\BonkScanner_validator\\src\\bonkscanner_validator",
+  "packagedModules": {
+    "bonkscanner_validator.audit_recovery": true,
+    "bonkscanner_validator.controller": true,
+    "bonkscanner_validator.engine": true,
+    "bonkscanner_validator.security_audit": true,
+    "bonkscanner_validator.worker": true,
+    "bonkscanner_validator.protocol": true
+  },
+  "workerUnelevatedExit": 3,
+  "workerExpectedExit": 3,
+  "recoveryInvalidParentExit": 4,
+  "recoveryExpectedExit": 4,
+  "sourceHashes": {
+    "engine.py": "87f454f6234dba9739b64ef13a78570ef3912fb0c71fc78ec35a92d9e3d834e1",
+    "security_audit.py": "6893bb90fa489b671d56afc82600cc1ae0b1eca7741c25ca1e65b1b63ed9d2b3",
+    "controller.py": "93befea85aef334ea5bd60db0218efe6701de8bdf3c2528e15fc2a70e5c905dd",
+    "protocol.py": "a667c9dc9a0021c0eb0b78843980837ebd18519dad3c9193961f2a386c79a2f2",
+    "worker.py": "49d497bfef5afbdf4f180af326cc1f3d5c507c22162ce5e4d15d79e0da630cc1",
+    "audit_recovery.py": "6d193273c12beac616f596f1ab1100aea3f4dae95530a03c6f4f28a1cb1f0e49"
+  },
+  "limitations": "New onefile build has not been launched as a normal GUI with real MegaBonk, nor UAC worker from that packaged GUI; not registered for release or deployed."
+}

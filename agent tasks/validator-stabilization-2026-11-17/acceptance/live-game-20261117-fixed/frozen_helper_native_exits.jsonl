@@ -1,0 +1,20 @@
+{"t": 0.0, "event": "new", "pid": 33420, "parentPid": 34556, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393854209694288}
+{"t": 0.0, "event": "new", "pid": 25000, "parentPid": 33420, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393854221237207}
+{"t": 0.0, "event": "new", "pid": 17572, "parentPid": 25000, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393855872971306}
+{"t": 0.0, "event": "new", "pid": 24212, "parentPid": 17572, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393855891310316}
+{"t": 10.875, "event": "exited", "pid": 24212, "parentPid": 17572, "createdFiletime": 134393855891310316, "exitCode": 0, "lifeSeconds": 10.875}
+{"t": 11.125, "event": "exited", "pid": 25000, "parentPid": 33420, "createdFiletime": 134393854221237207, "exitCode": 0, "lifeSeconds": 11.125}
+{"t": 11.266, "event": "exited", "pid": 17572, "parentPid": 25000, "createdFiletime": 134393855872971306, "exitCode": 0, "lifeSeconds": 11.266}
+{"t": 11.5, "event": "exited", "pid": 33420, "parentPid": 34556, "createdFiletime": 134393854209694288, "exitCode": 0, "lifeSeconds": 11.5}
+{"t": 22.344, "event": "new", "pid": 29008, "parentPid": 28000, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393863967840968}
+{"t": 23.453, "event": "new", "pid": 1124, "parentPid": 29008, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393863978719815}
+{"t": 60.469, "event": "new", "pid": 33544, "parentPid": 1124, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393864348914213}
+{"t": 62.141, "event": "new", "pid": 33752, "parentPid": 33544, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393864365662154}
+{"t": 64.594, "event": "new", "pid": 29072, "parentPid": 33752, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393864389890948}
+{"t": 66.312, "event": "new", "pid": 32216, "parentPid": 29072, "name": "BonkScanner_Validator_LiveFix.exe", "createdFiletime": 134393864406929965}
+{"t": 75.0, "event": "final", "pid": 29008, "parentPid": 28000, "exitCode": 259}
+{"t": 75.0, "event": "final", "pid": 1124, "parentPid": 29008, "exitCode": 259}
+{"t": 75.0, "event": "final", "pid": 33544, "parentPid": 1124, "exitCode": 259}
+{"t": 75.0, "event": "final", "pid": 33752, "parentPid": 33544, "exitCode": 259}
+{"t": 75.0, "event": "final", "pid": 29072, "parentPid": 33752, "exitCode": 259}
+{"t": 75.0, "event": "final", "pid": 32216, "parentPid": 29072, "exitCode": 259}
