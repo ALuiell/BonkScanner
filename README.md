@@ -296,6 +296,12 @@ python src/main.py
 
 ## Development
 
+Start coordinated work at the [Development Board](https://github.com/ALuiell/bonkscanner-docs/tree/main/work)
+in the documentation repository (`docs/work/README.md` in a local docs
+checkout). Open the assigned task record and follow the
+[task workflow](https://github.com/ALuiell/bonkscanner-docs/blob/main/work/WORKFLOW.md)
+for scope, evidence, and closeout.
+
 For work on the `live-validator` branch, start with the
 [Live Validator status and repository map](https://github.com/ALuiell/bonkscanner-docs/tree/main/validator).
 
